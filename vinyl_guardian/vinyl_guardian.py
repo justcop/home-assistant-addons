@@ -95,9 +95,9 @@ if not ACOUSTID_API_KEY or not MQTT_BROKER:
     
 
 # --- MQTT SETUP & AUTO-DISCOVERY ---
-def on_connect(client, userdata, flags, rc):
+def on_connect(client, userdata, flags, reason_code, properties):
     print("Connected to MQTT Broker. Publishing Auto-Discovery configs...")
-    
+      
     device_config = {
         "identifiers": ["vinyl_guardian_01"],
         "name": "Vinyl Guardian",
@@ -127,7 +127,7 @@ def on_connect(client, userdata, flags, rc):
     client.publish("homeassistant/binary_sensor/vinyl_guardian/playing/config", json.dumps(binary_config), retain=True)
     client.publish("homeassistant/sensor/vinyl_guardian/track/config", json.dumps(track_config), retain=True)
 
-mqtt_client = mqtt.Client("VinylGuardian")
+mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, "VinylGuardian")
 if MQTT_USER and MQTT_PASSWORD:
     mqtt_client.username_pw_set(MQTT_USER, MQTT_PASSWORD)
 mqtt_client.on_connect = on_connect
