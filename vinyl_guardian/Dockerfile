@@ -16,6 +16,7 @@ RUN pip install --no-cache-dir pyacoustid sounddevice numpy paho-mqtt
 
 COPY run.sh /usr/src/app/run.sh
 COPY vinyl_guardian.py /usr/src/app/vinyl_guardian.py
+COPY config.yaml /usr/src/app/
 
 RUN chmod a+x /usr/src/app/run.sh
 
