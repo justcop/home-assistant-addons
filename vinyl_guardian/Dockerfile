@@ -3,10 +3,11 @@ FROM python:3.11-slim-bullseye
 WORKDIR /usr/src/app
 
 # Install system dependencies required for audio processing
+# Changed chromaprint-fpcalc to libchromaprint-tools for Debian compatibility
 RUN apt-get update && apt-get install -y \
     libportaudio2 \
     alsa-utils \
-    chromaprint-fpcalc \
+    libchromaprint-tools \
     && rm -rf /var/lib/apt/lists/*
 
 # Install required Python packages
