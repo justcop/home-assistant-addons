@@ -2,9 +2,11 @@
 echo "Starting Vinyl Guardian Audio Service..."
 
 # --- ALSA CONFIGURATION OVERRIDE ---
-# This stops libportaudio from crashing when it looks for PulseAudio
+# HA OS makes /etc read-only, so we write to the writable /data folder
 echo "Writing custom ALSA hardware config for Card 1..."
-cat << 'EOF' > /etc/asound.conf
+export ALSA_CONFIG_PATH="/data/asound.conf"
+
+cat << 'EOF' > /data/asound.conf
 pcm.!default {
     type hw
     card 1
