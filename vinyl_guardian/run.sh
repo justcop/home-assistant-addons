@@ -81,4 +81,4 @@ else
 fi
 
 echo "Launching Python application..."
-exec python3 /usr/src/app/vinyl_guardian.py
+exec python3 -u /usr/src/app/vinyl_guardian.py
