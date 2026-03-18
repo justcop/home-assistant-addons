@@ -1,8 +1,19 @@
 #!/bin/sh
-echo "Starting Vinyl Guardian Audio Service..."
+
+# Dynamically pull the version number from config.yaml
+if [ -f "/usr/src/app/config.yaml" ]; then
+    VERSION=$(grep "^version:" /usr/src/app/config.yaml | sed 's/version: //g' | tr -d '"' | tr -d "'")
+else
+    VERSION="Unknown"
+fi
+
+echo ""
+echo "========================================================"
+echo "🔄 BOOTING VINYL GUARDIAN v${VERSION} 🔄"
+echo "========================================================"
+echo ""
 
 # --- THE BRUTE-FORCE VOLUME HACK ---
-# Setting volume to 2% to prevent line-level clipping, and forcing the pins to UNMUTE and CAPTURE
 echo "Targeting Card 1 (Analog Audio) for volume reduction and unmuting..."
 amixer -c 1 sset 'Capture' 2% unmute cap >/dev/null 2>&1 || true
 amixer -c 1 sset 'Mic' 2% unmute cap >/dev/null 2>&1 || true
