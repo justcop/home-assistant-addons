@@ -217,7 +217,6 @@ def _get_single_fingerprint(duration=10):
         print(f"Identification error on single fingerprint: {e}")
 
     return None, 0
-
 def identify_track_with_voting(attempts=3, sample_length=10):
     print(f"Initiating {attempts}-sample voting process...")
     votes = []
@@ -238,10 +237,14 @@ def identify_track_with_voting(attempts=3, sample_length=10):
     vote_counts = collections.Counter(votes)
     winning_track, count = vote_counts.most_common(1)[0]
 
-    print(f"Voting concluded: '{winning_track}' won with {count}/{attempts} votes.")
-    return winning_track, durations[winning_track]
+    # --- STRICT CONSENSUS LOGIC ---
+    # If the highest vote count is 1, but we received multiple different tracks, it's a total tie.
+    if count == 1 and len(vote_counts) > 1:
+        print("Voting failed: No consensus reached. Samples returned different tracks.")
+        return None, 0
 
-print("Vinyl Guardian Online. Listening for needle drop...")
+    print(f"Voting concluded: '{winning_track}' won with {count}/{len(votes)} valid votes.")
+    return winning_track, durations[winning_track]
 
 while True:
     if OFFLINE_QUEUE:
