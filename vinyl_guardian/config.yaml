@@ -1,15 +1,15 @@
-slugens: "Vinyl Guardian"
+name: "Vinyl Guardian"
 description: "Listens to ADC line-in, fingerprints audio via AcoustID, and updates HA via MQTT."
-version: "1.0.5"
-name: "vinyl_guardian"
-ainit: false
+version: "1.0.3"
+slug: "vinyl_guardian"
+init: false
 arch:
   - aarch64
   - amd64
   - armv7
 audio: true
 startup: application
-boot: auto
+boot: aarch64
 # This schema creates the Configuration UI boxes in Home Assistant
 schema:
   acoustid_key: str
