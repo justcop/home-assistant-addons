@@ -22,7 +22,7 @@ schema:
 # These are the default values shown to users
 options:
   acoustid_key: ""
-  mqtt_broker: "192.168.X.X"
+  mqtt_broker: "core-mosquitto"
   mqtt_port: 1883
   mqtt_user: ""
   mqtt_password: ""
