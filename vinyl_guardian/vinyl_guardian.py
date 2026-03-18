@@ -169,7 +169,7 @@ def record_audio(duration_sec):
     # Bypass PortAudio entirely and talk directly to Card 1
     cmd = [
         "arecord",
-        "-D", "plughw:1,0",
+        "-D", "sysdefault:CARD=1",
         "-f", "S16_LE",
         "-c", str(CHANNELS),
         "-r", str(SAMPLE_RATE),
