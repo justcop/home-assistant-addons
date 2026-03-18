@@ -2,7 +2,7 @@ slugens: "Vinyl Guardian"
 description: "Listens to ADC line-in, fingerprints audio via AcoustID, and updates HA via MQTT."
 version: "1.0.5"
 name: "vinyl_guardian"
-init: false
+ainit: false
 arch:
   - aarch64
   - amd64
