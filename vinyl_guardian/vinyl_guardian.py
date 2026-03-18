@@ -1,8 +1,15 @@
+import shutil
+import time
+
+if not shutil.which("fpcalc"):
+    print("FATAL: fpcalc not found. Install chromaprint-tools.")
+    while True:
+        time.sleep(60)
+
 import acoustid
 import sounddevice as sd
 import numpy as np
 import paho.mqtt.client as mqtt
-import time
 import json
 import os
 import collections
