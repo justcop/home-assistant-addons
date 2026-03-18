@@ -1,73 +1,20 @@
 #!/bin/sh
+echo "Starting Vinyl Guardian Audio Service..."
 
-OPTIONS_FILE="/data/options.json"
+# --- THE BRUTE-FORCE VOLUME HACK ---
+echo "Targeting Card 1 (Analog Audio) for volume reduction..."
 
-read_debug_mode() {
-    python3 - <<'PY'
-import json
-from pathlib import Path
+# We fire these directly at Card 1, bypassing the need for /proc/asound index files
+amixer -c 1 sset 'Capture' 2% >/dev/null 2>&1 || true
+amixer -c 1 sset 'Mic' 2% >/dev/null 2>&1 || true
+amixer -c 1 sset 'Internal Mic' 2% >/dev/null 2>&1 || true
+amixer -c 1 sset 'Line' 2% >/dev/null 2>&1 || true
 
-options_path = Path('/data/options.json')
-try:
-    options = json.loads(options_path.read_text())
-except Exception:
-    options = {}
+echo "Volume configuration complete."
+echo "Launching Python application..."
 
-value = options.get('debug_logging', True)
-print('1' if value else '0')
-PY
-}
-
-DEBUG_MODE="$(read_debug_mode 2>/dev/null)"
-if [ -z "$DEBUG_MODE" ]; then
-    DEBUG_MODE="1"
-fi
-
-log_debug() {
-    if [ "$DEBUG_MODE" = "1" ]; then
-        echo "$1"
-    fi
-}
-
-list_cards() {
-    if [ -r /proc/asound/cards ]; then
-        awk '/^[[:space:]]*[0-9]+ \[/{print $1}' /proc/asound/cards
-    fi
-}
-
-show_file_if_present() {
-    label="$1"
-    path="$2"
-    log_debug "$label"
-    if [ -r "$path" ]; then
-        cat "$path" 2>&1 || true
-    else
-        log_debug "  $path is not present."
-    fi
-}
-
-show_options_summary() {
-    python3 - <<'PY'
-import json
-from pathlib import Path
-
-options_path = Path('/data/options.json')
-try:
-    options = json.loads(options_path.read_text())
-except Exception as err:
-    print(f"Unable to read {options_path}: {err}")
-else:
-    summary = {
-        'acoustid_key': 'set' if options.get('acoustid_key') else 'missing',
-        'mqtt_broker': options.get('mqtt_broker', ''),
-        'mqtt_port': options.get('mqtt_port', 1883),
-        'mqtt_user': 'set' if options.get('mqtt_user') else 'missing',
-        'mqtt_password': 'set' if options.get('mqtt_password') else 'missing',
-        'audio_threshold': options.get('audio_threshold', 0.015),
-        'debug_logging': options.get('debug_logging', True),
-    }
-    print(summary)
-PY
+# Launch the core Python script
+exec python3 /usr/src/app/vinyl_guardian.py
 }
 
 show_command_output() {
