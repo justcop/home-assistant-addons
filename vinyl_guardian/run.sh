@@ -2,20 +2,26 @@
 echo "Starting Vinyl Guardian Audio Service..."
 
 # --- HARDWARE DEBUG LOGGING ---
-# Prints the exact names of your Dell Wyse's volume controls to the HA Log
 echo "--- ALSA AUDIO HARDWARE DEBUG ---"
-echo "Available mixer controls on this machine:"
-amixer scontrols || true
+echo "Available Physical Recording Devices:"
+arecord -l || true
+
+echo "Available mixer controls on Card 0:"
+amixer -c 0 scontrols || true
+
+echo "Available mixer controls on Card 1:"
+amixer -c 1 scontrols || true
 echo "---------------------------------------"
 
 # --- THE VOLUME HACK ---
 echo "Configuring audio hardware volume..."
-# Drop the volume of common capture inputs down to 2% to prevent line-level clipping.
-# The '|| true' ensures the container doesn't crash if your specific machine 
-# doesn't use one of these exact names.
-amixer sset 'Capture' 2% || true
-amixer sset 'Mic' 2% || true
-amixer sset 'Internal Mic' 2% || true
+# Loop through card 0 and card 1 to ensure we hit the physical hardware directly, 
+# bypassing the virtual container default.
+for CARD in 0 1; do
+    amixer -c $CARD sset 'Capture' 2% || true
+    amixer -c $CARD sset 'Mic' 2% || true
+    amixer -c $CARD sset 'Internal Mic' 2% || true
+done
 
 echo "Launching Python application..."
 
