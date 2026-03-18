@@ -2,7 +2,7 @@ import shutil
 import time
 
 if not shutil.which("fpcalc"):
-    print("FATAL: fpcalc not found. Install chromaprint-tools.")
+    print("FATAL: fpcalc not found. Install libchromaprint-tools.")
     while True:
         time.sleep(60)
 

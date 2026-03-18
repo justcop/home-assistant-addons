@@ -5,7 +5,7 @@ WORKDIR /usr/src/app
 # Install system dependencies required for audio processing and fingerprinting
 RUN apt-get update && apt-get install -y \
     libportaudio2 \
-    chromaprint-tools \
+    libchromaprint-tools \
     libchromaprint1 \
     alsa-utils \
     libasound2-plugins \
