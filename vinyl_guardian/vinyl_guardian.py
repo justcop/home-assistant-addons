@@ -78,9 +78,21 @@ LAST_TRACK = ""
 STRIKEOUTS = 0
 
 # Ensure essential options exist before starting
+import sys
+
+# Ensure essential options exist before starting
 if not ACOUSTID_API_KEY or not MQTT_BROKER:
-    print("FATAL ERROR: AcoustID Key or MQTT Broker missing from Add-on Configuration!")
-    while True: time.sleep(60) # Pause container so user can read logs
+    print("\n" + "="*60)
+    print("🚨  ACTION REQUIRED: CONFIGURATION MISSING  🚨")
+    print("="*60)
+    print("The Add-on cannot start because it is missing credentials.")
+    print("Please go to the 'Configuration' tab of this Add-on and fill in:")
+    print("  1. Your AcoustID API Key")
+    print("  2. Your MQTT Broker IP Address")
+    print("Once filled out, click 'Save' and restart the Add-on.")
+    print("="*60 + "\n")
+    sys.exit(1) # Gracefully kill the container
+    
 
 # --- MQTT SETUP & AUTO-DISCOVERY ---
 def on_connect(client, userdata, flags, rc):
