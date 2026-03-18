@@ -30,6 +30,43 @@ MQTT_PORT = options.get("mqtt_port", 1883)
 MQTT_USER = options.get("mqtt_user", "")
 MQTT_PASSWORD = options.get("mqtt_password", "")
 THRESHOLD = options.get("audio_threshold", 0.015)
+DEBUG_LOGGING = options.get("debug_logging", True)
+
+
+def debug_log(message):
+    if DEBUG_LOGGING:
+        print(f"[debug] {message}")
+
+def dump_runtime_debug_info():
+    debug_log(f"Options file present: {os.path.exists(OPTIONS_FILE)}")
+    debug_log(
+        "Startup options summary: "
+        f"mqtt_broker={'set' if MQTT_BROKER else 'missing'}, "
+        f"mqtt_port={MQTT_PORT}, "
+        f"mqtt_user={'set' if MQTT_USER else 'missing'}, "
+        f"acoustid_key={'set' if ACOUSTID_API_KEY else 'missing'}, "
+        f"audio_threshold={THRESHOLD}"
+    )
+
+    try:
+        default_devices = sd.default.device
+        debug_log(f"sounddevice default devices: {default_devices}")
+    except Exception as e:
+        debug_log(f"Unable to read sounddevice default devices: {e}")
+
+    try:
+        devices = sd.query_devices()
+        debug_log(f"sounddevice discovered {len(devices)} device(s)")
+        for index, device in enumerate(devices):
+            debug_log(f"Device {index}: {device}")
+    except Exception as e:
+        debug_log(f"Unable to query sounddevice devices: {e}")
+
+    try:
+        hostapis = sd.query_hostapis()
+        debug_log(f"sounddevice host APIs: {hostapis}")
+    except Exception as e:
+        debug_log(f"Unable to query sounddevice host APIs: {e}")
 
 # --- CONFIGURATION ---
 SAMPLE_RATE = 44100
@@ -82,6 +119,8 @@ mqtt_client = mqtt.Client("VinylGuardian")
 if MQTT_USER and MQTT_PASSWORD:
     mqtt_client.username_pw_set(MQTT_USER, MQTT_PASSWORD)
 mqtt_client.on_connect = on_connect
+
+dump_runtime_debug_info()
 
 print("Connecting to MQTT...")
 try:
@@ -195,7 +234,6 @@ def identify_track_with_voting(attempts=3, sample_length=10):
     
     print(f"Voting concluded: '{winning_track}' won with {count}/{attempts} votes.")
     return winning_track, durations[winning_track]
-
 
 print("Vinyl Guardian Online. Listening for needle drop...")
 
