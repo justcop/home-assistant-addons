@@ -102,8 +102,19 @@ def on_connect(client, userdata, flags, reason_code, properties=None):
         "device": device_config
     }
 
+    level_config = {
+        "name": "Vinyl Audio Level",
+        "object_id": "vinyl_audio_level",
+        "unique_id": f"{device_id}_sensor_level",
+        "state_topic": "vinyl_guardian/level/state",
+        "icon": "mdi:waveform",
+        "device": device_config,
+        "state_class": "measurement"
+    }
+
     client.publish("homeassistant/binary_sensor/vinyl_guardian/playing/config", json.dumps(binary_config), retain=True)
     client.publish("homeassistant/sensor/vinyl_guardian/track/config", json.dumps(track_config), retain=True)
+    client.publish("homeassistant/sensor/vinyl_guardian/level/config", json.dumps(level_config), retain=True)
 
 # Using VERSION2 for future-proofing
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, "VinylGuardian")
@@ -128,6 +139,8 @@ def publish_mqtt(sensor_type, state, attributes=None):
             mqtt_client.publish("vinyl_guardian/track/state", state, retain=True)
             if attributes:
                 mqtt_client.publish("vinyl_guardian/track/attributes", json.dumps(attributes), retain=True)
+        elif sensor_type == "level":
+            mqtt_client.publish("vinyl_guardian/level/state", state, retain=False)
         return True
     except Exception as e:
         log(f"MQTT Publish Error: {e}")
@@ -263,6 +276,9 @@ while True:
         process_queue()
 
     rms = get_rms(1.0)
+    
+    # Broadcast the live volume to Home Assistant
+    publish_mqtt("level", f"{rms:.5f}")
 
     # --- TURNTABLE IS ACTIVE ---
     if rms > THRESHOLD:
