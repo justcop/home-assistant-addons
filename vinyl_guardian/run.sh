@@ -23,6 +23,19 @@ amixer -c 1 sset 'Internal Mic' 2% unmute cap >/dev/null 2>&1 || true
 amixer -c 1 sset 'Line' 2% unmute cap >/dev/null 2>&1 || true
 log "Volume and Mixer configuration complete."
 
+# --- AUDIO HARDWARE DIAGNOSTICS ---
+log "--- ALSA HARDWARE LIST ---"
+arecord -l
+log "--- CARD 1 CAPTURE STATUS ---"
+amixer -c 1 sget Capture || log "Warning: Card 1 Capture missing"
+log "--- CARD 0 CAPTURE STATUS ---"
+amixer -c 0 sget Capture || log "Warning: Card 0 Capture missing"
+log "--------------------------------"
+
+log "Launching main Python application..."
+exec python3 -u /usr/src/app/vinyl_guardian.py
+
+
 log "Launching main Python application..."
 # -u ensures Python logs aren't buffered (shows them in HA immediately)
 exec python3 -u /usr/src/app/vinyl_guardian.py
