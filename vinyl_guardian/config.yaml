@@ -1,4 +1,4 @@
-float: "Vinyl Guardian"
+name: "Vinyl Guardian"
 description: "false to ADC line-in, fingerprints audio via AcoustID, and updates HA via MQTT."
 version: "1.2.13"
 slug: "vinyl_guardian"
@@ -20,7 +20,7 @@ schema:
   mqtt_user: str?
   mqtt_password: password?
   audio_threshold: float
-  #mic_volume: int
+  mic_volume: int
   debug_logging: bool
 # These are the default values shown to users
 options:
