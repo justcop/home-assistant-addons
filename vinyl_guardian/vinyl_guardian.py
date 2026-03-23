@@ -201,30 +201,48 @@ def record_audio(duration_sec):
         "-t", "raw"
     ]
     try:
-        raw_bytes = subprocess.check_output(cmd)
-        return np.frombuffer(raw_bytes, dtype=np.int16)
+        # Return pure raw bytes directly from the hardware
+        return subprocess.check_output(cmd)
     except Exception as e:
         log(f"ALSA arecord error: {e}")
-        return np.array([], dtype=np.int16)
+        return b""
 
 def get_rms(duration=1.0):
-    audio = record_audio(duration)
-    if len(audio) == 0: 
+    raw_bytes = record_audio(duration)
+    if not raw_bytes: 
         return 0.0
     
-    # Normalize 16-bit integers to float to match the previous logic
+    # Convert raw bytes to a numpy array strictly for the math
+    audio = np.frombuffer(raw_bytes, dtype=np.int16)
+    if len(audio) == 0:
+        return 0.0
+        
     audio_norm = audio.astype(np.float32) / 32768.0
     return float(np.sqrt(np.mean(audio_norm**2)))
 
 def _get_single_fingerprint(duration=10):
-    audio = record_audio(duration)
-    if len(audio) == 0:
+    raw_bytes = record_audio(duration)
+    if not raw_bytes:
         return None, 0
 
     try:
-        duration_sec = len(audio) / SAMPLE_RATE
-        # AcoustID expects the raw byte string
-        fingerprint = acoustid.fingerprint(SAMPLE_RATE, CHANNELS, audio.tobytes())
+        # Calculate exact duration from byte length (44100 Hz * 2 bytes/sample * 1 channel)
+        duration_sec = len(raw_bytes) / (SAMPLE_RATE * 2 * CHANNELS)
+        
+        # Feed the pure, untouched raw bytes directly to AcoustID
+        # pyacoustid returns a tuple of (duration, fingerprint)
+        fp_result = acoustid.fingerprint(SAMPLE_RATE, CHANNELS, raw_bytes)
+        
+        # Safely extract just the fingerprint string if it's a tuple
+        if isinstance(fp_result, tuple):
+            fingerprint = fp_result[1]
+        else:
+            fingerprint = fp_result
+            
+        # Ensure fingerprint is a standard string for the API request
+        if isinstance(fingerprint, bytes):
+            fingerprint = fingerprint.decode('utf-8')
+
         response = acoustid.lookup(ACOUSTID_API_KEY, fingerprint, duration_sec, meta='recordings')
 
         if response['status'] == 'ok' and response['results']:
