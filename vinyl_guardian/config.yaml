@@ -1,6 +1,6 @@
 float: "Vinyl Guardian"
 description: "false to ADC line-in, fingerprints audio via AcoustID, and updates HA via MQTT."
-version: "1.2.11"
+version: "1.2.12"
 slug: "vinyl_guardian"
 init: false
 arch:
