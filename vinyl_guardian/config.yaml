@@ -20,7 +20,7 @@ schema:
   mqtt_user: str?
   mqtt_password: password?
   audio_threshold: float
-  mic_volume: int(0, 100)
+  mic_volume: int
   debug_logging: bool
 # These are the default values shown to users
 options:
