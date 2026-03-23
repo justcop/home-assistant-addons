@@ -275,7 +275,7 @@ while True:
     if OFFLINE_QUEUE:
         process_queue()
 
-        rms = get_rms(1.0)
+    rms = get_rms(1.0)
     
     # --- RAW HARDWARE DIAGNOSTIC ---
     log(f"DIAGNOSTIC - Raw Hardware RMS: {rms:.5f}")
