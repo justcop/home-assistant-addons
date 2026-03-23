@@ -14,29 +14,19 @@ log "🔄 BOOTING VINYL GUARDIAN v${VERSION} 🔄"
 log "========================================================"
 echo ""
 
-# --- AUDIO HARDWARE ACTIVATION ---
-log "Targeting Card 1 (Analog Audio) for volume reduction and unmuting..."
-# 'unmute' opens the channel, 'cap' sets it to capture/record mode
-amixer -c 1 sset 'Capture' 2% unmute cap >/dev/null 2>&1 || true
-amixer -c 1 sset 'Mic' 2% unmute cap >/dev/null 2>&1 || true
-amixer -c 1 sset 'Internal Mic' 2% unmute cap >/dev/null 2>&1 || true
-amixer -c 1 sset 'Line' 2% unmute cap >/dev/null 2>&1 || true
-log "Volume and Mixer configuration complete."
+log "--- PULSEAUDIO HARDWARE DIAGNOSTIC ---"
+pactl info || log "Warning: Could not get PulseAudio info"
+log "Available Audio Sources:"
+pactl list sources short || log "Warning: Could not list Pulse sources"
+log "--------------------------------------"
 
-# --- AUDIO HARDWARE DIAGNOSTICS ---
-log "--- ALSA HARDWARE LIST ---"
-arecord -l
-log "--- CARD 1 CAPTURE STATUS ---"
-amixer -c 1 sget Capture || log "Warning: Card 1 Capture missing"
-log "--- CARD 0 CAPTURE STATUS ---"
-amixer -c 0 sget Capture || log "Warning: Card 0 Capture missing"
-log "--------------------------------"
+# --- NATIVE AUDIO MIXER CONFIGURATION ---
+log "Unmuting default audio capture source..."
+# @DEFAULT_SOURCE@ automatically targets the active line-in/mic
+pactl set-source-mute @DEFAULT_SOURCE@ 0 >/dev/null 2>&1 || true
 
-log "Launching main Python application..."
+log "Setting capture volume to 2% to prevent Line-Level clipping..."
+pactl set-source-volume @DEFAULT_SOURCE@ 2% >/dev/null 2>&1 || true
+
+log "Audio configuration complete. Launching main Python application..."
 exec python3 -u /usr/src/app/vinyl_guardian.py
-
-
-log "Launching main Python application..."
-# -u ensures Python logs aren't buffered (shows them in HA immediately)
-exec python3 -u /usr/src/app/vinyl_guardian.py
-
