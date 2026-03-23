@@ -7,6 +7,12 @@ log() {
 
 VERSION=$(grep "^version:" config.yaml | sed 's/version: //g' | tr -d '"' | tr -d "'")
 
+# Parse mic volume from Home Assistant options (defaults to 10 if not found)
+MIC_VOLUME=$(grep -o '"mic_volume": *[0-9]*' /data/options.json | grep -o '[0-9]*')
+if [ -z "$MIC_VOLUME" ]; then
+    MIC_VOLUME=10
+fi
+
 echo ""
 log "========================================================"
 log "🔄 BOOTING VINYL GUARDIAN v${VERSION} 🔄"
@@ -20,7 +26,6 @@ pactl list sources short || log "Warning: Could not list Pulse sources"
 log "--------------------------------------"
 
 # --- DYNAMIC MICROPHONE TARGETING ---
-# Find the exact name of the physical input device (ignoring monitor loopbacks)
 MIC_SOURCE=$(pactl list short sources | grep -i "input" | awk '{print $2}' | head -n 1)
 
 if [ -z "$MIC_SOURCE" ]; then
@@ -36,8 +41,8 @@ pactl set-default-source "$MIC_SOURCE"
 log "Unmuting the microphone..."
 pactl set-source-mute "$MIC_SOURCE" 0 >/dev/null 2>&1 || true
 
-log "Setting capture volume to 2% to prevent Line-Level clipping..."
-pactl set-source-volume "$MIC_SOURCE" 2% >/dev/null 2>&1 || true
+log "Applying UI Configuration: Setting capture volume to ${MIC_VOLUME}%..."
+pactl set-source-volume "$MIC_SOURCE" ${MIC_VOLUME}% >/dev/null 2>&1 || true
 
 log "Audio configuration complete. Launching main Python application..."
 exec python3 -u /usr/src/app/vinyl_guardian.py
