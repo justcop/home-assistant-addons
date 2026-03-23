@@ -189,7 +189,6 @@ def process_queue():
 
 # --- DIRECT ALSA AUDIO CAPTURE ---
 def record_audio(duration_sec):
-    # Bypass PortAudio entirely and talk directly to PulseAudio
     cmd = [
         "arecord",
         "-D", "pulse",
@@ -201,37 +200,32 @@ def record_audio(duration_sec):
         "-t", "raw"
     ]
     try:
-        # Return pure raw bytes directly from the hardware
-        return subprocess.check_output(cmd)
+        raw_bytes = subprocess.check_output(cmd)
+        return np.frombuffer(raw_bytes, dtype=np.int16)
     except Exception as e:
         log(f"ALSA arecord error: {e}")
-        return b""
+        return np.array([], dtype=np.int16)
 
 def get_rms(duration=1.0):
-    raw_bytes = record_audio(duration)
-    if not raw_bytes: 
+    audio = record_audio(duration)
+    if len(audio) == 0: 
         return 0.0
     
-    # Convert raw bytes to a numpy array strictly for the math
-    audio = np.frombuffer(raw_bytes, dtype=np.int16)
-    if len(audio) == 0:
-        return 0.0
-        
     audio_norm = audio.astype(np.float32) / 32768.0
     return float(np.sqrt(np.mean(audio_norm**2)))
 
 def _get_single_fingerprint(duration=10):
-    raw_bytes = record_audio(duration)
-    if not raw_bytes:
+    audio = record_audio(duration)
+    if len(audio) == 0:
         return None, 0
 
     try:
-        # Calculate exact duration from byte length (44100 Hz * 2 bytes/sample * 1 channel)
-        duration_sec = len(raw_bytes) / (SAMPLE_RATE * 2 * CHANNELS)
+        duration_sec = len(audio) / SAMPLE_RATE
         
-        # Feed the pure, untouched raw bytes directly to AcoustID
-        # pyacoustid returns a tuple of (duration, fingerprint)
-        fp_result = acoustid.fingerprint(SAMPLE_RATE, CHANNELS, raw_bytes)
+        # THE FIX: Wrap the raw bytes in a list [ ] so pyacoustid interprets it 
+        # as a single chunk of data, rather than trying to iterate over every byte
+        pcm_chunk = audio.tobytes()
+        fp_result = acoustid.fingerprint(SAMPLE_RATE, CHANNELS, [pcm_chunk])
         
         # Safely extract just the fingerprint string if it's a tuple
         if isinstance(fp_result, tuple):
@@ -239,7 +233,6 @@ def _get_single_fingerprint(duration=10):
         else:
             fingerprint = fp_result
             
-        # Ensure fingerprint is a standard string for the API request
         if isinstance(fingerprint, bytes):
             fingerprint = fingerprint.decode('utf-8')
 
