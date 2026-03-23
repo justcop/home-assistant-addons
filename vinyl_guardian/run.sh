@@ -37,7 +37,7 @@ log "Unmuting the microphone..."
 pactl set-source-mute "$MIC_SOURCE" 0 >/dev/null 2>&1 || true
 
 log "Setting capture volume to 2% to prevent Line-Level clipping..."
-pactl set-source-volume "$MIC_SOURCE" 50% >/dev/null 2>&1 || true
+pactl set-source-volume "$MIC_SOURCE" 2% >/dev/null 2>&1 || true
 
 log "Audio configuration complete. Launching main Python application..."
 exec python3 -u /usr/src/app/vinyl_guardian.py
