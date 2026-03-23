@@ -9,8 +9,9 @@ RUN apt-get update && apt-get install -y \
     libchromaprint1 \
     alsa-utils \
     libasound2-plugins \
+    pulseaudio-utils \
     && rm -rf /var/lib/apt/lists/*
-
+    
 # Install required Python packages
 RUN pip install --no-cache-dir pyacoustid sounddevice numpy paho-mqtt
 
