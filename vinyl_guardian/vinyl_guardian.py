@@ -1,7 +1,6 @@
 import sys
 import json
 import time
-import math
 import numpy as np
 import alsaaudio
 import acoustid
@@ -29,7 +28,7 @@ CHANNELS = 1
 RATE = 44100
 FORMAT = alsaaudio.PCM_FORMAT_S16_LE
 CHUNK = 2048
-RECORD_SECONDS = 15 # Increased to 15s to give AcoustID a better chance
+RECORD_SECONDS = 15 
 
 def log(message):
     print(f"[Vinyl Guardian] {message}", flush=True)
@@ -39,7 +38,8 @@ def debug_log(message):
         print(f"[DEBUG] {message}", flush=True)
 
 # --- MQTT SETUP & DISCOVERY ---
-mqtt_client = mqtt.Client()
+# Fixed the deprecation warning by explicitly declaring VERSION2
+mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 
 if MQTT_USER and MQTT_PASS:
     mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
@@ -90,7 +90,6 @@ def calculate_rms(data):
         audio_data = np.frombuffer(data, dtype=np.int16)
         if len(audio_data) == 0:
             return 0
-        # Calculate RMS using numpy to avoid audioop deprecation
         rms = np.sqrt(np.mean(np.square(audio_data.astype(np.float32))))
         return float(rms) / 32768.0
     except:
@@ -99,11 +98,16 @@ def calculate_rms(data):
 def listen_and_identify():
     log("Initializing Audio Device (default)...")
     try:
-        inp = alsaaudio.PCM(alsaaudio.PCM_CAPTURE, alsaaudio.PCM_NORMAL, device='default')
-        inp.setchannels(CHANNELS)
-        inp.setrate(RATE)
-        inp.setformat(FORMAT)
-        inp.setperiodsize(CHUNK)
+        # Fixed the ALSA deprecation warning by passing arguments directly into the constructor
+        inp = alsaaudio.PCM(
+            type=alsaaudio.PCM_CAPTURE, 
+            mode=alsaaudio.PCM_NORMAL, 
+            device='default',
+            channels=CHANNELS,
+            rate=RATE,
+            format=FORMAT,
+            periodsize=CHUNK
+        )
     except Exception as e:
         log(f"🚨 Failed to open ALSA device: {e}")
         sys.exit(1)
@@ -123,12 +127,10 @@ def listen_and_identify():
                 audio_buffer = b''
                 peak_value = 0
                 
-                # Record the full sample block
                 for _ in range(0, int(RATE / CHUNK * RECORD_SECONDS)):
                     l, d = inp.read()
                     if l > 0:
                         audio_buffer += d
-                        # Track the absolute loudest peak for clipping detection
                         chunk_data = np.frombuffer(d, dtype=np.int16)
                         if len(chunk_data) > 0:
                             chunk_peak = int(np.max(np.abs(chunk_data.astype(np.int32))))
@@ -164,7 +166,6 @@ def listen_and_identify():
                 # --- ACOUSTID API LOOKUP ---
                 log("Sending fingerprint to AcoustID API...")
                 try:
-                    # Get raw response for debugging
                     response = acoustid.lookup(API_KEY, fingerprint, duration, meta='recordings releases artists')
                     
                     if DEBUG or ONE_SHOT:
@@ -181,7 +182,7 @@ def listen_and_identify():
                             best_match = results[0]
                             score = best_match.get('score', 0)
                             
-                            if score > 0.4: # Only publish if reasonably confident
+                            if score > 0.4:
                                 try:
                                     recording = best_match['recordings'][0]
                                     title = recording.get('title', 'Unknown Title')
