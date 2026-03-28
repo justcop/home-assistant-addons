@@ -26,9 +26,9 @@ THRESHOLD = config.get("audio_threshold", 0.015)
 DEBUG = config.get("debug_logging", True)
 ONE_SHOT = config.get("debug_one_shot", False)
 
-# Audio Settings - SWITCHED TO STEREO TO FIX ALIGNMENT
+# Audio Settings - SWITCHED TO 48kHz (Native for Dell Wyse/Realtek)
 CHANNELS = 2
-RATE = 44100
+RATE = 48000
 FORMAT = alsaaudio.PCM_FORMAT_S16_LE
 CHUNK = 2048
 RECORD_SECONDS = 15
@@ -100,17 +100,16 @@ def process_audio_background(audio_data_bytes):
     peak_value = int(np.max(np.abs(full_data.astype(np.int32)))) if len(full_data) > 0 else 0
     
     # 2. Mathematical Consistency Check
-    expected_bytes = RATE * CHANNELS * 2 * RECORD_SECONDS
     actual_bytes = len(audio_data_bytes)
     calculated_duration = actual_bytes / (RATE * CHANNELS * 2)
 
     if DEBUG:
         print(f"[DEBUG] --- AUDIO METRICS ---", flush=True)
+        print(f"[DEBUG] Sample Rate: {RATE}Hz")
         print(f"[DEBUG] Raw Byte Size: {actual_bytes}")
         print(f"[DEBUG] Calculated Duration: {calculated_duration:.4f}s")
         print(f"[DEBUG] Sample Peak: {peak_value} / 32767")
         
-        # Save WAV for verification
         try:
             with wave.open("/share/vinyl_debug.wav", "wb") as wf:
                 wf.setnchannels(CHANNELS)
@@ -124,6 +123,7 @@ def process_audio_background(audio_data_bytes):
     # 3. Fingerprinting
     log("Generating Chromaprint Fingerprint...")
     try:
+        # Pass the updated RATE to the fingerprinter
         fingerprint = acoustid.fingerprint(RATE, CHANNELS, [audio_data_bytes])
         
         if DEBUG:
@@ -180,7 +180,6 @@ def calculate_rms(data):
     try:
         audio_data = np.frombuffer(data, dtype=np.int16)
         if len(audio_data) == 0: return 0
-        # For stereo, we take the mean across channels or just treat as a flat array
         rms = np.sqrt(np.mean(np.square(audio_data.astype(np.float32))))
         return float(rms) / 32768.0
     except:
@@ -188,7 +187,7 @@ def calculate_rms(data):
 
 def listen_and_identify():
     global is_processing
-    log(f"Initializing ALSA Audio Device ({CHANNELS} channels)...")
+    log(f"Initializing ALSA Audio Device ({RATE}Hz, {CHANNELS} channels)...")
     try:
         inp = alsaaudio.PCM(
             type=alsaaudio.PCM_CAPTURE, 
@@ -200,7 +199,7 @@ def listen_and_identify():
             periodsize=CHUNK
         )
     except Exception as e:
-        log(f"🚨 Failed to open ALSA device: {e}")
+        log(f"🚨 Failed to open ALSA device at {RATE}Hz: {e}")
         sys.exit(1)
 
     log(f"Listening for needle drop... (Threshold: {THRESHOLD})")
