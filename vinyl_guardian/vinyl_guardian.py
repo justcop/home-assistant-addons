@@ -27,12 +27,12 @@ THRESHOLD = config.get("audio_threshold", 0.015)
 DEBUG = config.get("debug_logging", True)
 ONE_SHOT = config.get("debug_one_shot", False)
 
-# Audio Settings - Reverted to 44100 Stereo (Standard)
+# Audio Settings
 CHANNELS = 2
 RATE = 44100
 FORMAT = alsaaudio.PCM_FORMAT_S16_LE
 CHUNK = 2048
-RECORD_SECONDS = 15
+RECORD_SECONDS = 20 # Increased slightly to give the algorithm more data
 
 # Global State Flags
 is_processing = False
@@ -40,209 +40,163 @@ is_processing = False
 def log(message):
     print(f"[Vinyl Guardian] {message}", flush=True)
 
-# --- MQTT SETUP & DISCOVERY ---
+# --- MQTT SETUP ---
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 if MQTT_USER and MQTT_PASS:
     mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
 
 def connect_mqtt():
     try:
-        log(f"Connecting to MQTT broker at {MQTT_BROKER}:{MQTT_PORT}...")
+        log(f"Connecting to MQTT...")
         mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
         mqtt_client.loop_start()
-        log("✅ MQTT Connected!")
-        publish_discovery()
     except Exception as e:
-        log(f"🚨 MQTT Connection Failed: {e}")
-
-def publish_discovery():
-    # Discovery for Now Playing
-    payload_playing = {
-        "name": "Vinyl Now Playing",
-        "state_topic": "vinyl_guardian/state",
-        "json_attributes_topic": "vinyl_guardian/attributes",
-        "unique_id": "vinyl_guardian_now_playing",
-        "device": {"identifiers": ["vinyl_guardian_01"], "name": "Vinyl Guardian"}
-    }
-    mqtt_client.publish("homeassistant/sensor/vinyl_guardian/now_playing/config", json.dumps(payload_playing), retain=True)
-    mqtt_client.publish("vinyl_guardian/state", "Idle", retain=True)
-
-    # Discovery for Live RMS
-    payload_rms = {
-        "name": "Vinyl Live RMS",
-        "state_topic": "vinyl_guardian/rms",
-        "unique_id": "vinyl_guardian_live_rms",
-        "device": {"identifiers": ["vinyl_guardian_01"], "name": "Vinyl Guardian"}
-    }
-    mqtt_client.publish("homeassistant/sensor/vinyl_guardian/live_rms/config", json.dumps(payload_rms), retain=True)
+        log(f"🚨 MQTT Failed: {e}")
 
 def publish_track(title, artist, album):
-    log(f"🎶 Publishing to HA: {title} by {artist}")
+    log(f"🎶 MATCH FOUND! {title} by {artist}")
     mqtt_client.publish("vinyl_guardian/state", f"{title} - {artist}", retain=True)
-    attributes = {"title": title, "artist": artist, "album": album, "last_updated": time.strftime("%Y-%m-%d %H:%M:%S")}
+    attributes = {
+        "title": title, 
+        "artist": artist, 
+        "album": album, 
+        "last_updated": time.strftime("%H:%M:%S"),
+        "source": "AcoustID"
+    }
     mqtt_client.publish("vinyl_guardian/attributes", json.dumps(attributes), retain=True)
 
-
-# --- BACKGROUND WORKER THREAD ---
+# --- BACKGROUND WORKER ---
 def process_audio_background(audio_data_bytes):
     global is_processing
-    log("Processing 15-second capture...")
+    log("🔬 Analyzing capture...")
     
-    # 1. Physical Signal Health
+    # 1. Trim leading silence (AcoustID is sensitive to leading 'dead air')
     full_data = np.frombuffer(audio_data_bytes, dtype=np.int16)
-    peak_value = int(np.max(np.abs(full_data.astype(np.int32)))) if len(full_data) > 0 else 0
-    actual_bytes = len(audio_data_bytes)
-    calculated_duration = actual_bytes / (RATE * CHANNELS * 2)
+    # Find the first index where volume crosses a tiny threshold
+    abs_data = np.abs(full_data)
+    trigger_point = np.where(abs_data > 500)[0]
+    
+    start_idx = trigger_point[0] if len(trigger_point) > 0 else 0
+    # Ensure we don't trim too much, just enough to start on a beat
+    trimmed_data = full_data[start_idx:]
+    trimmed_bytes = trimmed_data.tobytes()
 
-    # 2. Save temporary WAV for fpcalc to read
-    temp_wav = "/tmp/capture.wav"
+    # 2. Save for local inspection
+    debug_wav = "/share/vinyl_debug.wav"
     try:
-        with wave.open(temp_wav, "wb") as wf:
-            wf.setnchannels(CHANNELS)
-            wf.setsampwidth(2) 
-            wf.setframerate(RATE)
-            wf.writeframes(audio_data_bytes)
-    except Exception as e:
-        log(f"🚨 Failed to write temp wav: {e}")
-        is_processing = False
-        return
+        with wave.open(debug_wav, "wb") as wf:
+            wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(trimmed_bytes)
+    except: pass
 
-    # 3. Call FPCALC directly (The "Gold Standard")
-    log("Generating Fingerprint via fpcalc binary...")
+    # 3. Generate Fingerprint using fpcalc (The most reliable method)
+    wav_path = "/tmp/process.wav"
+    with wave.open(wav_path, "wb") as wf:
+        wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(trimmed_bytes)
+    
     try:
-        # Run fpcalc and get JSON output
-        result = subprocess.run(
-            ['fpcalc', '-json', temp_wav],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        
-        if result.returncode != 0:
-            log(f"🚨 fpcalc failed: {result.stderr}")
+        log("Generating Fingerprint...")
+        result = subprocess.run(['fpcalc', '-json', wav_path], stdout=subprocess.PIPE, text=True)
+        fp_json = json.loads(result.stdout)
+        fp = fp_json.get('fingerprint')
+        dur = fp_json.get('duration')
+
+        if not fp:
+            log("🚨 fpcalc returned no fingerprint.")
             is_processing = False
             return
-            
-        fp_data = json.loads(result.stdout)
-        fingerprint = fp_data.get('fingerprint')
-        duration = fp_data.get('duration')
 
         if DEBUG:
-            print(f"[DEBUG] Fingerprint Length: {len(fingerprint)}")
-            print(f"[DEBUG] fpcalc Duration: {duration}s")
-        
-        # 4. Lookup via API
-        log("Sending fingerprint to AcoustID API...")
-        response = acoustid.lookup(API_KEY, fingerprint, duration, meta='recordings releases artists releasegroups')
+            print(f"[DEBUG] FP Length: {len(fp)} | Duration: {dur}s", flush=True)
+
+        log("Sending to AcoustID API...")
+        # Requesting max metadata for better matching
+        response = acoustid.lookup(API_KEY, fp, dur, meta='recordings releases artists releasegroups tracks compress')
         
         if DEBUG or ONE_SHOT:
-            log("--- RAW API RESPONSE START ---")
+            log("--- API RESPONSE ---")
             print(json.dumps(response, indent=2), flush=True)
-            log("--- RAW API RESPONSE END ---")
-        
-        if response.get('status') == 'ok':
-            results = response.get('results', [])
-            if not results:
-                log("❌ ZERO MATCHES. Even with fpcalc, this track isn't being recognized.")
-                mqtt_client.publish("vinyl_guardian/state", "Unknown Track", retain=True)
+
+        if response.get('status') == 'ok' and response.get('results'):
+            # Filter results by score
+            results = [r for r in response['results'] if r.get('score', 0) > 0.4]
+            if results:
+                # Sort by score descending
+                results.sort(key=lambda x: x.get('score', 0), reverse=True)
+                best = results[0]
+                
+                # Extract metadata carefully
+                rec = best.get('recordings', [{}])[0]
+                title = rec.get('title', 'Unknown Title')
+                artist = "Unknown Artist"
+                if rec.get('artists'):
+                    artist = rec['artists'][0].get('name', 'Unknown Artist')
+                album = "Unknown Album"
+                if rec.get('releasegroups'):
+                    album = rec['releasegroups'][0].get('title', 'Unknown Album')
+                
+                publish_track(title, artist, album)
             else:
-                best_match = results[0]
-                score = best_match.get('score', 0)
-                if score > 0.4:
-                    try:
-                        recording = best_match['recordings'][0]
-                        title = recording.get('title', 'Unknown Title')
-                        artist = recording['artists'][0].get('name', 'Unknown') if 'artists' in recording else 'Unknown'
-                        album = recording.get('releasegroups', [{}])[0].get('title', 'Unknown Album')
-                        log(f"✅ MATCH FOUND! Score: {score}")
-                        publish_track(title, artist, album)
-                    except (KeyError, IndexError):
-                        log("⚠️ Metadata parse failed.")
-                else:
-                    log(f"⚠️ Low confidence (Score: {score}).")
-                    mqtt_client.publish("vinyl_guardian/state", "Unknown Track", retain=True)
+                log("❌ Results found, but scores too low (below 0.4).")
+                mqtt_client.publish("vinyl_guardian/state", "Unknown Track", retain=True)
         else:
-            log(f"❌ API Error: {response.get('error', 'Unknown Error')}")
+            log(f"❌ No match found in AcoustID database (Status: {response.get('status')})")
+            mqtt_client.publish("vinyl_guardian/state", "Unknown Track", retain=True)
 
     except Exception as e:
-        log(f"🚨 Fingerprinting Failed: {e}")
-    finally:
-        if os.path.exists(temp_wav):
-            os.remove(temp_wav)
+        log(f"🚨 API Processing Error: {e}")
+
+    if os.path.exists(wav_path): os.remove(wav_path)
 
     if ONE_SHOT:
         log("🛑 ONE-SHOT COMPLETE.")
-        os._exit(0) 
-    
-    log("Cooldown: Waiting 15 seconds...")
+        os._exit(0)
+
     time.sleep(15)
     mqtt_client.publish("vinyl_guardian/state", "Idle", retain=True)
-    is_processing = False 
+    is_processing = False
 
-# --- MAIN AUDIO LOOP ---
+# --- MAIN LOOP ---
 def calculate_rms(data):
     try:
         audio_data = np.frombuffer(data, dtype=np.int16)
-        if len(audio_data) == 0: return 0
-        rms = np.sqrt(np.mean(np.square(audio_data.astype(np.float32))))
-        return float(rms) / 32768.0
-    except:
-        return 0
+        return float(np.sqrt(np.mean(np.square(audio_data.astype(np.float32))))) / 32768.0
+    except: return 0
 
 def listen_and_identify():
     global is_processing
-    log(f"Initializing ALSA Audio ({RATE}Hz Stereo)...")
     try:
-        inp = alsaaudio.PCM(
-            type=alsaaudio.PCM_CAPTURE, 
-            mode=alsaaudio.PCM_NORMAL, 
-            device='default', 
-            channels=CHANNELS, 
-            rate=RATE, 
-            format=FORMAT, 
-            periodsize=CHUNK
-        )
+        inp = alsaaudio.PCM(alsaaudio.PCM_CAPTURE, alsaaudio.PCM_NORMAL, 'default', CHANNELS, RATE, FORMAT, CHUNK)
     except Exception as e:
-        log(f"🚨 Failed to open ALSA device: {e}")
-        sys.exit(1)
+        log(f"🚨 ALSA Failed: {e}"); sys.exit(1)
 
-    log(f"Listening for needle drop... (Threshold: {THRESHOLD})")
-    
-    last_publish_time = time.time()
+    log(f"Listening for audio (Threshold: {THRESHOLD})...")
+    last_pub = time.time()
     is_recording = False
-    recording_chunks = 0
-    target_chunks = int(RATE / CHUNK * RECORD_SECONDS)
-    audio_buffer = bytearray()
+    chunks = 0
+    target = int(RATE / CHUNK * RECORD_SECONDS)
+    buffer = bytearray()
 
     while True:
         length, data = inp.read()
         if length > 0:
             rms = calculate_rms(data)
-            current_time = time.time()
-            
-            if current_time - last_publish_time >= 1.0:
-                mqtt_client.publish("vinyl_guardian/rms", f"{rms:.4f}") 
-                if DEBUG: 
-                    status = f"🔴 REC ({int((recording_chunks/target_chunks)*100)}%)" if is_recording else "🟢 LISTENING"
-                    print(f"[{time.strftime('%H:%M:%S')}] {status} - RMS: {rms:.4f}", flush=True)
-                last_publish_time = current_time
+            now = time.time()
+            if now - last_pub >= 1.0:
+                mqtt_client.publish("vinyl_guardian/rms", f"{rms:.4f}")
+                if DEBUG:
+                    status = f"🔴 REC {int((chunks/target)*100)}%" if is_recording else "🟢 LIVE"
+                    print(f"[{time.strftime('%H:%M:%S')}] {status} | RMS: {rms:.4f}", flush=True)
+                last_pub = now
 
             if is_recording:
-                audio_buffer.extend(data)
-                recording_chunks += 1
-                if recording_chunks >= target_chunks:
-                    log("✅ Capture complete! Processing...")
+                buffer.extend(data)
+                chunks += 1
+                if chunks >= target:
                     is_recording = False
-                    worker = threading.Thread(target=process_audio_background, args=(bytes(audio_buffer),))
-                    worker.start()
-            
+                    threading.Thread(target=process_audio_background, args=(bytes(buffer),)).start()
             elif rms > THRESHOLD and not is_processing:
-                log(f"🎵 NEEDLE DROP DETECTED! (RMS: {rms:.4f})")
-                mqtt_client.publish("vinyl_guardian/state", "Listening...", retain=True)
-                is_processing = True
-                is_recording = True
-                recording_chunks = 0
-                audio_buffer = bytearray()
+                log(f"🎵 NEEDLE DROP! (RMS: {rms:.4f})")
+                is_processing = True; is_recording = True; chunks = 0; buffer = bytearray()
 
 if __name__ == "__main__":
     connect_mqtt()
