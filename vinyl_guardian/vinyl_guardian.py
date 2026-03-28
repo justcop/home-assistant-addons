@@ -32,7 +32,7 @@ CHANNELS = 2
 RATE = 44100
 FORMAT = alsaaudio.PCM_FORMAT_S16_LE
 CHUNK = 2048
-RECORD_SECONDS = 20 # Increased slightly to give the algorithm more data
+RECORD_SECONDS = 20 
 
 # Global State Flags
 is_processing = False
@@ -60,8 +60,7 @@ def publish_track(title, artist, album):
         "title": title, 
         "artist": artist, 
         "album": album, 
-        "last_updated": time.strftime("%H:%M:%S"),
-        "source": "AcoustID"
+        "last_updated": time.strftime("%H:%M:%S")
     }
     mqtt_client.publish("vinyl_guardian/attributes", json.dumps(attributes), retain=True)
 
@@ -70,83 +69,66 @@ def process_audio_background(audio_data_bytes):
     global is_processing
     log("🔬 Analyzing capture...")
     
-    # 1. Trim leading silence (AcoustID is sensitive to leading 'dead air')
+    # 1. Trim leading silence 
     full_data = np.frombuffer(audio_data_bytes, dtype=np.int16)
-    # Find the first index where volume crosses a tiny threshold
     abs_data = np.abs(full_data)
-    trigger_point = np.where(abs_data > 500)[0]
+    trigger_point = np.where(abs_data > 800)[0] # Threshold for "real" audio
     
     start_idx = trigger_point[0] if len(trigger_point) > 0 else 0
-    # Ensure we don't trim too much, just enough to start on a beat
-    trimmed_data = full_data[start_idx:]
-    trimmed_bytes = trimmed_data.tobytes()
+    trimmed_bytes = full_data[start_idx:].tobytes()
 
     # 2. Save for local inspection
-    debug_wav = "/share/vinyl_debug.wav"
     try:
-        with wave.open(debug_wav, "wb") as wf:
+        with wave.open("/share/vinyl_debug.wav", "wb") as wf:
             wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(trimmed_bytes)
     except: pass
 
-    # 3. Generate Fingerprint using fpcalc (The most reliable method)
+    # 3. Generate Fingerprint using fpcalc
     wav_path = "/tmp/process.wav"
     with wave.open(wav_path, "wb") as wf:
         wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(trimmed_bytes)
     
     try:
-        log("Generating Fingerprint...")
+        log("Generating Fingerprint via fpcalc...")
         result = subprocess.run(['fpcalc', '-json', wav_path], stdout=subprocess.PIPE, text=True)
         fp_json = json.loads(result.stdout)
         fp = fp_json.get('fingerprint')
         dur = fp_json.get('duration')
 
         if not fp:
-            log("🚨 fpcalc returned no fingerprint.")
+            log("🚨 fpcalc failed.")
             is_processing = False
             return
 
-        if DEBUG:
-            print(f"[DEBUG] FP Length: {len(fp)} | Duration: {dur}s", flush=True)
-
         log("Sending to AcoustID API...")
-        # Requesting max metadata for better matching
-        response = acoustid.lookup(API_KEY, fp, dur, meta='recordings releases artists releasegroups tracks compress')
+        # Use precise arguments for the API
+        response = acoustid.lookup(API_KEY, fp, dur, meta=['recordings', 'releases', 'artists', 'releasegroups'])
         
         if DEBUG or ONE_SHOT:
             log("--- API RESPONSE ---")
             print(json.dumps(response, indent=2), flush=True)
 
         if response.get('status') == 'ok' and response.get('results'):
-            # Filter results by score
             results = [r for r in response['results'] if r.get('score', 0) > 0.4]
             if results:
-                # Sort by score descending
                 results.sort(key=lambda x: x.get('score', 0), reverse=True)
                 best = results[0]
-                
-                # Extract metadata carefully
                 rec = best.get('recordings', [{}])[0]
                 title = rec.get('title', 'Unknown Title')
-                artist = "Unknown Artist"
-                if rec.get('artists'):
-                    artist = rec['artists'][0].get('name', 'Unknown Artist')
-                album = "Unknown Album"
-                if rec.get('releasegroups'):
-                    album = rec['releasegroups'][0].get('title', 'Unknown Album')
-                
+                artist = rec.get('artists', [{}])[0].get('name', 'Unknown Artist')
+                album = rec.get('releasegroups', [{}])[0].get('title', 'Unknown Album')
                 publish_track(title, artist, album)
             else:
-                log("❌ Results found, but scores too low (below 0.4).")
+                log("❌ Low match score.")
                 mqtt_client.publish("vinyl_guardian/state", "Unknown Track", retain=True)
         else:
-            log(f"❌ No match found in AcoustID database (Status: {response.get('status')})")
+            log(f"❌ No match found (Status: {response.get('status')})")
             mqtt_client.publish("vinyl_guardian/state", "Unknown Track", retain=True)
 
     except Exception as e:
         log(f"🚨 API Processing Error: {e}")
 
     if os.path.exists(wav_path): os.remove(wav_path)
-
     if ONE_SHOT:
         log("🛑 ONE-SHOT COMPLETE.")
         os._exit(0)
@@ -165,11 +147,20 @@ def calculate_rms(data):
 def listen_and_identify():
     global is_processing
     try:
-        inp = alsaaudio.PCM(alsaaudio.PCM_CAPTURE, alsaaudio.PCM_NORMAL, 'default', CHANNELS, RATE, FORMAT, CHUNK)
+        # Fixed positional arguments: device name MUST come first
+        inp = alsaaudio.PCM(
+            type=alsaaudio.PCM_CAPTURE,
+            mode=alsaaudio.PCM_NORMAL,
+            device='default',
+            channels=CHANNELS,
+            rate=RATE,
+            format=FORMAT,
+            periodsize=CHUNK
+        )
     except Exception as e:
-        log(f"🚨 ALSA Failed: {e}"); sys.exit(1)
+        log(f"🚨 ALSA Initialization Failed: {e}"); sys.exit(1)
 
-    log(f"Listening for audio (Threshold: {THRESHOLD})...")
+    log(f"Listening (Threshold: {THRESHOLD})...")
     last_pub = time.time()
     is_recording = False
     chunks = 0
@@ -195,7 +186,7 @@ def listen_and_identify():
                     is_recording = False
                     threading.Thread(target=process_audio_background, args=(bytes(buffer),)).start()
             elif rms > THRESHOLD and not is_processing:
-                log(f"🎵 NEEDLE DROP! (RMS: {rms:.4f})")
+                log(f"🎵 TRIGGERED (RMS: {rms:.4f})")
                 is_processing = True; is_recording = True; chunks = 0; buffer = bytearray()
 
 if __name__ == "__main__":
