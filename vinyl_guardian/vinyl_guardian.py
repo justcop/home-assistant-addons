@@ -26,8 +26,8 @@ THRESHOLD = config.get("audio_threshold", 0.015)
 DEBUG = config.get("debug_logging", True)
 ONE_SHOT = config.get("debug_one_shot", False)
 
-# Audio Settings - IMPORTANT: If Mono fails, we may need to try CHANNELS = 2
-CHANNELS = 1
+# Audio Settings - SWITCHED TO STEREO TO FIX ALIGNMENT
+CHANNELS = 2
 RATE = 44100
 FORMAT = alsaaudio.PCM_FORMAT_S16_LE
 CHUNK = 2048
@@ -106,9 +106,9 @@ def process_audio_background(audio_data_bytes):
 
     if DEBUG:
         print(f"[DEBUG] --- AUDIO METRICS ---", flush=True)
-        print(f"[DEBUG] Raw Byte Size: {actual_bytes} (Expected: ~{expected_bytes})", flush=True)
-        print(f"[DEBUG] Calculated Duration: {calculated_duration:.4f}s", flush=True)
-        print(f"[DEBUG] Sample Peak: {peak_value} / 32767", flush=True)
+        print(f"[DEBUG] Raw Byte Size: {actual_bytes}")
+        print(f"[DEBUG] Calculated Duration: {calculated_duration:.4f}s")
+        print(f"[DEBUG] Sample Peak: {peak_value} / 32767")
         
         # Save WAV for verification
         try:
@@ -117,23 +117,20 @@ def process_audio_background(audio_data_bytes):
                 wf.setsampwidth(2) 
                 wf.setframerate(RATE)
                 wf.writeframes(audio_data_bytes)
-            print(f"[DEBUG] Verification WAV saved to /share/vinyl_debug.wav", flush=True)
+            print(f"[DEBUG] Verification WAV saved to /share/vinyl_debug.wav")
         except:
             pass
 
-    # 3. Fingerprinting with Extended Debug
+    # 3. Fingerprinting
     log("Generating Chromaprint Fingerprint...")
     try:
-        # We wrap in a list to satisfy the library's requirement for an iterable
         fingerprint = acoustid.fingerprint(RATE, CHANNELS, [audio_data_bytes])
         
         if DEBUG:
             fp_str = fingerprint.decode('utf-8') if isinstance(fingerprint, bytes) else str(fingerprint)
-            print(f"[DEBUG] Fingerprint Generated! Length: {len(fp_str)}", flush=True)
-            print(f"[DEBUG] Fingerprint Start: {fp_str[:100]}...", flush=True)
+            print(f"[DEBUG] Fingerprint Length: {len(fp_str)}")
         
         log("Sending to AcoustID API...")
-        # Use the precisely calculated duration
         response = acoustid.lookup(API_KEY, fingerprint, calculated_duration, meta='recordings releases artists')
         
         if DEBUG or ONE_SHOT:
@@ -144,8 +141,7 @@ def process_audio_background(audio_data_bytes):
         if response.get('status') == 'ok':
             results = response.get('results', [])
             if not results:
-                log("❌ ZERO MATCHES. The fingerprint was valid but found no match in the database.")
-                log("💡 TIP: If this is a popular song, try changing CHANNELS = 2 in the script.")
+                log("❌ ZERO MATCHES. Fingerprint did not match database.")
                 mqtt_client.publish("vinyl_guardian/state", "Unknown Track", retain=True)
             else:
                 best_match = results[0]
@@ -168,8 +164,6 @@ def process_audio_background(audio_data_bytes):
 
     except Exception as e:
         log(f"🚨 Fingerprinting Failed: {e}")
-        import traceback
-        traceback.print_exc()
         mqtt_client.publish("vinyl_guardian/state", "Error", retain=True)
 
     if ONE_SHOT:
@@ -186,6 +180,7 @@ def calculate_rms(data):
     try:
         audio_data = np.frombuffer(data, dtype=np.int16)
         if len(audio_data) == 0: return 0
+        # For stereo, we take the mean across channels or just treat as a flat array
         rms = np.sqrt(np.mean(np.square(audio_data.astype(np.float32))))
         return float(rms) / 32768.0
     except:
@@ -193,9 +188,8 @@ def calculate_rms(data):
 
 def listen_and_identify():
     global is_processing
-    log("Initializing ALSA Audio Device...")
+    log(f"Initializing ALSA Audio Device ({CHANNELS} channels)...")
     try:
-        # Default device on Wyse is usually stereo, we try to force mono here
         inp = alsaaudio.PCM(
             type=alsaaudio.PCM_CAPTURE, 
             mode=alsaaudio.PCM_NORMAL, 
