@@ -1,22 +1,23 @@
 ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base-python:3.11-alpine3.18
-# Use the correct architecture base image if not AMD64, but HA usually handles this via build.yaml
 FROM $BUILD_FROM
 
-ENV LANG C.UTF-8
+ENV LANG=C.UTF-8
 
-# Install required system packages, including gcc to compile pyalsaaudio
-RUN apt-get update && apt-get install -y \
+# Install Alpine system packages (apk instead of apt-get)
+# Includes gcc, musl, and alsa headers to compile pyalsaaudio
+# chromaprint provides the fpcalc binary needed by AcoustID
+RUN apk add --no-cache \
     gcc \
+    musl-dev \
     python3-dev \
-    libportaudio2 \
+    alsa-lib-dev \
     alsa-utils \
-    libasound2-plugins \
-    libasound2-dev \
-    libchromaprint-tools \
-    && rm -rf /var/lib/apt/lists/*
+    alsa-plugins \
+    alsa-plugins-pulse \
+    chromaprint
 
-# Install required Python packages
-RUN pip install --no-cache-dir pyacoustid sounddevice numpy paho-mqtt pyalsaaudio
+# Install required Python packages (sounddevice removed)
+RUN pip install --no-cache-dir pyacoustid numpy paho-mqtt pyalsaaudio
 
 WORKDIR /usr/src/app
 
