@@ -1,6 +1,6 @@
 name: "Vinyl Guardian"
 description: "Listens to ADC line-in, fingerprints audio via AcoustID, and updates HA via MQTT."
-version: "1.3.4"
+version: "1.3.5"
 slug: "vinyl_guardian"
 init: false
 arch:
