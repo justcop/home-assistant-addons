@@ -2,7 +2,7 @@ import sys
 import json
 import time
 import math
-import audioop
+import numpy as np
 import alsaaudio
 import acoustid
 import paho.mqtt.client as mqtt
@@ -87,8 +87,12 @@ def publish_track(title, artist, album):
 # --- AUDIO PROCESSING ---
 def calculate_rms(data):
     try:
-        rms = audioop.rms(data, 2)
-        return rms / 32768.0
+        audio_data = np.frombuffer(data, dtype=np.int16)
+        if len(audio_data) == 0:
+            return 0
+        # Calculate RMS using numpy to avoid audioop deprecation
+        rms = np.sqrt(np.mean(np.square(audio_data.astype(np.float32))))
+        return float(rms) / 32768.0
     except:
         return 0
 
@@ -125,9 +129,11 @@ def listen_and_identify():
                     if l > 0:
                         audio_buffer += d
                         # Track the absolute loudest peak for clipping detection
-                        chunk_peak = audioop.max(d, 2)
-                        if chunk_peak > peak_value:
-                            peak_value = chunk_peak
+                        chunk_data = np.frombuffer(d, dtype=np.int16)
+                        if len(chunk_data) > 0:
+                            chunk_peak = int(np.max(np.abs(chunk_data.astype(np.int32))))
+                            if chunk_peak > peak_value:
+                                peak_value = chunk_peak
 
                 log("Recording complete. Analyzing audio health...")
                 
