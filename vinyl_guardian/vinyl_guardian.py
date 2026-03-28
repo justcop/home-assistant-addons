@@ -72,7 +72,7 @@ def process_audio_background(audio_data_bytes):
     # 1. Trim leading silence 
     full_data = np.frombuffer(audio_data_bytes, dtype=np.int16)
     abs_data = np.abs(full_data)
-    trigger_point = np.where(abs_data > 800)[0] # Threshold for "real" audio
+    trigger_point = np.where(abs_data > 800)[0] 
     
     start_idx = trigger_point[0] if len(trigger_point) > 0 else 0
     trimmed_bytes = full_data[start_idx:].tobytes()
@@ -100,14 +100,22 @@ def process_audio_background(audio_data_bytes):
             is_processing = False
             return
 
+        # --- EXPORT FINGERPRINT TO FILE ---
+        try:
+            with open("/share/vinyl_fingerprint.txt", "w") as f:
+                f.write(fp)
+            log("💾 Fingerprint exported to /share/vinyl_fingerprint.txt")
+        except Exception as e:
+            log(f"⚠️ Failed to export fingerprint file: {e}")
+
+        # --- CONSTRUCT BROWSER-READY URL ---
+        browser_url = f"https://api.acoustid.org/v2/lookup?client={API_KEY}&duration={int(dur)}&fingerprint={fp}&meta=recordings+releases+artists+releasegroups"
+        log("🔗 MANUAL API URL (Copy and paste into browser):")
+        print(f"\n{browser_url}\n", flush=True)
+
         log("Sending to AcoustID API...")
-        # Use precise arguments for the API
         response = acoustid.lookup(API_KEY, fp, dur, meta=['recordings', 'releases', 'artists', 'releasegroups'])
         
-        if DEBUG or ONE_SHOT:
-            log("--- API RESPONSE ---")
-            print(json.dumps(response, indent=2), flush=True)
-
         if response.get('status') == 'ok' and response.get('results'):
             results = [r for r in response['results'] if r.get('score', 0) > 0.4]
             if results:
@@ -119,7 +127,7 @@ def process_audio_background(audio_data_bytes):
                 album = rec.get('releasegroups', [{}])[0].get('title', 'Unknown Album')
                 publish_track(title, artist, album)
             else:
-                log("❌ Low match score.")
+                log(f"❌ Low match score (Top score: {response['results'][0].get('score', 0)})")
                 mqtt_client.publish("vinyl_guardian/state", "Unknown Track", retain=True)
         else:
             log(f"❌ No match found (Status: {response.get('status')})")
@@ -147,7 +155,6 @@ def calculate_rms(data):
 def listen_and_identify():
     global is_processing
     try:
-        # Fixed positional arguments: device name MUST come first
         inp = alsaaudio.PCM(
             type=alsaaudio.PCM_CAPTURE,
             mode=alsaaudio.PCM_NORMAL,
