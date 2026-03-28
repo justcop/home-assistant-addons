@@ -4,6 +4,7 @@ import json
 import time
 import threading
 import wave
+import subprocess
 import numpy as np
 import alsaaudio
 import acoustid
@@ -26,9 +27,9 @@ THRESHOLD = config.get("audio_threshold", 0.015)
 DEBUG = config.get("debug_logging", True)
 ONE_SHOT = config.get("debug_one_shot", False)
 
-# Audio Settings - SWITCHED TO 48kHz (Native for Dell Wyse/Realtek)
+# Audio Settings - Reverted to 44100 Stereo (Standard)
 CHANNELS = 2
-RATE = 48000
+RATE = 44100
 FORMAT = alsaaudio.PCM_FORMAT_S16_LE
 CHUNK = 2048
 RECORD_SECONDS = 15
@@ -41,7 +42,6 @@ def log(message):
 
 # --- MQTT SETUP & DISCOVERY ---
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-
 if MQTT_USER and MQTT_PASS:
     mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
 
@@ -56,33 +56,25 @@ def connect_mqtt():
         log(f"🚨 MQTT Connection Failed: {e}")
 
 def publish_discovery():
+    # Discovery for Now Playing
     payload_playing = {
         "name": "Vinyl Now Playing",
         "state_topic": "vinyl_guardian/state",
         "json_attributes_topic": "vinyl_guardian/attributes",
-        "icon": "mdi:record-player",
         "unique_id": "vinyl_guardian_now_playing",
-        "device": {
-            "identifiers": ["vinyl_guardian_01"],
-            "name": "Vinyl Guardian",
-            "manufacturer": "Custom Add-on"
-        }
+        "device": {"identifiers": ["vinyl_guardian_01"], "name": "Vinyl Guardian"}
     }
     mqtt_client.publish("homeassistant/sensor/vinyl_guardian/now_playing/config", json.dumps(payload_playing), retain=True)
     mqtt_client.publish("vinyl_guardian/state", "Idle", retain=True)
 
+    # Discovery for Live RMS
     payload_rms = {
         "name": "Vinyl Live RMS",
         "state_topic": "vinyl_guardian/rms",
-        "icon": "mdi:waveform",
         "unique_id": "vinyl_guardian_live_rms",
-        "device": {
-            "identifiers": ["vinyl_guardian_01"],
-            "name": "Vinyl Guardian"
-        }
+        "device": {"identifiers": ["vinyl_guardian_01"], "name": "Vinyl Guardian"}
     }
     mqtt_client.publish("homeassistant/sensor/vinyl_guardian/live_rms/config", json.dumps(payload_rms), retain=True)
-    mqtt_client.publish("vinyl_guardian/rms", "0.0000", retain=True)
 
 def publish_track(title, artist, album):
     log(f"🎶 Publishing to HA: {title} by {artist}")
@@ -90,48 +82,58 @@ def publish_track(title, artist, album):
     attributes = {"title": title, "artist": artist, "album": album, "last_updated": time.strftime("%Y-%m-%d %H:%M:%S")}
     mqtt_client.publish("vinyl_guardian/attributes", json.dumps(attributes), retain=True)
 
+
 # --- BACKGROUND WORKER THREAD ---
 def process_audio_background(audio_data_bytes):
     global is_processing
-    log("Deep Analysis: Processing 15-second capture...")
+    log("Processing 15-second capture...")
     
     # 1. Physical Signal Health
     full_data = np.frombuffer(audio_data_bytes, dtype=np.int16)
     peak_value = int(np.max(np.abs(full_data.astype(np.int32)))) if len(full_data) > 0 else 0
-    
-    # 2. Mathematical Consistency Check
     actual_bytes = len(audio_data_bytes)
     calculated_duration = actual_bytes / (RATE * CHANNELS * 2)
 
-    if DEBUG:
-        print(f"[DEBUG] --- AUDIO METRICS ---", flush=True)
-        print(f"[DEBUG] Sample Rate: {RATE}Hz")
-        print(f"[DEBUG] Raw Byte Size: {actual_bytes}")
-        print(f"[DEBUG] Calculated Duration: {calculated_duration:.4f}s")
-        print(f"[DEBUG] Sample Peak: {peak_value} / 32767")
-        
-        try:
-            with wave.open("/share/vinyl_debug.wav", "wb") as wf:
-                wf.setnchannels(CHANNELS)
-                wf.setsampwidth(2) 
-                wf.setframerate(RATE)
-                wf.writeframes(audio_data_bytes)
-            print(f"[DEBUG] Verification WAV saved to /share/vinyl_debug.wav")
-        except:
-            pass
-
-    # 3. Fingerprinting
-    log("Generating Chromaprint Fingerprint...")
+    # 2. Save temporary WAV for fpcalc to read
+    temp_wav = "/tmp/capture.wav"
     try:
-        # Pass the updated RATE to the fingerprinter
-        fingerprint = acoustid.fingerprint(RATE, CHANNELS, [audio_data_bytes])
+        with wave.open(temp_wav, "wb") as wf:
+            wf.setnchannels(CHANNELS)
+            wf.setsampwidth(2) 
+            wf.setframerate(RATE)
+            wf.writeframes(audio_data_bytes)
+    except Exception as e:
+        log(f"🚨 Failed to write temp wav: {e}")
+        is_processing = False
+        return
+
+    # 3. Call FPCALC directly (The "Gold Standard")
+    log("Generating Fingerprint via fpcalc binary...")
+    try:
+        # Run fpcalc and get JSON output
+        result = subprocess.run(
+            ['fpcalc', '-json', temp_wav],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
         
+        if result.returncode != 0:
+            log(f"🚨 fpcalc failed: {result.stderr}")
+            is_processing = False
+            return
+            
+        fp_data = json.loads(result.stdout)
+        fingerprint = fp_data.get('fingerprint')
+        duration = fp_data.get('duration')
+
         if DEBUG:
-            fp_str = fingerprint.decode('utf-8') if isinstance(fingerprint, bytes) else str(fingerprint)
-            print(f"[DEBUG] Fingerprint Length: {len(fp_str)}")
+            print(f"[DEBUG] Fingerprint Length: {len(fingerprint)}")
+            print(f"[DEBUG] fpcalc Duration: {duration}s")
         
-        log("Sending to AcoustID API...")
-        response = acoustid.lookup(API_KEY, fingerprint, calculated_duration, meta='recordings releases artists')
+        # 4. Lookup via API
+        log("Sending fingerprint to AcoustID API...")
+        response = acoustid.lookup(API_KEY, fingerprint, duration, meta='recordings releases artists releasegroups')
         
         if DEBUG or ONE_SHOT:
             log("--- RAW API RESPONSE START ---")
@@ -141,7 +143,7 @@ def process_audio_background(audio_data_bytes):
         if response.get('status') == 'ok':
             results = response.get('results', [])
             if not results:
-                log("❌ ZERO MATCHES. Fingerprint did not match database.")
+                log("❌ ZERO MATCHES. Even with fpcalc, this track isn't being recognized.")
                 mqtt_client.publish("vinyl_guardian/state", "Unknown Track", retain=True)
             else:
                 best_match = results[0]
@@ -164,7 +166,9 @@ def process_audio_background(audio_data_bytes):
 
     except Exception as e:
         log(f"🚨 Fingerprinting Failed: {e}")
-        mqtt_client.publish("vinyl_guardian/state", "Error", retain=True)
+    finally:
+        if os.path.exists(temp_wav):
+            os.remove(temp_wav)
 
     if ONE_SHOT:
         log("🛑 ONE-SHOT COMPLETE.")
@@ -187,7 +191,7 @@ def calculate_rms(data):
 
 def listen_and_identify():
     global is_processing
-    log(f"Initializing ALSA Audio Device ({RATE}Hz, {CHANNELS} channels)...")
+    log(f"Initializing ALSA Audio ({RATE}Hz Stereo)...")
     try:
         inp = alsaaudio.PCM(
             type=alsaaudio.PCM_CAPTURE, 
@@ -199,7 +203,7 @@ def listen_and_identify():
             periodsize=CHUNK
         )
     except Exception as e:
-        log(f"🚨 Failed to open ALSA device at {RATE}Hz: {e}")
+        log(f"🚨 Failed to open ALSA device: {e}")
         sys.exit(1)
 
     log(f"Listening for needle drop... (Threshold: {THRESHOLD})")
@@ -217,11 +221,10 @@ def listen_and_identify():
             current_time = time.time()
             
             if current_time - last_publish_time >= 1.0:
-                formatted_rms = f"{rms:.4f}"
-                mqtt_client.publish("vinyl_guardian/rms", formatted_rms) 
+                mqtt_client.publish("vinyl_guardian/rms", f"{rms:.4f}") 
                 if DEBUG: 
                     status = f"🔴 REC ({int((recording_chunks/target_chunks)*100)}%)" if is_recording else "🟢 LISTENING"
-                    print(f"[{time.strftime('%H:%M:%S')}] {status} - RMS: {formatted_rms}", flush=True)
+                    print(f"[{time.strftime('%H:%M:%S')}] {status} - RMS: {rms:.4f}", flush=True)
                 last_publish_time = current_time
 
             if is_recording:
