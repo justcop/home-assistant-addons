@@ -3,6 +3,7 @@ import os
 import json
 import time
 import threading
+import wave
 import numpy as np
 import alsaaudio
 import acoustid
@@ -101,6 +102,19 @@ def process_audio_background(audio_data_bytes):
 
     if DEBUG:
         print(f"[DEBUG] Buffer Size: {len(audio_data_bytes)} bytes | Max Peak: {peak_value} / 32767", flush=True)
+        
+        # --- NEW WAV EXPORT DIAGNOSTIC ---
+        log("Saving internal audio buffer to /share/vinyl_debug.wav for inspection...")
+        try:
+            with wave.open("/share/vinyl_debug.wav", "wb") as wf:
+                wf.setnchannels(CHANNELS)
+                wf.setsampwidth(2) # 16-bit audio = 2 bytes per sample
+                wf.setframerate(RATE)
+                wf.writeframes(audio_data_bytes)
+            log("✅ Debug audio saved. Listen to this file to hear exactly what the algorithm hears!")
+        except Exception as e:
+            log(f"⚠️ Failed to save debug audio: {e}")
+        # ---------------------------------
     
     if peak_value >= 32000:
         log("⚠️ WARNING: Audio is CLIPPING. Signal is distorted. AcoustID may fail.")
@@ -112,14 +126,7 @@ def process_audio_background(audio_data_bytes):
     log("Generating Chromaprint Fingerprint...")
     try:
         duration = len(audio_data_bytes) // (RATE * CHANNELS * 2)
-        
-        if DEBUG:
-            print(f"[DEBUG] Input Data Types -> Rate: {type(RATE)}, Channels: {type(CHANNELS)}, Audio: {type(audio_data_bytes)}", flush=True)
-        
-        # BUG FIXED HERE: pyacoustid expects an ITERABLE of byte chunks. 
-        # In Python 3, a raw bytes object iterates as integers, crashing the C-extension!
-        # Wrapping it in a list [audio_data_bytes] forces it to process as one giant chunk.
-        fingerprint = acoustid.fingerprint(RATE, CHANNELS, [audio_data_bytes])
+        fingerprint = acoustid.fingerprint(RATE, CHANNELS, audio_data_bytes)
         
         log("Sending fingerprint to AcoustID API...")
         response = acoustid.lookup(API_KEY, fingerprint, duration, meta='recordings releases artists')
@@ -167,7 +174,6 @@ def process_audio_background(audio_data_bytes):
     time.sleep(15)
     mqtt_client.publish("vinyl_guardian/state", "Idle", retain=True)
     is_processing = False 
-
 
 # --- MAIN AUDIO LOOP ---
 def calculate_rms(data):
