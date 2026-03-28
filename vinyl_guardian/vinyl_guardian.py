@@ -112,8 +112,9 @@ def process_audio_background(audio_data_bytes):
     log("Generating Chromaprint Fingerprint...")
     try:
         duration = len(audio_data_bytes) // (RATE * CHANNELS * 2)
-        # BUG FIXED HERE: Removed the invalid PCM16_16 flag
-        fingerprint = acoustid.fingerprint(RATE, CHANNELS, audio_data_bytes)
+        
+        # BUG FIXED HERE: Swapped the arguments into the correct order!
+        fingerprint = acoustid.fingerprint(audio_data_bytes, RATE, CHANNELS)
         
         log("Sending fingerprint to AcoustID API...")
         response = acoustid.lookup(API_KEY, fingerprint, duration, meta='recordings releases artists')
