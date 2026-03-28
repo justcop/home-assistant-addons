@@ -3,9 +3,7 @@ FROM $BUILD_FROM
 
 ENV LANG=C.UTF-8
 
-# Install Alpine system packages (apk instead of apt-get)
-# Includes gcc, musl, and alsa headers to compile pyalsaaudio
-# chromaprint provides the fpcalc binary needed by AcoustID
+# Added pulseaudio-utils to fix the 'pactl: not found' error
 RUN apk add --no-cache \
     gcc \
     musl-dev \
@@ -15,10 +13,10 @@ RUN apk add --no-cache \
     alsa-utils \
     alsa-plugins \
     alsa-plugins-pulse \
+    pulseaudio-utils \
     chromaprint
 
 # Install required Python packages
-# We use python3 -m pip and --break-system-packages to satisfy Alpine's strict environment rules
 RUN python3 -m pip install --no-cache-dir --break-system-packages pyacoustid numpy paho-mqtt pyalsaaudio
 
 WORKDIR /usr/src/app
