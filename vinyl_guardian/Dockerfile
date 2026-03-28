@@ -2,22 +2,21 @@ FROM python:3.11-slim-bullseye
 
 WORKDIR /usr/src/app
 
-# Install system dependencies required for audio processing and fingerprinting
+# Install system dependencies required for audio processing
+# Added libasound2-plugins to fix the PulseAudio bridge error
 RUN apt-get update && apt-get install -y \
     libportaudio2 \
-    libchromaprint-tools \
-    libchromaprint1 \
     alsa-utils \
     libasound2-plugins \
-    pulseaudio-utils \
+    libasound2-dev \
+    libchromaprint-tools \
     && rm -rf /var/lib/apt/lists/*
-    
+
 # Install required Python packages
-RUN pip install --no-cache-dir pyacoustid sounddevice numpy paho-mqtt
+RUN pip install --no-cache-dir pyacoustid sounddevice numpy paho-mqtt pyalsaaudio
 
 COPY run.sh /usr/src/app/run.sh
 COPY vinyl_guardian.py /usr/src/app/vinyl_guardian.py
-COPY config.yaml /usr/src/app/
 
 RUN chmod a+x /usr/src/app/run.sh
 
