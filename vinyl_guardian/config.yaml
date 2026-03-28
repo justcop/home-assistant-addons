@@ -1,6 +1,6 @@
 name: "Vinyl Guardian"
 description: "Listens to ADC line-in, fingerprints audio via AcoustID, and updates HA via MQTT."
-version: "1.3"
+version: "1.3.2"
 slug: "vinyl_guardian"
 init: false
 arch:
@@ -24,6 +24,7 @@ schema:
   mic_volume: int
   record_diagnostic_sample: bool
   debug_logging: bool
+  debug_one_shot: bool
 options:
   acoustid_key: ""
   mqtt_broker: "core-mosquitto"
@@ -34,3 +35,4 @@ options:
   mic_volume: 10
   record_diagnostic_sample: false
   debug_logging: true
+  debug_one_shot: true
