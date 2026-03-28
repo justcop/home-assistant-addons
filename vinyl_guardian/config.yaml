@@ -1,6 +1,6 @@
 name: "Vinyl Guardian"
-description: "false to ADC line-in, fingerprints audio via AcoustID, and updates HA via MQTT."
-version: "1.2.13"
+description: "Listens to ADC line-in, fingerprints audio via AcoustID, and updates HA via MQTT."
+version: "1.2.7"
 slug: "vinyl_guardian"
 init: false
 arch:
@@ -8,11 +8,12 @@ arch:
   - amd64
   - armv7
 audio: true
+map:
+  - share:rw
 devices:
   - /dev/snd:/dev/snd:rwm
 startup: application
 boot: auto
-# This schema creates the Configuration UI boxes in Home Assistant
 schema:
   acoustid_key: str
   mqtt_broker: str
@@ -21,8 +22,8 @@ schema:
   mqtt_password: password?
   audio_threshold: float
   mic_volume: int
+  record_diagnostic_sample: bool
   debug_logging: bool
-# These are the default values shown to users
 options:
   acoustid_key: ""
   mqtt_broker: "core-mosquitto"
@@ -31,4 +32,5 @@ options:
   mqtt_password: ""
   audio_threshold: 0.015
   mic_volume: 10
-  debug_logging: false
+  record_diagnostic_sample: false
+  debug_logging: true
