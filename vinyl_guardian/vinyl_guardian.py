@@ -26,7 +26,7 @@ THRESHOLD = config.get("audio_threshold", 0.015)
 DEBUG = config.get("debug_logging", True)
 ONE_SHOT = config.get("debug_one_shot", False)
 
-# Audio Settings
+# Audio Settings - IMPORTANT: If Mono fails, we may need to try CHANNELS = 2
 CHANNELS = 1
 RATE = 44100
 FORMAT = alsaaudio.PCM_FORMAT_S16_LE
@@ -93,44 +93,48 @@ def publish_track(title, artist, album):
 # --- BACKGROUND WORKER THREAD ---
 def process_audio_background(audio_data_bytes):
     global is_processing
-    log("Analyzing 15-second audio health...")
+    log("Deep Analysis: Processing 15-second capture...")
     
-    peak_value = 0
+    # 1. Physical Signal Health
     full_data = np.frombuffer(audio_data_bytes, dtype=np.int16)
-    if len(full_data) > 0:
-        peak_value = int(np.max(np.abs(full_data.astype(np.int32))))
+    peak_value = int(np.max(np.abs(full_data.astype(np.int32)))) if len(full_data) > 0 else 0
+    
+    # 2. Mathematical Consistency Check
+    expected_bytes = RATE * CHANNELS * 2 * RECORD_SECONDS
+    actual_bytes = len(audio_data_bytes)
+    calculated_duration = actual_bytes / (RATE * CHANNELS * 2)
 
     if DEBUG:
-        print(f"[DEBUG] Buffer Size: {len(audio_data_bytes)} bytes | Max Peak: {peak_value} / 32767", flush=True)
+        print(f"[DEBUG] --- AUDIO METRICS ---", flush=True)
+        print(f"[DEBUG] Raw Byte Size: {actual_bytes} (Expected: ~{expected_bytes})", flush=True)
+        print(f"[DEBUG] Calculated Duration: {calculated_duration:.4f}s", flush=True)
+        print(f"[DEBUG] Sample Peak: {peak_value} / 32767", flush=True)
         
-        # Save WAV for local inspection
+        # Save WAV for verification
         try:
             with wave.open("/share/vinyl_debug.wav", "wb") as wf:
                 wf.setnchannels(CHANNELS)
                 wf.setsampwidth(2) 
                 wf.setframerate(RATE)
                 wf.writeframes(audio_data_bytes)
+            print(f"[DEBUG] Verification WAV saved to /share/vinyl_debug.wav", flush=True)
         except:
             pass
-    
-    if peak_value >= 32000:
-        log("⚠️ WARNING: Audio is CLIPPING. Signal is distorted. AcoustID may fail.")
-    elif peak_value < 2000:
-        log("⚠️ WARNING: Audio is VERY QUIET. AcoustID may struggle to hear the track.")
-    else:
-        log("✅ Audio volume is in a healthy range.")
 
+    # 3. Fingerprinting with Extended Debug
     log("Generating Chromaprint Fingerprint...")
     try:
-        duration = len(audio_data_bytes) // (RATE * CHANNELS * 2)
-        
-        # FIX: Switched to positional arguments only.
-        # pyacoustid fingerprint() is a wrapper around a C-extension and does not like keyword arguments.
-        # We still wrap audio_data_bytes in a list because the library expects an iterable of chunks.
+        # We wrap in a list to satisfy the library's requirement for an iterable
         fingerprint = acoustid.fingerprint(RATE, CHANNELS, [audio_data_bytes])
         
-        log("Sending fingerprint to AcoustID API...")
-        response = acoustid.lookup(API_KEY, fingerprint, duration, meta='recordings releases artists')
+        if DEBUG:
+            fp_str = fingerprint.decode('utf-8') if isinstance(fingerprint, bytes) else str(fingerprint)
+            print(f"[DEBUG] Fingerprint Generated! Length: {len(fp_str)}", flush=True)
+            print(f"[DEBUG] Fingerprint Start: {fp_str[:100]}...", flush=True)
+        
+        log("Sending to AcoustID API...")
+        # Use the precisely calculated duration
+        response = acoustid.lookup(API_KEY, fingerprint, calculated_duration, meta='recordings releases artists')
         
         if DEBUG or ONE_SHOT:
             log("--- RAW API RESPONSE START ---")
@@ -140,35 +144,36 @@ def process_audio_background(audio_data_bytes):
         if response.get('status') == 'ok':
             results = response.get('results', [])
             if not results:
-                log("❌ API returned 'ok', but found ZERO matches. The audio is clear, so this may be a niche pressing or a database gap.")
+                log("❌ ZERO MATCHES. The fingerprint was valid but found no match in the database.")
+                log("💡 TIP: If this is a popular song, try changing CHANNELS = 2 in the script.")
                 mqtt_client.publish("vinyl_guardian/state", "Unknown Track", retain=True)
             else:
                 best_match = results[0]
                 score = best_match.get('score', 0)
-                
                 if score > 0.4:
                     try:
                         recording = best_match['recordings'][0]
                         title = recording.get('title', 'Unknown Title')
                         artist = recording['artists'][0].get('name', 'Unknown') if 'artists' in recording else 'Unknown'
                         album = recording.get('releasegroups', [{}])[0].get('title', 'Unknown Album')
-                        
                         log(f"✅ MATCH FOUND! Score: {score}")
                         publish_track(title, artist, album)
                     except (KeyError, IndexError):
-                        log("⚠️ Matched audio, but metadata was incomplete.")
+                        log("⚠️ Metadata parse failed.")
                 else:
-                    log(f"⚠️ Low confidence match (Score: {score}). Ignoring.")
+                    log(f"⚠️ Low confidence (Score: {score}).")
                     mqtt_client.publish("vinyl_guardian/state", "Unknown Track", retain=True)
         else:
             log(f"❌ API Error: {response.get('error', 'Unknown Error')}")
 
     except Exception as e:
-        log(f"🚨 Processing Failed: {e}")
+        log(f"🚨 Fingerprinting Failed: {e}")
+        import traceback
+        traceback.print_exc()
         mqtt_client.publish("vinyl_guardian/state", "Error", retain=True)
 
     if ONE_SHOT:
-        log("🛑 ONE-SHOT COMPLETE. Exiting container.")
+        log("🛑 ONE-SHOT COMPLETE.")
         os._exit(0) 
     
     log("Cooldown: Waiting 15 seconds...")
@@ -190,7 +195,16 @@ def listen_and_identify():
     global is_processing
     log("Initializing ALSA Audio Device...")
     try:
-        inp = alsaaudio.PCM(type=alsaaudio.PCM_CAPTURE, mode=alsaaudio.PCM_NORMAL, device='default', channels=CHANNELS, rate=RATE, format=FORMAT, periodsize=CHUNK)
+        # Default device on Wyse is usually stereo, we try to force mono here
+        inp = alsaaudio.PCM(
+            type=alsaaudio.PCM_CAPTURE, 
+            mode=alsaaudio.PCM_NORMAL, 
+            device='default', 
+            channels=CHANNELS, 
+            rate=RATE, 
+            format=FORMAT, 
+            periodsize=CHUNK
+        )
     except Exception as e:
         log(f"🚨 Failed to open ALSA device: {e}")
         sys.exit(1)
@@ -212,22 +226,16 @@ def listen_and_identify():
             if current_time - last_publish_time >= 1.0:
                 formatted_rms = f"{rms:.4f}"
                 mqtt_client.publish("vinyl_guardian/rms", formatted_rms) 
-                
                 if DEBUG: 
-                    if is_recording:
-                        progress = int((recording_chunks / target_chunks) * 100)
-                        print(f"[{time.strftime('%H:%M:%S')}] 🔴 RECORDING ({progress}%) - Live RMS: {formatted_rms}", flush=True)
-                    else:
-                        print(f"[{time.strftime('%H:%M:%S')}] 🟢 LISTENING - Live RMS: {formatted_rms}", flush=True)
-                
+                    status = f"🔴 REC ({int((recording_chunks/target_chunks)*100)}%)" if is_recording else "🟢 LISTENING"
+                    print(f"[{time.strftime('%H:%M:%S')}] {status} - RMS: {formatted_rms}", flush=True)
                 last_publish_time = current_time
 
             if is_recording:
                 audio_buffer.extend(data)
                 recording_chunks += 1
-                
                 if recording_chunks >= target_chunks:
-                    log("✅ 15-Second capture complete! Handing off to background processor...")
+                    log("✅ Capture complete! Processing...")
                     is_recording = False
                     worker = threading.Thread(target=process_audio_background, args=(bytes(audio_buffer),))
                     worker.start()
@@ -235,7 +243,6 @@ def listen_and_identify():
             elif rms > THRESHOLD and not is_processing:
                 log(f"🎵 NEEDLE DROP DETECTED! (RMS: {rms:.4f})")
                 mqtt_client.publish("vinyl_guardian/state", "Listening...", retain=True)
-                
                 is_processing = True
                 is_recording = True
                 recording_chunks = 0
