@@ -10,14 +10,16 @@ RUN apk add --no-cache \
     gcc \
     musl-dev \
     python3-dev \
+    py3-pip \
     alsa-lib-dev \
     alsa-utils \
     alsa-plugins \
     alsa-plugins-pulse \
     chromaprint
 
-# Install required Python packages (sounddevice removed)
-RUN pip install --no-cache-dir pyacoustid numpy paho-mqtt pyalsaaudio
+# Install required Python packages
+# We use python3 -m pip and --break-system-packages to satisfy Alpine's strict environment rules
+RUN python3 -m pip install --no-cache-dir --break-system-packages pyacoustid numpy paho-mqtt pyalsaaudio
 
 WORKDIR /usr/src/app
 
