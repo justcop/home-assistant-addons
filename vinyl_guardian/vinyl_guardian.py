@@ -103,18 +103,15 @@ def process_audio_background(audio_data_bytes):
     if DEBUG:
         print(f"[DEBUG] Buffer Size: {len(audio_data_bytes)} bytes | Max Peak: {peak_value} / 32767", flush=True)
         
-        # --- NEW WAV EXPORT DIAGNOSTIC ---
-        log("Saving internal audio buffer to /share/vinyl_debug.wav for inspection...")
+        # Save WAV for local inspection
         try:
             with wave.open("/share/vinyl_debug.wav", "wb") as wf:
                 wf.setnchannels(CHANNELS)
-                wf.setsampwidth(2) # 16-bit audio = 2 bytes per sample
+                wf.setsampwidth(2) 
                 wf.setframerate(RATE)
                 wf.writeframes(audio_data_bytes)
-            log("✅ Debug audio saved. Listen to this file to hear exactly what the algorithm hears!")
-        except Exception as e:
-            log(f"⚠️ Failed to save debug audio: {e}")
-        # ---------------------------------
+        except:
+            pass
     
     if peak_value >= 32000:
         log("⚠️ WARNING: Audio is CLIPPING. Signal is distorted. AcoustID may fail.")
@@ -126,7 +123,9 @@ def process_audio_background(audio_data_bytes):
     log("Generating Chromaprint Fingerprint...")
     try:
         duration = len(audio_data_bytes) // (RATE * CHANNELS * 2)
-        fingerprint = acoustid.fingerprint(RATE, CHANNELS, audio_data_bytes)
+        
+        # FIX: Wrap audio_data_bytes in a list [data] to satisfy pyacoustid's iterable requirement
+        fingerprint = acoustid.fingerprint(samplerate=RATE, channels=CHANNELS, data=[audio_data_bytes])
         
         log("Sending fingerprint to AcoustID API...")
         response = acoustid.lookup(API_KEY, fingerprint, duration, meta='recordings releases artists')
@@ -139,7 +138,7 @@ def process_audio_background(audio_data_bytes):
         if response.get('status') == 'ok':
             results = response.get('results', [])
             if not results:
-                log("❌ API returned 'ok', but found ZERO matches. Unrecognized track or distorted audio.")
+                log("❌ API returned 'ok', but found ZERO matches. The audio is clear, so this may be a niche pressing or a database gap.")
                 mqtt_client.publish("vinyl_guardian/state", "Unknown Track", retain=True)
             else:
                 best_match = results[0]
@@ -167,10 +166,10 @@ def process_audio_background(audio_data_bytes):
         mqtt_client.publish("vinyl_guardian/state", "Error", retain=True)
 
     if ONE_SHOT:
-        log("🛑 ONE-SHOT COMPLETE. Exiting container so you can read the logs without them scrolling away.")
+        log("🛑 ONE-SHOT COMPLETE. Exiting container.")
         os._exit(0) 
     
-    log("Cooldown: Waiting 15 seconds to avoid API spam...")
+    log("Cooldown: Waiting 15 seconds...")
     time.sleep(15)
     mqtt_client.publish("vinyl_guardian/state", "Idle", retain=True)
     is_processing = False 
