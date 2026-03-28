@@ -1,6 +1,8 @@
 import sys
+import os
 import json
 import time
+import threading
 import numpy as np
 import alsaaudio
 import acoustid
@@ -28,7 +30,10 @@ CHANNELS = 1
 RATE = 44100
 FORMAT = alsaaudio.PCM_FORMAT_S16_LE
 CHUNK = 2048
-RECORD_SECONDS = 15 
+RECORD_SECONDS = 15
+
+# Global State Flags
+is_processing = False
 
 def log(message):
     print(f"[Vinyl Guardian] {message}", flush=True)
@@ -38,7 +43,6 @@ def debug_log(message):
         print(f"[DEBUG] {message}", flush=True)
 
 # --- MQTT SETUP & DISCOVERY ---
-# Fixed the deprecation warning by explicitly declaring VERSION2
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 
 if MQTT_USER and MQTT_PASS:
@@ -55,8 +59,8 @@ def connect_mqtt():
         log(f"🚨 MQTT Connection Failed: {e}")
 
 def publish_discovery():
-    discovery_topic = "homeassistant/sensor/vinyl_guardian/now_playing/config"
-    payload = {
+    # Discovery for Now Playing
+    payload_playing = {
         "name": "Vinyl Now Playing",
         "state_topic": "vinyl_guardian/state",
         "json_attributes_topic": "vinyl_guardian/attributes",
@@ -69,8 +73,22 @@ def publish_discovery():
             "model": "Audio Fingerprinter"
         }
     }
-    mqtt_client.publish(discovery_topic, json.dumps(payload), retain=True)
+    mqtt_client.publish("homeassistant/sensor/vinyl_guardian/now_playing/config", json.dumps(payload_playing), retain=True)
     mqtt_client.publish("vinyl_guardian/state", "Idle", retain=True)
+
+    # Discovery for Live RMS
+    payload_rms = {
+        "name": "Vinyl Live RMS",
+        "state_topic": "vinyl_guardian/rms",
+        "icon": "mdi:waveform",
+        "unique_id": "vinyl_guardian_live_rms",
+        "device": {
+            "identifiers": ["vinyl_guardian_01"],
+            "name": "Vinyl Guardian"
+        }
+    }
+    mqtt_client.publish("homeassistant/sensor/vinyl_guardian/live_rms/config", json.dumps(payload_rms), retain=True)
+    mqtt_client.publish("vinyl_guardian/rms", "0.0000", retain=True)
 
 def publish_track(title, artist, album):
     log(f"🎶 Publishing to HA: {title} by {artist}")
@@ -84,7 +102,85 @@ def publish_track(title, artist, album):
     }
     mqtt_client.publish("vinyl_guardian/attributes", json.dumps(attributes), retain=True)
 
-# --- AUDIO PROCESSING ---
+
+# --- BACKGROUND WORKER THREAD ---
+def process_audio_background(audio_buffer):
+    global is_processing
+    log("Recording complete. Background thread analyzing audio health...")
+    
+    peak_value = 0
+    # Calculate peak directly from the full buffer using numpy
+    full_data = np.frombuffer(audio_buffer, dtype=np.int16)
+    if len(full_data) > 0:
+        peak_value = int(np.max(np.abs(full_data.astype(np.int32))))
+
+    debug_log(f"Audio Buffer Size: {len(audio_buffer)} bytes")
+    debug_log(f"Maximum Volume Peak: {peak_value} / 32767")
+    
+    if peak_value >= 32000:
+        log("⚠️ WARNING: Audio is CLIPPING. Signal is distorted. AcoustID may fail.")
+    elif peak_value < 2000:
+        log("⚠️ WARNING: Audio is VERY QUIET. AcoustID may struggle to hear the track.")
+    else:
+        log("✅ Audio volume is in a healthy range.")
+
+    log("Generating Chromaprint Fingerprint...")
+    try:
+        duration = len(audio_buffer) // (RATE * CHANNELS * 2)
+        fingerprint = acoustid.fingerprint(RATE, CHANNELS, acoustid.PCM16_16, audio_buffer)
+        debug_log(f"Fingerprint generated successfully.")
+        
+        log("Sending fingerprint to AcoustID API...")
+        response = acoustid.lookup(API_KEY, fingerprint, duration, meta='recordings releases artists')
+        
+        if DEBUG or ONE_SHOT:
+            log("--- RAW API RESPONSE START ---")
+            print(json.dumps(response, indent=2), flush=True)
+            log("--- RAW API RESPONSE END ---")
+        
+        if response.get('status') == 'ok':
+            results = response.get('results', [])
+            if not results:
+                log("❌ API returned 'ok', but found ZERO matches. Unrecognized track or distorted audio.")
+                mqtt_client.publish("vinyl_guardian/state", "Unknown Track", retain=True)
+            else:
+                best_match = results[0]
+                score = best_match.get('score', 0)
+                
+                if score > 0.4:
+                    try:
+                        recording = best_match['recordings'][0]
+                        title = recording.get('title', 'Unknown Title')
+                        artist = recording['artists'][0].get('name', 'Unknown Artist') if 'artists' in recording else 'Unknown Artist'
+                        album = "Unknown Album"
+                        if 'releasegroups' in recording:
+                            album = recording['releasegroups'][0].get('title', 'Unknown Album')
+                            
+                        log(f"✅ MATCH FOUND! Score: {score}")
+                        publish_track(title, artist, album)
+                    except (KeyError, IndexError):
+                        log("⚠️ Matched audio, but metadata was incomplete.")
+                else:
+                    log(f"⚠️ Low confidence match (Score: {score}). Ignoring.")
+                    mqtt_client.publish("vinyl_guardian/state", "Unknown Track", retain=True)
+        else:
+            log(f"❌ API Error: {response.get('error', 'Unknown Error')}")
+
+    except Exception as e:
+        log(f"🚨 Processing Failed: {e}")
+        mqtt_client.publish("vinyl_guardian/state", "Error", retain=True)
+
+    if ONE_SHOT:
+        log("🛑 DEBUG_ONE_SHOT is enabled. Exiting container entirely so you can read the logs.")
+        os._exit(0) # Hard exit to stop the main thread as well
+    
+    log("Background worker cooling down for 15 seconds to avoid API spam...")
+    time.sleep(15)
+    mqtt_client.publish("vinyl_guardian/state", "Idle", retain=True)
+    is_processing = False # Release the lock so the main thread can trigger again
+
+
+# --- MAIN AUDIO LOOP ---
 def calculate_rms(data):
     try:
         audio_data = np.frombuffer(data, dtype=np.int16)
@@ -96,9 +192,9 @@ def calculate_rms(data):
         return 0
 
 def listen_and_identify():
+    global is_processing
     log("Initializing Audio Device (default)...")
     try:
-        # Fixed the ALSA deprecation warning by passing arguments directly into the constructor
         inp = alsaaudio.PCM(
             type=alsaaudio.PCM_CAPTURE, 
             mode=alsaaudio.PCM_NORMAL, 
@@ -114,105 +210,51 @@ def listen_and_identify():
 
     log(f"Listening for needle drop... (Threshold: {THRESHOLD})")
     
+    last_publish_time = time.time()
+    
+    # Recording state variables
+    is_recording = False
+    recording_chunks = 0
+    target_chunks = int(RATE / CHUNK * RECORD_SECONDS)
+    audio_buffer = b''
+
     while True:
         length, data = inp.read()
         if length > 0:
             rms = calculate_rms(data)
             
-            if rms > THRESHOLD:
+            # 1. LIVE RMS REPORTING (Happens continuously, non-blocking)
+            current_time = time.time()
+            if current_time - last_publish_time >= 1.0: # Report once per second
+                formatted_rms = f"{rms:.4f}"
+                # Always send to the sensor
+                mqtt_client.publish("vinyl_guardian/rms", formatted_rms)
+                # Only print to console if DEBUG is on
+                if DEBUG:
+                    print(f"[{time.strftime('%H:%M:%S')}] Live RMS: {formatted_rms}", flush=True)
+                last_publish_time = current_time
+
+            # 2. AUDIO BUFFERING
+            if is_recording:
+                audio_buffer += data
+                recording_chunks += 1
+                
+                if recording_chunks >= target_chunks:
+                    is_recording = False
+                    # Spawn the background worker thread with our collected audio
+                    worker = threading.Thread(target=process_audio_background, args=(audio_buffer,))
+                    worker.start()
+            
+            # 3. THRESHOLD TRIGGER
+            # Only trigger if loud enough, and if the background worker isn't busy
+            elif rms > THRESHOLD and not is_processing:
                 log(f"🎵 NEEDLE DROP DETECTED! (RMS: {rms:.4f})")
-                log(f"Recording {RECORD_SECONDS} seconds for AcoustID fingerprinting...")
                 mqtt_client.publish("vinyl_guardian/state", "Listening...", retain=True)
                 
+                is_processing = True # Lock the worker
+                is_recording = True  # Start filling the buffer
+                recording_chunks = 0
                 audio_buffer = b''
-                peak_value = 0
-                
-                for _ in range(0, int(RATE / CHUNK * RECORD_SECONDS)):
-                    l, d = inp.read()
-                    if l > 0:
-                        audio_buffer += d
-                        chunk_data = np.frombuffer(d, dtype=np.int16)
-                        if len(chunk_data) > 0:
-                            chunk_peak = int(np.max(np.abs(chunk_data.astype(np.int32))))
-                            if chunk_peak > peak_value:
-                                peak_value = chunk_peak
-
-                log("Recording complete. Analyzing audio health...")
-                
-                # --- DIAGNOSTIC: AUDIO HEALTH CHECK ---
-                debug_log(f"Audio Buffer Size: {len(audio_buffer)} bytes")
-                debug_log(f"Maximum Volume Peak: {peak_value} / 32767")
-                
-                if peak_value >= 32000:
-                    log("⚠️ WARNING: Audio is CLIPPING. Signal is distorted. AcoustID may fail.")
-                elif peak_value < 2000:
-                    log("⚠️ WARNING: Audio is VERY QUIET. AcoustID may struggle to hear the track.")
-                else:
-                    log("✅ Audio volume is in a healthy range.")
-
-                # --- ACOUSTID FINGERPRINTING ---
-                log("Generating Chromaprint Fingerprint...")
-                try:
-                    duration = len(audio_buffer) // (RATE * CHANNELS * 2)
-                    fingerprint = acoustid.fingerprint(RATE, CHANNELS, acoustid.PCM16_16, audio_buffer)
-                    debug_log(f"Fingerprint generated successfully.")
-                except Exception as e:
-                    log(f"🚨 Failed to generate fingerprint: {e}")
-                    mqtt_client.publish("vinyl_guardian/state", "Error", retain=True)
-                    if ONE_SHOT: sys.exit(1)
-                    time.sleep(5)
-                    continue
-
-                # --- ACOUSTID API LOOKUP ---
-                log("Sending fingerprint to AcoustID API...")
-                try:
-                    response = acoustid.lookup(API_KEY, fingerprint, duration, meta='recordings releases artists')
-                    
-                    if DEBUG or ONE_SHOT:
-                        log("--- RAW API RESPONSE START ---")
-                        print(json.dumps(response, indent=2), flush=True)
-                        log("--- RAW API RESPONSE END ---")
-                    
-                    if response.get('status') == 'ok':
-                        results = response.get('results', [])
-                        if not results:
-                            log("❌ API returned 'ok', but found ZERO matches. Unrecognized track or distorted audio.")
-                            mqtt_client.publish("vinyl_guardian/state", "Unknown Track", retain=True)
-                        else:
-                            best_match = results[0]
-                            score = best_match.get('score', 0)
-                            
-                            if score > 0.4:
-                                try:
-                                    recording = best_match['recordings'][0]
-                                    title = recording.get('title', 'Unknown Title')
-                                    artist = recording['artists'][0].get('name', 'Unknown Artist') if 'artists' in recording else 'Unknown Artist'
-                                    
-                                    album = "Unknown Album"
-                                    if 'releasegroups' in recording:
-                                        album = recording['releasegroups'][0].get('title', 'Unknown Album')
-                                        
-                                    log(f"✅ MATCH FOUND! Score: {score}")
-                                    publish_track(title, artist, album)
-                                except (KeyError, IndexError):
-                                    log("⚠️ Matched audio, but metadata was incomplete.")
-                            else:
-                                log(f"⚠️ Low confidence match (Score: {score}). Ignoring.")
-                                mqtt_client.publish("vinyl_guardian/state", "Unknown Track", retain=True)
-                    else:
-                        log(f"❌ API Error: {response.get('error', 'Unknown Error')}")
-
-                except Exception as e:
-                    log(f"🚨 API Request Failed: {e}")
-
-                # --- ONE SHOT LOGIC ---
-                if ONE_SHOT:
-                    log("🛑 DEBUG_ONE_SHOT is enabled. Exiting container so you can read the logs.")
-                    sys.exit(0)
-                
-                log("Waiting 15 seconds to avoid spamming the API on the same track...")
-                time.sleep(15)
-                mqtt_client.publish("vinyl_guardian/state", "Idle", retain=True)
 
 if __name__ == "__main__":
     connect_mqtt()
