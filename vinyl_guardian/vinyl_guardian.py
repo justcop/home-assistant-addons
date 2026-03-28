@@ -113,8 +113,8 @@ def process_audio_background(audio_data_bytes):
     try:
         duration = len(audio_data_bytes) // (RATE * CHANNELS * 2)
         
-        # BUG FIXED HERE: Swapped the arguments into the correct order!
-        fingerprint = acoustid.fingerprint(audio_data_bytes, RATE, CHANNELS)
+        # BUG FIXED HERE: The library expects (Sample Rate, Channels, Audio Data)
+        fingerprint = acoustid.fingerprint(RATE, CHANNELS, audio_data_bytes)
         
         log("Sending fingerprint to AcoustID API...")
         response = acoustid.lookup(API_KEY, fingerprint, duration, meta='recordings releases artists')
