@@ -113,8 +113,13 @@ def process_audio_background(audio_data_bytes):
     try:
         duration = len(audio_data_bytes) // (RATE * CHANNELS * 2)
         
-        # BUG FIXED HERE: The library expects (Sample Rate, Channels, Audio Data)
-        fingerprint = acoustid.fingerprint(RATE, CHANNELS, audio_data_bytes)
+        if DEBUG:
+            print(f"[DEBUG] Input Data Types -> Rate: {type(RATE)}, Channels: {type(CHANNELS)}, Audio: {type(audio_data_bytes)}", flush=True)
+        
+        # BUG FIXED HERE: pyacoustid expects an ITERABLE of byte chunks. 
+        # In Python 3, a raw bytes object iterates as integers, crashing the C-extension!
+        # Wrapping it in a list [audio_data_bytes] forces it to process as one giant chunk.
+        fingerprint = acoustid.fingerprint(RATE, CHANNELS, [audio_data_bytes])
         
         log("Sending fingerprint to AcoustID API...")
         response = acoustid.lookup(API_KEY, fingerprint, duration, meta='recordings releases artists')
