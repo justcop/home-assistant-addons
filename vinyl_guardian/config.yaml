@@ -1,6 +1,6 @@
 name: "Vinyl Guardian"
-description: "Detects needle drops and identifies vinyl records via AudioTag."
-version: "1.5.0"
+description: "Detects needle drops and identifies vinyl records via AudD or AudioTag."
+version: "1.8.0"
 slug: "vinyl_guardian"
 init: false
 arch:
@@ -12,6 +12,8 @@ arch:
 startup: "application"
 boot: "auto"
 options:
+  recognition_engine: "audd"
+  audd_key: ""
   audiotag_key: ""
   mqtt_broker: "core-mosquitto"
   mqtt_port: 1883
@@ -24,7 +26,9 @@ options:
   debug_logging: true
   debug_one_shot: false
 schema:
-  audiotag_key: "str"
+  recognition_engine: "list(audd|audiotag)"
+  audd_key: "str?"
+  audiotag_key: "str?"
   mqtt_broker: "str"
   mqtt_port: "port"
   mqtt_user: "str?"
