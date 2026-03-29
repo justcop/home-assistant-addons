@@ -1,6 +1,6 @@
 name: "Vinyl Guardian"
 description: "Detects needle drops and identifies vinyl records via AudioTag."
-version: "1.4.5"
+version: "1.4.6"
 slug: "vinyl_guardian"
 init: false
 arch:
