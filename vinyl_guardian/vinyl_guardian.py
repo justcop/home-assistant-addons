@@ -114,6 +114,15 @@ def recognize_audiotag(wav_path):
                 continue 
                 
             elif status == 'found' or status == 'done' or poll_json.get('data') or isinstance(status, list):
+                # Save the successful raw API response to a file for debugging/inspection
+                try:
+                    with open("/share/audiotag_last_match.json", "w") as f:
+                        json.dump(poll_json, f, indent=2)
+                    if DEBUG:
+                        print("[DEBUG] Saved successful API response to /share/audiotag_last_match.json", flush=True)
+                except Exception as e:
+                    if DEBUG: print(f"[DEBUG] Failed to save API response: {e}", flush=True)
+
                 data_array = poll_json.get('data', [])
                 if not data_array and isinstance(status, list):
                     data_array = status
@@ -134,20 +143,22 @@ def recognize_audiotag(wav_path):
                         album = track_info.get('album', 'Unknown')
                 
                 # AudioTag time format is usually "start - end" (e.g. "0 - 16")
-                # We want the 'end' value to know exactly where we currently are in the track
                 current_position = RECORD_SECONDS # Fallback
                 time_str = str(best.get('time', ''))
                 if '-' in time_str:
                     try:
                         current_position = int(time_str.split('-')[1].strip())
                     except: pass
+                
+                # Extract the real confidence score from AudioTag
+                confidence = best.get('confidence', 0)
                         
                 return {
                     "title": title,
                     "artist": artist,
                     "album": album,
                     "current_position": current_position,
-                    "score": 100
+                    "score": confidence
                 }
                 
             elif status in ['not found', 'not_found']:
@@ -164,6 +175,18 @@ def recognize_audiotag(wav_path):
 def process_audio_background(audio_data_bytes, capture_end_timestamp):
     global app_state, current_attempt, wake_up_time
     log(f"🔬 Analyzing {RECORD_SECONDS}s capture (Attempt {current_attempt}/{MAX_ATTEMPTS})...")
+
+    # --- AUDIO HEALTH CHECK ---
+    full_data = np.frombuffer(audio_data_bytes, dtype=np.int16)
+    peak_value = int(np.max(np.abs(full_data.astype(np.int32)))) if len(full_data) > 0 else 0
+    
+    if peak_value >= 32000:
+        log(f"⚠️ WARNING: Audio is CLIPPING (Peak: {peak_value}/32767). Distorted audio may fail to match. Turn DOWN mic_volume in Add-on Config!")
+    elif peak_value < 2000:
+        log(f"⚠️ WARNING: Audio is VERY QUIET (Peak: {peak_value}/32767). Turn UP mic_volume in Add-on Config!")
+    else:
+        log(f"✅ Audio Health: Good (Peak: {peak_value}/32767).")
+    # --------------------------
 
     wav_path = "/tmp/process.wav"
     with wave.open(wav_path, "wb") as wf:
