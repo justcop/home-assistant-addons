@@ -221,7 +221,15 @@ def calculate_rms(data):
 def listen_and_identify():
     global app_state, current_attempt, wake_up_time
     try:
-        inp = alsaaudio.PCM(alsaaudio.PCM_CAPTURE, alsaaudio.PCM_NORMAL, 'default', CHANNELS, RATE, FORMAT, CHUNK)
+        inp = alsaaudio.PCM(
+            type=alsaaudio.PCM_CAPTURE,
+            mode=alsaaudio.PCM_NORMAL,
+            device='default',
+            channels=CHANNELS,
+            rate=RATE,
+            format=FORMAT,
+            periodsize=CHUNK
+        )
     except Exception as e:
         log(f"🚨 ALSA initialization failed: {e}"); sys.exit(1)
 
