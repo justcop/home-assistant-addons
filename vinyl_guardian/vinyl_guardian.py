@@ -89,7 +89,6 @@ def recognize_audiotag(wav_path):
             print(f"[DEBUG] AudioTag response: {json.dumps(res_json, indent=2)}", flush=True)
 
         if res_json.get('status') == 'success' and res_json.get('result'):
-            # The API returns a list of results, we take the best match
             best = res_json['result'][0]
             return {
                 "title": best.get('title', 'Unknown'),
@@ -160,7 +159,16 @@ def calculate_rms(data):
 def listen_and_identify():
     global is_processing
     try:
-        inp = alsaaudio.PCM(alsaaudio.PCM_CAPTURE, alsaaudio.PCM_NORMAL, 'default', CHANNELS, RATE, FORMAT, CHUNK)
+        # Fixed: Explicitly defining arguments so ALSA cannot misinterpret them!
+        inp = alsaaudio.PCM(
+            type=alsaaudio.PCM_CAPTURE,
+            mode=alsaaudio.PCM_NORMAL,
+            device='default',
+            channels=CHANNELS,
+            rate=RATE,
+            format=FORMAT,
+            periodsize=CHUNK
+        )
     except Exception as e:
         log(f"🚨 ALSA initialization failed: {e}"); sys.exit(1)
 
