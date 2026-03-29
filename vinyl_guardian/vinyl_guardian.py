@@ -5,6 +5,7 @@ import time
 import threading
 import wave
 import requests
+import urllib.parse
 import numpy as np
 import alsaaudio
 import paho.mqtt.client as mqtt
@@ -35,9 +36,10 @@ RATE = 44100
 FORMAT = alsaaudio.PCM_FORMAT_S16_LE
 CHUNK = 2048
 
-# Global State Flags
-is_processing = False
+# Global State
+app_state = "IDLE" # IDLE, RECORDING, PROCESSING, SLEEPING
 current_attempt = 1
+wake_up_time = 0
 
 def log(message):
     print(f"[Vinyl Guardian] {message}", flush=True)
@@ -68,6 +70,21 @@ def publish_track(title, artist, album, score=0):
     }
     mqtt_client.publish("vinyl_guardian/attributes", json.dumps(attributes), retain=True)
 
+# --- HELPER: GET TRACK DURATION ---
+def get_track_duration(title, artist):
+    """Fetches exact track duration from iTunes API since AudioTag doesn't provide it."""
+    try:
+        query = urllib.parse.quote(f"{title} {artist}")
+        url = f"https://itunes.apple.com/search?term={query}&entity=song&limit=1"
+        res = requests.get(url, timeout=10)
+        data = res.json()
+        if data.get('resultCount', 0) > 0:
+            duration_ms = data['results'][0].get('trackTimeMillis', 0)
+            return duration_ms / 1000.0
+    except Exception as e:
+        if DEBUG: print(f"[DEBUG] Failed to fetch track duration: {e}")
+    return 0
+
 # --- RECOGNITION ENGINE ---
 def recognize_audiotag(wav_path):
     log("Uploading to AudioTag.info API...")
@@ -78,140 +95,121 @@ def recognize_audiotag(wav_path):
             data = {'action': 'identify', 'apikey': AUDIOTAG_KEY}
             response = requests.post(url, files=files, data=data, timeout=45)
             
-        try:
-            res_json = response.json()
-        except ValueError:
-            log(f"🚨 Invalid JSON from AudioTag: {response.text[:200]}")
-            return None
-
-        if not res_json.get('success'):
-            log(f"🚨 AudioTag Error: {json.dumps(res_json)}")
-            return None
-
+        res_json = response.json()
         token = res_json.get('token')
+        
         if not token:
-            log("🚨 AudioTag did not return a job token.")
             return None
 
-        log(f"Upload complete! Job Queued (Token: {token}). Polling for results...")
+        log(f"Upload complete. Polling for results...")
 
-        # POLLING LOOP: Ask the server for the result every 3 seconds
-        for attempt in range(15): # Max 45 seconds of waiting
+        for attempt in range(15): 
             time.sleep(3)
-            poll_data = {'action': 'get_result', 'token': token, 'apikey': AUDIOTAG_KEY}
-            poll_response = requests.post(url, data=poll_data, timeout=15)
+            poll_response = requests.post(url, data={'action': 'get_result', 'token': token, 'apikey': AUDIOTAG_KEY}, timeout=15)
             poll_json = poll_response.json()
 
-            if DEBUG:
-                print(f"[DEBUG] Poll {attempt+1} response: {json.dumps(poll_json)}", flush=True)
-
-            # AudioTag uses 'result' for the polling endpoint status
             status = poll_json.get('result')
             
             if status == 'wait':
-                continue # Still processing, loop again
+                continue 
                 
             elif status == 'found' or status == 'done' or poll_json.get('data') or isinstance(status, list):
-                # Extract the array of matches. It can be in 'data' or 'result' itself
                 data_array = poll_json.get('data', [])
                 if not data_array and isinstance(status, list):
                     data_array = status
-                    
                 if not data_array:
                     return None
                     
                 best = data_array[0]
-                
-                # Defensively parse the AudioTag results
-                title = "Unknown"
-                artist = "Unknown"
-                album = "Unknown"
+                title, artist, album = "Unknown", "Unknown", "Unknown"
                 
                 tracks = best.get('tracks', [])
                 if tracks:
                     track_info = tracks[0]
-                    # Sometimes AudioTag returns lists, sometimes dicts
                     if isinstance(track_info, list) and len(track_info) >= 3:
-                        title = str(track_info[0])
-                        artist = str(track_info[1])
-                        album = str(track_info[2])
+                        title, artist, album = str(track_info[0]), str(track_info[1]), str(track_info[2])
                     elif isinstance(track_info, dict):
                         title = track_info.get('title', track_info.get('track', 'Unknown'))
                         artist = track_info.get('artist', 'Unknown')
                         album = track_info.get('album', 'Unknown')
+                
+                # AudioTag time format is usually "start - end" (e.g. "0 - 16")
+                # We want the 'end' value to know exactly where we currently are in the track
+                current_position = RECORD_SECONDS # Fallback
+                time_str = str(best.get('time', ''))
+                if '-' in time_str:
+                    try:
+                        current_position = int(time_str.split('-')[1].strip())
+                    except: pass
                         
                 return {
                     "title": title,
                     "artist": artist,
                     "album": album,
+                    "current_position": current_position,
                     "score": 100
                 }
                 
-            elif status == 'not found' or status == 'not_found':
+            elif status in ['not found', 'not_found']:
                 return None
             else:
-                log(f"🚨 Unexpected AudioTag status: {status}")
                 return None
 
-        log("🚨 AudioTag polling timed out.")
         return None
-        
     except Exception as e:
-        log(f"🚨 AudioTag Engine Error: {e}")
+        log(f"🚨 Engine Error: {e}")
         return None
 
 # --- BACKGROUND WORKER ---
 def process_audio_background(audio_data_bytes):
-    global is_processing, current_attempt
+    global app_state, current_attempt, wake_up_time
     log(f"🔬 Analyzing {RECORD_SECONDS}s capture (Attempt {current_attempt}/{MAX_ATTEMPTS})...")
-    
-    full_data = np.frombuffer(audio_data_bytes, dtype=np.int16)
-    abs_data = np.abs(full_data)
-    trigger_point = np.where(abs_data > 800)[0] 
-    start_idx = trigger_point[0] if len(trigger_point) > 0 else 0
-    trimmed_bytes = full_data[start_idx:].tobytes()
 
     wav_path = "/tmp/process.wav"
     with wave.open(wav_path, "wb") as wf:
-        wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(trimmed_bytes)
+        wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(audio_data_bytes)
     
-    # FIXED: Properly save the WAV file to the Share folder so it can be played!
-    try:
-        with wave.open("/share/vinyl_debug.wav", "wb") as wf:
-            wf.setnchannels(CHANNELS)
-            wf.setsampwidth(2)
-            wf.setframerate(RATE)
-            wf.writeframes(trimmed_bytes)
-    except Exception as e: 
-        log(f"⚠️ Failed to save debug wav: {e}")
-
-    # Execute recognition
     match = recognize_audiotag(wav_path)
 
     if match:
         publish_track(match['title'], match['artist'], match['album'])
         current_attempt = 1 
-        log("Cooldown: Waiting 15 seconds to avoid API spam...")
-        time.sleep(15)
+        
+        # Calculate precise sleep timer
+        log("Fetching total track duration...")
+        total_duration = get_track_duration(match['title'], match['artist'])
+        
+        if total_duration > 0:
+            remaining_time = total_duration - match['current_position']
+            # Safety bound: If remaining time is somehow negative or absurd, default to 30s
+            if remaining_time < 0 or remaining_time > 1800: remaining_time = 30
+            
+            log(f"⏱️ Track is {total_duration}s long. We are at {match['current_position']}s. Sleeping for {remaining_time:.1f}s until next track.")
+            wake_up_time = time.time() + remaining_time
+            app_state = "SLEEPING"
+        else:
+            log("⚠️ Could not find track length. Falling back to 60s sleep.")
+            wake_up_time = time.time() + 60
+            app_state = "SLEEPING"
+            
     else:
         if current_attempt < MAX_ATTEMPTS:
             log(f"❌ No match. Instantly queueing Attempt {current_attempt + 1}...")
             current_attempt += 1
+            app_state = "RECORDING" 
         else:
             log(f"❌ No match found after {MAX_ATTEMPTS} attempts.")
             mqtt_client.publish("vinyl_guardian/state", "Unknown Track", retain=True)
             current_attempt = 1
-            log("Cooldown: Waiting 15 seconds...")
-            time.sleep(15)
+            log("🎧 Assuming Unknown Track is playing. Falling back to 3-minute sleep.")
+            wake_up_time = time.time() + 180
+            app_state = "SLEEPING"
 
     if os.path.exists(wav_path): os.remove(wav_path)
     
     if ONE_SHOT:
         log("🛑 ONE-SHOT COMPLETE.")
         os._exit(0)
-
-    mqtt_client.publish("vinyl_guardian/state", "Idle", retain=True)
-    is_processing = False
 
 # --- MAIN LOOP ---
 def calculate_rms(data):
@@ -221,23 +219,14 @@ def calculate_rms(data):
     except: return 0
 
 def listen_and_identify():
-    global is_processing
+    global app_state, current_attempt, wake_up_time
     try:
-        inp = alsaaudio.PCM(
-            type=alsaaudio.PCM_CAPTURE,
-            mode=alsaaudio.PCM_NORMAL,
-            device='default',
-            channels=CHANNELS,
-            rate=RATE,
-            format=FORMAT,
-            periodsize=CHUNK
-        )
+        inp = alsaaudio.PCM(alsaaudio.PCM_CAPTURE, alsaaudio.PCM_NORMAL, 'default', CHANNELS, RATE, FORMAT, CHUNK)
     except Exception as e:
         log(f"🚨 ALSA initialization failed: {e}"); sys.exit(1)
 
     log(f"Listening for audio (Threshold: {THRESHOLD})...")
     last_pub = time.time()
-    is_recording = False
     chunks = 0
     target = int(RATE / CHUNK * RECORD_SECONDS)
     buffer = bytearray()
@@ -247,23 +236,49 @@ def listen_and_identify():
         if length > 0:
             rms = calculate_rms(data)
             now = time.time()
+            
+            # 1. Live RMS Reporting
             if now - last_pub >= 1.0:
                 mqtt_client.publish("vinyl_guardian/rms", f"{rms:.4f}")
                 if DEBUG:
-                    status = f"🔴 REC {int((chunks/target)*100)}%" if is_recording else "🟢 LIVE"
+                    if app_state == "RECORDING":
+                        status = f"🔴 REC {int((chunks/target)*100)}%"
+                    elif app_state == "SLEEPING":
+                        remaining = max(0, int(wake_up_time - now))
+                        status = f"💤 SLEEP ({remaining}s)"
+                    elif app_state == "PROCESSING":
+                        status = "⚙️ PROC"
+                    else:
+                        status = "🟢 IDLE"
                     print(f"[{time.strftime('%H:%M:%S')}] {status} | RMS: {rms:.4f}", flush=True)
                 last_pub = now
 
-            if is_recording:
+            # 2. State Machine Logic
+            if app_state == "IDLE" and rms > THRESHOLD:
+                log(f"🎵 AUDIO DETECTED (RMS: {rms:.4f})")
+                mqtt_client.publish("vinyl_guardian/state", "Listening...", retain=True)
+                app_state = "RECORDING"
+                buffer = bytearray()
+                buffer.extend(data)
+                chunks = 1
+
+            elif app_state == "RECORDING":
                 buffer.extend(data)
                 chunks += 1
                 if chunks >= target:
-                    is_recording = False
+                    app_state = "PROCESSING"
                     threading.Thread(target=process_audio_background, args=(bytes(buffer),)).start()
-            elif rms > THRESHOLD and not is_processing:
-                log(f"🎵 AUDIO DETECTED (RMS: {rms:.4f})")
-                mqtt_client.publish("vinyl_guardian/state", "Listening...", retain=True)
-                is_processing = True; is_recording = True; chunks = 0; buffer = bytearray()
+                    buffer = bytearray()
+                    chunks = 0
+            
+            elif app_state == "SLEEPING":
+                if now >= wake_up_time:
+                    log("⏰ Track timer finished! Waking up to identify the next track...")
+                    # Instantly start recording the next track transition!
+                    app_state = "RECORDING"
+                    buffer = bytearray()
+                    chunks = 0
+                    current_attempt = 1
 
 if __name__ == "__main__":
     if not AUDIOTAG_KEY:
