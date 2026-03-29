@@ -1,6 +1,6 @@
 name: "Vinyl Guardian"
 description: "Detects needle drops and identifies vinyl records via AudioTag."
-version: "1.4.7"
+version: "1.5.0"
 slug: "vinyl_guardian"
 init: false
 arch:
@@ -17,6 +17,7 @@ options:
   mqtt_port: 1883
   mqtt_user: ""
   mqtt_password: ""
+  mic_volume: 10
   audio_threshold: 0.015
   recording_seconds: 20
   max_attempts: 3
@@ -28,6 +29,7 @@ schema:
   mqtt_port: "port"
   mqtt_user: "str?"
   mqtt_password: "password?"
+  mic_volume: "int(1,100)"
   audio_threshold: "float"
   recording_seconds: "int"
   max_attempts: "int"
