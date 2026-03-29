@@ -105,13 +105,18 @@ def recognize_audiotag(wav_path):
             if DEBUG:
                 print(f"[DEBUG] Poll {attempt+1} response: {json.dumps(poll_json)}", flush=True)
 
-            status = poll_json.get('job_status')
+            # AudioTag uses 'result' for the polling endpoint status
+            status = poll_json.get('result')
             
             if status == 'wait':
                 continue # Still processing, loop again
                 
-            elif status == 'done':
+            elif status == 'found' or status == 'done' or poll_json.get('data') or isinstance(status, list):
+                # Extract the array of matches. It can be in 'data' or 'result' itself
                 data_array = poll_json.get('data', [])
+                if not data_array and isinstance(status, list):
+                    data_array = status
+                    
                 if not data_array:
                     return None
                     
@@ -142,7 +147,7 @@ def recognize_audiotag(wav_path):
                     "score": 100
                 }
                 
-            elif status == 'not_found':
+            elif status == 'not found' or status == 'not_found':
                 return None
             else:
                 log(f"🚨 Unexpected AudioTag status: {status}")
