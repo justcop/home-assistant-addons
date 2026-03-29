@@ -56,7 +56,7 @@ def connect_mqtt():
         log(f"🚨 MQTT Failed: {e}")
 
 def publish_track(title, artist, album, score=0):
-    log(f"🎶 MATCH FOUND! {title} by {artist} (Score: {score})")
+    log(f"🎶 MATCH FOUND! {title} by {artist}")
     mqtt_client.publish("vinyl_guardian/state", f"{title} - {artist}", retain=True)
     attributes = {
         "title": title, 
@@ -76,7 +76,6 @@ def recognize_audiotag(wav_path):
         with open(wav_path, 'rb') as audio_file:
             files = {'file': audio_file}
             data = {'action': 'identify', 'apikey': AUDIOTAG_KEY}
-            
             response = requests.post(url, files=files, data=data, timeout=45)
             
         try:
@@ -85,18 +84,73 @@ def recognize_audiotag(wav_path):
             log(f"🚨 Invalid JSON from AudioTag: {response.text[:200]}")
             return None
 
-        if DEBUG:
-            print(f"[DEBUG] AudioTag response: {json.dumps(res_json, indent=2)}", flush=True)
+        if not res_json.get('success'):
+            log(f"🚨 AudioTag Error: {json.dumps(res_json)}")
+            return None
 
-        if res_json.get('status') == 'success' and res_json.get('result'):
-            best = res_json['result'][0]
-            return {
-                "title": best.get('title', 'Unknown'),
-                "artist": best.get('artist', 'Unknown'),
-                "album": best.get('album', 'Unknown'),
-                "score": best.get('score', 0)
-            }
+        token = res_json.get('token')
+        if not token:
+            log("🚨 AudioTag did not return a job token.")
+            return None
+
+        log(f"Upload complete! Job Queued (Token: {token}). Polling for results...")
+
+        # POLLING LOOP: Ask the server for the result every 3 seconds
+        for attempt in range(15): # Max 45 seconds of waiting
+            time.sleep(3)
+            poll_data = {'action': 'get_result', 'token': token, 'apikey': AUDIOTAG_KEY}
+            poll_response = requests.post(url, data=poll_data, timeout=15)
+            poll_json = poll_response.json()
+
+            if DEBUG:
+                print(f"[DEBUG] Poll {attempt+1} response: {json.dumps(poll_json)}", flush=True)
+
+            status = poll_json.get('job_status')
+            
+            if status == 'wait':
+                continue # Still processing, loop again
+                
+            elif status == 'done':
+                data_array = poll_json.get('data', [])
+                if not data_array:
+                    return None
+                    
+                best = data_array[0]
+                
+                # Defensively parse the AudioTag results
+                title = "Unknown"
+                artist = "Unknown"
+                album = "Unknown"
+                
+                tracks = best.get('tracks', [])
+                if tracks:
+                    track_info = tracks[0]
+                    # Sometimes AudioTag returns lists, sometimes dicts
+                    if isinstance(track_info, list) and len(track_info) >= 3:
+                        title = str(track_info[0])
+                        artist = str(track_info[1])
+                        album = str(track_info[2])
+                    elif isinstance(track_info, dict):
+                        title = track_info.get('title', track_info.get('track', 'Unknown'))
+                        artist = track_info.get('artist', 'Unknown')
+                        album = track_info.get('album', 'Unknown')
+                        
+                return {
+                    "title": title,
+                    "artist": artist,
+                    "album": album,
+                    "score": 100
+                }
+                
+            elif status == 'not_found':
+                return None
+            else:
+                log(f"🚨 Unexpected AudioTag status: {status}")
+                return None
+
+        log("🚨 AudioTag polling timed out.")
         return None
+        
     except Exception as e:
         log(f"🚨 AudioTag Engine Error: {e}")
         return None
@@ -106,7 +160,6 @@ def process_audio_background(audio_data_bytes):
     global is_processing, current_attempt
     log(f"🔬 Analyzing {RECORD_SECONDS}s capture (Attempt {current_attempt}/{MAX_ATTEMPTS})...")
     
-    # Trim silence to find start of music
     full_data = np.frombuffer(audio_data_bytes, dtype=np.int16)
     abs_data = np.abs(full_data)
     trigger_point = np.where(abs_data > 800)[0] 
@@ -117,16 +170,22 @@ def process_audio_background(audio_data_bytes):
     with wave.open(wav_path, "wb") as wf:
         wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(trimmed_bytes)
     
+    # FIXED: Properly save the WAV file to the Share folder so it can be played!
     try:
-        with open("/share/vinyl_debug.wav", "wb") as f: f.write(trimmed_bytes)
-    except: pass
+        with wave.open("/share/vinyl_debug.wav", "wb") as wf:
+            wf.setnchannels(CHANNELS)
+            wf.setsampwidth(2)
+            wf.setframerate(RATE)
+            wf.writeframes(trimmed_bytes)
+    except Exception as e: 
+        log(f"⚠️ Failed to save debug wav: {e}")
 
     # Execute recognition
     match = recognize_audiotag(wav_path)
 
     if match:
-        publish_track(match['title'], match['artist'], match['album'], match['score'])
-        current_attempt = 1 # Reset on success
+        publish_track(match['title'], match['artist'], match['album'])
+        current_attempt = 1 
         log("Cooldown: Waiting 15 seconds to avoid API spam...")
         time.sleep(15)
     else:
@@ -159,7 +218,6 @@ def calculate_rms(data):
 def listen_and_identify():
     global is_processing
     try:
-        # Fixed: Explicitly defining arguments so ALSA cannot misinterpret them!
         inp = alsaaudio.PCM(
             type=alsaaudio.PCM_CAPTURE,
             mode=alsaaudio.PCM_NORMAL,
