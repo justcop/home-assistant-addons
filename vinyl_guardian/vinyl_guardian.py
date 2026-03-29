@@ -72,7 +72,7 @@ def publish_track(title, artist, album, score=0):
 
 # --- HELPER: GET TRACK DURATION ---
 def get_track_duration(title, artist):
-    """Fetches exact track duration from iTunes API since AudioTag doesn't provide it."""
+    """Fetches exact track duration from iTunes API."""
     try:
         query = urllib.parse.quote(f"{title} {artist}")
         url = f"https://itunes.apple.com/search?term={query}&entity=song&limit=1"
@@ -161,7 +161,7 @@ def recognize_audiotag(wav_path):
         return None
 
 # --- BACKGROUND WORKER ---
-def process_audio_background(audio_data_bytes):
+def process_audio_background(audio_data_bytes, capture_end_timestamp):
     global app_state, current_attempt, wake_up_time
     log(f"🔬 Analyzing {RECORD_SECONDS}s capture (Attempt {current_attempt}/{MAX_ATTEMPTS})...")
 
@@ -169,7 +169,6 @@ def process_audio_background(audio_data_bytes):
     with wave.open(wav_path, "wb") as wf:
         wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(audio_data_bytes)
     
-    # ADDED BACK: Save to /share so you can verify the audio manually
     try:
         with wave.open("/share/vinyl_debug.wav", "wb") as wf:
             wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(audio_data_bytes)
@@ -183,17 +182,29 @@ def process_audio_background(audio_data_bytes):
         publish_track(match['title'], match['artist'], match['album'])
         current_attempt = 1 
         
-        # Calculate precise sleep timer
-        log("Fetching total track duration...")
+        log("Fetching total track duration from iTunes...")
         total_duration = get_track_duration(match['title'], match['artist'])
         
         if total_duration > 0:
-            remaining_time = total_duration - match['current_position']
-            # Safety bound: If remaining time is somehow negative or absurd, default to 30s
-            if remaining_time < 0 or remaining_time > 1800: remaining_time = 30
+            # 1. We know the track position at the exact moment the recording ended
+            track_position_at_capture_end = match['current_position']
             
-            log(f"⏱️ Track is {total_duration}s long. We are at {match['current_position']}s. Sleeping for {remaining_time:.1f}s until next track.")
-            wake_up_time = time.time() + remaining_time
+            # 2. Calculate the absolute real-world time the song actually started
+            song_real_start_time = capture_end_timestamp - track_position_at_capture_end
+            
+            # 3. Calculate the absolute real-world time the song will end
+            predicted_end_time = song_real_start_time + total_duration
+            
+            # 4. Set the global wake-up time
+            wake_up_time = predicted_end_time
+            
+            if DEBUG:
+                current_time = time.time()
+                processing_latency = current_time - capture_end_timestamp
+                print(f"[DEBUG] Processing took {processing_latency:.1f}s", flush=True)
+                print(f"[DEBUG] Track duration: {total_duration}s | API matched position: {track_position_at_capture_end}s", flush=True)
+            
+            log(f"⏱️ Sleeping until absolute track end timestamp...")
             app_state = "SLEEPING"
         else:
             log("⚠️ Could not find track length. Falling back to 60s sleep.")
@@ -283,13 +294,15 @@ def listen_and_identify():
                 chunks += 1
                 if chunks >= target:
                     app_state = "PROCESSING"
-                    threading.Thread(target=process_audio_background, args=(bytes(buffer),)).start()
+                    # Capture the EXACT moment the recording finished
+                    capture_end_timestamp = time.time() 
+                    threading.Thread(target=process_audio_background, args=(bytes(buffer), capture_end_timestamp)).start()
                     buffer = bytearray()
                     chunks = 0
             
             elif app_state == "SLEEPING":
                 if now >= wake_up_time:
-                    log("⏰ Track timer finished! Waking up to identify the next track...")
+                    log("⏰ Absolute track timer finished! Waking up to identify the next track...")
                     app_state = "RECORDING"
                     buffer = bytearray()
                     chunks = 0
