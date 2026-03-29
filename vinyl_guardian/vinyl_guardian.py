@@ -169,6 +169,14 @@ def process_audio_background(audio_data_bytes):
     with wave.open(wav_path, "wb") as wf:
         wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(audio_data_bytes)
     
+    # ADDED BACK: Save to /share so you can verify the audio manually
+    try:
+        with wave.open("/share/vinyl_debug.wav", "wb") as wf:
+            wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(audio_data_bytes)
+        log("💾 Saved current capture to /share/vinyl_debug.wav")
+    except Exception as e:
+        log(f"⚠️ Could not save debug wav: {e}")
+
     match = recognize_audiotag(wav_path)
 
     if match:
@@ -282,7 +290,6 @@ def listen_and_identify():
             elif app_state == "SLEEPING":
                 if now >= wake_up_time:
                     log("⏰ Track timer finished! Waking up to identify the next track...")
-                    # Instantly start recording the next track transition!
                     app_state = "RECORDING"
                     buffer = bytearray()
                     chunks = 0
