@@ -3,7 +3,6 @@ FROM $BUILD_FROM
 
 ENV LANG=C.UTF-8
 
-# Added pulseaudio-utils to fix the 'pactl: not found' error
 RUN apk add --no-cache \
     gcc \
     musl-dev \
@@ -13,11 +12,9 @@ RUN apk add --no-cache \
     alsa-utils \
     alsa-plugins \
     alsa-plugins-pulse \
-    pulseaudio-utils \
-    chromaprint
+    pulseaudio-utils
 
-# Install required Python packages
-RUN python3 -m pip install --no-cache-dir --break-system-packages pyacoustid numpy paho-mqtt pyalsaaudio
+RUN python3 -m pip install --no-cache-dir --break-system-packages numpy paho-mqtt pyalsaaudio requests
 
 WORKDIR /usr/src/app
 
