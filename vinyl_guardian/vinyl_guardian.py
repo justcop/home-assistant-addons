@@ -40,7 +40,7 @@ FORMAT = alsaaudio.PCM_FORMAT_S16_LE
 CHUNK = 2048
 
 # Global State
-app_state = "IDLE" # IDLE, RECORDING, PROCESSING, SLEEPING
+app_state = "IDLE" # IDLE, RECORDING, PROCESSING, SLEEPING, COOLDOWN
 current_attempt = 1
 wake_up_time = 0
 
@@ -130,7 +130,6 @@ def recognize_audd(wav_path):
             
         res_json = response.json()
         
-        # Save raw output for debugging
         try:
             with open("/share/audd_last_match.json", "w") as f:
                 json.dump(res_json, f, indent=2)
@@ -139,7 +138,6 @@ def recognize_audd(wav_path):
         if res_json.get('status') == 'success' and res_json.get('result'):
             result = res_json['result']
             
-            # Parse MM:SS timecode into total seconds
             timecode_str = result.get('timecode', '00:00')
             offset_seconds = 0
             if ':' in timecode_str:
@@ -149,7 +147,6 @@ def recognize_audd(wav_path):
             elif timecode_str.isdigit():
                 offset_seconds = int(timecode_str)
 
-            # Extract duration directly from Apple Music data if AudD found it
             duration = 0
             if 'apple_music' in result and 'durationInMillis' in result['apple_music']:
                 duration = result['apple_music']['durationInMillis'] / 1000.0
@@ -213,7 +210,7 @@ def recognize_audiotag(wav_path):
                     "title": title,
                     "artist": artist,
                     "album": album,
-                    "offset_seconds": 0, # AudioTag doesn't provide real offset
+                    "offset_seconds": 0, 
                     "duration": 0
                 }
             elif status in ['not found', 'not_found']:
@@ -226,14 +223,14 @@ def recognize_audiotag(wav_path):
         return None
 
 # --- BACKGROUND WORKER ---
-def process_audio_background(audio_data_bytes, capture_end_timestamp, song_start_timestamp):
+def process_audio_background(audio_data_bytes, song_start_timestamp):
     global app_state, current_attempt, wake_up_time
     log(f"🔬 Analyzing {RECORD_SECONDS}s capture via {ENGINE.upper()} (Attempt {current_attempt}/{MAX_ATTEMPTS})...")
 
-    # --- AUDIO HEALTH CHECK ---
     full_data = np.frombuffer(audio_data_bytes, dtype=np.int16)
-    peak_value = int(np.max(np.abs(full_data.astype(np.int32)))) if len(full_data) > 0 else 0
     
+    # --- AUDIO HEALTH CHECK ---
+    peak_value = int(np.max(np.abs(full_data.astype(np.int32)))) if len(full_data) > 0 else 0
     if peak_value >= 32000:
         log(f"⚠️ WARNING: Audio is CLIPPING (Peak: {peak_value}/32767). Turn DOWN mic_volume!")
     elif peak_value < 2000:
@@ -241,13 +238,30 @@ def process_audio_background(audio_data_bytes, capture_end_timestamp, song_start
     else:
         log(f"✅ Audio Health: Good (Peak: {peak_value}/32767).")
 
+    # --- SILENCE TRIMMING ---
+    # Trigger point of 1000 cuts pure hum/static without cutting into real music
+    abs_data = np.abs(full_data)
+    trigger_point = np.where(abs_data > 1000)[0]
+    start_idx = trigger_point[0] if len(trigger_point) > 0 else 0
+    
+    # Safety constraint: Do not trim if it leaves less than 10 seconds of audio for the API
+    min_samples_required = RATE * 10
+    if len(full_data) - start_idx < min_samples_required:
+        start_idx = max(0, len(full_data) - min_samples_required)
+
+    trimmed_bytes = full_data[start_idx:].tobytes()
+    trimmed_seconds = start_idx / RATE
+    
+    if trimmed_seconds > 0:
+        log(f"✂️ Trimmed {trimmed_seconds:.2f}s of silence from the start.")
+
     wav_path = "/tmp/process.wav"
     with wave.open(wav_path, "wb") as wf:
-        wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(audio_data_bytes)
+        wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(trimmed_bytes)
     
     try:
         with wave.open("/share/vinyl_debug.wav", "wb") as wf:
-            wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(audio_data_bytes)
+            wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(trimmed_bytes)
     except Exception: pass
 
     # Run chosen engine
@@ -257,24 +271,20 @@ def process_audio_background(audio_data_bytes, capture_end_timestamp, song_start
         publish_track(match['title'], match['artist'], match['album'], ENGINE.upper())
         current_attempt = 1 
         
-        # Calculate Total Duration
         total_duration = match.get('duration', 0)
         if total_duration <= 0:
             log("Fetching total track duration from iTunes fallback...")
             total_duration = get_track_duration(match['title'], match['artist'])
         
         if total_duration > 0:
+            # Shift the start timestamp forward by the amount of silence we trimmed
+            trimmed_audio_start_timestamp = song_start_timestamp + trimmed_seconds
+            
             if ENGINE == "audd":
-                # AudD offset math (calculating actual start of the song in the real world)
-                recording_start_timestamp = capture_end_timestamp - RECORD_SECONDS
-                song_real_start_timestamp = recording_start_timestamp - match['offset_seconds']
+                song_real_start_timestamp = trimmed_audio_start_timestamp - match['offset_seconds']
                 wake_up_time = song_real_start_timestamp + total_duration
-                
-                if DEBUG:
-                    log(f"⏱️ Snippet corresponds to {match['offset_seconds']}s into the track.")
             else:
-                # AudioTag fallback math (assumes the needle drop was the start of the song)
-                wake_up_time = song_start_timestamp + total_duration
+                wake_up_time = trimmed_audio_start_timestamp + total_duration
             
             if DEBUG:
                 log(f"⏱️ Track duration: {total_duration}s. Predicted absolute end time: {time.strftime('%H:%M:%S', time.localtime(wake_up_time))}")
@@ -326,6 +336,8 @@ def listen_and_identify():
 
     log(f"Listening for audio (Engine: {ENGINE.upper()}, Threshold: {THRESHOLD})...")
     last_pub = time.time()
+    last_sleep_log = 0
+    cooldown_end = 0
     chunks = 0
     target = int(RATE / CHUNK * RECORD_SECONDS)
     buffer = bytearray()
@@ -337,20 +349,29 @@ def listen_and_identify():
             rms = calculate_rms(data)
             now = time.time()
             
+            # --- LOGGING ---
             if now - last_pub >= 1.0:
                 mqtt_client.publish("vinyl_guardian/rms", f"{rms:.4f}")
                 if DEBUG:
                     if app_state == "RECORDING":
                         status = f"🔴 REC {int((chunks/target)*100)}%"
+                        print(f"[{time.strftime('%H:%M:%S')}] {status} | RMS: {rms:.4f}", flush=True)
                     elif app_state == "SLEEPING":
-                        status = f"💤 SLEEP ({max(0, int(wake_up_time - now))}s)"
+                        # Only spam the console every 15 seconds while sleeping
+                        if now - last_sleep_log >= 15.0:
+                            status = f"💤 SLEEP ({max(0, int(wake_up_time - now))}s remaining)"
+                            print(f"[{time.strftime('%H:%M:%S')}] {status} | RMS: {rms:.4f}", flush=True)
+                            last_sleep_log = now
+                    elif app_state == "COOLDOWN":
+                        status = f"⏳ COOLDOWN ({max(0, int(cooldown_end - now))}s)"
+                        print(f"[{time.strftime('%H:%M:%S')}] {status} | RMS: {rms:.4f}", flush=True)
                     elif app_state == "PROCESSING":
-                        status = "⚙️ PROC"
-                    else:
-                        status = "🟢 IDLE"
-                    print(f"[{time.strftime('%H:%M:%S')}] {status} | RMS: {rms:.4f}", flush=True)
+                        print(f"[{time.strftime('%H:%M:%S')}] ⚙️ PROC | RMS: {rms:.4f}", flush=True)
+                    else: # IDLE
+                        print(f"[{time.strftime('%H:%M:%S')}] 🟢 IDLE | RMS: {rms:.4f}", flush=True)
                 last_pub = now
 
+            # --- STATE MACHINE ---
             if app_state == "IDLE" and rms > THRESHOLD:
                 log(f"🎵 AUDIO DETECTED (RMS: {rms:.4f})")
                 mqtt_client.publish("vinyl_guardian/state", "Listening...", retain=True)
@@ -365,19 +386,21 @@ def listen_and_identify():
                 chunks += 1
                 if chunks >= target:
                     app_state = "PROCESSING"
-                    capture_end_timestamp = time.time() 
-                    threading.Thread(target=process_audio_background, args=(bytes(buffer), capture_end_timestamp, song_start_timestamp)).start()
+                    threading.Thread(target=process_audio_background, args=(bytes(buffer), song_start_timestamp)).start()
                     buffer = bytearray()
                     chunks = 0
             
             elif app_state == "SLEEPING":
                 if now >= wake_up_time:
-                    log("⏰ Absolute track timer finished! Waking up to identify the next track...")
-                    song_start_timestamp = time.time()
-                    app_state = "RECORDING"
-                    buffer = bytearray()
-                    chunks = 0
-                    current_attempt = 1
+                    log("⏰ Absolute track timer finished! Entering 4-second cooldown...")
+                    app_state = "COOLDOWN"
+                    cooldown_end = now + 4
+                    
+            elif app_state == "COOLDOWN":
+                if now >= cooldown_end:
+                    log("🟢 Cooldown complete. Returning to IDLE to wait for the next track.")
+                    mqtt_client.publish("vinyl_guardian/state", "Idle", retain=True)
+                    app_state = "IDLE"
 
 if __name__ == "__main__":
     if ENGINE == "audd" and not AUDD_KEY:
