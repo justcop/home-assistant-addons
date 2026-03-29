@@ -44,16 +44,50 @@ wake_up_time = 0
 def log(message):
     print(f"[Vinyl Guardian] {message}", flush=True)
 
-# --- MQTT SETUP ---
+# --- MQTT SETUP & DISCOVERY ---
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 if MQTT_USER and MQTT_PASS:
     mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
+
+def publish_discovery():
+    """Tells Home Assistant to automatically create the Devices/Entities"""
+    log("Publishing MQTT Auto-Discovery payloads to Home Assistant...")
+    
+    device_info = {
+        "identifiers": ["vinyl_guardian_01"],
+        "name": "Vinyl Guardian",
+        "manufacturer": "Custom Add-on"
+    }
+
+    # Now Playing Sensor
+    payload_playing = {
+        "name": "Vinyl Now Playing",
+        "state_topic": "vinyl_guardian/state",
+        "json_attributes_topic": "vinyl_guardian/attributes",
+        "icon": "mdi:record-player",
+        "unique_id": "vinyl_guardian_now_playing",
+        "device": device_info
+    }
+    mqtt_client.publish("homeassistant/sensor/vinyl_guardian/now_playing/config", json.dumps(payload_playing), retain=True)
+    mqtt_client.publish("vinyl_guardian/state", "Idle", retain=True)
+
+    # Live RMS Sensor
+    payload_rms = {
+        "name": "Vinyl Live RMS",
+        "state_topic": "vinyl_guardian/rms",
+        "icon": "mdi:waveform",
+        "unique_id": "vinyl_guardian_live_rms",
+        "device": device_info
+    }
+    mqtt_client.publish("homeassistant/sensor/vinyl_guardian/live_rms/config", json.dumps(payload_rms), retain=True)
+    mqtt_client.publish("vinyl_guardian/rms", "0.0000", retain=True)
 
 def connect_mqtt():
     try:
         log(f"Connecting to MQTT...")
         mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
         mqtt_client.loop_start()
+        publish_discovery()
     except Exception as e:
         log(f"🚨 MQTT Failed: {e}")
 
@@ -114,14 +148,15 @@ def recognize_audiotag(wav_path):
                 continue 
                 
             elif status == 'found' or status == 'done' or poll_json.get('data') or isinstance(status, list):
-                # Save the successful raw API response to a file for debugging/inspection
+                
+                # --- JSON EXPORT ---
                 try:
                     with open("/share/audiotag_last_match.json", "w") as f:
                         json.dump(poll_json, f, indent=2)
-                    if DEBUG:
-                        print("[DEBUG] Saved successful API response to /share/audiotag_last_match.json", flush=True)
+                    if DEBUG: print("[DEBUG] Saved API response to /share/audiotag_last_match.json", flush=True)
                 except Exception as e:
                     if DEBUG: print(f"[DEBUG] Failed to save API response: {e}", flush=True)
+                # -------------------
 
                 data_array = poll_json.get('data', [])
                 if not data_array and isinstance(status, list):
@@ -142,15 +177,13 @@ def recognize_audiotag(wav_path):
                         artist = track_info.get('artist', 'Unknown')
                         album = track_info.get('album', 'Unknown')
                 
-                # AudioTag time format is usually "start - end" (e.g. "0 - 16")
-                current_position = RECORD_SECONDS # Fallback
+                current_position = RECORD_SECONDS 
                 time_str = str(best.get('time', ''))
                 if '-' in time_str:
                     try:
                         current_position = int(time_str.split('-')[1].strip())
                     except: pass
                 
-                # Extract the real confidence score from AudioTag
                 confidence = best.get('confidence', 0)
                         
                 return {
@@ -181,9 +214,9 @@ def process_audio_background(audio_data_bytes, capture_end_timestamp):
     peak_value = int(np.max(np.abs(full_data.astype(np.int32)))) if len(full_data) > 0 else 0
     
     if peak_value >= 32000:
-        log(f"⚠️ WARNING: Audio is CLIPPING (Peak: {peak_value}/32767). Distorted audio may fail to match. Turn DOWN mic_volume in Add-on Config!")
+        log(f"⚠️ WARNING: Audio is CLIPPING (Peak: {peak_value}/32767). Turn DOWN mic_volume!")
     elif peak_value < 2000:
-        log(f"⚠️ WARNING: Audio is VERY QUIET (Peak: {peak_value}/32767). Turn UP mic_volume in Add-on Config!")
+        log(f"⚠️ WARNING: Audio is VERY QUIET (Peak: {peak_value}/32767). Turn UP mic_volume!")
     else:
         log(f"✅ Audio Health: Good (Peak: {peak_value}/32767).")
     # --------------------------
@@ -195,37 +228,22 @@ def process_audio_background(audio_data_bytes, capture_end_timestamp):
     try:
         with wave.open("/share/vinyl_debug.wav", "wb") as wf:
             wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(audio_data_bytes)
-        log("💾 Saved current capture to /share/vinyl_debug.wav")
-    except Exception as e:
-        log(f"⚠️ Could not save debug wav: {e}")
+    except Exception as e: pass
 
     match = recognize_audiotag(wav_path)
 
     if match:
-        publish_track(match['title'], match['artist'], match['album'])
+        publish_track(match['title'], match['artist'], match['album'], match['score'])
         current_attempt = 1 
         
         log("Fetching total track duration from iTunes...")
         total_duration = get_track_duration(match['title'], match['artist'])
         
         if total_duration > 0:
-            # 1. We know the track position at the exact moment the recording ended
             track_position_at_capture_end = match['current_position']
-            
-            # 2. Calculate the absolute real-world time the song actually started
             song_real_start_time = capture_end_timestamp - track_position_at_capture_end
-            
-            # 3. Calculate the absolute real-world time the song will end
             predicted_end_time = song_real_start_time + total_duration
-            
-            # 4. Set the global wake-up time
             wake_up_time = predicted_end_time
-            
-            if DEBUG:
-                current_time = time.time()
-                processing_latency = current_time - capture_end_timestamp
-                print(f"[DEBUG] Processing took {processing_latency:.1f}s", flush=True)
-                print(f"[DEBUG] Track duration: {total_duration}s | API matched position: {track_position_at_capture_end}s", flush=True)
             
             log(f"⏱️ Sleeping until absolute track end timestamp...")
             app_state = "SLEEPING"
@@ -317,7 +335,6 @@ def listen_and_identify():
                 chunks += 1
                 if chunks >= target:
                     app_state = "PROCESSING"
-                    # Capture the EXACT moment the recording finished
                     capture_end_timestamp = time.time() 
                     threading.Thread(target=process_audio_background, args=(bytes(buffer), capture_end_timestamp)).start()
                     buffer = bytearray()
