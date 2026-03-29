@@ -1,38 +1,38 @@
 name: "Vinyl Guardian"
-description: "Listens to ADC line-in, fingerprints audio via AcoustID, and updates HA via MQTT."
-version: "1.3.22"
+description: "Detects needle drops and identifies vinyl records via AudioTag."
+version: "1.4.0"
 slug: "vinyl_guardian"
 init: false
 arch:
   - aarch64
   - amd64
+  - armhf
   - armv7
-audio: true
-map:
-  - share:rw
-devices:
-  - /dev/snd:/dev/snd:rwm
-startup: application
-boot: auto
-schema:
-  acoustid_key: str
-  mqtt_broker: str
-  mqtt_port: int
-  mqtt_user: str?
-  mqtt_password: password?
-  audio_threshold: float
-  mic_volume: int
-  record_diagnostic_sample: bool
-  debug_logging: bool
-  debug_one_shot: bool
+  - i386
+startup: "application"
+boot: "auto"
 options:
-  acoustid_key: ""
+  audiotag_key: ""
   mqtt_broker: "core-mosquitto"
   mqtt_port: 1883
   mqtt_user: ""
   mqtt_password: ""
   audio_threshold: 0.015
-  mic_volume: 10
-  record_diagnostic_sample: false
+  recording_seconds: 20
+  max_attempts: 3
   debug_logging: true
-  debug_one_shot: true
+  debug_one_shot: false
+schema:
+  audiotag_key: "str"
+  mqtt_broker: "str"
+  mqtt_port: "port"
+  mqtt_user: "str?"
+  mqtt_password: "password?"
+  audio_threshold: "float"
+  recording_seconds: "int"
+  max_attempts: "int"
+  debug_logging: "bool"
+  debug_one_shot: "bool"
+map:
+  - share:rw
+audio: true
