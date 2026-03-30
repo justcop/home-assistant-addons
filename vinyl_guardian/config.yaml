@@ -1,6 +1,6 @@
 name: "Vinyl Guardian"
 description: "Detects needle drops and identifies vinyl records via Shazam."
-version: "1.9.0"
+version: "1.10.0"
 slug: "vinyl_guardian"
 init: false
 arch:
