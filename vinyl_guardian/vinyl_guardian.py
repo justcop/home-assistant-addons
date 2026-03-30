@@ -11,6 +11,7 @@ import alsaaudio
 import paho.mqtt.client as mqtt
 import asyncio
 from shazamio import Shazam
+import pylast
 
 # --- LOAD CONFIGURATION ---
 try:
@@ -24,6 +25,11 @@ MQTT_BROKER = config.get("mqtt_broker", "core-mosquitto")
 MQTT_PORT = config.get("mqtt_port", 1883)
 MQTT_USER = config.get("mqtt_user", "")
 MQTT_PASS = config.get("mqtt_password", "")
+
+LFM_USER = config.get("lastfm_username", "")
+LFM_PASS = config.get("lastfm_password", "")
+LFM_KEY = config.get("lastfm_api_key", "")
+LFM_SECRET = config.get("lastfm_api_secret", "")
 
 THRESHOLD = config.get("audio_threshold", 0.015)
 DEBUG = config.get("debug_logging", True)
@@ -49,6 +55,32 @@ scrobble_fired = False
 
 def log(message):
     print(f"[Vinyl Guardian] {message}", flush=True)
+
+# --- LAST.FM SETUP ---
+lastfm_network = None
+if LFM_USER and LFM_PASS and LFM_KEY and LFM_SECRET:
+    try:
+        lastfm_network = pylast.LastFMNetwork(
+            api_key=LFM_KEY,
+            api_secret=LFM_SECRET,
+            username=LFM_USER,
+            password_hash=pylast.md5(LFM_PASS)
+        )
+        log("✅ Last.fm integration initialized.")
+    except Exception as e:
+        log(f"🚨 Last.fm initialization failed: {e}")
+
+def scrobble_to_lastfm(artist, title, start_timestamp, album=None):
+    if not lastfm_network:
+        return
+    try:
+        kwargs = {"artist": artist, "title": title, "timestamp": start_timestamp}
+        if album and album != "Unknown":
+            kwargs["album"] = album
+        lastfm_network.scrobble(**kwargs)
+        log(f"🎵 Successfully scrobbled to Last.fm: {title} by {artist}")
+    except Exception as e:
+        log(f"🚨 Last.fm Scrobble Failed: {e}")
 
 # --- MQTT SETUP & DISCOVERY ---
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
@@ -193,14 +225,12 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
 
     full_data = np.frombuffer(audio_data_bytes, dtype=np.int16)
     
-    # --- AUDIO HEALTH CHECK ---
     peak_value = int(np.max(np.abs(full_data.astype(np.int32)))) if len(full_data) > 0 else 0
     if peak_value >= 32000:
         log(f"⚠️ WARNING: Audio is CLIPPING (Peak: {peak_value}/32767). Turn DOWN mic_volume!")
     elif peak_value < 2000:
         log(f"⚠️ WARNING: Audio is VERY QUIET (Peak: {peak_value}/32767). Turn UP mic_volume!")
 
-    # --- SILENCE TRIMMING ---
     abs_data = np.abs(full_data)
     trigger_point = np.where(abs_data > 1000)[0]
     start_idx = trigger_point[0] if len(trigger_point) > 0 else 0
@@ -237,9 +267,6 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
             song_real_start_timestamp = trimmed_audio_start_timestamp - match['offset_seconds']
             wake_up_time = song_real_start_timestamp + total_duration
             
-            # --- POPULATE SCROBBLE DATA ---
-            # Calculates the exact real-world time the scrobble should fire
-            # based purely on continuous physical play time
             scrobble_delay = min(total_duration / 2.0, 240)
             scrobble_trigger_time = song_start_timestamp + scrobble_delay
 
@@ -255,7 +282,6 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
             }
             scrobble_fired = False
 
-            # Publish immediately to "Now Playing" sensor
             log(f"🎶 MATCH FOUND! {match['title']} by {match['artist']}")
             mqtt_client.publish("vinyl_guardian/track", f"{match['title']} - {match['artist']}", retain=True)
             mqtt_client.publish("vinyl_guardian/attributes", json.dumps(current_track), retain=True)
@@ -394,7 +420,6 @@ def listen_and_identify():
                     loud_chunks = 0
             
             elif app_state == "SLEEPING":
-                # 1. Needle Lift Detector (Abort if absolute silence for 25 seconds)
                 if rms < (THRESHOLD * 0.5):
                     silence_during_sleep += 1
                 else:
@@ -407,17 +432,24 @@ def listen_and_identify():
                     app_state = "IDLE"
                     current_track = None
                     silence_during_sleep = 0
-                    continue # Skip everything else
+                    continue
 
-                # 2. Scrobble Validator (Wait for 50% or 4 minutes of continuous physical playtime)
                 if current_track and not scrobble_fired:
                     if now >= current_track.get('scrobble_trigger_time', 0):
-                        log(f"✅ Scrobble rules met. Emitting scrobble payload!")
+                        log(f"✅ Scrobble rules met. Emitting MQTT scrobble payload...")
                         mqtt_client.publish("vinyl_guardian/scrobble_state", f"{current_track['title']} - {current_track['artist']}", retain=True)
                         mqtt_client.publish("vinyl_guardian/scrobble", json.dumps(current_track), retain=True)
+                        
+                        # NATIVE SCROBBLE TO LAST.FM
+                        scrobble_to_lastfm(
+                            artist=current_track['artist'],
+                            title=current_track['title'],
+                            start_timestamp=current_track['start_timestamp'],
+                            album=current_track['album']
+                        )
+                        
                         scrobble_fired = True
 
-                # 3. Track End Timer
                 if now >= wake_up_time:
                     log("⏰ Sleep timer finished! Entering 4-second cooldown before listening...")
                     app_state = "COOLDOWN"
