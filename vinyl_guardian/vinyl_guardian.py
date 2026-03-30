@@ -148,6 +148,19 @@ def connect_mqtt():
 def change_status(new_status):
     mqtt_client.publish("vinyl_guardian/status", new_status, retain=True)
 
+# --- HELPER: GET TRACK DURATION (Fallback) ---
+def get_track_duration(title, artist):
+    try:
+        query = urllib.parse.quote(f"{title} {artist}")
+        url = f"https://itunes.apple.com/search?term={query}&entity=song&limit=1"
+        res = requests.get(url, timeout=10)
+        data = res.json()
+        if data.get('resultCount', 0) > 0:
+            return data['results'][0].get('trackTimeMillis', 0) / 1000.0
+    except Exception as e:
+        if DEBUG: print(f"[DEBUG] Failed to fetch track duration: {e}")
+    return 0
+
 # --- RECOGNITION ENGINE (SHAZAM) ---
 def recognize_shazam(wav_path):
     log("Uploading to Shazam...")
