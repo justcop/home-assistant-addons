@@ -9,6 +9,8 @@ import urllib.parse
 import numpy as np
 import alsaaudio
 import paho.mqtt.client as mqtt
+import asyncio
+from shazamio import Shazam
 
 # --- LOAD CONFIGURATION ---
 try:
@@ -18,13 +20,6 @@ except Exception as e:
     print(f"🚨 Failed to load config: {e}")
     sys.exit(1)
 
-# API Key Pool
-AUDD_KEYS = [k for k in [
-    config.get("audd_key_1", ""),
-    config.get("audd_key_2", ""),
-    config.get("audd_key_3", "")
-] if k]
-
 MQTT_BROKER = config.get("mqtt_broker", "core-mosquitto")
 MQTT_PORT = config.get("mqtt_port", 1883)
 MQTT_USER = config.get("mqtt_user", "")
@@ -33,7 +28,7 @@ MQTT_PASS = config.get("mqtt_password", "")
 THRESHOLD = config.get("audio_threshold", 0.015)
 DEBUG = config.get("debug_logging", True)
 ONE_SHOT = config.get("debug_one_shot", False)
-RECORD_SECONDS = config.get("recording_seconds", 20)
+RECORD_SECONDS = config.get("recording_seconds", 15)
 MAX_ATTEMPTS = config.get("max_attempts", 3)
 
 # Audio Settings
@@ -47,21 +42,9 @@ app_state = "IDLE" # IDLE, RECORDING, PROCESSING, SLEEPING, COOLDOWN
 current_attempt = 1
 wake_up_time = 0
 consecutive_failures = 0
-current_key_idx = 0
 
 def log(message):
     print(f"[Vinyl Guardian] {message}", flush=True)
-
-# --- API KEY MANAGEMENT ---
-def get_current_audd_key():
-    if not AUDD_KEYS: return ""
-    return AUDD_KEYS[current_key_idx]
-
-def rotate_audd_key():
-    global current_key_idx
-    if len(AUDD_KEYS) <= 1: return False
-    current_key_idx = (current_key_idx + 1) % len(AUDD_KEYS)
-    return True
 
 # --- MQTT SETUP & DISCOVERY ---
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
@@ -107,18 +90,18 @@ def connect_mqtt():
         log(f"🚨 MQTT Failed: {e}")
 
 def publish_track(title, artist, album):
-    log(f"🎶 MATCH FOUND! {title} by {artist} (via AudD)")
+    log(f"🎶 MATCH FOUND! {title} by {artist} (via Shazam)")
     mqtt_client.publish("vinyl_guardian/state", f"{title} - {artist}", retain=True)
     attributes = {
         "title": title, 
         "artist": artist, 
         "album": album, 
-        "source": "AudD",
+        "source": "Shazam",
         "last_updated": time.strftime("%H:%M:%S")
     }
     mqtt_client.publish("vinyl_guardian/attributes", json.dumps(attributes), retain=True)
 
-# --- HELPER: GET TRACK DURATION ---
+# --- HELPER: GET TRACK DURATION (Fallback) ---
 def get_track_duration(title, artist):
     try:
         query = urllib.parse.quote(f"{title} {artist}")
@@ -131,76 +114,64 @@ def get_track_duration(title, artist):
         if DEBUG: print(f"[DEBUG] Failed to fetch track duration: {e}")
     return 0
 
-# --- RECOGNITION ENGINE ---
-def recognize_audd(wav_path):
-    log("Uploading to AudD.io API...")
-    url = "https://api.audd.io/"
-    
-    # Loop to allow for API key rotation upon failure
-    for attempt in range(max(1, len(AUDD_KEYS))):
-        api_key = get_current_audd_key()
+# --- RECOGNITION ENGINE (SHAZAM) ---
+def recognize_shazam(wav_path):
+    log("Uploading to Shazam API...")
+    try:
+        async def _recognize():
+            shazam = Shazam()
+            return await shazam.recognize(wav_path)
+            
+        # Run the async shazamio function synchronously
+        res_json = asyncio.run(_recognize())
         
         try:
-            data = {'api_token': api_key, 'return': 'timecode,apple_music'}
-            with open(wav_path, 'rb') as audio_file:
-                files = {'file': audio_file}
-                response = requests.post(url, data=data, files=files, timeout=30)
-                
-            res_json = response.json()
-            
-            try:
-                with open("/share/audd_last_match.json", "w") as f:
-                    json.dump(res_json, f, indent=2)
-            except Exception: pass
+            with open("/share/shazam_last_match.json", "w") as f:
+                json.dump(res_json, f, indent=2)
+        except Exception: pass
 
-            if res_json.get('status') == 'success' and res_json.get('result'):
-                result = res_json['result']
-                
-                timecode_str = result.get('timecode', '00:00')
-                offset_seconds = 0
-                if ':' in timecode_str:
-                    parts = timecode_str.split(':')
-                    if len(parts) == 2:
-                        offset_seconds = (int(parts[0]) * 60) + int(parts[1])
-                elif timecode_str.isdigit():
-                    offset_seconds = int(timecode_str)
-
-                duration = 0
-                if 'apple_music' in result and 'durationInMillis' in result['apple_music']:
-                    duration = result['apple_music']['durationInMillis'] / 1000.0
-                    
-                return {
-                    "title": result.get('title', 'Unknown'),
-                    "artist": result.get('artist', 'Unknown'),
-                    "album": result.get('album', 'Unknown'),
-                    "offset_seconds": offset_seconds,
-                    "duration": duration
-                }
-                
-            elif res_json.get('status') == 'error':
-                err_code = res_json.get('error', {}).get('error_code', 'Unknown')
-                err_msg = res_json.get('error', {}).get('error_message', 'Unknown Error')
-                log(f"⚠️ AudD API Error ({err_code}): {err_msg}")
-                
-                # If we hit an error (like limit reached) and have more keys, rotate and try again immediately
-                if rotate_audd_key():
-                    log(f"🔄 Rotating to next AudD API Key (Key {current_key_idx + 1}/{len(AUDD_KEYS)}) and retrying...")
-                    continue
-                else:
-                    return None
-                    
-            return None # Natural miss
+        if 'track' in res_json and 'matches' in res_json and len(res_json['matches']) > 0:
+            track = res_json['track']
+            title = track.get('title', 'Unknown')
+            artist = track.get('subtitle', 'Unknown')
             
-        except Exception as e:
-            log(f"🚨 AudD Request Error: {e}")
-            return None
+            # Shazam puts Album and Length into the "sections" metadata array
+            album = "Unknown"
+            duration = 0
+            for section in track.get('sections', []):
+                if section.get('type') == 'SONG':
+                    for meta in section.get('metadata', []):
+                        if meta.get('title') == 'Album':
+                            album = meta.get('text')
+                        elif meta.get('title') == 'Length':
+                            # Parse Length format like "4:26" or "04:26"
+                            length_str = meta.get('text')
+                            if ':' in length_str:
+                                parts = length_str.split(':')
+                                if len(parts) == 2:
+                                    duration = int(parts[0]) * 60 + int(parts[1])
+                                elif len(parts) == 3:
+                                    duration = int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
             
-    return None
+            # Extract precise match offset
+            offset_seconds = res_json['matches'][0].get('offset', 0)
+            
+            return {
+                "title": title,
+                "artist": artist,
+                "album": album,
+                "offset_seconds": offset_seconds,
+                "duration": duration
+            }
+        return None
+    except Exception as e:
+        log(f"🚨 Shazam Engine Error: {e}")
+        return None
 
 # --- BACKGROUND WORKER ---
 def process_audio_background(audio_data_bytes, song_start_timestamp):
     global app_state, current_attempt, wake_up_time, consecutive_failures
-    log(f"🔬 Analyzing {RECORD_SECONDS}s capture via AudD (Attempt {current_attempt}/{MAX_ATTEMPTS})...")
+    log(f"🔬 Analyzing {RECORD_SECONDS}s capture via Shazam (Attempt {current_attempt}/{MAX_ATTEMPTS})...")
 
     full_data = np.frombuffer(audio_data_bytes, dtype=np.int16)
     
@@ -218,7 +189,7 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
     trigger_point = np.where(abs_data > 1000)[0]
     start_idx = trigger_point[0] if len(trigger_point) > 0 else 0
     
-    min_samples_required = RATE * 10
+    min_samples_required = RATE * 8 # Need at least 8 seconds for Shazam
     if len(full_data) - start_idx < min_samples_required:
         start_idx = max(0, len(full_data) - min_samples_required)
 
@@ -237,7 +208,8 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
             wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(trimmed_bytes)
     except Exception: pass
 
-    match = recognize_audd(wav_path)
+    # Execute recognition
+    match = recognize_shazam(wav_path)
 
     if match:
         publish_track(match['title'], match['artist'], match['album'])
@@ -251,11 +223,14 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
         
         if total_duration > 0:
             trimmed_audio_start_timestamp = song_start_timestamp + trimmed_seconds
+            
+            # Absolute math using the API offset
             song_real_start_timestamp = trimmed_audio_start_timestamp - match['offset_seconds']
             wake_up_time = song_real_start_timestamp + total_duration
             
             if DEBUG:
-                log(f"⏱️ Track duration: {total_duration}s. Predicted absolute end time: {time.strftime('%H:%M:%S', time.localtime(wake_up_time))}")
+                log(f"⏱️ Match offset: {match['offset_seconds']:.1f}s | Track duration: {total_duration}s.")
+                log(f"⏱️ Predicted absolute end time: {time.strftime('%H:%M:%S', time.localtime(wake_up_time))}")
             
             app_state = "SLEEPING"
         else:
@@ -271,7 +246,7 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
         else:
             consecutive_failures += 1
             if consecutive_failures >= 10:
-                log(f"🚨 {consecutive_failures} consecutive unrecognized tracks! Engaging 30-MINUTE TIMEOUT to protect API limits.")
+                log(f"🚨 {consecutive_failures} consecutive unrecognized tracks! Engaging 30-MINUTE TIMEOUT to protect APIs.")
                 mqtt_client.publish("vinyl_guardian/state", "30m Timeout", retain=True)
                 current_attempt = 1
                 consecutive_failures = 0
@@ -311,7 +286,7 @@ def listen_and_identify():
     except Exception as e:
         log(f"🚨 ALSA initialization failed: {e}"); sys.exit(1)
 
-    log(f"Listening for audio (Threshold: {THRESHOLD}). Keys active: {len(AUDD_KEYS)}")
+    log(f"Listening for audio (Engine: Shazam, Threshold: {THRESHOLD})...")
     last_pub = time.time()
     last_sleep_log = 0
     cooldown_end = 0
@@ -393,9 +368,5 @@ def listen_and_identify():
                     app_state = "IDLE"
 
 if __name__ == "__main__":
-    if not AUDD_KEYS:
-        log("🚨 ERROR: No AudD API Keys found in Configuration!")
-        sys.exit(1)
-        
     connect_mqtt()
     listen_and_identify()
