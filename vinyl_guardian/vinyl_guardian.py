@@ -367,6 +367,10 @@ def listen_and_identify():
     
     power_score = 0
     power_max_score = int(RATE / CHUNK * 2) 
+    
+    # Needle Debounce logic variables
+    needle_active_score = 0
+    needle_max_score = int(RATE / CHUNK * 0.5) # ~0.5 seconds of sustained noise needed to ignore a pop
 
     while True:
         length, data = inp.read()
@@ -444,7 +448,18 @@ def listen_and_identify():
                     buffer, chunks, loud_chunks = bytearray(), 0, 0
             
             elif current_state == "SLEEPING":
-                silence_sleep = silence_sleep + 1 if raw_rms < RUMBLE_THRESHOLD else 0
+                # --- DEBOUNCED NEEDLE LIFT DETECTION ---
+                if raw_rms >= RUMBLE_THRESHOLD:
+                    needle_active_score = min(needle_active_score + 1, needle_max_score)
+                else:
+                    needle_active_score = max(needle_active_score - 1, 0)
+                    
+                # Only reset the silence timer if the audio is sustained (not a static pop)
+                if needle_active_score >= (needle_max_score * 0.5):
+                    silence_sleep = 0
+                elif raw_rms < RUMBLE_THRESHOLD:
+                    silence_sleep += 1
+                    
                 if current_track is None or not current_track.get('duration_known', False):
                     required_silence_chunks = int(RATE / CHUNK * 4)
                 else:
