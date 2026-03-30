@@ -18,9 +18,12 @@ except Exception as e:
     print(f"🚨 Failed to load config: {e}")
     sys.exit(1)
 
-ENGINE = config.get("recognition_engine", "audd").lower()
-AUDD_KEY = config.get("audd_key", "")
-AUDIOTAG_KEY = config.get("audiotag_key", "")
+# API Key Pool
+AUDD_KEYS = [k for k in [
+    config.get("audd_key_1", ""),
+    config.get("audd_key_2", ""),
+    config.get("audd_key_3", "")
+] if k]
 
 MQTT_BROKER = config.get("mqtt_broker", "core-mosquitto")
 MQTT_PORT = config.get("mqtt_port", 1883)
@@ -44,9 +47,21 @@ app_state = "IDLE" # IDLE, RECORDING, PROCESSING, SLEEPING, COOLDOWN
 current_attempt = 1
 wake_up_time = 0
 consecutive_failures = 0
+current_key_idx = 0
 
 def log(message):
     print(f"[Vinyl Guardian] {message}", flush=True)
+
+# --- API KEY MANAGEMENT ---
+def get_current_audd_key():
+    if not AUDD_KEYS: return ""
+    return AUDD_KEYS[current_key_idx]
+
+def rotate_audd_key():
+    global current_key_idx
+    if len(AUDD_KEYS) <= 1: return False
+    current_key_idx = (current_key_idx + 1) % len(AUDD_KEYS)
+    return True
 
 # --- MQTT SETUP & DISCOVERY ---
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
@@ -91,14 +106,14 @@ def connect_mqtt():
     except Exception as e:
         log(f"🚨 MQTT Failed: {e}")
 
-def publish_track(title, artist, album, engine="AudD"):
-    log(f"🎶 MATCH FOUND! {title} by {artist} (via {engine})")
+def publish_track(title, artist, album):
+    log(f"🎶 MATCH FOUND! {title} by {artist} (via AudD)")
     mqtt_client.publish("vinyl_guardian/state", f"{title} - {artist}", retain=True)
     attributes = {
         "title": title, 
         "artist": artist, 
         "album": album, 
-        "source": engine,
+        "source": "AudD",
         "last_updated": time.strftime("%H:%M:%S")
     }
     mqtt_client.publish("vinyl_guardian/attributes", json.dumps(attributes), retain=True)
@@ -116,117 +131,76 @@ def get_track_duration(title, artist):
         if DEBUG: print(f"[DEBUG] Failed to fetch track duration: {e}")
     return 0
 
-# --- RECOGNITION ENGINES ---
+# --- RECOGNITION ENGINE ---
 def recognize_audd(wav_path):
     log("Uploading to AudD.io API...")
-    try:
-        url = "https://api.audd.io/"
-        data = {
-            'api_token': AUDD_KEY,
-            'return': 'timecode,apple_music'
-        }
-        with open(wav_path, 'rb') as audio_file:
-            files = {'file': audio_file}
-            response = requests.post(url, data=data, files=files, timeout=30)
-            
-        res_json = response.json()
+    url = "https://api.audd.io/"
+    
+    # Loop to allow for API key rotation upon failure
+    for attempt in range(max(1, len(AUDD_KEYS))):
+        api_key = get_current_audd_key()
         
         try:
-            with open("/share/audd_last_match.json", "w") as f:
-                json.dump(res_json, f, indent=2)
-        except Exception: pass
-        
-        if res_json.get('status') == 'success' and res_json.get('result'):
-            result = res_json['result']
-            
-            timecode_str = result.get('timecode', '00:00')
-            offset_seconds = 0
-            if ':' in timecode_str:
-                parts = timecode_str.split(':')
-                if len(parts) == 2:
-                    offset_seconds = (int(parts[0]) * 60) + int(parts[1])
-            elif timecode_str.isdigit():
-                offset_seconds = int(timecode_str)
-
-            duration = 0
-            if 'apple_music' in result and 'durationInMillis' in result['apple_music']:
-                duration = result['apple_music']['durationInMillis'] / 1000.0
+            data = {'api_token': api_key, 'return': 'timecode,apple_music'}
+            with open(wav_path, 'rb') as audio_file:
+                files = {'file': audio_file}
+                response = requests.post(url, data=data, files=files, timeout=30)
                 
-            return {
-                "title": result.get('title', 'Unknown'),
-                "artist": result.get('artist', 'Unknown'),
-                "album": result.get('album', 'Unknown'),
-                "offset_seconds": offset_seconds,
-                "duration": duration
-            }
-        return None
-    except Exception as e:
-        log(f"🚨 AudD Engine Error: {e}")
-        return None
-
-def recognize_audiotag(wav_path):
-    log("Uploading to AudioTag.info API...")
-    try:
-        url = "https://audiotag.info/api"
-        with open(wav_path, 'rb') as audio_file:
-            response = requests.post(url, files={'file': audio_file}, data={'action': 'identify', 'apikey': AUDIOTAG_KEY}, timeout=45)
+            res_json = response.json()
             
-        res_json = response.json()
-        token = res_json.get('token')
-        if not token: return None
+            try:
+                with open("/share/audd_last_match.json", "w") as f:
+                    json.dump(res_json, f, indent=2)
+            except Exception: pass
 
-        log("Upload complete. Polling for results...")
-        for attempt in range(15): 
-            time.sleep(3)
-            poll_response = requests.post(url, data={'action': 'get_result', 'token': token, 'apikey': AUDIOTAG_KEY}, timeout=15)
-            poll_json = poll_response.json()
-            status = poll_json.get('result')
-            
-            if status == 'wait':
-                continue 
-            elif status in ['found', 'done'] or poll_json.get('data') or isinstance(status, list):
-                try:
-                    with open("/share/audiotag_last_match.json", "w") as f:
-                        json.dump(poll_json, f, indent=2)
-                except Exception: pass
+            if res_json.get('status') == 'success' and res_json.get('result'):
+                result = res_json['result']
+                
+                timecode_str = result.get('timecode', '00:00')
+                offset_seconds = 0
+                if ':' in timecode_str:
+                    parts = timecode_str.split(':')
+                    if len(parts) == 2:
+                        offset_seconds = (int(parts[0]) * 60) + int(parts[1])
+                elif timecode_str.isdigit():
+                    offset_seconds = int(timecode_str)
 
-                data_array = poll_json.get('data', [])
-                if not data_array and isinstance(status, list): data_array = status
-                if not data_array: return None
+                duration = 0
+                if 'apple_music' in result and 'durationInMillis' in result['apple_music']:
+                    duration = result['apple_music']['durationInMillis'] / 1000.0
                     
-                best = data_array[0]
-                title, artist, album = "Unknown", "Unknown", "Unknown"
-                
-                tracks = best.get('tracks', [])
-                if tracks:
-                    track_info = tracks[0]
-                    if isinstance(track_info, list) and len(track_info) >= 3:
-                        title, artist, album = str(track_info[0]), str(track_info[1]), str(track_info[2])
-                    elif isinstance(track_info, dict):
-                        title = track_info.get('title', track_info.get('track', 'Unknown'))
-                        artist = track_info.get('artist', 'Unknown')
-                        album = track_info.get('album', 'Unknown')
-                
                 return {
-                    "title": title,
-                    "artist": artist,
-                    "album": album,
-                    "offset_seconds": 0, 
-                    "duration": 0
+                    "title": result.get('title', 'Unknown'),
+                    "artist": result.get('artist', 'Unknown'),
+                    "album": result.get('album', 'Unknown'),
+                    "offset_seconds": offset_seconds,
+                    "duration": duration
                 }
-            elif status in ['not found', 'not_found']:
-                return None
-            else:
-                return None
-        return None
-    except Exception as e:
-        log(f"🚨 AudioTag Engine Error: {e}")
-        return None
+                
+            elif res_json.get('status') == 'error':
+                err_code = res_json.get('error', {}).get('error_code', 'Unknown')
+                err_msg = res_json.get('error', {}).get('error_message', 'Unknown Error')
+                log(f"⚠️ AudD API Error ({err_code}): {err_msg}")
+                
+                # If we hit an error (like limit reached) and have more keys, rotate and try again immediately
+                if rotate_audd_key():
+                    log(f"🔄 Rotating to next AudD API Key (Key {current_key_idx + 1}/{len(AUDD_KEYS)}) and retrying...")
+                    continue
+                else:
+                    return None
+                    
+            return None # Natural miss
+            
+        except Exception as e:
+            log(f"🚨 AudD Request Error: {e}")
+            return None
+            
+    return None
 
 # --- BACKGROUND WORKER ---
 def process_audio_background(audio_data_bytes, song_start_timestamp):
     global app_state, current_attempt, wake_up_time, consecutive_failures
-    log(f"🔬 Analyzing {RECORD_SECONDS}s capture via {ENGINE.upper()} (Attempt {current_attempt}/{MAX_ATTEMPTS})...")
+    log(f"🔬 Analyzing {RECORD_SECONDS}s capture via AudD (Attempt {current_attempt}/{MAX_ATTEMPTS})...")
 
     full_data = np.frombuffer(audio_data_bytes, dtype=np.int16)
     
@@ -263,13 +237,12 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
             wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(trimmed_bytes)
     except Exception: pass
 
-    # Run chosen engine
-    match = recognize_audd(wav_path) if ENGINE == "audd" else recognize_audiotag(wav_path)
+    match = recognize_audd(wav_path)
 
     if match:
-        publish_track(match['title'], match['artist'], match['album'], ENGINE.upper())
+        publish_track(match['title'], match['artist'], match['album'])
         current_attempt = 1 
-        consecutive_failures = 0  # Reset failure counter on success
+        consecutive_failures = 0
         
         total_duration = match.get('duration', 0)
         if total_duration <= 0:
@@ -278,12 +251,8 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
         
         if total_duration > 0:
             trimmed_audio_start_timestamp = song_start_timestamp + trimmed_seconds
-            
-            if ENGINE == "audd":
-                song_real_start_timestamp = trimmed_audio_start_timestamp - match['offset_seconds']
-                wake_up_time = song_real_start_timestamp + total_duration
-            else:
-                wake_up_time = trimmed_audio_start_timestamp + total_duration
+            song_real_start_timestamp = trimmed_audio_start_timestamp - match['offset_seconds']
+            wake_up_time = song_real_start_timestamp + total_duration
             
             if DEBUG:
                 log(f"⏱️ Track duration: {total_duration}s. Predicted absolute end time: {time.strftime('%H:%M:%S', time.localtime(wake_up_time))}")
@@ -342,7 +311,7 @@ def listen_and_identify():
     except Exception as e:
         log(f"🚨 ALSA initialization failed: {e}"); sys.exit(1)
 
-    log(f"Listening for audio (Engine: {ENGINE.upper()}, Threshold: {THRESHOLD})...")
+    log(f"Listening for audio (Threshold: {THRESHOLD}). Keys active: {len(AUDD_KEYS)}")
     last_pub = time.time()
     last_sleep_log = 0
     cooldown_end = 0
@@ -399,7 +368,6 @@ def listen_and_identify():
                     loud_chunks += 1
                     
                 if chunks >= target:
-                    # Validate that at least half the 20s sample was loud enough
                     if loud_chunks >= (target / 2.0):
                         app_state = "PROCESSING"
                         threading.Thread(target=process_audio_background, args=(bytes(buffer), song_start_timestamp)).start()
@@ -425,11 +393,8 @@ def listen_and_identify():
                     app_state = "IDLE"
 
 if __name__ == "__main__":
-    if ENGINE == "audd" and not AUDD_KEY:
-        log("🚨 ERROR: AudD API Key is missing in Configuration!")
-        sys.exit(1)
-    elif ENGINE == "audiotag" and not AUDIOTAG_KEY:
-        log("🚨 ERROR: Audiotag API Key is missing in Configuration!")
+    if not AUDD_KEYS:
+        log("🚨 ERROR: No AudD API Keys found in Configuration!")
         sys.exit(1)
         
     connect_mqtt()
