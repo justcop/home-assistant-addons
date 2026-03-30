@@ -1,6 +1,6 @@
 name: "Vinyl Guardian"
-description: "Detects needle drops and identifies vinyl records via AudD."
-version: "1.8.0"
+description: "Detects needle drops and identifies vinyl records via Shazam."
+version: "1.9.0"
 slug: "vinyl_guardian"
 init: false
 arch:
@@ -12,23 +12,17 @@ arch:
 startup: "application"
 boot: "auto"
 options:
-  audd_key_1: ""
-  audd_key_2: ""
-  audd_key_3: ""
   mqtt_broker: "core-mosquitto"
   mqtt_port: 1883
   mqtt_user: ""
   mqtt_password: ""
   mic_volume: 10
   audio_threshold: 0.015
-  recording_seconds: 20
+  recording_seconds: 15
   max_attempts: 3
   debug_logging: true
   debug_one_shot: false
 schema:
-  audd_key_1: "str"
-  audd_key_2: "str?"
-  audd_key_3: "str?"
   mqtt_broker: "str"
   mqtt_port: "port"
   mqtt_user: "str?"
