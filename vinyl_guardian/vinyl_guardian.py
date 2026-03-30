@@ -43,6 +43,7 @@ CHUNK = 2048
 app_state = "IDLE" # IDLE, RECORDING, PROCESSING, SLEEPING, COOLDOWN
 current_attempt = 1
 wake_up_time = 0
+consecutive_failures = 0
 
 def log(message):
     print(f"[Vinyl Guardian] {message}", flush=True)
@@ -224,7 +225,7 @@ def recognize_audiotag(wav_path):
 
 # --- BACKGROUND WORKER ---
 def process_audio_background(audio_data_bytes, song_start_timestamp):
-    global app_state, current_attempt, wake_up_time
+    global app_state, current_attempt, wake_up_time, consecutive_failures
     log(f"🔬 Analyzing {RECORD_SECONDS}s capture via {ENGINE.upper()} (Attempt {current_attempt}/{MAX_ATTEMPTS})...")
 
     full_data = np.frombuffer(audio_data_bytes, dtype=np.int16)
@@ -239,12 +240,10 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
         log(f"✅ Audio Health: Good (Peak: {peak_value}/32767).")
 
     # --- SILENCE TRIMMING ---
-    # Trigger point of 1000 cuts pure hum/static without cutting into real music
     abs_data = np.abs(full_data)
     trigger_point = np.where(abs_data > 1000)[0]
     start_idx = trigger_point[0] if len(trigger_point) > 0 else 0
     
-    # Safety constraint: Do not trim if it leaves less than 10 seconds of audio for the API
     min_samples_required = RATE * 10
     if len(full_data) - start_idx < min_samples_required:
         start_idx = max(0, len(full_data) - min_samples_required)
@@ -270,6 +269,7 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
     if match:
         publish_track(match['title'], match['artist'], match['album'], ENGINE.upper())
         current_attempt = 1 
+        consecutive_failures = 0  # Reset failure counter on success
         
         total_duration = match.get('duration', 0)
         if total_duration <= 0:
@@ -277,7 +277,6 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
             total_duration = get_track_duration(match['title'], match['artist'])
         
         if total_duration > 0:
-            # Shift the start timestamp forward by the amount of silence we trimmed
             trimmed_audio_start_timestamp = song_start_timestamp + trimmed_seconds
             
             if ENGINE == "audd":
@@ -301,12 +300,21 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
             current_attempt += 1
             app_state = "RECORDING" 
         else:
-            log(f"❌ No match found after {MAX_ATTEMPTS} attempts.")
-            mqtt_client.publish("vinyl_guardian/state", "Unknown Track", retain=True)
-            current_attempt = 1
-            log("🎧 Assuming Unknown Track is playing. Falling back to 3-minute sleep.")
-            wake_up_time = time.time() + 180
-            app_state = "SLEEPING"
+            consecutive_failures += 1
+            if consecutive_failures >= 10:
+                log(f"🚨 {consecutive_failures} consecutive unrecognized tracks! Engaging 30-MINUTE TIMEOUT to protect API limits.")
+                mqtt_client.publish("vinyl_guardian/state", "30m Timeout", retain=True)
+                current_attempt = 1
+                consecutive_failures = 0
+                wake_up_time = time.time() + 1800 # 30 mins
+                app_state = "SLEEPING"
+            else:
+                log(f"❌ No match found after {MAX_ATTEMPTS} attempts. (Consecutive Failures: {consecutive_failures}/10)")
+                mqtt_client.publish("vinyl_guardian/state", "Unknown Track", retain=True)
+                current_attempt = 1
+                log("🎧 Assuming Unknown Track is playing. Falling back to 1-minute sleep.")
+                wake_up_time = time.time() + 60
+                app_state = "SLEEPING"
 
     if os.path.exists(wav_path): os.remove(wav_path)
     if ONE_SHOT:
@@ -338,8 +346,11 @@ def listen_and_identify():
     last_pub = time.time()
     last_sleep_log = 0
     cooldown_end = 0
+    
     chunks = 0
+    loud_chunks = 0
     target = int(RATE / CHUNK * RECORD_SECONDS)
+    
     buffer = bytearray()
     song_start_timestamp = 0
 
@@ -357,7 +368,6 @@ def listen_and_identify():
                         status = f"🔴 REC {int((chunks/target)*100)}%"
                         print(f"[{time.strftime('%H:%M:%S')}] {status} | RMS: {rms:.4f}", flush=True)
                     elif app_state == "SLEEPING":
-                        # Only spam the console every 15 seconds while sleeping
                         if now - last_sleep_log >= 15.0:
                             status = f"💤 SLEEP ({max(0, int(wake_up_time - now))}s remaining)"
                             print(f"[{time.strftime('%H:%M:%S')}] {status} | RMS: {rms:.4f}", flush=True)
@@ -367,7 +377,7 @@ def listen_and_identify():
                         print(f"[{time.strftime('%H:%M:%S')}] {status} | RMS: {rms:.4f}", flush=True)
                     elif app_state == "PROCESSING":
                         print(f"[{time.strftime('%H:%M:%S')}] ⚙️ PROC | RMS: {rms:.4f}", flush=True)
-                    else: # IDLE
+                    else: 
                         print(f"[{time.strftime('%H:%M:%S')}] 🟢 IDLE | RMS: {rms:.4f}", flush=True)
                 last_pub = now
 
@@ -380,25 +390,37 @@ def listen_and_identify():
                 buffer = bytearray()
                 buffer.extend(data)
                 chunks = 1
+                loud_chunks = 1
 
             elif app_state == "RECORDING":
                 buffer.extend(data)
                 chunks += 1
+                if rms > THRESHOLD:
+                    loud_chunks += 1
+                    
                 if chunks >= target:
-                    app_state = "PROCESSING"
-                    threading.Thread(target=process_audio_background, args=(bytes(buffer), song_start_timestamp)).start()
+                    # Validate that at least half the 20s sample was loud enough
+                    if loud_chunks >= (target / 2.0):
+                        app_state = "PROCESSING"
+                        threading.Thread(target=process_audio_background, args=(bytes(buffer), song_start_timestamp)).start()
+                    else:
+                        log(f"⚠️ Discarding sample: Only {loud_chunks}/{target} chunks met threshold. Returning to IDLE.")
+                        mqtt_client.publish("vinyl_guardian/state", "Idle", retain=True)
+                        app_state = "IDLE"
+                        
                     buffer = bytearray()
                     chunks = 0
+                    loud_chunks = 0
             
             elif app_state == "SLEEPING":
                 if now >= wake_up_time:
-                    log("⏰ Absolute track timer finished! Entering 4-second cooldown...")
+                    log("⏰ Sleep timer finished! Entering 4-second cooldown before listening...")
                     app_state = "COOLDOWN"
                     cooldown_end = now + 4
                     
             elif app_state == "COOLDOWN":
                 if now >= cooldown_end:
-                    log("🟢 Cooldown complete. Returning to IDLE to wait for the next track.")
+                    log("🟢 Cooldown complete. Returning to IDLE to wait for next threshold trigger.")
                     mqtt_client.publish("vinyl_guardian/state", "Idle", retain=True)
                     app_state = "IDLE"
 
