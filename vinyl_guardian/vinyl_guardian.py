@@ -119,6 +119,7 @@ def publish_discovery():
     configs = {
         "status": {"name": "Vinyl Status", "topic": "status", "icon": "mdi:record-player", "domain": "sensor"},
         "track": {"name": "Vinyl Current Track", "topic": "track", "icon": "mdi:music-circle", "attr": True, "domain": "sensor"},
+        "progress": {"name": "Vinyl Track Progress", "topic": "progress", "icon": "mdi:clock-outline", "domain": "sensor"},
         "music_rms": {"name": "Vinyl Music RMS", "topic": "music_rms", "icon": "mdi:waveform", "domain": "sensor"},
         "rumble_rms": {"name": "Vinyl Rumble RMS", "topic": "rumble_rms", "icon": "mdi:vibrate", "domain": "sensor"},
         "scrobble": {"name": "Vinyl Last Scrobble", "topic": "scrobble_state", "icon": "mdi:lastpass", "attr_topic": "scrobble", "domain": "sensor"},
@@ -144,6 +145,7 @@ def publish_discovery():
 
     mqtt_client.publish("vinyl_guardian/status", "Idle", retain=True)
     mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
+    mqtt_client.publish("vinyl_guardian/progress", "00:00 / 00:00", retain=True)
     mqtt_client.publish("vinyl_guardian/scrobble_state", "None", retain=True)
     mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
 
@@ -318,12 +320,9 @@ def calculate_audio_levels(data):
         audio_data = np.frombuffer(data, dtype=np.int16).astype(np.float32)
         if len(audio_data) <= 1: return 0.0, 0.0
         
-        # Raw Broadband RMS (Includes Turntable Hum/Motor)
         raw_rms = float(np.sqrt(np.mean(np.square(audio_data)))) / 32768.0
-        
-        # High-Pass Filtered RMS (Subtract consecutive samples to kill low frequencies)
-        high_freq_data = np.diff(audio_data)
-        music_rms = float(np.sqrt(np.mean(np.square(high_freq_data)))) / 32768.0
+        filtered_data = audio_data[1:] - 0.95 * audio_data[:-1]
+        music_rms = float(np.sqrt(np.mean(np.square(filtered_data)))) / 32768.0
         
         return raw_rms, music_rms
     except: 
@@ -342,7 +341,7 @@ def listen_and_identify():
     buffer = bytearray()
     
     turntable_on = False
-    trigger_chunks = 0  # Counter for our transient filter
+    trigger_chunks = 0  
 
     while True:
         length, data = inp.read()
@@ -362,6 +361,20 @@ def listen_and_identify():
                 mqtt_client.publish("vinyl_guardian/music_rms", f"{music_rms:.4f}")
                 mqtt_client.publish("vinyl_guardian/rumble_rms", f"{raw_rms:.4f}")
                 
+                # --- LIVE PROGRESS CALCULATION ---
+                if current_state == "SLEEPING" and current_track:
+                    pos_sec = max(0, int(now - current_track['start_timestamp']))
+                    dur_sec = int(current_track['duration'])
+                    if pos_sec > dur_sec > 0: pos_sec = dur_sec # Clamp to max duration
+                    
+                    p_m, p_s = divmod(pos_sec, 60)
+                    d_m, d_s = divmod(dur_sec, 60)
+                    
+                    prog_str = f"{p_m:02d}:{p_s:02d} / {d_m:02d}:{d_s:02d}" if current_track.get('duration_known', True) else f"{p_m:02d}:{p_s:02d} / ??:??"
+                    mqtt_client.publish("vinyl_guardian/progress", prog_str)
+                elif current_state != "SLEEPING":
+                    mqtt_client.publish("vinyl_guardian/progress", "00:00 / 00:00")
+                
                 if DEBUG:
                     if current_state == "RECORDING": status = f"🔴 REC {int((chunks/target)*100)}%"
                     elif current_state == "SLEEPING": status = f"💤 SLEEP ({max(0, int(wake_up_time - now))}s)" if now - last_sleep_log >= 15.0 else None
@@ -376,7 +389,6 @@ def listen_and_identify():
             if current_state == "IDLE":
                 if music_rms > MUSIC_THRESHOLD:
                     trigger_chunks += 1
-                    # Require 3 consecutive high-volume chunks (~150ms) to ignore sharp electrical pops
                     if trigger_chunks >= 3:
                         log(f"🎵 AUDIO DETECTED (Music Spike: {music_rms:.4f})")
                         change_status("Recording")
@@ -384,14 +396,12 @@ def listen_and_identify():
                         trigger_chunks = 0
                         with state_lock: app_state = "RECORDING"
                 else:
-                    trigger_chunks = 0  # Reset if it was just a quick pop
+                    trigger_chunks = 0  
 
             elif current_state == "RECORDING":
                 buffer.extend(data)
                 chunks += 1
                 
-                # REVERTED: Validate recording strictly with the High-Pass Music sensor 
-                # to prevent sending empty motor hum to Shazam
                 if music_rms > MUSIC_THRESHOLD: loud_chunks += 1
                 
                 if chunks >= target:
@@ -406,7 +416,6 @@ def listen_and_identify():
                     buffer, chunks, loud_chunks = bytearray(), 0, 0
             
             elif current_state == "SLEEPING":
-                # Uses raw full-body volume to detect needle lifts and track gaps
                 silence_sleep = silence_sleep + 1 if raw_rms < RUMBLE_THRESHOLD else 0
                 
                 if current_track is None or not current_track.get('duration_known', False):
