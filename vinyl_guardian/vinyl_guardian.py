@@ -46,6 +46,7 @@ MAX_ATTEMPTS = config.get("max_attempts", 3)
 # Engine Tuning Parameters
 MIN_AUDIO_SECONDS = 8
 NEEDLE_LIFT_SECONDS = 25
+MOTOR_POWER_THRESHOLD = 0.0045 # Specifically tuned for baseline motor/preamp hum
 
 # Audio Settings
 CHANNELS = 2
@@ -342,6 +343,10 @@ def listen_and_identify():
     
     turntable_on = False
     trigger_chunks = 0  
+    
+    # Power Debounce logic variables (1 second debounce)
+    power_score = 0
+    power_max_score = int(RATE / CHUNK * 1)  # ~1 second of chunks (approx 21 chunks)
 
     while True:
         length, data = inp.read()
@@ -352,20 +357,29 @@ def listen_and_identify():
             with state_lock:
                 current_state = app_state
 
-            current_power_state = raw_rms > RUMBLE_THRESHOLD
-            if current_power_state != turntable_on:
-                turntable_on = current_power_state
-                mqtt_client.publish("vinyl_guardian/power", "ON" if turntable_on else "OFF", retain=True)
+            # --- DEBOUNCED TURNTABLE POWER DETECTION ---
+            if raw_rms > MOTOR_POWER_THRESHOLD:
+                power_score = min(power_score + 1, power_max_score)
+            else:
+                power_score = max(power_score - 1, 0)
 
+            # Hysteresis: Require 75% score to turn ON, drop below 25% to turn OFF
+            if not turntable_on and power_score > (power_max_score * 0.75):
+                turntable_on = True
+                mqtt_client.publish("vinyl_guardian/power", "ON", retain=True)
+            elif turntable_on and power_score < (power_max_score * 0.25):
+                turntable_on = False
+                mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
+
+            # --- METRICS PUBLISHING ---
             if now - last_pub >= 1.0:
                 mqtt_client.publish("vinyl_guardian/music_rms", f"{music_rms:.4f}")
                 mqtt_client.publish("vinyl_guardian/rumble_rms", f"{raw_rms:.4f}")
                 
-                # --- LIVE PROGRESS CALCULATION ---
                 if current_state == "SLEEPING" and current_track:
                     pos_sec = max(0, int(now - current_track['start_timestamp']))
                     dur_sec = int(current_track['duration'])
-                    if pos_sec > dur_sec > 0: pos_sec = dur_sec # Clamp to max duration
+                    if pos_sec > dur_sec > 0: pos_sec = dur_sec 
                     
                     p_m, p_s = divmod(pos_sec, 60)
                     d_m, d_s = divmod(dur_sec, 60)
@@ -386,6 +400,7 @@ def listen_and_identify():
                         if "SLEEP" in status: last_sleep_log = now
                 last_pub = now
 
+            # --- STATE MACHINE ---
             if current_state == "IDLE":
                 if music_rms > MUSIC_THRESHOLD:
                     trigger_chunks += 1
@@ -402,7 +417,7 @@ def listen_and_identify():
                 buffer.extend(data)
                 chunks += 1
                 
-                if music_rms > MUSIC_THRESHOLD: loud_chunks += 1
+                if raw_rms > RUMBLE_THRESHOLD: loud_chunks += 1
                 
                 if chunks >= target:
                     if loud_chunks >= (target / 2.0):
@@ -478,6 +493,12 @@ def listen_and_identify():
                 with state_lock: app_state = "IDLE"
 
 if __name__ == "__main__":
+    # CLEAR HOME ASSISTANT CONSOLE LOGS ON RESTART
+    print("\033[2J\033[H", end="", flush=True)
+    print("========================================================")
+    log("🚀 BOOTING VINYL GUARDIAN...")
+    print("========================================================")
+
     files_to_clean = [
         os.path.join(SHARE_DIR, "vinyl_debug.wav"),
         os.path.join(SHARE_DIR, "shazam_last_match.json"),
