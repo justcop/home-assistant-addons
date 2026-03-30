@@ -115,7 +115,6 @@ def publish_discovery():
     log("Publishing MQTT Auto-Discovery payloads...")
     device_info = {"identifiers": ["vinyl_guardian_01"], "name": "Vinyl Guardian", "manufacturer": "Custom Add-on"}
 
-    # Standard Sensors
     configs = {
         "status": {"name": "Vinyl Status", "topic": "status", "icon": "mdi:record-player", "domain": "sensor"},
         "track": {"name": "Vinyl Current Track", "topic": "track", "icon": "mdi:music-circle", "attr": True, "domain": "sensor"},
@@ -136,7 +135,6 @@ def publish_discovery():
         if c.get("attr"): payload["json_attributes_topic"] = "vinyl_guardian/attributes"
         if c.get("attr_topic"): payload["json_attributes_topic"] = f"vinyl_guardian/{c['attr_topic']}"
         
-        # Power sensor needs payload ON/OFF mappings
         if c["domain"] == "binary_sensor":
             payload["payload_on"] = "ON"
             payload["payload_off"] = "OFF"
@@ -254,14 +252,20 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
                 total_duration = get_track_duration(match['title'], match['artist'])
                 
             if total_duration <= 0:
-                log("⚠️ Could not find track length. Defaulting to 60s safety fallback.")
-                total_duration = 60
+                log("⚠️ iTunes fallback failed. Relying strictly on physical track gaps.")
+                total_duration = 1200 # Set a massive 20-minute maximum safety net
+                duration_known = False
+                scrobble_delay = 240 # Default to standard 4-minute maximum
+            else:
+                duration_known = True
+                scrobble_delay = min(total_duration / 2.0, 240)
             
-            scrobble_delay = min(total_duration / 2.0, 240)
             current_track = {
                 "title": match['title'], "artist": match['artist'], "album": match['album'],
                 "duration": total_duration, "start_timestamp": int(song_start_timestamp + trimmed_seconds - match['offset_seconds']),
-                "scrobble_trigger_time": song_start_timestamp + scrobble_delay, "source": "Shazam"
+                "scrobble_trigger_time": song_start_timestamp + scrobble_delay, 
+                "duration_known": duration_known,
+                "source": "Shazam"
             }
             scrobble_fired = False
 
@@ -280,7 +284,7 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
                 change_status("Recording")
             else:
                 consecutive_failures += 1
-                log(f"❌ Max attempts reached. Fallback to 1m sleep.")
+                log(f"❌ Max attempts reached. Fallback to 1m sleep / Track Gap detection.")
                 change_status("Playing")
                 mqtt_client.publish("vinyl_guardian/track", "Unknown Track", retain=True)
                 current_attempt = 1
@@ -381,10 +385,32 @@ def listen_and_identify():
                     buffer, chunks, loud_chunks = bytearray(), 0, 0
             
             elif current_state == "SLEEPING":
-                silence_sleep = silence_sleep + 1 if music_rms < (MUSIC_THRESHOLD * 0.5) else 0
-                if silence_sleep >= int(RATE / CHUNK * NEEDLE_LIFT_SECONDS):
-                    log("🔇 Needle lift. Aborting."); change_status("Idle"); mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
-                    with state_lock: app_state, current_track = "IDLE", None
+                silence_sleep = silence_sleep + 1 if music_rms < MUSIC_THRESHOLD else 0
+                
+                # Dynamic Silence Detection
+                if current_track is None or not current_track.get('duration_known', False):
+                    # In penalty box or unknown API duration: Use 4-second hyper-sensitive track gap detection
+                    required_silence_chunks = int(RATE / CHUNK * 4)
+                else:
+                    # Known song: Allow quiet acoustic bridges, wait for 25-second needle lift
+                    required_silence_chunks = int(RATE / CHUNK * NEEDLE_LIFT_SECONDS)
+
+                if silence_sleep >= required_silence_chunks:
+                    if current_track is None:
+                        log("⏱️ Track gap detected during fallback! Waking up for the next track.")
+                    elif not current_track.get('duration_known', False):
+                        log("⏱️ Physical track gap detected (API duration missing). Waking up!")
+                    else:
+                        log("🔇 Needle lift detected. Aborting current track.")
+                        
+                    change_status("Idle")
+                    mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
+                    
+                    with state_lock: 
+                        app_state = "IDLE"
+                        current_track = None
+                        current_attempt = 1
+                        consecutive_failures = 0
                     continue
 
                 if current_track and not scrobble_fired and now >= current_track.get('scrobble_trigger_time', 0):
