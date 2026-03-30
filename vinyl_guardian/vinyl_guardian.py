@@ -98,17 +98,15 @@ if LFM_USER and LFM_PASS and LFM_KEY and LFM_SECRET:
 
 def scrobble_to_lastfm(artist, title, start_timestamp, album=None):
     if not lastfm_network:
-        return False
+        return
     try:
-        kwargs = {"artist": artist, "title": title, "timestamp": int(start_timestamp)}
+        kwargs = {"artist": artist, "title": title, "timestamp": start_timestamp}
         if album and album != "Unknown":
             kwargs["album"] = album
         lastfm_network.scrobble(**kwargs)
-        log(f"🎵 Successfully scrobbled to Last.fm: {title} by {artist} (Album: {album})")
-        return True
+        log(f"🎵 Successfully scrobbled to Last.fm: {title} by {artist}")
     except Exception as e:
         log(f"🚨 Last.fm Scrobble Failed: {e}")
-        return False
 
 # --- MQTT SETUP & DISCOVERY ---
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
@@ -162,9 +160,8 @@ def connect_mqtt():
 def change_status(new_status):
     mqtt_client.publish("vinyl_guardian/status", new_status, retain=True)
 
-# --- HELPER: GET TRACK DATA (Unique adamID Lookup) ---
-def get_itunes_data(title, artist, adamid=None):
-    """Returns (duration, album_name)"""
+# --- HELPER: GET TRACK DURATION (Unique adamID Lookup) ---
+def get_track_duration(title, artist, adamid=None):
     try:
         if adamid:
             url = f"https://itunes.apple.com/lookup?id={adamid}"
@@ -175,13 +172,10 @@ def get_itunes_data(title, artist, adamid=None):
         res = requests.get(url, timeout=10)
         data = res.json()
         if data.get('resultCount', 0) > 0:
-            result = data['results'][0]
-            duration = result.get('trackTimeMillis', 0) / 1000.0
-            album = result.get('collectionName', 'Unknown')
-            return duration, album
+            return data['results'][0].get('trackTimeMillis', 0) / 1000.0
     except Exception as e:
-        if DEBUG: print(f"[DEBUG] Failed to fetch iTunes data: {e}")
-    return 0, "Unknown"
+        if DEBUG: print(f"[DEBUG] Failed to fetch track duration: {e}")
+    return 0
 
 # --- RECOGNITION ENGINE (SHAZAM) ---
 def recognize_shazam(wav_path):
@@ -237,6 +231,7 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
     
     peak = int(np.max(np.abs(full_data.astype(np.int32)))) if len(full_data) > 0 else 0
     if peak >= 32000: log(f"⚠️ CLIPPING (Peak: {peak}/32767). Turn DOWN mic_volume!")
+    elif peak < 2000: log(f"⚠️ VERY QUIET (Peak: {peak}/32767). Turn UP mic_volume!")
 
     abs_data = np.abs(full_data)
     trigger = np.where(abs_data > 1000)[0]
@@ -267,12 +262,10 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
             current_attempt = 1 
             consecutive_failures = 0
             total_duration = match.get('duration', 0)
-            itunes_album = match.get('album', 'Unknown')
             
-            # Use adamID to get the precise duration and album name
-            if total_duration <= 0 or itunes_album == "Unknown":
-                log("Fetching precise track data from iTunes lookup...")
-                total_duration, itunes_album = get_itunes_data(match['title'], match['artist'], match.get('adamid'))
+            if total_duration <= 0:
+                log("Fetching total track duration from iTunes lookup...")
+                total_duration = get_track_duration(match['title'], match['artist'], match.get('adamid'))
                 
             if total_duration <= 0:
                 log("⚠️ Duration unknown. Using track gaps fallback.")
@@ -285,32 +278,35 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
             
             track_id = f"{match['title']} - {match['artist']}"
 
-            # Late start compensation
-            late_start_offset = match.get('offset_seconds', 0)
-            if late_start_offset > 2:
-                log(f"📍 Late start detected. Already {int(late_start_offset)}s into song. Crediting playtime.")
+            # --- LATE START COMPENSATION (CAPPED) ---
+            raw_offset = match.get('offset_seconds', 0)
+            late_start_offset = min(raw_offset, 30)
+            if raw_offset > 2:
+                log(f"📍 Late start detected (Offset: {int(raw_offset)}s). Crediting {int(late_start_offset)}s of playtime.")
                 scrobble_delay = max(2, scrobble_delay - late_start_offset)
 
-            # Pause memory recovery
+            # --- PAUSE MEMORY RECOVERY (ACCUMULATING) ---
+            previously_played = 0
             if paused_track_memory and paused_track_memory["id"] == track_id:
-                recovered_time = paused_track_memory["accumulated_playtime"]
-                scrobble_delay = max(2, scrobble_delay - recovered_time)
-                log(f"▶️ Resuming track! Recovered {int(recovered_time)}s playtime. Scrobbling in {int(scrobble_delay)}s.")
-            else:
-                paused_track_memory = None 
+                previously_played = paused_track_memory["accumulated_playtime"]
+                scrobble_delay = max(2, scrobble_delay - previously_played)
+                log(f"▶️ Resuming track! Recovered {int(previously_played)}s playtime. Scrobbling in {int(scrobble_delay)}s.")
+            
+            paused_track_memory = None 
             
             current_track = {
-                "title": match['title'], "artist": match['artist'], "album": itunes_album,
+                "title": match['title'], "artist": match['artist'], "album": match['album'],
                 "duration": total_duration, 
-                "start_timestamp": int(song_start_timestamp + trimmed_seconds - late_start_offset),
+                "start_timestamp": int(song_start_timestamp + trimmed_seconds - raw_offset),
                 "session_start_time": song_start_timestamp, 
                 "scrobble_trigger_time": song_start_timestamp + scrobble_delay, 
                 "duration_known": duration_known,
+                "previously_played": previously_played + late_start_offset,
                 "source": "Shazam"
             }
             scrobble_fired = False
 
-            log(f"🎶 MATCH FOUND: {match['title']} - {match['artist']} (Album: {itunes_album})")
+            log(f"🎶 MATCH FOUND: {match['title']} - {match['artist']}")
             mqtt_client.publish("vinyl_guardian/track", f"{match['title']} - {match['artist']}", retain=True)
             mqtt_client.publish("vinyl_guardian/attributes", json.dumps(current_track), retain=True)
             
@@ -461,12 +457,14 @@ def listen_and_identify():
                         log("⏱️ Physical track gap detected (API duration missing).")
                     else:
                         if not scrobble_fired:
-                            time_played = now - current_track['session_start_time'] - NEEDLE_LIFT_SECONDS
+                            silence_duration = required_silence_chunks * (CHUNK / RATE)
+                            time_played = (now - current_track['session_start_time']) - silence_duration + current_track.get('previously_played', 0)
+                            
                             if time_played > 5:  
                                 track_id = f"{current_track['title']} - {current_track['artist']}"
                                 with state_lock:
                                     paused_track_memory = {"id": track_id, "accumulated_playtime": time_played}
-                                log(f"⏸️ Needle lift (Paused). Saved {int(time_played)}s playtime.")
+                                log(f"⏸️ Needle lift (Paused). Total saved playtime: {int(time_played)}s.")
                             else:
                                 log("🔇 Needle lift detected. Aborting track.")
                         else:
@@ -481,9 +479,9 @@ def listen_and_identify():
                 if current_track and not scrobble_fired and now >= current_track.get('scrobble_trigger_time', 0):
                     track_id = f"{current_track['title']} - {current_track['artist']}"
                     if track_id != last_scrobbled_track:
-                        success = scrobble_to_lastfm(current_track['artist'], current_track['title'], current_track['start_timestamp'], current_track['album'])
+                        scrobble_to_lastfm(current_track['artist'], current_track['title'], current_track['start_timestamp'], current_track['album'])
                         mqtt_client.publish("vinyl_guardian/scrobble_state", track_id, retain=True)
-                        mqtt_client.publish("vinyl_guardian/scrobble", json.dumps({"track": current_track, "success": success}), retain=True)
+                        mqtt_client.publish("vinyl_guardian/scrobble", json.dumps(current_track), retain=True)
                         with state_lock: scrobble_fired, last_scrobbled_track, paused_track_memory = True, track_id, None
                     else:
                         log(f"⏭️ Skipping scrobble: '{track_id}' was just scrobbled.")
