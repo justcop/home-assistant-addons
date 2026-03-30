@@ -4,6 +4,8 @@ import json
 import time
 import threading
 import wave
+import requests
+import urllib.parse
 import numpy as np
 import alsaaudio
 import paho.mqtt.client as mqtt
@@ -36,7 +38,7 @@ LFM_SECRET = config.get("lastfm_api_secret", "")
 
 THRESHOLD = config.get("audio_threshold", 0.015)
 DEBUG = config.get("debug_logging", True)
-ONE_SHOT = config.get("debug_one_shot", False)
+TEST_CAPTURE_MODE = config.get("test_capture_mode", False)
 RECORD_SECONDS = config.get("recording_seconds", 15)
 MAX_ATTEMPTS = config.get("max_attempts", 3)
 
@@ -58,7 +60,7 @@ wake_up_time = 0
 consecutive_failures = 0
 current_track = None
 scrobble_fired = False
-inp = None # ALSA Input reference
+inp = None 
 
 def log(message):
     print(f"[Vinyl Guardian] {message}", flush=True)
@@ -261,6 +263,9 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
     try:
         if os.path.exists(wav_temp): os.remove(wav_temp)
     except OSError: pass
+
+    if TEST_CAPTURE_MODE:
+        log("🛑 TEST CAPTURE COMPLETE. Shutting down as requested."); os._exit(0)
 
 # --- MAIN LOOP ---
 def calculate_rms(data):
