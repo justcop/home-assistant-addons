@@ -1,6 +1,6 @@
 name: "Vinyl Guardian"
-description: "Detects needle drops and identifies vinyl records via Shazam."
-version: "1.10.0"
+description: "Detects needle drops, IDs vinyl records, and natively scrobbles to Last.fm."
+version: "1.11.0"
 slug: "vinyl_guardian"
 init: false
 arch:
@@ -12,6 +12,10 @@ arch:
 startup: "application"
 boot: "auto"
 options:
+  lastfm_username: ""
+  lastfm_password: ""
+  lastfm_api_key: ""
+  lastfm_api_secret: ""
   mqtt_broker: "core-mosquitto"
   mqtt_port: 1883
   mqtt_user: ""
@@ -23,6 +27,10 @@ options:
   debug_logging: true
   debug_one_shot: false
 schema:
+  lastfm_username: "str?"
+  lastfm_password: "password?"
+  lastfm_api_key: "str?"
+  lastfm_api_secret: "str?"
   mqtt_broker: "str"
   mqtt_port: "port"
   mqtt_user: "str?"
