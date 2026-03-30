@@ -491,7 +491,11 @@ def listen_and_identify():
                         app_state, current_track, current_attempt, consecutive_failures = "IDLE", None, 1, 0
                     continue
 
-                if current_track and not scrobble_fired and now >= current_track.get('scrobble_trigger_time', 0):
+                # --- FIX: Evaluate physical playtime to prevent scrobbling while verifying a needle lift ---
+                current_silence_sec = silence_sleep * (CHUNK / RATE)
+                physical_now = now - current_silence_sec
+
+                if current_track and not scrobble_fired and physical_now >= current_track.get('scrobble_trigger_time', 0):
                     track_id = f"{current_track['title']} - {current_track['artist']}"
                     if track_id != last_scrobbled_track:
                         scrobble_to_lastfm(current_track['artist'], current_track['title'], current_track['start_timestamp'], current_track['album'])
