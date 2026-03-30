@@ -60,6 +60,7 @@ wake_up_time = 0
 consecutive_failures = 0
 current_track = None
 scrobble_fired = False
+last_scrobbled_track = None
 inp = None 
 
 def log(message):
@@ -227,6 +228,14 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
             consecutive_failures = 0
             total_duration = match.get('duration', 0)
             
+            if total_duration <= 0:
+                log("Fetching total track duration from iTunes fallback...")
+                total_duration = get_track_duration(match['title'], match['artist'])
+                
+            if total_duration <= 0:
+                log("⚠️ Could not find track length. Defaulting to 60s safety fallback.")
+                total_duration = 60
+            
             scrobble_delay = min(total_duration / 2.0, 240)
             current_track = {
                 "title": match['title'], "artist": match['artist'], "album": match['album'],
@@ -275,7 +284,7 @@ def calculate_rms(data):
     except: return 0
 
 def listen_and_identify():
-    global app_state, current_attempt, wake_up_time, scrobble_fired, current_track, inp
+    global app_state, current_attempt, wake_up_time, scrobble_fired, current_track, last_scrobbled_track, inp
     try:
         inp = alsaaudio.PCM(type=alsaaudio.PCM_CAPTURE, mode=alsaaudio.PCM_NORMAL, device='default', channels=CHANNELS, rate=RATE, format=FORMAT, periodsize=CHUNK)
     except Exception as e: log(f"🚨 ALSA Error: {e}"); sys.exit(1)
@@ -336,10 +345,17 @@ def listen_and_identify():
                     continue
 
                 if current_track and not scrobble_fired and now >= current_track.get('scrobble_trigger_time', 0):
-                    scrobble_to_lastfm(current_track['artist'], current_track['title'], current_track['start_timestamp'], current_track['album'])
-                    mqtt_client.publish("vinyl_guardian/scrobble_state", f"{current_track['title']} - {current_track['artist']}", retain=True)
-                    mqtt_client.publish("vinyl_guardian/scrobble", json.dumps(current_track), retain=True)
-                    with state_lock: scrobble_fired = True
+                    track_id = f"{current_track['title']} - {current_track['artist']}"
+                    if track_id != last_scrobbled_track:
+                        scrobble_to_lastfm(current_track['artist'], current_track['title'], current_track['start_timestamp'], current_track['album'])
+                        mqtt_client.publish("vinyl_guardian/scrobble_state", track_id, retain=True)
+                        mqtt_client.publish("vinyl_guardian/scrobble", json.dumps(current_track), retain=True)
+                        with state_lock: 
+                            scrobble_fired = True
+                            last_scrobbled_track = track_id
+                    else:
+                        log(f"⏭️ Skipping scrobble: '{track_id}' was just scrobbled.")
+                        with state_lock: scrobble_fired = True
 
                 if now >= wake_up_time:
                     cooldown_end = now + 4
