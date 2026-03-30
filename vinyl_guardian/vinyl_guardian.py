@@ -62,6 +62,7 @@ consecutive_failures = 0
 current_track = None
 scrobble_fired = False
 last_scrobbled_track = None
+paused_track_memory = None  
 inp = None 
 
 def log(message):
@@ -207,7 +208,7 @@ def recognize_shazam(wav_path):
 
 # --- BACKGROUND WORKER ---
 def process_audio_background(audio_data_bytes, song_start_timestamp):
-    global app_state, current_attempt, wake_up_time, consecutive_failures, current_track, scrobble_fired, last_scrobbled_track
+    global app_state, current_attempt, wake_up_time, consecutive_failures, current_track, scrobble_fired, last_scrobbled_track, paused_track_memory
     log(f"🔬 Analyzing {RECORD_SECONDS}s capture (Attempt {current_attempt}/{MAX_ATTEMPTS})...")
 
     full_data = np.frombuffer(audio_data_bytes, dtype=np.int16)
@@ -216,7 +217,6 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
     if peak >= 32000: log(f"⚠️ CLIPPING (Peak: {peak}/32767). Turn DOWN mic_volume!")
     elif peak < 2000: log(f"⚠️ VERY QUIET (Peak: {peak}/32767). Turn UP mic_volume!")
 
-    # Silence Trimming
     abs_data = np.abs(full_data)
     trigger = np.where(abs_data > 1000)[0]
     start_idx = trigger[0] if len(trigger) > 0 else 0
@@ -253,16 +253,27 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
                 
             if total_duration <= 0:
                 log("⚠️ iTunes fallback failed. Relying strictly on physical track gaps.")
-                total_duration = 1200 # Set a massive 20-minute maximum safety net
+                total_duration = 1200
                 duration_known = False
-                scrobble_delay = 240 # Default to standard 4-minute maximum
+                scrobble_delay = 240
             else:
                 duration_known = True
                 scrobble_delay = min(total_duration / 2.0, 240)
             
+            track_id = f"{match['title']} - {match['artist']}"
+
+            if paused_track_memory and paused_track_memory["id"] == track_id:
+                recovered_time = paused_track_memory["accumulated_playtime"]
+                scrobble_delay = max(5, scrobble_delay - recovered_time)
+                log(f"▶️ Resuming track! Recovered {int(recovered_time)}s of previous playtime. Scrobbling in {int(scrobble_delay)}s.")
+            else:
+                paused_track_memory = None 
+            
             current_track = {
                 "title": match['title'], "artist": match['artist'], "album": match['album'],
-                "duration": total_duration, "start_timestamp": int(song_start_timestamp + trimmed_seconds - match['offset_seconds']),
+                "duration": total_duration, 
+                "start_timestamp": int(song_start_timestamp + trimmed_seconds - match['offset_seconds']),
+                "session_start_time": song_start_timestamp, 
                 "scrobble_trigger_time": song_start_timestamp + scrobble_delay, 
                 "duration_known": duration_known,
                 "source": "Shazam"
@@ -303,15 +314,14 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
 
 # --- MAIN LOOP ---
 def calculate_audio_levels(data):
-    """Returns (Raw Rumble RMS, Filtered Music RMS)"""
     try:
         audio_data = np.frombuffer(data, dtype=np.int16).astype(np.float32)
         if len(audio_data) <= 1: return 0.0, 0.0
         
-        # 1. Raw Broadband RMS (Includes Turntable Hum/Motor)
+        # Raw Broadband RMS (Includes Turntable Hum/Motor)
         raw_rms = float(np.sqrt(np.mean(np.square(audio_data)))) / 32768.0
         
-        # 2. High-Pass Filtered RMS (Subtract consecutive samples to kill low frequencies)
+        # High-Pass Filtered RMS (Subtract consecutive samples to kill low frequencies)
         high_freq_data = np.diff(audio_data)
         music_rms = float(np.sqrt(np.mean(np.square(high_freq_data)))) / 32768.0
         
@@ -320,7 +330,7 @@ def calculate_audio_levels(data):
         return 0.0, 0.0
 
 def listen_and_identify():
-    global app_state, current_attempt, wake_up_time, scrobble_fired, current_track, last_scrobbled_track, inp
+    global app_state, current_attempt, wake_up_time, scrobble_fired, current_track, last_scrobbled_track, paused_track_memory, inp
     try:
         inp = alsaaudio.PCM(type=alsaaudio.PCM_CAPTURE, mode=alsaaudio.PCM_NORMAL, device='default', channels=CHANNELS, rate=RATE, format=FORMAT, periodsize=CHUNK)
     except Exception as e: log(f"🚨 ALSA Error: {e}"); sys.exit(1)
@@ -332,6 +342,7 @@ def listen_and_identify():
     buffer = bytearray()
     
     turntable_on = False
+    trigger_chunks = 0  # Counter for our transient filter
 
     while True:
         length, data = inp.read()
@@ -342,7 +353,6 @@ def listen_and_identify():
             with state_lock:
                 current_state = app_state
 
-            # Turntable Power Detection
             current_power_state = raw_rms > RUMBLE_THRESHOLD
             if current_power_state != turntable_on:
                 turntable_on = current_power_state
@@ -363,16 +373,27 @@ def listen_and_identify():
                         if "SLEEP" in status: last_sleep_log = now
                 last_pub = now
 
-            if current_state == "IDLE" and music_rms > MUSIC_THRESHOLD:
-                log(f"🎵 AUDIO DETECTED (Music Spike: {music_rms:.4f})")
-                change_status("Recording")
-                song_start, buffer, chunks, loud_chunks, silence_sleep = now, bytearray(data), 1, 1, 0
-                with state_lock: app_state = "RECORDING"
+            if current_state == "IDLE":
+                if music_rms > MUSIC_THRESHOLD:
+                    trigger_chunks += 1
+                    # Require 3 consecutive high-volume chunks (~150ms) to ignore sharp electrical pops
+                    if trigger_chunks >= 3:
+                        log(f"🎵 AUDIO DETECTED (Music Spike: {music_rms:.4f})")
+                        change_status("Recording")
+                        song_start, buffer, chunks, loud_chunks, silence_sleep = now, bytearray(data), 1, 1, 0
+                        trigger_chunks = 0
+                        with state_lock: app_state = "RECORDING"
+                else:
+                    trigger_chunks = 0  # Reset if it was just a quick pop
 
             elif current_state == "RECORDING":
                 buffer.extend(data)
                 chunks += 1
+                
+                # REVERTED: Validate recording strictly with the High-Pass Music sensor 
+                # to prevent sending empty motor hum to Shazam
                 if music_rms > MUSIC_THRESHOLD: loud_chunks += 1
+                
                 if chunks >= target:
                     if loud_chunks >= (target / 2.0):
                         change_status("Processing")
@@ -385,14 +406,12 @@ def listen_and_identify():
                     buffer, chunks, loud_chunks = bytearray(), 0, 0
             
             elif current_state == "SLEEPING":
-                silence_sleep = silence_sleep + 1 if music_rms < MUSIC_THRESHOLD else 0
+                # Uses raw full-body volume to detect needle lifts and track gaps
+                silence_sleep = silence_sleep + 1 if raw_rms < RUMBLE_THRESHOLD else 0
                 
-                # Dynamic Silence Detection
                 if current_track is None or not current_track.get('duration_known', False):
-                    # In penalty box or unknown API duration: Use 4-second hyper-sensitive track gap detection
                     required_silence_chunks = int(RATE / CHUNK * 4)
                 else:
-                    # Known song: Allow quiet acoustic bridges, wait for 25-second needle lift
                     required_silence_chunks = int(RATE / CHUNK * NEEDLE_LIFT_SECONDS)
 
                 if silence_sleep >= required_silence_chunks:
@@ -401,7 +420,20 @@ def listen_and_identify():
                     elif not current_track.get('duration_known', False):
                         log("⏱️ Physical track gap detected (API duration missing). Waking up!")
                     else:
-                        log("🔇 Needle lift detected. Aborting current track.")
+                        if not scrobble_fired:
+                            time_played = now - current_track['session_start_time'] - NEEDLE_LIFT_SECONDS
+                            if time_played > 5:  
+                                track_id = f"{current_track['title']} - {current_track['artist']}"
+                                with state_lock:
+                                    paused_track_memory = {
+                                        "id": track_id,
+                                        "accumulated_playtime": time_played
+                                    }
+                                log(f"⏸️ Needle lift (Paused). Saved {int(time_played)}s of playtime to memory.")
+                            else:
+                                log("🔇 Needle lift detected. Aborting track.")
+                        else:
+                            log("🔇 Needle lift detected. Track already scrobbled.")
                         
                     change_status("Idle")
                     mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
@@ -422,6 +454,7 @@ def listen_and_identify():
                         with state_lock: 
                             scrobble_fired = True
                             last_scrobbled_track = track_id
+                            paused_track_memory = None 
                     else:
                         log(f"⏭️ Skipping scrobble: '{track_id}' was just scrobbled.")
                         with state_lock: scrobble_fired = True
@@ -436,7 +469,6 @@ def listen_and_identify():
                 with state_lock: app_state = "IDLE"
 
 if __name__ == "__main__":
-    # --- STARTUP CLEANUP ---
     files_to_clean = [
         os.path.join(SHARE_DIR, "vinyl_debug.wav"),
         os.path.join(SHARE_DIR, "shazam_last_match.json"),
