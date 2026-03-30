@@ -1,69 +1,33 @@
-#!/bin/sh
+#!/usr/bin/with-contenv bashio
 
-# Helper to print with a timestamp
-log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
-}
+echo "[2026-03-30 $(date +"%H:%M:%S")] 🔄 BOOTING VINYL GUARDIAN v 🔄"
+echo "[2026-03-30 $(date +"%H:%M:%S")] ========================================================"
 
-VERSION=$(grep "^version:" config.yaml | sed 's/version: //g' | tr -d '"' | tr -d "'")
+# Ensure PulseAudio recognizes the hardware
+echo "[2026-03-30 $(date +"%H:%M:%S")] --- PULSEAUDIO HARDWARE DIAGNOSTIC ---"
+pactl info
+echo "[2026-03-30 $(date +"%H:%M:%S")] Available Audio Sources:"
+pactl list short sources
+echo "[2026-03-30 $(date +"%H:%M:%S")] --------------------------------------"
 
-# Parse mic volume
-MIC_VOLUME=$(grep -o '"mic_volume": *[0-9]*' /data/options.json | grep -o '[0-9]*')
-if [ -z "$MIC_VOLUME" ]; then
-    MIC_VOLUME=10
-fi
+# Find physical soundcard input
+PHYSICAL_SINK=$(pactl list short sources | grep "alsa_input" | awk '{print $2}' | head -n 1)
 
-# Parse diagnostic toggle
-if grep -q '"record_diagnostic_sample": true' /data/options.json; then
-    RECORD_DIAGNOSTIC=true
+if [ -z "$PHYSICAL_SINK" ]; then
+    echo "🚨 ERROR: Could not find physical ALSA capture device! Please ensure 'Audio' is enabled in Add-on config."
 else
-    RECORD_DIAGNOSTIC=false
-fi
-
-echo ""
-log "========================================================"
-log "🔄 BOOTING VINYL GUARDIAN v${VERSION} 🔄"
-log "========================================================"
-echo ""
-
-log "--- PULSEAUDIO HARDWARE DIAGNOSTIC ---"
-pactl info || log "Warning: Could not get PulseAudio info"
-log "Available Audio Sources:"
-pactl list sources short || log "Warning: Could not list Pulse sources"
-log "--------------------------------------"
-
-# --- DYNAMIC MICROPHONE TARGETING ---
-MIC_SOURCE=$(pactl list short sources | grep -i "input" | awk '{print $2}' | head -n 1)
-
-if [ -z "$MIC_SOURCE" ]; then
-    log "🚨 ERROR: No physical input source found! Falling back to default."
-    MIC_SOURCE="@DEFAULT_SOURCE@"
-else
-    log "🎯 TARGET LOCKED: Found physical mic port -> $MIC_SOURCE"
-fi
-
-log "Setting $MIC_SOURCE as the default recording device..."
-pactl set-default-source "$MIC_SOURCE"
-
-log "Unmuting the microphone..."
-pactl set-source-mute "$MIC_SOURCE" 0 >/dev/null 2>&1 || true
-
-log "Applying UI Configuration: Setting capture volume to ${MIC_VOLUME}%..."
-pactl set-source-volume "$MIC_SOURCE" ${MIC_VOLUME}% >/dev/null 2>&1 || true
-
-# --- DIAGNOSTIC AUDIO DUMP ---
-TEST_FILE="/share/vinyl_test.wav"
-if [ "$RECORD_DIAGNOSTIC" = true ]; then
-    log "DIAGNOSTIC MODE ON: Recording a 5-second audio sample to $TEST_FILE..."
-    arecord -D pulse -c 1 -r 44100 -f S16_LE -d 5 -t wav "$TEST_FILE" >/dev/null 2>&1 || true
-    log "Diagnostic sample saved! Launching main application..."
-else
-    if [ -f "$TEST_FILE" ]; then
-        log "Diagnostic mode off. Cleaning up old test file..."
-        rm -f "$TEST_FILE"
+    echo "🎯 TARGET LOCKED: Found physical mic port -> $PHYSICAL_SINK"
+    pactl set-default-source "$PHYSICAL_SINK"
+    pactl set-source-mute "$PHYSICAL_SINK" 0
+    
+    # Grab Volume from options.json (Absolute Path)
+    CONFIG_VOL=$(jq --raw-output '.mic_volume' /data/options.json)
+    
+    if [ "$CONFIG_VOL" != "null" ] && [ -n "$CONFIG_VOL" ]; then
+        echo "Applying UI Configuration: Setting capture volume to ${CONFIG_VOL}%..."
+        pactl set-source-volume "$PHYSICAL_SINK" "${CONFIG_VOL}%"
     fi
 fi
-# -----------------------------
 
-log "Audio configuration complete. Launching main Python application..."
-exec python3 -u /usr/src/app/vinyl_guardian.py
+echo "Audio configuration complete. Launching main Python application..."
+python3 /usr/src/app/vinyl_guardian.py
