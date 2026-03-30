@@ -15,7 +15,7 @@ RUN apk add --no-cache \
     pulseaudio-utils \
     ffmpeg
 
-RUN python3 -m pip install --no-cache-dir --break-system-packages numpy paho-mqtt pyalsaaudio requests shazamio
+RUN python3 -m pip install --no-cache-dir --break-system-packages numpy paho-mqtt pyalsaaudio requests shazamio pylast
 
 WORKDIR /usr/src/app
 
