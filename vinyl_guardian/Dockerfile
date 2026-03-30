@@ -12,9 +12,10 @@ RUN apk add --no-cache \
     alsa-utils \
     alsa-plugins \
     alsa-plugins-pulse \
-    pulseaudio-utils
+    pulseaudio-utils \
+    ffmpeg
 
-RUN python3 -m pip install --no-cache-dir --break-system-packages numpy paho-mqtt pyalsaaudio requests
+RUN python3 -m pip install --no-cache-dir --break-system-packages numpy paho-mqtt pyalsaaudio requests shazamio
 
 WORKDIR /usr/src/app
 
