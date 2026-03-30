@@ -21,6 +21,10 @@ except Exception as e:
     print(f"🚨 Failed to load config: {e}")
     sys.exit(1)
 
+# Path Setup
+SHARE_DIR = "/share/vinyl_guardian"
+os.makedirs(SHARE_DIR, exist_ok=True)
+
 MQTT_BROKER = config.get("mqtt_broker", "core-mosquitto")
 MQTT_PORT = config.get("mqtt_port", 1883)
 MQTT_USER = config.get("mqtt_user", "")
@@ -44,7 +48,7 @@ FORMAT = alsaaudio.PCM_FORMAT_S16_LE
 CHUNK = 2048
 
 # Global State
-app_state = "IDLE" # IDLE, RECORDING, PROCESSING, SLEEPING, COOLDOWN
+app_state = "IDLE" 
 current_attempt = 1
 wake_up_time = 0
 consecutive_failures = 0
@@ -88,84 +92,46 @@ if MQTT_USER and MQTT_PASS:
     mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
 
 def publish_discovery():
-    log("Publishing MQTT Auto-Discovery payloads to Home Assistant...")
-    device_info = {
-        "identifiers": ["vinyl_guardian_01"],
-        "name": "Vinyl Guardian",
-        "manufacturer": "Custom Add-on"
+    log("Publishing MQTT Auto-Discovery payloads...")
+    device_info = {"identifiers": ["vinyl_guardian_01"], "name": "Vinyl Guardian", "manufacturer": "Custom Add-on"}
+
+    configs = {
+        "status": {"name": "Vinyl Status", "topic": "status", "icon": "mdi:record-player"},
+        "track": {"name": "Vinyl Current Track", "topic": "track", "icon": "mdi:music-circle", "attr": True},
+        "rms": {"name": "Vinyl Live RMS", "topic": "rms", "icon": "mdi:waveform"},
+        "scrobble": {"name": "Vinyl Last Scrobble", "topic": "scrobble_state", "icon": "mdi:lastpass", "attr_topic": "scrobble"}
     }
 
-    payload_status = {
-        "name": "Vinyl Status",
-        "state_topic": "vinyl_guardian/status",
-        "icon": "mdi:record-player",
-        "unique_id": "vinyl_guardian_status",
-        "device": device_info
-    }
-    mqtt_client.publish("homeassistant/sensor/vinyl_guardian/status/config", json.dumps(payload_status), retain=True)
-
-    payload_track = {
-        "name": "Vinyl Current Track",
-        "state_topic": "vinyl_guardian/track",
-        "json_attributes_topic": "vinyl_guardian/attributes",
-        "icon": "mdi:music-circle",
-        "unique_id": "vinyl_guardian_track",
-        "device": device_info
-    }
-    mqtt_client.publish("homeassistant/sensor/vinyl_guardian/track/config", json.dumps(payload_track), retain=True)
-
-    payload_rms = {
-        "name": "Vinyl Live RMS",
-        "state_topic": "vinyl_guardian/rms",
-        "icon": "mdi:waveform",
-        "unique_id": "vinyl_guardian_live_rms",
-        "device": device_info
-    }
-    mqtt_client.publish("homeassistant/sensor/vinyl_guardian/live_rms/config", json.dumps(payload_rms), retain=True)
-
-    payload_scrobble = {
-        "name": "Vinyl Last Scrobble",
-        "state_topic": "vinyl_guardian/scrobble_state",
-        "json_attributes_topic": "vinyl_guardian/scrobble",
-        "icon": "mdi:lastpass",
-        "unique_id": "vinyl_guardian_last_scrobble",
-        "device": device_info
-    }
-    mqtt_client.publish("homeassistant/sensor/vinyl_guardian/scrobble/config", json.dumps(payload_scrobble), retain=True)
+    for key, c in configs.items():
+        payload = {
+            "name": c["name"],
+            "state_topic": f"vinyl_guardian/{c['topic']}",
+            "unique_id": f"vinyl_guardian_{key}",
+            "device": device_info,
+            "icon": c["icon"]
+        }
+        if c.get("attr"): payload["json_attributes_topic"] = "vinyl_guardian/attributes"
+        if c.get("attr_topic"): payload["json_attributes_topic"] = f"vinyl_guardian/{c['attr_topic']}"
+        
+        mqtt_client.publish(f"homeassistant/sensor/vinyl_guardian/{key}/config", json.dumps(payload), retain=True)
 
     mqtt_client.publish("vinyl_guardian/status", "Idle", retain=True)
     mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
     mqtt_client.publish("vinyl_guardian/scrobble_state", "None", retain=True)
-    mqtt_client.publish("vinyl_guardian/rms", "0.0000", retain=True)
 
 def connect_mqtt():
     try:
-        log(f"Connecting to MQTT...")
         mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
         mqtt_client.loop_start()
         publish_discovery()
-    except Exception as e:
-        log(f"🚨 MQTT Failed: {e}")
+    except Exception as e: log(f"🚨 MQTT Failed: {e}")
 
 def change_status(new_status):
     mqtt_client.publish("vinyl_guardian/status", new_status, retain=True)
 
-# --- HELPER: GET TRACK DURATION (Fallback) ---
-def get_track_duration(title, artist):
-    try:
-        query = urllib.parse.quote(f"{title} {artist}")
-        url = f"https://itunes.apple.com/search?term={query}&entity=song&limit=1"
-        res = requests.get(url, timeout=10)
-        data = res.json()
-        if data.get('resultCount', 0) > 0:
-            return data['results'][0].get('trackTimeMillis', 0) / 1000.0
-    except Exception as e:
-        if DEBUG: print(f"[DEBUG] Failed to fetch track duration: {e}")
-    return 0
-
 # --- RECOGNITION ENGINE (SHAZAM) ---
 def recognize_shazam(wav_path):
-    log("Uploading to Shazam API...")
+    log("Uploading to Shazam...")
     try:
         async def _recognize():
             shazam = Shazam()
@@ -173,46 +139,27 @@ def recognize_shazam(wav_path):
             
         res_json = asyncio.run(_recognize())
         
-        try:
-            with open("/share/shazam_last_match.json", "w") as f:
-                json.dump(res_json, f, indent=2)
-        except Exception: pass
+        if DEBUG:
+            try:
+                result_file = os.path.join(SHARE_DIR, "shazam_last_match.json")
+                with open(result_file, "w") as f: 
+                    json.dump(res_json, f, indent=2)
+            except Exception: pass
 
         if 'track' in res_json and 'matches' in res_json and len(res_json['matches']) > 0:
             track = res_json['track']
-            title = track.get('title', 'Unknown')
-            artist = track.get('subtitle', 'Unknown')
-            
-            album = "Unknown"
-            duration = 0
-            release_year = "Unknown"
+            title, artist, album, duration, release_year = track.get('title', 'Unknown'), track.get('subtitle', 'Unknown'), "Unknown", 0, "Unknown"
             
             for section in track.get('sections', []):
                 if section.get('type') == 'SONG':
                     for meta in section.get('metadata', []):
-                        if meta.get('title') == 'Album':
-                            album = meta.get('text')
+                        if meta.get('title') == 'Album': album = meta.get('text')
                         elif meta.get('title') == 'Length':
-                            length_str = meta.get('text')
-                            if ':' in length_str:
-                                parts = length_str.split(':')
-                                if len(parts) == 2:
-                                    duration = int(parts[0]) * 60 + int(parts[1])
-                                elif len(parts) == 3:
-                                    duration = int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
-                        elif meta.get('title') == 'Released':
-                            release_year = meta.get('text')
+                            p = meta.get('text').split(':')
+                            duration = int(p[0])*60 + int(p[1]) if len(p)==2 else int(p[0])*3600 + int(p[1])*60 + int(p[2])
+                        elif meta.get('title') == 'Released': release_year = meta.get('text')
             
-            offset_seconds = res_json['matches'][0].get('offset', 0)
-            
-            return {
-                "title": title,
-                "artist": artist,
-                "album": album,
-                "release_year": release_year,
-                "offset_seconds": offset_seconds,
-                "duration": duration
-            }
+            return {"title": title, "artist": artist, "album": album, "release_year": release_year, "offset_seconds": res_json['matches'][0].get('offset', 0), "duration": duration}
         return None
     except Exception as e:
         log(f"🚨 Shazam Engine Error: {e}")
@@ -221,111 +168,82 @@ def recognize_shazam(wav_path):
 # --- BACKGROUND WORKER ---
 def process_audio_background(audio_data_bytes, song_start_timestamp):
     global app_state, current_attempt, wake_up_time, consecutive_failures, current_track, scrobble_fired
-    log(f"🔬 Analyzing {RECORD_SECONDS}s capture via Shazam (Attempt {current_attempt}/{MAX_ATTEMPTS})...")
+    log(f"🔬 Analyzing {RECORD_SECONDS}s capture (Attempt {current_attempt}/{MAX_ATTEMPTS})...")
 
     full_data = np.frombuffer(audio_data_bytes, dtype=np.int16)
     
-    peak_value = int(np.max(np.abs(full_data.astype(np.int32)))) if len(full_data) > 0 else 0
-    if peak_value >= 32000:
-        log(f"⚠️ WARNING: Audio is CLIPPING (Peak: {peak_value}/32767). Turn DOWN mic_volume!")
-    elif peak_value < 2000:
-        log(f"⚠️ WARNING: Audio is VERY QUIET (Peak: {peak_value}/32767). Turn UP mic_volume!")
+    # Audio Health
+    peak = int(np.max(np.abs(full_data.astype(np.int32)))) if len(full_data) > 0 else 0
+    if peak >= 32000: log(f"⚠️ CLIPPING (Peak: {peak}/32767). Turn DOWN mic_volume!")
+    elif peak < 2000: log(f"⚠️ VERY QUIET (Peak: {peak}/32767). Turn UP mic_volume!")
 
+    # Silence Trimming
     abs_data = np.abs(full_data)
-    trigger_point = np.where(abs_data > 1000)[0]
-    start_idx = trigger_point[0] if len(trigger_point) > 0 else 0
+    trigger = np.where(abs_data > 1000)[0]
+    start_idx = trigger[0] if len(trigger) > 0 else 0
     
-    min_samples_required = RATE * 8 
-    if len(full_data) - start_idx < min_samples_required:
-        start_idx = max(0, len(full_data) - min_samples_required)
+    min_s = RATE * 8 
+    if len(full_data) - start_idx < min_s: start_idx = max(0, len(full_data) - min_s)
 
     trimmed_bytes = full_data[start_idx:].tobytes()
     trimmed_seconds = start_idx / RATE
     
-    wav_path = "/tmp/process.wav"
-    with wave.open(wav_path, "wb") as wf:
+    # Files
+    wav_temp = "/tmp/process.wav"
+    wav_debug = os.path.join(SHARE_DIR, "vinyl_debug.wav")
+
+    with wave.open(wav_temp, "wb") as wf:
         wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(trimmed_bytes)
     
-    try:
-        with wave.open("/share/vinyl_debug.wav", "wb") as wf:
-            wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(trimmed_bytes)
-    except Exception: pass
+    # Save debug wav if DEBUG mode is enabled (Always overwrite last)
+    if DEBUG:
+        try:
+            with wave.open(wav_debug, "wb") as wf:
+                wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(trimmed_bytes)
+        except Exception: pass
 
-    match = recognize_shazam(wav_path)
+    match = recognize_shazam(wav_temp)
 
     if match:
         current_attempt = 1 
         consecutive_failures = 0
-        
         total_duration = match.get('duration', 0)
-        if total_duration <= 0:
-            log("Fetching total track duration from iTunes fallback...")
-            total_duration = get_track_duration(match['title'], match['artist'])
         
-        if total_duration > 0:
-            trimmed_audio_start_timestamp = song_start_timestamp + trimmed_seconds
-            song_real_start_timestamp = trimmed_audio_start_timestamp - match['offset_seconds']
-            wake_up_time = song_real_start_timestamp + total_duration
-            
-            scrobble_delay = min(total_duration / 2.0, 240)
-            scrobble_trigger_time = song_start_timestamp + scrobble_delay
+        # Scrobble logic
+        scrobble_delay = min(total_duration / 2.0, 240)
+        current_track = {
+            "title": match['title'], "artist": match['artist'], "album": match['album'],
+            "duration": total_duration, "start_timestamp": int(song_start_timestamp + trimmed_seconds - match['offset_seconds']),
+            "scrobble_trigger_time": song_start_timestamp + scrobble_delay, "source": "Shazam"
+        }
+        scrobble_fired = False
 
-            current_track = {
-                "title": match['title'],
-                "artist": match['artist'],
-                "album": match['album'],
-                "duration": total_duration,
-                "start_timestamp": int(song_real_start_timestamp),
-                "release_year": match['release_year'],
-                "scrobble_trigger_time": scrobble_trigger_time,
-                "source": "Shazam"
-            }
-            scrobble_fired = False
-
-            log(f"🎶 MATCH FOUND! {match['title']} by {match['artist']}")
-            mqtt_client.publish("vinyl_guardian/track", f"{match['title']} - {match['artist']}", retain=True)
-            mqtt_client.publish("vinyl_guardian/attributes", json.dumps(current_track), retain=True)
-            
-            if DEBUG:
-                log(f"⏱️ Track duration: {total_duration}s. Predicted absolute end time: {time.strftime('%H:%M:%S', time.localtime(wake_up_time))}")
-            
-            app_state = "SLEEPING"
-            change_status("Playing")
-        else:
-            log("⚠️ Could not find track length. Falling back to 60s sleep.")
-            wake_up_time = time.time() + 60
-            current_track = None
-            app_state = "SLEEPING"
-            change_status("Playing")
-            
+        log(f"🎶 MATCH FOUND: {match['title']} - {match['artist']}")
+        mqtt_client.publish("vinyl_guardian/track", f"{match['title']} - {match['artist']}", retain=True)
+        mqtt_client.publish("vinyl_guardian/attributes", json.dumps(current_track), retain=True)
+        
+        wake_up_time = current_track['start_timestamp'] + total_duration
+        app_state = "SLEEPING"
+        change_status("Playing")
     else:
         if current_attempt < MAX_ATTEMPTS:
-            log(f"❌ No match. Instantly queueing Attempt {current_attempt + 1}...")
+            log(f"❌ No match. Retrying ({current_attempt + 1}/{MAX_ATTEMPTS})...")
             current_attempt += 1
             app_state = "RECORDING"
             change_status("Recording")
         else:
             consecutive_failures += 1
-            current_track = None
-            if consecutive_failures >= 10:
-                log(f"🚨 {consecutive_failures} consecutive unrecognized tracks! Engaging 30-MINUTE TIMEOUT.")
+            log(f"❌ Max attempts reached. Fallback to 1m sleep.")
+            change_status("Playing")
+            mqtt_client.publish("vinyl_guardian/track", "Unknown Track", retain=True)
+            current_attempt = 1
+            wake_up_time = time.time() + (1800 if consecutive_failures >= 10 else 60)
+            if consecutive_failures >= 10: 
                 change_status("Timeout (30m)")
-                mqtt_client.publish("vinyl_guardian/track", "Unknown Track", retain=True)
-                current_attempt = 1
                 consecutive_failures = 0
-                wake_up_time = time.time() + 1800 
-                app_state = "SLEEPING"
-            else:
-                log(f"❌ No match found after {MAX_ATTEMPTS} attempts.")
-                change_status("Playing")
-                mqtt_client.publish("vinyl_guardian/track", "Unknown Track", retain=True)
-                current_attempt = 1
-                wake_up_time = time.time() + 60
-                app_state = "SLEEPING"
+            app_state = "SLEEPING"
 
-    if os.path.exists(wav_path): os.remove(wav_path)
-    if ONE_SHOT:
-        log("🛑 ONE-SHOT COMPLETE."); os._exit(0)
+    if os.path.exists(wav_temp): os.remove(wav_temp)
 
 # --- MAIN LOOP ---
 def calculate_rms(data):
@@ -337,30 +255,13 @@ def calculate_rms(data):
 def listen_and_identify():
     global app_state, current_attempt, wake_up_time, scrobble_fired, current_track
     try:
-        inp = alsaaudio.PCM(
-            type=alsaaudio.PCM_CAPTURE,
-            mode=alsaaudio.PCM_NORMAL,
-            device='default',
-            channels=CHANNELS,
-            rate=RATE,
-            format=FORMAT,
-            periodsize=CHUNK
-        )
-    except Exception as e:
-        log(f"🚨 ALSA initialization failed: {e}"); sys.exit(1)
+        inp = alsaaudio.PCM(type=alsaaudio.PCM_CAPTURE, mode=alsaaudio.PCM_NORMAL, device='default', channels=CHANNELS, rate=RATE, format=FORMAT, periodsize=CHUNK)
+    except Exception as e: log(f"🚨 ALSA Error: {e}"); sys.exit(1)
 
-    log(f"Listening for audio (Engine: Shazam, Threshold: {THRESHOLD})...")
-    last_pub = time.time()
-    last_sleep_log = 0
-    cooldown_end = 0
-    
-    chunks = 0
-    loud_chunks = 0
-    silence_during_sleep = 0
+    log(f"Listening (Threshold: {THRESHOLD})...")
+    last_pub, last_sleep_log, cooldown_end, chunks, loud_chunks, silence_sleep, song_start = time.time(), 0, 0, 0, 0, 0, 0
     target = int(RATE / CHUNK * RECORD_SECONDS)
-    
     buffer = bytearray()
-    song_start_timestamp = 0
 
     while True:
         length, data = inp.read()
@@ -368,101 +269,71 @@ def listen_and_identify():
             rms = calculate_rms(data)
             now = time.time()
             
-            # --- LOGGING ---
             if now - last_pub >= 1.0:
                 mqtt_client.publish("vinyl_guardian/rms", f"{rms:.4f}")
                 if DEBUG:
-                    if app_state == "RECORDING":
-                        status = f"🔴 REC {int((chunks/target)*100)}%"
+                    if app_state == "RECORDING": status = f"🔴 REC {int((chunks/target)*100)}%"
+                    elif app_state == "SLEEPING": status = f"💤 SLEEP ({max(0, int(wake_up_time - now))}s)" if now - last_sleep_log >= 15.0 else None
+                    elif app_state == "COOLDOWN": status = f"⏳ COOLDOWN ({max(0, int(cooldown_end - now))}s)"
+                    elif app_state == "PROCESSING": status = "⚙️ PROC"
+                    else: status = "🟢 IDLE"
+                    if status: 
                         print(f"[{time.strftime('%H:%M:%S')}] {status} | RMS: {rms:.4f}", flush=True)
-                    elif app_state == "SLEEPING":
-                        if now - last_sleep_log >= 15.0:
-                            status = f"💤 SLEEP ({max(0, int(wake_up_time - now))}s remaining)"
-                            print(f"[{time.strftime('%H:%M:%S')}] {status} | RMS: {rms:.4f}", flush=True)
-                            last_sleep_log = now
-                    elif app_state == "COOLDOWN":
-                        status = f"⏳ COOLDOWN ({max(0, int(cooldown_end - now))}s)"
-                        print(f"[{time.strftime('%H:%M:%S')}] {status} | RMS: {rms:.4f}", flush=True)
-                    elif app_state == "PROCESSING":
-                        print(f"[{time.strftime('%H:%M:%S')}] ⚙️ PROC | RMS: {rms:.4f}", flush=True)
+                        if "SLEEP" in status: last_sleep_log = now
                 last_pub = now
 
-            # --- STATE MACHINE ---
             if app_state == "IDLE" and rms > THRESHOLD:
-                log(f"🎵 AUDIO DETECTED (RMS: {rms:.4f})")
+                log(f"🎵 AUDIO DETECTED")
                 change_status("Recording")
-                song_start_timestamp = time.time()
-                app_state = "RECORDING"
-                buffer = bytearray()
-                buffer.extend(data)
-                chunks = 1
-                loud_chunks = 1
-                silence_during_sleep = 0
+                song_start, app_state, buffer, chunks, loud_chunks, silence_sleep = now, "RECORDING", bytearray(data), 1, 1, 0
 
             elif app_state == "RECORDING":
                 buffer.extend(data)
                 chunks += 1
-                if rms > THRESHOLD:
-                    loud_chunks += 1
-                    
+                if rms > THRESHOLD: loud_chunks += 1
                 if chunks >= target:
                     if loud_chunks >= (target / 2.0):
                         app_state = "PROCESSING"
                         change_status("Processing")
-                        threading.Thread(target=process_audio_background, args=(bytes(buffer), song_start_timestamp)).start()
+                        threading.Thread(target=process_audio_background, args=(bytes(buffer), song_start)).start()
                     else:
-                        log(f"⚠️ Discarding sample: Only {loud_chunks}/{target} chunks met threshold. Returning to IDLE.")
+                        log(f"⚠️ Sample discarded (Too quiet). Returning to IDLE.")
                         change_status("Idle")
                         app_state = "IDLE"
-                        
-                    buffer = bytearray()
-                    chunks = 0
-                    loud_chunks = 0
+                    buffer, chunks, loud_chunks = bytearray(), 0, 0
             
             elif app_state == "SLEEPING":
-                if rms < (THRESHOLD * 0.5):
-                    silence_during_sleep += 1
-                else:
-                    silence_during_sleep = 0
-
-                if silence_during_sleep >= int(RATE / CHUNK * 25):
-                    log("🔇 Needle lift detected (25s of absolute silence). Aborting track!")
-                    change_status("Idle")
-                    mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
-                    app_state = "IDLE"
-                    current_track = None
-                    silence_during_sleep = 0
+                silence_sleep = silence_sleep + 1 if rms < (THRESHOLD * 0.5) else 0
+                if silence_sleep >= int(RATE / CHUNK * 25):
+                    log("🔇 Needle lift. Aborting."); change_status("Idle"); mqtt_client.publish("vinyl_guardian/track", "None", retain=True); app_state, current_track = "IDLE", None
                     continue
 
-                if current_track and not scrobble_fired:
-                    if now >= current_track.get('scrobble_trigger_time', 0):
-                        log(f"✅ Scrobble rules met. Emitting MQTT scrobble payload...")
-                        mqtt_client.publish("vinyl_guardian/scrobble_state", f"{current_track['title']} - {current_track['artist']}", retain=True)
-                        mqtt_client.publish("vinyl_guardian/scrobble", json.dumps(current_track), retain=True)
-                        
-                        # NATIVE SCROBBLE TO LAST.FM
-                        scrobble_to_lastfm(
-                            artist=current_track['artist'],
-                            title=current_track['title'],
-                            start_timestamp=current_track['start_timestamp'],
-                            album=current_track['album']
-                        )
-                        
-                        scrobble_fired = True
+                if current_track and not scrobble_fired and now >= current_track.get('scrobble_trigger_time', 0):
+                    scrobble_to_lastfm(current_track['artist'], current_track['title'], current_track['start_timestamp'], current_track['album'])
+                    mqtt_client.publish("vinyl_guardian/scrobble_state", f"{current_track['title']} - {current_track['artist']}", retain=True)
+                    mqtt_client.publish("vinyl_guardian/scrobble", json.dumps(current_track), retain=True)
+                    scrobble_fired = True
 
                 if now >= wake_up_time:
-                    log("⏰ Sleep timer finished! Entering 4-second cooldown before listening...")
-                    app_state = "COOLDOWN"
+                    app_state, cooldown_end = "COOLDOWN", now + 4
                     change_status("Cooldown")
-                    cooldown_end = now + 4
                     
-            elif app_state == "COOLDOWN":
-                if now >= cooldown_end:
-                    log("🟢 Cooldown complete. Returning to IDLE to wait for next threshold trigger.")
-                    change_status("Idle")
-                    mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
-                    app_state = "IDLE"
+            elif app_state == "COOLDOWN" and now >= cooldown_end:
+                log("🟢 IDLE"); change_status("Idle"); mqtt_client.publish("vinyl_guardian/track", "None", retain=True); app_state = "IDLE"
 
 if __name__ == "__main__":
+    # --- STARTUP CLEANUP ---
+    files_to_clean = [
+        os.path.join(SHARE_DIR, "vinyl_debug.wav"),
+        os.path.join(SHARE_DIR, "shazam_last_match.json"),
+        "/tmp/process.wav"
+    ]
+    for f in files_to_clean:
+        try:
+            if os.path.exists(f): 
+                os.remove(f)
+                log(f"🧹 Cleaned up old file: {f}")
+        except Exception: pass
+        
     connect_mqtt()
     listen_and_identify()
