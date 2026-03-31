@@ -12,7 +12,7 @@ arch:
 startup: "application"
 boot: "auto"
 options:
-  calibration_mode: false
+  calibration_mode: true
   lastfm_username: ""
   lastfm_password: ""
   lastfm_api_key: ""
