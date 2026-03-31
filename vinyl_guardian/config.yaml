@@ -12,7 +12,6 @@ arch:
 startup: "application"
 boot: "auto"
 options:
-  calibration_mode: true
   lastfm_username: ""
   lastfm_password: ""
   lastfm_api_key: ""
@@ -28,6 +27,7 @@ options:
   max_attempts: 3
   debug_logging: true
   test_capture_mode: false
+  calibration_mode: false
 schema:
   calibration_mode: "bool"
   lastfm_username: "str?"
