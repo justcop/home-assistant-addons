@@ -10,6 +10,7 @@ import numpy as np
 import alsaaudio
 import paho.mqtt.client as mqtt
 import asyncio
+import subprocess
 from shazamio import Shazam
 import pylast
 import signal
@@ -44,22 +45,23 @@ LFM_SECRET = config.get("lastfm_api_secret", "")
 adv = config.get("advanced", {})
 
 # Core Thresholds
-MUSIC_THRESHOLD = adv.get("music_threshold", config.get("music_threshold", 0.005))
-RUMBLE_THRESHOLD = adv.get("rumble_threshold", config.get("rumble_threshold", 0.015))
-DEBUG = adv.get("debug_logging", config.get("debug_logging", True))
+MUSIC_THRESHOLD = config.get("music_threshold", 0.005)
+RUMBLE_THRESHOLD = config.get("rumble_threshold", 0.015)
+MOTOR_POWER_THRESHOLD = config.get("motor_power_threshold", 0.0045)
+RECORD_SECONDS = config.get("recording_seconds", 10)
+
+DEBUG = adv.get("debug_logging", True)
 TEST_CAPTURE_MODE = config.get("test_capture_mode", False)
-RECORD_SECONDS = adv.get("recording_seconds", config.get("recording_seconds", 10))
-MAX_ATTEMPTS = adv.get("max_attempts", config.get("max_attempts", 3))
+MAX_ATTEMPTS = adv.get("max_attempts", 3)
 
 # --- ENGINE TUNING PARAMETERS ---
-MIN_AUDIO_SECONDS = adv.get("min_audio_seconds", config.get("min_audio_seconds", 5))
-AUDIO_ONSET_THRESHOLD = adv.get("audio_onset_threshold", config.get("audio_onset_threshold", 1000))      
-TRIGGER_DEBOUNCE_CHUNKS = adv.get("trigger_debounce_chunks", config.get("trigger_debounce_chunks", 3))       
+MIN_AUDIO_SECONDS = adv.get("min_audio_seconds", 5)
+AUDIO_ONSET_THRESHOLD = adv.get("audio_onset_threshold", 1000)      
+TRIGGER_DEBOUNCE_CHUNKS = adv.get("trigger_debounce_chunks", 3)       
 
-MOTOR_POWER_THRESHOLD = adv.get("motor_power_threshold", config.get("motor_power_threshold", 0.0045))    
-NEEDLE_LIFT_SECONDS = adv.get("needle_lift_seconds", config.get("needle_lift_seconds", 25))          
-CONSECUTIVE_FAILURE_TIMEOUT = adv.get("consecutive_failure_timeout", config.get("consecutive_failure_timeout", 1800)) 
-FALLBACK_SLEEP_SECS = adv.get("fallback_sleep_secs", config.get("fallback_sleep_secs", 60))          
+NEEDLE_LIFT_SECONDS = adv.get("needle_lift_seconds", 25)          
+CONSECUTIVE_FAILURE_TIMEOUT = adv.get("consecutive_failure_timeout", 1800) 
+FALLBACK_SLEEP_SECS = adv.get("fallback_sleep_secs", 60)          
 
 # Audio Settings
 CHANNELS = config.get("channels", 2)
@@ -272,9 +274,9 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
     
     # Relaxed clipping warning - Shazam survives clipping easily
     if peak >= max_val: 
-        log(f"🎸 Audio peaked at max digital volume. (If matches are failing, try lowering mic_volume)")
+        log(f"🎸 Audio peaked at max digital volume. (If matches are failing, try running calibration_mode)")
     elif peak < 2000: 
-        log(f"⚠️ VERY QUIET (Peak: {peak}/{max_val}). Turn UP mic_volume!")
+        log(f"⚠️ VERY QUIET (Peak: {peak}/{max_val}). (If matches are failing, try running calibration_mode)")
 
     abs_data = np.abs(full_data)
     trigger = np.where(abs_data > AUDIO_ONSET_THRESHOLD)[0]
@@ -400,7 +402,7 @@ def calculate_audio_levels(data):
 
 # --- CALIBRATION MODE ENGINE ---
 def run_calibration():
-    """Guided 5-stage setup sequence to generate empirical threshold data."""
+    """Guided setup sequence to verify volume and generate empirical threshold data."""
     log("=========================================")
     log("🎛️ VINYL GUARDIAN CALIBRATION MODE 🎛️")
     log("=========================================")
@@ -409,6 +411,73 @@ def run_calibration():
         inp = alsaaudio.PCM(type=alsaaudio.PCM_CAPTURE, mode=alsaaudio.PCM_NORMAL, device='default', channels=CHANNELS, rate=RATE, format=FORMAT, periodsize=CHUNK)
     except Exception as e: 
         log(f"🚨 ALSA Error: {e}"); sys.exit(1)
+
+    # --- AUTO-VOLUME CALIBRATION (STAGE 0) ---
+    current_vol = config.get("mic_volume", 10)
+    
+    log("\n👉 STAGE 0 (Auto-Volume Check): Drop the needle onto a LOUD part of a playing record.")
+    log("The script will now automatically adjust your software input volume until it finds the sweet spot.")
+    log("Waiting 10 seconds for you to drop the needle...")
+    for i in range(10, 0, -1):
+        log(f"... {i} ...")
+        inp.read() # Drain buffer
+        time.sleep(1)
+        
+    log(f"🔴 Starting live auto-volume metering (Current Start Volume: {current_vol}%)...")
+    
+    good_passes = 0
+    target_chunks = int(RATE / CHUNK * 3) # 3 seconds per check for fast live feedback
+    
+    while good_passes < 2:
+        # Apply the current volume setting directly to the pulse/alsa system
+        subprocess.run(["pactl", "set-source-volume", "@DEFAULT_SOURCE@", f"{current_vol}%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        
+        # Drain old audio from the buffer before analyzing the new volume
+        for _ in range(5):
+            inp.read()
+            
+        buffer = bytearray()
+        chunks = 0
+        while chunks < target_chunks:
+            length, data = inp.read()
+            if length > 0:
+                buffer.extend(data)
+                chunks += 1
+        
+        audio_data = np.frombuffer(buffer, dtype=np.int16)
+        peak = int(np.max(np.abs(audio_data.astype(np.int32)))) if len(audio_data) > 0 else 0
+        
+        clipping_samples = np.sum(np.abs(audio_data) >= 32700)
+        clip_percent = (clipping_samples / len(audio_data)) * 100 if len(audio_data) > 0 else 0
+        
+        if clip_percent > 5.0 or peak >= 32000:
+            step = 5 if clip_percent > 15.0 else 2
+            current_vol = max(1, current_vol - step)
+            log(f"📈 [Peak: {peak:5d} | Clip: {clip_percent:4.1f}%] - TOO LOUD. Auto-decreasing to {current_vol}%...")
+            good_passes = 0
+            time.sleep(0.5)
+        elif peak < 3000:
+            step = 5 if peak < 1000 else 2
+            current_vol = min(100, current_vol + step)
+            log(f"📉 [Peak: {peak:5d} | Clip: {clip_percent:4.1f}%] - TOO QUIET. Auto-increasing to {current_vol}%...")
+            good_passes = 0
+            time.sleep(0.5)
+        else:
+            log(f"✅ [Peak: {peak:5d} | Clip: {clip_percent:4.1f}%] - PERFECT volume locked at {current_vol}%! Holding...")
+            good_passes += 1
+            
+        if current_vol == 1 or current_vol == 100:
+            log(f"⚠️ Hit volume limit ({current_vol}%). Cannot adjust further. Proceeding with best effort.")
+            break
+            
+    log("\n=========================================")
+    log(f"👉 VOLUME LOCKED IN AT {current_vol}%. Transitioning to Threshold Calibration.")
+    log("👉 Please STOP the record and turn the turntable completely OFF.")
+    log("Waiting 20 seconds for you to prepare...")
+    for i in range(20, 0, -1):
+        log(f"... {i} ...")
+        inp.read()
+        time.sleep(1)
 
     calibration_data = {}
     
@@ -508,6 +577,7 @@ def run_calibration():
         log("=========================================")
         log(f"Type these numbers into your options.json / Add-on UI:")
         log(f"")
+        log(f"  mic_volume:            {current_vol}")
         log(f"  motor_power_threshold: {suggested_motor}")
         log(f"  rumble_threshold:      {suggested_rumble}")
         log(f"  music_threshold:       {suggested_music}")
