@@ -26,6 +26,9 @@ except Exception as e:
 SHARE_DIR = "/share/vinyl_guardian"
 os.makedirs(SHARE_DIR, exist_ok=True)
 
+# System Modes
+CALIBRATION_MODE = config.get("calibration_mode", False)
+
 # MQTT & API Keys
 MQTT_BROKER = config.get("mqtt_broker", "core-mosquitto")
 MQTT_PORT = config.get("mqtt_port", 1883)
@@ -46,16 +49,14 @@ RECORD_SECONDS = config.get("recording_seconds", 10)
 MAX_ATTEMPTS = config.get("max_attempts", 3)
 
 # --- ENGINE TUNING PARAMETERS ---
-# Audio Capture Tuning
 MIN_AUDIO_SECONDS = 5
-AUDIO_ONSET_THRESHOLD = 1000      # Raw amplitude required to trim silence from start of capture
-TRIGGER_DEBOUNCE_CHUNKS = 3       # Consecutive loud chunks needed to trigger a recording (ignores pops)
+AUDIO_ONSET_THRESHOLD = 1000      
+TRIGGER_DEBOUNCE_CHUNKS = 3       
 
-# Hardware State Debounce Tuning
-MOTOR_POWER_THRESHOLD = 0.0045    # Baseline rumble of the spinning motor
-NEEDLE_LIFT_SECONDS = 25          # Physical silence required to confirm a track is over
-CONSECUTIVE_FAILURE_TIMEOUT = 1800 # 30 min penalty box if Shazam fails 10 times (e.g. locked groove)
-FALLBACK_SLEEP_SECS = 60          # Standard fallback sleep if API fails
+MOTOR_POWER_THRESHOLD = 0.0045    
+NEEDLE_LIFT_SECONDS = 25          
+CONSECUTIVE_FAILURE_TIMEOUT = 1800 
+FALLBACK_SLEEP_SECS = 60          
 
 # Audio Settings
 CHANNELS = config.get("channels", 2)
@@ -78,7 +79,6 @@ inp = None
 def log(message):
     print(f"[Vinyl Guardian] {message}", flush=True)
 
-# --- GRACEFUL SHUTDOWN ---
 def signal_handler(sig, frame):
     """Ensures audio devices and MQTT connections are safely released on exit."""
     log("🛑 Shutting down gracefully...")
@@ -89,7 +89,7 @@ def signal_handler(sig, frame):
         mqtt_client.loop_stop()
         mqtt_client.disconnect()
     except Exception as e: 
-        log(f"Shutdown error: {e}")
+        pass
     sys.exit(0)
 
 signal.signal(signal.SIGTERM, signal_handler)
@@ -97,7 +97,7 @@ signal.signal(signal.SIGINT, signal_handler)
 
 # --- LAST.FM SETUP ---
 lastfm_network = None
-if LFM_USER and LFM_PASS and LFM_KEY and LFM_SECRET:
+if not CALIBRATION_MODE and LFM_USER and LFM_PASS and LFM_KEY and LFM_SECRET:
     try:
         lastfm_network = pylast.LastFMNetwork(
             api_key=LFM_KEY,
@@ -166,6 +166,7 @@ def publish_discovery():
     mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
 
 def connect_mqtt():
+    if CALIBRATION_MODE: return
     try:
         mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
         mqtt_client.loop_start()
@@ -173,7 +174,8 @@ def connect_mqtt():
     except Exception as e: log(f"🚨 MQTT Failed: {e}")
 
 def change_status(new_status):
-    mqtt_client.publish("vinyl_guardian/status", new_status, retain=True)
+    if not CALIBRATION_MODE:
+        mqtt_client.publish("vinyl_guardian/status", new_status, retain=True)
 
 # --- HELPER: GET TRACK DURATION (Unique adamID Lookup with Retry) ---
 def get_track_duration(title, artist, adamid=None):
@@ -220,11 +222,9 @@ def recognize_shazam(wav_path):
                     json.dump(res_json, f, indent=2)
             except (IOError, OSError): pass
 
-        # Safely parse the complex Shazam JSON payload
         if isinstance(res_json, dict) and 'track' in res_json and isinstance(res_json.get('matches'), list) and len(res_json['matches']) > 0:
             track = res_json['track']
-            if not isinstance(track, dict):
-                return None
+            if not isinstance(track, dict): return None
                 
             title = track.get('title', 'Unknown')
             artist = track.get('subtitle', 'Unknown')
@@ -240,21 +240,11 @@ def recognize_shazam(wav_path):
                             if meta.get('title') == 'Album': album = meta.get('text')
                             elif meta.get('title') == 'Length':
                                 p = meta.get('text', '').split(':')
-                                if len(p) == 2:
-                                    duration = int(p[0])*60 + int(p[1]) 
-                                elif len(p) == 3:
-                                    duration = int(p[0])*3600 + int(p[1])*60 + int(p[2])
+                                if len(p) == 2: duration = int(p[0])*60 + int(p[1]) 
+                                elif len(p) == 3: duration = int(p[0])*3600 + int(p[1])*60 + int(p[2])
                             elif meta.get('title') == 'Released': release_year = meta.get('text')
             
-            return {
-                "title": title, 
-                "artist": artist, 
-                "album": album, 
-                "release_year": release_year, 
-                "offset_seconds": res_json['matches'][0].get('offset', 0) if isinstance(res_json['matches'][0], dict) else 0, 
-                "duration": duration,
-                "adamid": adamid
-            }
+            return {"title": title, "artist": artist, "album": album, "release_year": release_year, "offset_seconds": res_json['matches'][0].get('offset', 0) if isinstance(res_json['matches'][0], dict) else 0, "duration": duration, "adamid": adamid}
         return None
     except Exception as e:
         log(f"🚨 Shazam Engine Error: {e}")
@@ -270,12 +260,13 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
     
     peak = int(np.max(np.abs(full_data.astype(np.int32)))) if len(full_data) > 0 else 0
     max_val = 32767
-    if peak >= max_val * 0.97: 
-        log(f"⚠️ CLIPPING (Peak: {peak}/{max_val}). Turn DOWN mic_volume!")
+    
+    # Relaxed clipping warning - Shazam survives clipping easily
+    if peak >= max_val: 
+        log(f"🎸 Audio peaked at max digital volume. (If matches are failing, try lowering mic_volume)")
     elif peak < 2000: 
         log(f"⚠️ VERY QUIET (Peak: {peak}/{max_val}). Turn UP mic_volume!")
 
-    # Trim leading static/silence to align the start time perfectly
     abs_data = np.abs(full_data)
     trigger = np.where(abs_data > AUDIO_ONSET_THRESHOLD)[0]
     start_idx = trigger[0] if len(trigger) > 0 else 0
@@ -300,7 +291,6 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
 
     match = recognize_shazam(wav_temp)
 
-    # Thread-safe global state modification
     with state_lock:
         if match:
             current_attempt = 1 
@@ -322,14 +312,12 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
             
             track_id = f"{match['title']} - {match['artist']}"
 
-            # --- LATE START COMPENSATION (CAPPED) ---
             raw_offset = match.get('offset_seconds', 0)
             late_start_offset = min(raw_offset, 30)
             if raw_offset > 2:
                 log(f"📍 Late start detected (Offset: {int(raw_offset)}s). Crediting {int(late_start_offset)}s of playtime.")
                 scrobble_delay = max(2, scrobble_delay - late_start_offset)
 
-            # --- PAUSE MEMORY RECOVERY (ACCUMULATING) ---
             previously_played = 0
             if paused_track_memory and paused_track_memory["id"] == track_id:
                 previously_played = paused_track_memory["accumulated_playtime"]
@@ -382,20 +370,141 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
     if TEST_CAPTURE_MODE:
         log("🛑 TEST CAPTURE COMPLETE. Shutting down."); os._exit(0)
 
-# --- MAIN LOOP ---
+# --- AUDIO MATH ---
 def calculate_audio_levels(data):
     """Calculates both broadband rumble (motor/needle) and high-pass music volume."""
     try:
         audio_data = np.frombuffer(data, dtype=np.int16).astype(np.float32)
         if len(audio_data) <= 1: return 0.0, 0.0
+        
+        # Standard RMS
         raw_rms = float(np.sqrt(np.mean(np.square(audio_data)))) / 32768.0
+        
+        # High Pass RMS (Music)
         filtered_data = audio_data[1:] - 0.95 * audio_data[:-1]
         music_rms = float(np.sqrt(np.mean(np.square(filtered_data)))) / 32768.0
+
         return raw_rms, music_rms
     except Exception as e: 
         if DEBUG: log(f"[DEBUG] Audio level calculation error: {e}")
         return 0.0, 0.0
 
+# --- CALIBRATION MODE ENGINE ---
+def run_calibration():
+    """Guided 5-stage setup sequence to generate empirical threshold data."""
+    log("=========================================")
+    log("🎛️ VINYL GUARDIAN CALIBRATION MODE 🎛️")
+    log("=========================================")
+    
+    try:
+        inp = alsaaudio.PCM(type=alsaaudio.PCM_CAPTURE, mode=alsaaudio.PCM_NORMAL, device='default', channels=CHANNELS, rate=RATE, format=FORMAT, periodsize=CHUNK)
+    except Exception as e: 
+        log(f"🚨 ALSA Error: {e}"); sys.exit(1)
+
+    calibration_data = {}
+    
+    stages = [
+        {"id": "STAGE_1_OFF", "prompt": "Ensure Turntable is OFF (Completely powered down).", "desc": "Baseline noise floor"},
+        {"id": "STAGE_2_ON_IDLE", "prompt": "Turn Turntable ON (Motor spinning, needle UP).", "desc": "Motor Hum detection"},
+        {"id": "STAGE_3_PLAYING", "prompt": "Drop the needle onto a playing record.", "desc": "Needle drop / Music detection"},
+        {"id": "STAGE_4_LIFTED", "prompt": "Lift the needle (Motor still ON, needle UP).", "desc": "Verifying recovery"},
+        {"id": "STAGE_5_OFF", "prompt": "Turn Turntable OFF.", "desc": "Verifying complete silence"}
+    ]
+
+    for stage in stages:
+        log(f"\n👉 {stage['prompt']}")
+        log("Waiting 10 seconds for you to do this...")
+        
+        # Clear buffer and countdown
+        for i in range(10, 0, -1):
+            log(f"... {i} ...")
+            inp.read() # Drain buffer so we don't capture the past
+            time.sleep(1)
+
+        log(f"🔴 Capturing 30 seconds of data for: {stage['desc']}...")
+        
+        target_chunks = int(RATE / CHUNK * 30)
+        raw_history = []
+        music_history = []
+        
+        chunks = 0
+        while chunks < target_chunks:
+            length, data = inp.read()
+            if length > 0:
+                raw_rms, music_rms = calculate_audio_levels(data)
+                raw_history.append(raw_rms)
+                music_history.append(music_rms)
+                chunks += 1
+                
+                # Print progress bar
+                if chunks % int(target_chunks / 10) == 0:
+                    print("█", end="", flush=True)
+
+        print("") # Newline after progress bar
+        
+        calibration_data[stage["id"]] = {
+            "raw_rms": raw_history,
+            "music_rms": music_history
+        }
+        log("✅ Capture complete.")
+
+    inp.close()
+    
+    log("\n=========================================")
+    log("📊 CALIBRATION COMPLETE. CALCULATING... ")
+    log("=========================================")
+    
+    # Analyze Data (Using Median to ignore static pops)
+    results = {}
+    for stage_id, data in calibration_data.items():
+        results[stage_id] = {
+            "raw_median": float(np.median(data["raw_rms"])),
+            "music_median": float(np.median(data["music_rms"]))
+        }
+        log(f"{stage_id}: Raw Rumble Median = {results[stage_id]['raw_median']:.5f} | Music Median = {results[stage_id]['music_median']:.5f}")
+
+    # Dump full arrays to JSON for review
+    json_path = os.path.join(SHARE_DIR, "calibration_raw_data.json")
+    try:
+        with open(json_path, "w") as f:
+            json.dump(calibration_data, f)
+        log(f"\n💾 Full arrays saved to {json_path}")
+    except Exception as e:
+        log(f"⚠️ Failed to save JSON: {e}")
+
+    # --- AUTO-TITRATION MATH ---
+    try:
+        off_rumble = (results["STAGE_1_OFF"]["raw_median"] + results["STAGE_5_OFF"]["raw_median"]) / 2.0
+        on_rumble = (results["STAGE_2_ON_IDLE"]["raw_median"] + results["STAGE_4_LIFTED"]["raw_median"]) / 2.0
+        play_rumble = results["STAGE_3_PLAYING"]["raw_median"]
+        
+        on_music = (results["STAGE_2_ON_IDLE"]["music_median"] + results["STAGE_4_LIFTED"]["music_median"]) / 2.0
+        play_music = results["STAGE_3_PLAYING"]["music_median"]
+
+        # Calculate exact midpoints
+        suggested_motor = off_rumble + ((on_rumble - off_rumble) * 0.6) # Skewed slightly higher to ignore hum fluctuations
+        suggested_rumble = on_rumble + ((play_rumble - on_rumble) * 0.3) # Skewed closer to IDLE to catch quiet grooves
+        suggested_music = on_music + ((play_music - on_music) * 0.3)
+
+        log("\n=========================================")
+        log("🎯 RECOMMENDED CONFIGURATION VALUES 🎯")
+        log("=========================================")
+        log(f"Type these numbers into your options.json / Add-on UI:")
+        log(f"")
+        log(f"  motor_power_threshold: {suggested_motor:.5f}")
+        log(f"  rumble_threshold:      {suggested_rumble:.5f}")
+        log(f"  music_threshold:       {suggested_music:.5f}")
+        log(f"")
+        log("=========================================")
+        log("Disable calibration_mode and restart the Add-on to resume normal operation.")
+        
+    except Exception as e:
+        log("Failed to auto-calculate thresholds. Review the JSON file manually.")
+
+    sys.exit(0)
+
+
+# --- MAIN LOOP ---
 def listen_and_identify():
     """Main continuous ALSA loop managing states, debouncing, and MQTT publishing."""
     global app_state, current_attempt, wake_up_time, scrobble_fired, current_track, last_scrobbled_track, paused_track_memory, inp
@@ -415,6 +524,10 @@ def listen_and_identify():
     power_score = 0
     power_max_score = int(RATE / CHUNK * 4) 
     
+    # Hysteresis Thresholds for Motor Power (Midpoint buffering)
+    motor_on_thresh = MOTOR_POWER_THRESHOLD * 1.2
+    motor_off_thresh = MOTOR_POWER_THRESHOLD * 0.8
+    
     needle_active_score = 0
     needle_max_score = int(RATE / CHUNK * 0.5) 
 
@@ -429,12 +542,12 @@ def listen_and_identify():
 
             # --- TRUE HYSTERESIS POWER DETECTION ---
             if not turntable_on:
-                power_score = min(power_score + 1, power_max_score) if raw_rms > MOTOR_POWER_THRESHOLD else max(power_score - 1, 0)
+                power_score = min(power_score + 1, power_max_score) if raw_rms > motor_on_thresh else max(power_score - 1, 0)
                 if power_score >= power_max_score:
                     turntable_on = True
                     mqtt_client.publish("vinyl_guardian/power", "ON", retain=True)
             else:
-                power_score = max(power_score - 1, 0) if raw_rms < MOTOR_POWER_THRESHOLD else min(power_score + 1, power_max_score)
+                power_score = max(power_score - 1, 0) if raw_rms < motor_off_thresh else min(power_score + 1, power_max_score)
                 if power_score <= 0:
                     turntable_on = False
                     mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
@@ -558,14 +671,20 @@ def listen_and_identify():
                 log("🟢 IDLE"); change_status("Idle"); mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
                 with state_lock: app_state = "IDLE"
 
+
 if __name__ == "__main__":
     print("\033[2J\033[H", end="", flush=True)
     print("========================================================")
     log("🚀 BOOTING VINYL GUARDIAN...")
     print("========================================================")
-    files_to_clean = [os.path.join(SHARE_DIR, "vinyl_debug.wav"), os.path.join(SHARE_DIR, "shazam_last_match.json"), "/tmp/process.wav"]
-    for f in files_to_clean:
-        try:
-            if os.path.exists(f): os.remove(f); log(f"🧹 Cleaned up: {f}")
-        except: pass
-    connect_mqtt(); listen_and_identify()
+    
+    if CALIBRATION_MODE:
+        run_calibration()
+    else:
+        files_to_clean = [os.path.join(SHARE_DIR, "vinyl_debug.wav"), os.path.join(SHARE_DIR, "shazam_last_match.json"), "/tmp/process.wav"]
+        for f in files_to_clean:
+            try:
+                if os.path.exists(f): os.remove(f); log(f"🧹 Cleaned up: {f}")
+            except: pass
+        connect_mqtt()
+        listen_and_identify()
