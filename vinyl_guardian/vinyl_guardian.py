@@ -166,7 +166,7 @@ def publish_discovery():
 
     mqtt_client.publish("vinyl_guardian/status", "Idle", retain=True)
     mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
-    mqtt_client.publish("vinyl_guardian/progress", "00:00 / 00:00", retain=True)
+    mqtt_client.publish("vinyl_guardian/progress", "[░░░░░░░░░░] 00:00 / 00:00", retain=True)
     mqtt_client.publish("vinyl_guardian/scrobble_state", "None", retain=True)
     mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
 
@@ -560,7 +560,7 @@ def listen_and_identify():
                     mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
                     log("🔌 Turntable turned off. Clearing track display.")
                     mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
-                    mqtt_client.publish("vinyl_guardian/progress", "00:00 / 00:00", retain=True)
+                    mqtt_client.publish("vinyl_guardian/progress", "[░░░░░░░░░░] 00:00 / 00:00", retain=True)
 
             # Rate-limited MQTT publishing (1 update per second)
             if now - last_pub >= 1.0:
@@ -573,10 +573,18 @@ def listen_and_identify():
                     if pos_sec > dur_sec > 0: pos_sec = dur_sec 
                     p_m, p_s = divmod(pos_sec, 60)
                     d_m, d_s = divmod(dur_sec, 60)
-                    prog_str = f"{p_m:02d}:{p_s:02d} / {d_m:02d}:{d_s:02d}" if current_track.get('duration_known', True) else f"{p_m:02d}:{p_s:02d} / ??:??"
+                    
+                    if current_track.get('duration_known', True) and dur_sec > 0:
+                        percent = pos_sec / dur_sec
+                        filled = int(percent * 10) # 10 characters wide
+                        bar = '█' * filled + '░' * (10 - filled)
+                        prog_str = f"[{bar}] {p_m:02d}:{p_s:02d} / {d_m:02d}:{d_s:02d}"
+                    else:
+                        prog_str = f"▶️ {p_m:02d}:{p_s:02d} / ??:??"
+                        
                     mqtt_client.publish("vinyl_guardian/progress", prog_str)
                 elif current_state != "SLEEPING":
-                    mqtt_client.publish("vinyl_guardian/progress", "00:00 / 00:00")
+                    mqtt_client.publish("vinyl_guardian/progress", "[░░░░░░░░░░] 00:00 / 00:00")
                 
                 if DEBUG:
                     if current_state == "RECORDING": status = f"🔴 REC {int((chunks/target)*100)}%"
@@ -595,7 +603,7 @@ def listen_and_identify():
                     if idle_silence_chunks == int(RATE / CHUNK * NEEDLE_LIFT_SECONDS):
                         log("🔇 Prolonged silence detected. Clearing track display.")
                         mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
-                        mqtt_client.publish("vinyl_guardian/progress", "00:00 / 00:00", retain=True)
+                        mqtt_client.publish("vinyl_guardian/progress", "[░░░░░░░░░░] 00:00 / 00:00", retain=True)
                 else:
                     idle_silence_chunks = 0
 
@@ -668,7 +676,7 @@ def listen_and_identify():
                     
                     if is_true_lift:
                         mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
-                        mqtt_client.publish("vinyl_guardian/progress", "00:00 / 00:00", retain=True)
+                        mqtt_client.publish("vinyl_guardian/progress", "[░░░░░░░░░░] 00:00 / 00:00", retain=True)
 
                     with state_lock: 
                         app_state, current_track, current_attempt, consecutive_failures = "IDLE", None, 1, 0
