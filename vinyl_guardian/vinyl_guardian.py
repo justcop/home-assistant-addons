@@ -675,7 +675,8 @@ def listen_and_identify():
 if __name__ == "__main__":
     print("\033[2J\033[H", end="", flush=True)
     print("========================================================")
-    log("🚀 BOOTING VINYL GUARDIAN...")
+    log("🚀 BOOTING VINYL GUARDIAN (v2.7.0 Calibration Build)...")
+    log(f"⚙️  UI Config 'calibration_mode' read as: {CALIBRATION_MODE}")
     print("========================================================")
     
     if CALIBRATION_MODE:
