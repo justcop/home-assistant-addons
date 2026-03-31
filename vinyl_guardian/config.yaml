@@ -1,6 +1,6 @@
 name: "Vinyl Guardian"
 description: "Detects needle drops, IDs vinyl records, and natively scrobbles to Last.fm."
-version: "2.12"
+version: "2.13.0"
 slug: "vinyl_guardian"
 init: false
 arch:
@@ -12,6 +12,7 @@ arch:
 startup: "application"
 boot: "auto"
 options:
+  calibration_mode: false
   lastfm_username: ""
   lastfm_password: ""
   lastfm_api_key: ""
@@ -23,11 +24,12 @@ options:
   mic_volume: 8
   music_threshold: 0.005
   rumble_threshold: 0.015
-  recording_seconds: 15
+  recording_seconds: 10
   max_attempts: 3
   debug_logging: true
   test_capture_mode: false
 schema:
+  calibration_mode: "bool"
   lastfm_username: "str?"
   lastfm_password: "password?"
   lastfm_api_key: "str?"
