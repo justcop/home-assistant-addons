@@ -78,6 +78,7 @@ scrobble_fired = False
 last_scrobbled_track = None
 paused_track_memory = None  
 inp = None 
+current_display_status = "Powered Off"
 
 def log(message):
     print(f"[Vinyl Guardian] {message}", flush=True)
@@ -164,7 +165,7 @@ def publish_discovery():
 
         mqtt_client.publish(f"homeassistant/{c['domain']}/vinyl_guardian/{key}/config", json.dumps(payload), retain=True)
 
-    mqtt_client.publish("vinyl_guardian/status", "Idle", retain=True)
+    mqtt_client.publish("vinyl_guardian/status", "Powered Off", retain=True)
     mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
     mqtt_client.publish("vinyl_guardian/progress", "[░░░░░░░░░░] 00:00 / 00:00", retain=True)
     mqtt_client.publish("vinyl_guardian/scrobble_state", "None", retain=True)
@@ -179,8 +180,11 @@ def connect_mqtt():
     except Exception as e: log(f"🚨 MQTT Failed: {e}")
 
 def change_status(new_status):
-    if not CALIBRATION_MODE:
+    """Globally deduplicated MQTT status publisher."""
+    global current_display_status
+    if not CALIBRATION_MODE and new_status != current_display_status:
         mqtt_client.publish("vinyl_guardian/status", new_status, retain=True)
+        current_display_status = new_status
 
 # --- HELPER: GET TRACK DURATION (Unique adamID Lookup with Retry) ---
 def get_track_duration(title, artist, adamid=None):
@@ -487,18 +491,26 @@ def run_calibration():
         play_music = results["STAGE_3_PLAYING"]["music_median"]
 
         # Calculate exact midpoints
-        suggested_motor = off_rumble + ((on_rumble - off_rumble) * 0.6) # Skewed slightly higher to ignore hum fluctuations
-        suggested_rumble = on_rumble + ((play_rumble - on_rumble) * 0.3) # Skewed closer to IDLE to catch quiet grooves
-        suggested_music = on_music + ((play_music - on_music) * 0.3)
+        raw_motor = off_rumble + ((on_rumble - off_rumble) * 0.6) # Skewed slightly higher to ignore hum fluctuations
+        raw_rumble = on_rumble + ((play_rumble - on_rumble) * 0.3) # Skewed closer to IDLE to catch quiet grooves
+        raw_music = on_music + ((play_music - on_music) * 0.3)
+
+        # Round to 1 significant figure for cleaner UI input
+        def round_1_sig(x):
+            return round(x, -int(np.floor(np.log10(abs(x))))) if x != 0 else 0.0
+            
+        suggested_motor = round_1_sig(raw_motor)
+        suggested_rumble = round_1_sig(raw_rumble)
+        suggested_music = round_1_sig(raw_music)
 
         log("\n=========================================")
         log("🎯 RECOMMENDED CONFIGURATION VALUES 🎯")
         log("=========================================")
         log(f"Type these numbers into your options.json / Add-on UI:")
         log(f"")
-        log(f"  motor_power_threshold: {suggested_motor:.5f}")
-        log(f"  rumble_threshold:      {suggested_rumble:.5f}")
-        log(f"  music_threshold:       {suggested_music:.5f}")
+        log(f"  motor_power_threshold: {suggested_motor}")
+        log(f"  rumble_threshold:      {suggested_rumble}")
+        log(f"  music_threshold:       {suggested_music}")
         log(f"")
         log("=========================================")
         log("Disable calibration_mode and restart the Add-on to resume normal operation.")
@@ -537,6 +549,7 @@ def listen_and_identify():
     
     needle_active_score = 0
     needle_max_score = int(RATE / CHUNK * 0.5) 
+    needle_down = False
 
     while True:
         length, data = inp.read()
@@ -561,6 +574,21 @@ def listen_and_identify():
                     log("🔌 Turntable turned off. Clearing track display.")
                     mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
                     mqtt_client.publish("vinyl_guardian/progress", "[░░░░░░░░░░] 00:00 / 00:00", retain=True)
+
+            # --- TRUE HYSTERESIS NEEDLE DETECTION ---
+            if raw_rms >= RUMBLE_THRESHOLD:
+                needle_active_score = min(needle_active_score + 1, needle_max_score)
+            else:
+                needle_active_score = max(needle_active_score - 1, 0)
+            
+            needle_down = needle_active_score >= (needle_max_score * 0.5)
+
+            # --- DYNAMIC IDLE STATUS (Handles Runout Groove organically) ---
+            if current_state == "IDLE":
+                idle_str = "Powered Off"
+                if turntable_on:
+                    idle_str = "Runout Groove" if needle_down else "Idle (Needle Up)"
+                change_status(idle_str)
 
             # Rate-limited MQTT publishing (1 update per second)
             if now - last_pub >= 1.0:
@@ -591,19 +619,24 @@ def listen_and_identify():
                     elif current_state == "SLEEPING": status = f"💤 SLEEP ({max(0, int(wake_up_time - now))}s)" if now - last_sleep_log >= 15.0 else None
                     elif current_state == "COOLDOWN": status = f"⏳ COOLDOWN ({max(0, int(cooldown_end - now))}s)"
                     elif current_state == "PROCESSING": status = "⚙️ PROC"
-                    else: status = "🟢 IDLE"
+                    else: 
+                        dbg_str = "Powered Off"
+                        if turntable_on: dbg_str = "Runout Groove" if needle_down else "Idle (Needle Up)"
+                        status = f"🟢 {dbg_str.upper()}"
+                        
                     if status: 
                         print(f"[{time.strftime('%H:%M:%S')}] {status} | Music: {music_rms:.4f} | Rumble: {raw_rms:.4f}", flush=True)
                         if "SLEEP" in status: last_sleep_log = now
                 last_pub = now
 
             if current_state == "IDLE":
-                if raw_rms < RUMBLE_THRESHOLD:
+                if not needle_down:
                     idle_silence_chunks += 1
                     if idle_silence_chunks == int(RATE / CHUNK * NEEDLE_LIFT_SECONDS):
                         log("🔇 Prolonged silence detected. Clearing track display.")
                         mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
                         mqtt_client.publish("vinyl_guardian/progress", "[░░░░░░░░░░] 00:00 / 00:00", retain=True)
+                        idle_silence_chunks = 0 # reset to avoid spam
                 else:
                     idle_silence_chunks = 0
 
@@ -630,19 +663,13 @@ def listen_and_identify():
                         threading.Thread(target=process_audio_background, args=(bytes(buffer), song_start)).start()
                     else:
                         log(f"⚠️ Sample discarded (Too quiet).")
-                        change_status("Idle")
                         with state_lock: app_state = "IDLE"
                     buffer, chunks, loud_chunks = bytearray(), 0, 0
             
             elif current_state == "SLEEPING":
-                if raw_rms >= RUMBLE_THRESHOLD:
-                    needle_active_score = min(needle_active_score + 1, needle_max_score)
-                else:
-                    needle_active_score = max(needle_active_score - 1, 0)
-                    
-                if needle_active_score >= (needle_max_score * 0.5):
+                if needle_down:
                     silence_sleep = 0
-                elif raw_rms < RUMBLE_THRESHOLD:
+                else:
                     silence_sleep += 1
                     
                 if current_track is None or not current_track.get('duration_known', False):
@@ -671,8 +698,6 @@ def listen_and_identify():
                                 log("🔇 Needle lift detected. Aborting track.")
                         else:
                             log("🔇 Needle lift detected.")
-                        
-                    change_status("Idle")
                     
                     if is_true_lift:
                         mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
@@ -702,9 +727,8 @@ def listen_and_identify():
                     with state_lock: app_state = "COOLDOWN"
                     
             elif current_state == "COOLDOWN" and now >= cooldown_end:
-                log("🟢 IDLE"); change_status("Idle")
+                log(f"🟢 Cooldown finished. Returning to IDLE.")
                 with state_lock: app_state = "IDLE"
-
 
 if __name__ == "__main__":
     print("\033[2J\033[H", end="", flush=True)
