@@ -40,23 +40,26 @@ LFM_PASS = config.get("lastfm_password", "")
 LFM_KEY = config.get("lastfm_api_key", "")
 LFM_SECRET = config.get("lastfm_api_secret", "")
 
+# Load advanced dictionary if it exists
+adv = config.get("advanced", {})
+
 # Core Thresholds
-MUSIC_THRESHOLD = config.get("music_threshold", 0.005)
-RUMBLE_THRESHOLD = config.get("rumble_threshold", 0.015)
-DEBUG = config.get("debug_logging", True)
+MUSIC_THRESHOLD = adv.get("music_threshold", config.get("music_threshold", 0.005))
+RUMBLE_THRESHOLD = adv.get("rumble_threshold", config.get("rumble_threshold", 0.015))
+DEBUG = adv.get("debug_logging", config.get("debug_logging", True))
 TEST_CAPTURE_MODE = config.get("test_capture_mode", False)
-RECORD_SECONDS = config.get("recording_seconds", 10)
-MAX_ATTEMPTS = config.get("max_attempts", 3)
+RECORD_SECONDS = adv.get("recording_seconds", config.get("recording_seconds", 10))
+MAX_ATTEMPTS = adv.get("max_attempts", config.get("max_attempts", 3))
 
 # --- ENGINE TUNING PARAMETERS ---
-MIN_AUDIO_SECONDS = 5
-AUDIO_ONSET_THRESHOLD = 1000      
-TRIGGER_DEBOUNCE_CHUNKS = 3       
+MIN_AUDIO_SECONDS = adv.get("min_audio_seconds", config.get("min_audio_seconds", 5))
+AUDIO_ONSET_THRESHOLD = adv.get("audio_onset_threshold", config.get("audio_onset_threshold", 1000))      
+TRIGGER_DEBOUNCE_CHUNKS = adv.get("trigger_debounce_chunks", config.get("trigger_debounce_chunks", 3))       
 
-MOTOR_POWER_THRESHOLD = 0.0045    
-NEEDLE_LIFT_SECONDS = 25          
-CONSECUTIVE_FAILURE_TIMEOUT = 1800 
-FALLBACK_SLEEP_SECS = 60          
+MOTOR_POWER_THRESHOLD = adv.get("motor_power_threshold", config.get("motor_power_threshold", 0.0045))    
+NEEDLE_LIFT_SECONDS = adv.get("needle_lift_seconds", config.get("needle_lift_seconds", 25))          
+CONSECUTIVE_FAILURE_TIMEOUT = adv.get("consecutive_failure_timeout", config.get("consecutive_failure_timeout", 1800)) 
+FALLBACK_SLEEP_SECS = adv.get("fallback_sleep_secs", config.get("fallback_sleep_secs", 60))          
 
 # Audio Settings
 CHANNELS = config.get("channels", 2)
@@ -501,8 +504,9 @@ def run_calibration():
     except Exception as e:
         log("Failed to auto-calculate thresholds. Review the JSON file manually.")
 
-    sys.exit(0)
-
+    log("💤 Calibration finished. Sleeping to prevent auto-restart...")
+    while True:
+        time.sleep(3600)
 
 # --- MAIN LOOP ---
 def listen_and_identify():
