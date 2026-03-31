@@ -29,6 +29,8 @@ os.makedirs(SHARE_DIR, exist_ok=True)
 
 # System Modes
 CALIBRATION_MODE = config.get("calibration_mode", False)
+TEST_CAPTURE_MODE = config.get("test_capture_mode", False)
+DEBUG = config.get("debug_logging", False)
 
 # MQTT & API Keys
 MQTT_BROKER = config.get("mqtt_broker", "core-mosquitto")
@@ -41,24 +43,20 @@ LFM_PASS = config.get("lastfm_password", "")
 LFM_KEY = config.get("lastfm_api_key", "")
 LFM_SECRET = config.get("lastfm_api_secret", "")
 
-# Load advanced dictionary if it exists
-adv = config.get("advanced", {})
-
 # Core Thresholds
 MUSIC_THRESHOLD = config.get("music_threshold", 0.005)
 RUMBLE_THRESHOLD = config.get("rumble_threshold", 0.015)
 MOTOR_POWER_THRESHOLD = config.get("motor_power_threshold", 0.0045)
 RECORD_SECONDS = config.get("recording_seconds", 10)
 
-DEBUG = adv.get("debug_logging", True)
-TEST_CAPTURE_MODE = config.get("test_capture_mode", False)
-MAX_ATTEMPTS = adv.get("max_attempts", 3)
+# Load advanced dictionary
+adv = config.get("advanced", {})
 
 # --- ENGINE TUNING PARAMETERS ---
+MAX_ATTEMPTS = adv.get("max_attempts", 3)
 MIN_AUDIO_SECONDS = adv.get("min_audio_seconds", 5)
 AUDIO_ONSET_THRESHOLD = adv.get("audio_onset_threshold", 1000)      
 TRIGGER_DEBOUNCE_CHUNKS = adv.get("trigger_debounce_chunks", 3)       
-
 NEEDLE_LIFT_SECONDS = adv.get("needle_lift_seconds", 25)          
 CONSECUTIVE_FAILURE_TIMEOUT = adv.get("consecutive_failure_timeout", 1800) 
 FALLBACK_SLEEP_SECS = adv.get("fallback_sleep_secs", 60)          
@@ -803,7 +801,7 @@ def listen_and_identify():
 if __name__ == "__main__":
     print("\033[2J\033[H", end="", flush=True)
     print("========================================================")
-    log("🚀 BOOTING VINYL GUARDIAN (v2.7.0 Calibration Build)...")
+    log(f"🚀 BOOTING VINYL GUARDIAN (v{config.get('version', '2.22.0')} Build)...")
     log(f"⚙️  UI Config 'calibration_mode' read as: {CALIBRATION_MODE}")
     print("========================================================")
     
