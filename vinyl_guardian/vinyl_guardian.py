@@ -519,6 +519,7 @@ def listen_and_identify():
     log(f"Listening (Music Threshold: {MUSIC_THRESHOLD} | Rumble Threshold: {RUMBLE_THRESHOLD})...")
     
     last_pub, last_sleep_log, cooldown_end, chunks, loud_chunks, silence_sleep, song_start = time.time(), 0, 0, 0, 0, 0, 0
+    idle_silence_chunks = 0
     target = int(RATE / CHUNK * RECORD_SECONDS)
     buffer = bytearray()
     
@@ -555,6 +556,9 @@ def listen_and_identify():
                 if power_score <= 0:
                     turntable_on = False
                     mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
+                    log("🔌 Turntable turned off. Clearing track display.")
+                    mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
+                    mqtt_client.publish("vinyl_guardian/progress", "00:00 / 00:00", retain=True)
 
             # Rate-limited MQTT publishing (1 update per second)
             if now - last_pub >= 1.0:
@@ -584,6 +588,15 @@ def listen_and_identify():
                 last_pub = now
 
             if current_state == "IDLE":
+                if raw_rms < RUMBLE_THRESHOLD:
+                    idle_silence_chunks += 1
+                    if idle_silence_chunks == int(RATE / CHUNK * NEEDLE_LIFT_SECONDS):
+                        log("🔇 Prolonged silence detected. Clearing track display.")
+                        mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
+                        mqtt_client.publish("vinyl_guardian/progress", "00:00 / 00:00", retain=True)
+                else:
+                    idle_silence_chunks = 0
+
                 if music_rms > MUSIC_THRESHOLD:
                     trigger_chunks += 1
                     if trigger_chunks >= TRIGGER_DEBOUNCE_CHUNKS:
@@ -591,6 +604,7 @@ def listen_and_identify():
                         change_status("Recording")
                         song_start, buffer, chunks, loud_chunks, silence_sleep = now, bytearray(data), 1, 1, 0
                         trigger_chunks = 0
+                        idle_silence_chunks = 0
                         with state_lock: app_state = "RECORDING"
                 else:
                     trigger_chunks = 0  
@@ -627,11 +641,13 @@ def listen_and_identify():
                     required_silence_chunks = int(RATE / CHUNK * NEEDLE_LIFT_SECONDS)
 
                 if silence_sleep >= required_silence_chunks:
+                    is_true_lift = False
                     if current_track is None:
                         log("⏱️ Track gap detected during fallback!")
                     elif not current_track.get('duration_known', False):
                         log("⏱️ Physical track gap detected (API duration missing).")
                     else:
+                        is_true_lift = True
                         if not scrobble_fired:
                             silence_duration = required_silence_chunks * (CHUNK / RATE)
                             time_played = (now - current_track['session_start_time']) - silence_duration + current_track.get('previously_played', 0)
@@ -647,7 +663,11 @@ def listen_and_identify():
                             log("🔇 Needle lift detected.")
                         
                     change_status("Idle")
-                    mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
+                    
+                    if is_true_lift:
+                        mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
+                        mqtt_client.publish("vinyl_guardian/progress", "00:00 / 00:00", retain=True)
+
                     with state_lock: 
                         app_state, current_track, current_attempt, consecutive_failures = "IDLE", None, 1, 0
                     continue
@@ -672,7 +692,7 @@ def listen_and_identify():
                     with state_lock: app_state = "COOLDOWN"
                     
             elif current_state == "COOLDOWN" and now >= cooldown_end:
-                log("🟢 IDLE"); change_status("Idle"); mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
+                log("🟢 IDLE"); change_status("Idle")
                 with state_lock: app_state = "IDLE"
 
 
