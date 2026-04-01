@@ -33,34 +33,15 @@ CALIBRATION_MODE = config.get("calibration_mode", False)
 TEST_CAPTURE_MODE = config.get("test_capture_mode", False)
 DEBUG = config.get("debug_logging", False)
 
-# MQTT & API Keys
-MQTT_BROKER = config.get("mqtt_broker", "core-mosquitto")
-MQTT_PORT = config.get("mqtt_port", 1883)
-MQTT_USER = config.get("mqtt_user", "")
-MQTT_PASS = config.get("mqtt_password", "")
-
-LFM_USER = config.get("lastfm_username", "")
-LFM_PASS = config.get("lastfm_password", "")
-LFM_KEY = config.get("lastfm_api_key", "")
-LFM_SECRET = config.get("lastfm_api_secret", "")
-
-# Load advanced dictionary
-adv = config.get("advanced", {})
-
 # --- HIERARCHICAL SETTINGS RESOLUTION ---
 MUSIC_THRESHOLD = 0.005
-RUMBLE_THRESHOLD = 0.015
-MOTOR_POWER_THRESHOLD = 0.0045
 MIC_VOLUME = 8
-RECORD_SECONDS = config.get("recording_seconds", 10)
 
 if os.path.exists(AUTO_CALIB_FILE):
     try:
         with open(AUTO_CALIB_FILE, 'r') as f:
             auto_cal = json.load(f)
         MUSIC_THRESHOLD = auto_cal.get("music_threshold", MUSIC_THRESHOLD)
-        RUMBLE_THRESHOLD = auto_cal.get("rumble_threshold", RUMBLE_THRESHOLD)
-        MOTOR_POWER_THRESHOLD = auto_cal.get("motor_power_threshold", MOTOR_POWER_THRESHOLD)
         MIC_VOLUME = auto_cal.get("mic_volume", MIC_VOLUME)
     except Exception as e:
         pass
@@ -68,6 +49,10 @@ if os.path.exists(AUTO_CALIB_FILE):
 UI_MIC = config.get("mic_volume")
 if UI_MIC is not None and UI_MIC > 0:
     MIC_VOLUME = UI_MIC
+
+UI_MUSIC = config.get("music_threshold")
+if UI_MUSIC is not None and UI_MUSIC > 0:
+    MUSIC_THRESHOLD = UI_MUSIC
 
 # Audio Settings
 CHANNELS = config.get("channels", 2)
@@ -84,6 +69,21 @@ def signal_handler(sig, frame):
 
 signal.signal(signal.SIGTERM, signal_handler)
 signal.signal(signal.SIGINT, signal_handler)
+
+def calculate_audio_levels(data):
+    """Calculates both broadband rumble (motor/needle) and high-pass music volume."""
+    try:
+        audio_data = np.frombuffer(data, dtype=np.int16).astype(np.float32)
+        if len(audio_data) <= 1: return 0.0, 0.0
+        
+        raw_rms = float(np.sqrt(np.mean(np.square(audio_data)))) / 32768.0
+        
+        filtered_data = audio_data[1:] - 0.95 * audio_data[:-1]
+        music_rms = float(np.sqrt(np.mean(np.square(filtered_data)))) / 32768.0
+
+        return raw_rms, music_rms
+    except Exception as e: 
+        return 0.0, 0.0
 
 
 # --- DIAGNOSTIC ENGINE ---
@@ -104,13 +104,41 @@ def run_diagnostics():
     except OSError:
         pass 
 
-    def capture_stage(prompt, duration_secs):
+    def capture_stage(prompt, duration_secs, wait_for_runout=False):
         log(f"\n👉 {prompt}")
-        log("Waiting 10 seconds for you to prepare...")
-        for i in range(10, 0, -1):
-            log(f"... {i} ...")
-            inp.read()
-            time.sleep(1)
+        
+        if wait_for_runout:
+            log("Waiting for you to drop the needle. Listening for music...")
+            
+            # 1. Wait for music to start
+            while True:
+                length, data = inp.read()
+                if length > 0:
+                    raw_rms, music_rms = calculate_audio_levels(data)
+                    if music_rms > MUSIC_THRESHOLD:
+                        log("🎵 Music detected! Now waiting for the track to finish...")
+                        break
+            
+            # 2. Wait for music to end (Runout Groove)
+            silence_chunks = 0
+            target_silence = int(RATE / CHUNK * 3) # 3 seconds of silence
+            while True:
+                length, data = inp.read()
+                if length > 0:
+                    raw_rms, music_rms = calculate_audio_levels(data)
+                    if music_rms < MUSIC_THRESHOLD:
+                        silence_chunks += 1
+                        if silence_chunks >= target_silence:
+                            log("🔇 Silence detected. Assuming Runout Groove!")
+                            break
+                    else:
+                        silence_chunks = 0
+        else:
+            log("Waiting 10 seconds for you to prepare...")
+            for i in range(10, 0, -1):
+                log(f"... {i} ...")
+                inp.read()
+                time.sleep(1)
 
         log(f"🔴 Capturing {duration_secs} seconds of data...")
         target_chunks = int(RATE / CHUNK * duration_secs)
@@ -159,8 +187,8 @@ def run_diagnostics():
             "hiss": float(np.median(history_hiss))
         }
 
-    up_stats = capture_stage("STAGE 1: Turn Turntable ON, but leave the Needle UP (in the air).", 15)
-    down_stats = capture_stage("STAGE 2: Drop the Needle into the SILENT RUNOUT GROOVE.", 15)
+    up_stats = capture_stage("STAGE 1: Turn Turntable ON, but leave the Needle UP (in the air).", 15, wait_for_runout=False)
+    down_stats = capture_stage("STAGE 2: Drop the Needle near the END of a track.", 15, wait_for_runout=True)
     inp.close()
 
     log("\n=========================================")
