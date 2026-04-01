@@ -414,7 +414,7 @@ def run_calibration():
     current_vol = config.get("mic_volume", 10)
     
     log("\n👉 STAGE 0 (Auto-Volume Check): Drop the needle onto a LOUD part of a playing record.")
-    log("The script will now automatically adjust your software input volume until it finds the sweet spot.")
+    log("The script will now automatically adjust your software input volume until it finds a louder sweet spot.")
     log("Waiting 10 seconds for you to drop the needle...")
     for i in range(10, 0, -1):
         log(f"... {i} ...")
@@ -454,8 +454,8 @@ def run_calibration():
             log(f"📈 [Peak: {peak:5d} | Clip: {clip_percent:4.1f}%] - TOO LOUD. Auto-decreasing to {current_vol}%...")
             good_passes = 0
             time.sleep(0.5)
-        elif peak < 3000:
-            step = 5 if peak < 1000 else 2
+        elif peak < 12000: # Force the system to demand a much higher input volume
+            step = 5 if peak < 5000 else 2
             current_vol = min(100, current_vol + step)
             log(f"📉 [Peak: {peak:5d} | Clip: {clip_percent:4.1f}%] - TOO QUIET. Auto-increasing to {current_vol}%...")
             good_passes = 0
@@ -557,18 +557,18 @@ def run_calibration():
         on_music = (results["STAGE_2_ON_IDLE"]["music_median"] + results["STAGE_4_LIFTED"]["music_median"]) / 2.0
         play_music = results["STAGE_3_PLAYING"]["music_median"]
 
-        # Calculate exact midpoints
-        raw_motor = off_rumble + ((on_rumble - off_rumble) * 0.6) # Skewed slightly higher to ignore hum fluctuations
-        raw_rumble = on_rumble + ((play_rumble - on_rumble) * 0.3) # Skewed closer to IDLE to catch quiet grooves
-        raw_music = on_music + ((play_music - on_music) * 0.3)
+        # Adjusted for sharper differentiation and picking up quieter tracks earlier
+        raw_motor = off_rumble + ((on_rumble - off_rumble) * 0.75) 
+        raw_rumble = on_rumble + ((play_rumble - on_rumble) * 0.15) 
+        raw_music = on_music + ((play_music - on_music) * 0.08) 
 
-        # Round to 1 significant figure for cleaner UI input
-        def round_1_sig(x):
-            return round(x, -int(np.floor(np.log10(abs(x))))) if x != 0 else 0.0
+        # Round to 2 significant figures for tight hysteresis accuracy
+        def round_sig(x, sig=2):
+            return round(x, sig-int(np.floor(np.log10(abs(x))))-1) if x != 0 else 0.0
             
-        suggested_motor = round_1_sig(raw_motor)
-        suggested_rumble = round_1_sig(raw_rumble)
-        suggested_music = round_1_sig(raw_music)
+        suggested_motor = round_sig(raw_motor)
+        suggested_rumble = round_sig(raw_rumble)
+        suggested_music = round_sig(raw_music)
 
         log("\n=========================================")
         log("🎯 RECOMMENDED CONFIGURATION VALUES 🎯")
