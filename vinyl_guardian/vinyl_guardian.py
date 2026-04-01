@@ -270,11 +270,10 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
     peak = int(np.max(np.abs(full_data.astype(np.int32)))) if len(full_data) > 0 else 0
     max_val = 32767
     
-    # Relaxed clipping warning - Shazam survives clipping easily
     if peak >= max_val: 
-        log(f"🎸 Audio peaked at max digital volume. (If matches are failing, try running calibration_mode)")
+        log(f"🎸 Audio peaked at max digital volume. (If matches are failing, run calibration_mode)")
     elif peak < 2000: 
-        log(f"⚠️ VERY QUIET (Peak: {peak}/{max_val}). (If matches are failing, try running calibration_mode)")
+        log(f"⚠️ VERY QUIET (Peak: {peak}/{max_val}). (If matches are failing, run calibration_mode)")
 
     abs_data = np.abs(full_data)
     trigger = np.where(abs_data > AUDIO_ONSET_THRESHOLD)[0]
@@ -414,7 +413,7 @@ def run_calibration():
     current_vol = config.get("mic_volume", 10)
     
     log("\n👉 STAGE 0 (Auto-Volume Check): Drop the needle onto a LOUD part of a playing record.")
-    log("The script will now automatically adjust your software input volume until it finds a louder sweet spot.")
+    log("The script will now aggressively push your software volume up to maximize signal differentiation.")
     log("Waiting 10 seconds for you to drop the needle...")
     for i in range(10, 0, -1):
         log(f"... {i} ...")
@@ -424,13 +423,11 @@ def run_calibration():
     log(f"🔴 Starting live auto-volume metering (Current Start Volume: {current_vol}%)...")
     
     good_passes = 0
-    target_chunks = int(RATE / CHUNK * 3) # 3 seconds per check for fast live feedback
+    target_chunks = int(RATE / CHUNK * 3) 
     
     while good_passes < 2:
-        # Apply the current volume setting directly to the pulse/alsa system
         subprocess.run(["pactl", "set-source-volume", "@DEFAULT_SOURCE@", f"{current_vol}%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
-        # Drain old audio from the buffer before analyzing the new volume
         for _ in range(5):
             inp.read()
             
@@ -448,20 +445,20 @@ def run_calibration():
         clipping_samples = np.sum(np.abs(audio_data) >= 32700)
         clip_percent = (clipping_samples / len(audio_data)) * 100 if len(audio_data) > 0 else 0
         
-        if clip_percent > 5.0 or peak >= 32000:
-            step = 5 if clip_percent > 15.0 else 2
+        if clip_percent > 15.0:
+            step = 5 if clip_percent > 25.0 else 2
             current_vol = max(1, current_vol - step)
-            log(f"📈 [Peak: {peak:5d} | Clip: {clip_percent:4.1f}%] - TOO LOUD. Auto-decreasing to {current_vol}%...")
+            log(f"📈 [Peak: {peak:5d} | Clip: {clip_percent:4.1f}%] - CLIPPING TOO MUCH. Auto-decreasing to {current_vol}%...")
             good_passes = 0
             time.sleep(0.5)
-        elif peak < 12000: # Force the system to demand a much higher input volume
-            step = 5 if peak < 5000 else 2
+        elif peak < 20000: 
+            step = 5 if peak < 10000 else 2
             current_vol = min(100, current_vol + step)
             log(f"📉 [Peak: {peak:5d} | Clip: {clip_percent:4.1f}%] - TOO QUIET. Auto-increasing to {current_vol}%...")
             good_passes = 0
             time.sleep(0.5)
         else:
-            log(f"✅ [Peak: {peak:5d} | Clip: {clip_percent:4.1f}%] - PERFECT volume locked at {current_vol}%! Holding...")
+            log(f"✅ [Peak: {peak:5d} | Clip: {clip_percent:4.1f}%] - LOUD & CLEAR volume locked at {current_vol}%! Holding...")
             good_passes += 1
             
         if current_vol == 1 or current_vol == 100:
@@ -494,7 +491,7 @@ def run_calibration():
         # Clear buffer and countdown
         for i in range(10, 0, -1):
             log(f"... {i} ...")
-            inp.read() # Drain buffer so we don't capture the past
+            inp.read() 
             time.sleep(1)
 
         log(f"🔴 Capturing 30 seconds of data for: {stage['desc']}...")
@@ -516,7 +513,7 @@ def run_calibration():
                 if chunks % int(target_chunks / 10) == 0:
                     print("█", end="", flush=True)
 
-        print("") # Newline after progress bar
+        print("")
         
         calibration_data[stage["id"]] = {
             "raw_rms": raw_history,
@@ -530,7 +527,6 @@ def run_calibration():
     log("📊 CALIBRATION COMPLETE. CALCULATING... ")
     log("=========================================")
     
-    # Analyze Data (Using Median to ignore static pops)
     results = {}
     for stage_id, data in calibration_data.items():
         results[stage_id] = {
@@ -539,7 +535,6 @@ def run_calibration():
         }
         log(f"{stage_id}: Raw Rumble Median = {results[stage_id]['raw_median']:.5f} | Music Median = {results[stage_id]['music_median']:.5f}")
 
-    # Dump full arrays to JSON for review
     json_path = os.path.join(SHARE_DIR, "calibration_raw_data.json")
     try:
         with open(json_path, "w") as f:
@@ -557,12 +552,11 @@ def run_calibration():
         on_music = (results["STAGE_2_ON_IDLE"]["music_median"] + results["STAGE_4_LIFTED"]["music_median"]) / 2.0
         play_music = results["STAGE_3_PLAYING"]["music_median"]
 
-        # Adjusted for sharper differentiation and picking up quieter tracks earlier
-        raw_motor = off_rumble + ((on_rumble - off_rumble) * 0.75) 
+        # Center motor precisely midway to prevent stuck states
+        raw_motor = off_rumble + ((on_rumble - off_rumble) * 0.5) 
         raw_rumble = on_rumble + ((play_rumble - on_rumble) * 0.15) 
         raw_music = on_music + ((play_music - on_music) * 0.08) 
 
-        # Round to 2 significant figures for tight hysteresis accuracy
         def round_sig(x, sig=2):
             return round(x, sig-int(np.floor(np.log10(abs(x))))-1) if x != 0 else 0.0
             
@@ -611,9 +605,9 @@ def listen_and_identify():
     power_score = 0
     power_max_score = int(RATE / CHUNK * 4) 
     
-    # Hysteresis Thresholds for Motor Power (Midpoint buffering)
-    motor_on_thresh = MOTOR_POWER_THRESHOLD * 1.2
-    motor_off_thresh = MOTOR_POWER_THRESHOLD * 0.8
+    # Removed strict threshold shifting modifiers to prevent "Stuck ON" bugs on tight SNR setups
+    motor_on_thresh = MOTOR_POWER_THRESHOLD 
+    motor_off_thresh = MOTOR_POWER_THRESHOLD 
     
     needle_active_score = 0
     needle_max_score = int(RATE / CHUNK * 0.5) 
