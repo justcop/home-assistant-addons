@@ -71,26 +71,20 @@ signal.signal(signal.SIGTERM, signal_handler)
 signal.signal(signal.SIGINT, signal_handler)
 
 def calculate_audio_levels(data):
-    """Calculates both broadband rumble (motor/needle) and high-pass music volume."""
     try:
         audio_data = np.frombuffer(data, dtype=np.int16).astype(np.float32)
         if len(audio_data) <= 1: return 0.0, 0.0
-        
         raw_rms = float(np.sqrt(np.mean(np.square(audio_data)))) / 32768.0
-        
         filtered_data = audio_data[1:] - 0.95 * audio_data[:-1]
         music_rms = float(np.sqrt(np.mean(np.square(filtered_data)))) / 32768.0
-
         return raw_rms, music_rms
     except Exception as e: 
         return 0.0, 0.0
 
-
-# --- DIAGNOSTIC ENGINE ---
+# --- MAX GAIN DIAGNOSTIC ENGINE ---
 def run_diagnostics():
-    """Captures advanced acoustic metrics to differentiate between Air and PVC."""
     log("=========================================")
-    log("🔬 GROOVE vs AIR DIAGNOSTIC TEST 🔬")
+    log("🔬 MAX GAIN HYPOTHESIS TEST 🔬")
     log("=========================================")
     
     try:
@@ -98,19 +92,51 @@ def run_diagnostics():
     except Exception as e: 
         log(f"🚨 ALSA Error: {e}"); sys.exit(1)
 
-    log(f"🔊 Applying current mic volume: {MIC_VOLUME}%")
-    try:
-        subprocess.run(["pactl", "set-source-volume", "@DEFAULT_SOURCE@", f"{MIC_VOLUME}%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except OSError:
-        pass 
+    def record_stats(duration_secs):
+        target_chunks = int(RATE / CHUNK * duration_secs)
+        history_rms = []
+        history_zcr = []
+        history_crest = []
+        history_hiss = []
+        chunks = 0
+        while chunks < target_chunks:
+            length, data = inp.read()
+            if length > 0:
+                audio_data = np.frombuffer(data, dtype=np.int16).astype(np.float32)
+                if len(audio_data) > 1:
+                    rms = float(np.sqrt(np.mean(np.square(audio_data)))) / 32768.0
+                    zero_crossings = np.sum(np.diff(np.sign(audio_data)) != 0)
+                    zcr = zero_crossings / len(audio_data)
+                    peak = np.max(np.abs(audio_data))
+                    rms_val = np.sqrt(np.mean(np.square(audio_data)))
+                    crest = peak / rms_val if rms_val > 0 else 1.0
+                    hiss_data = audio_data[1:] - audio_data[:-1]
+                    hiss_rms = float(np.sqrt(np.mean(np.square(hiss_data)))) / 32768.0
 
-    def capture_stage(prompt, duration_secs, wait_for_runout=False):
+                    history_rms.append(rms)
+                    history_zcr.append(zcr)
+                    history_crest.append(crest)
+                    history_hiss.append(hiss_rms)
+                chunks += 1
+                if chunks % max(1, int(target_chunks / 10)) == 0:
+                    print("█", end="", flush=True)
+        print("")
+        return {
+            "rms": float(np.median(history_rms)) if history_rms else 0,
+            "zcr": float(np.median(history_zcr)) if history_zcr else 0,
+            "crest": float(np.median(history_crest)) if history_crest else 0,
+            "hiss": float(np.median(history_hiss)) if history_hiss else 0
+        }
+
+    def capture_dual_volume(prompt, duration_secs, wait_for_runout=False):
         log(f"\n👉 {prompt}")
         
+        try:
+            subprocess.run(["pactl", "set-source-volume", "@DEFAULT_SOURCE@", f"{MIC_VOLUME}%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError: pass
+
         if wait_for_runout:
             log("Waiting for you to drop the needle. Listening for music...")
-            
-            # 1. Wait for music to start
             while True:
                 length, data = inp.read()
                 if length > 0:
@@ -119,9 +145,8 @@ def run_diagnostics():
                         log("🎵 Music detected! Now waiting for the track to finish...")
                         break
             
-            # 2. Wait for music to end (Runout Groove)
             silence_chunks = 0
-            target_silence = int(RATE / CHUNK * 3) # 3 seconds of silence
+            target_silence = int(RATE / CHUNK * 3) 
             while True:
                 length, data = inp.read()
                 if length > 0:
@@ -135,77 +160,61 @@ def run_diagnostics():
                         silence_chunks = 0
         else:
             log("Waiting 10 seconds for you to prepare...")
-            for i in range(10, 0, -1):
-                log(f"... {i} ...")
+            for _ in range(10):
+                log("...")
                 inp.read()
                 time.sleep(1)
 
-        log(f"🔴 Capturing {duration_secs} seconds of data...")
-        target_chunks = int(RATE / CHUNK * duration_secs)
-        
-        history_rms = []
-        history_zcr = []
-        history_crest = []
-        history_hiss = []
-        
-        chunks = 0
-        while chunks < target_chunks:
-            length, data = inp.read()
-            if length > 0:
-                audio_data = np.frombuffer(data, dtype=np.int16).astype(np.float32)
-                if len(audio_data) > 1:
-                    # 1. Raw RMS (Volume)
-                    rms = float(np.sqrt(np.mean(np.square(audio_data)))) / 32768.0
-                    
-                    # 2. Zero-Crossing Rate (Hiss/Frequency density)
-                    zero_crossings = np.sum(np.diff(np.sign(audio_data)) != 0)
-                    zcr = zero_crossings / len(audio_data)
-                    
-                    # 3. Crest Factor (Spikiness/Crackle)
-                    peak = np.max(np.abs(audio_data))
-                    rms_val = np.sqrt(np.mean(np.square(audio_data)))
-                    crest = peak / rms_val if rms_val > 0 else 1.0
-                    
-                    # 4. Extreme Hiss RMS (Harsh high-pass filter)
-                    hiss_data = audio_data[1:] - audio_data[:-1]
-                    hiss_rms = float(np.sqrt(np.mean(np.square(hiss_data)))) / 32768.0
+        # 1. Capture Normal Volume
+        log(f"🔴 Capturing {duration_secs}s at NORMAL volume ({MIC_VOLUME}%)...")
+        for _ in range(5): inp.read() # Drain buffer
+        norm_stats = record_stats(duration_secs)
 
-                    history_rms.append(rms)
-                    history_zcr.append(zcr)
-                    history_crest.append(crest)
-                    history_hiss.append(hiss_rms)
-                    
-                chunks += 1
-                if chunks % max(1, int(target_chunks / 10)) == 0:
-                    print("█", end="", flush=True)
-        print("")
+        # 2. Capture Max Volume
+        log(f"🔴 Capturing {duration_secs}s at MAX volume (100%)...")
+        try:
+            subprocess.run(["pactl", "set-source-volume", "@DEFAULT_SOURCE@", "100%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError: pass
         
-        return {
-            "rms": float(np.median(history_rms)),
-            "zcr": float(np.median(history_zcr)),
-            "crest": float(np.median(history_crest)),
-            "hiss": float(np.median(history_hiss))
-        }
+        for _ in range(5): inp.read() # Drain buffer to catch pactl pop
+        max_stats = record_stats(duration_secs)
 
-    up_stats = capture_stage("STAGE 1: Turn Turntable ON, but leave the Needle UP (in the air).", 15, wait_for_runout=False)
-    down_stats = capture_stage("STAGE 2: Drop the Needle near the END of a track.", 15, wait_for_runout=True)
+        # 3. Restore Volume
+        try:
+            subprocess.run(["pactl", "set-source-volume", "@DEFAULT_SOURCE@", f"{MIC_VOLUME}%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError: pass
+        
+        return norm_stats, max_stats
+
+    up_norm, up_max = capture_dual_volume("STAGE 1: Turn Turntable ON, leave Needle UP.", 10, wait_for_runout=False)
+    down_norm, down_max = capture_dual_volume("STAGE 2: Drop the Needle near the END of a track.", 10, wait_for_runout=True)
     inp.close()
 
-    log("\n=========================================")
-    log("📊 DIAGNOSTIC RESULTS 📊")
-    log("=========================================")
-    log(f"Metric         | Needle UP  | Runout Groove | Multiplier")
-    log(f"---------------|------------|---------------|-----------")
-    
     def calc_diff(up, down):
         if up == 0: return 0
         return down / up
 
-    log(f"Raw Volume RMS | {up_stats['rms']:10.6f} | {down_stats['rms']:13.6f} | {calc_diff(up_stats['rms'], down_stats['rms']):.2f}x")
-    log(f"Hiss Volume    | {up_stats['hiss']:10.6f} | {down_stats['hiss']:13.6f} | {calc_diff(up_stats['hiss'], down_stats['hiss']):.2f}x")
-    log(f"Zero Crossings | {up_stats['zcr']:10.6f} | {down_stats['zcr']:13.6f} | {calc_diff(up_stats['zcr'], down_stats['zcr']):.2f}x")
-    log(f"Crest Factor   | {up_stats['crest']:10.6f} | {down_stats['crest']:13.6f} | {calc_diff(up_stats['crest'], down_stats['crest']):.2f}x")
+    log("\n=========================================")
+    log("📊 [TEST 1] NORMAL VOLUME RESULTS 📊")
     log("=========================================")
+    log(f"Metric         | Needle UP  | Runout Groove | Multiplier")
+    log(f"---------------|------------|---------------|-----------")
+    log(f"Raw Volume RMS | {up_norm['rms']:10.6f} | {down_norm['rms']:13.6f} | {calc_diff(up_norm['rms'], down_norm['rms']):.2f}x")
+    log(f"Hiss Volume    | {up_norm['hiss']:10.6f} | {down_norm['hiss']:13.6f} | {calc_diff(up_norm['hiss'], down_norm['hiss']):.2f}x")
+    log(f"Zero Crossings | {up_norm['zcr']:10.6f} | {down_norm['zcr']:13.6f} | {calc_diff(up_norm['zcr'], down_norm['zcr']):.2f}x")
+    log(f"Crest Factor   | {up_norm['crest']:10.6f} | {down_norm['crest']:13.6f} | {calc_diff(up_norm['crest'], down_norm['crest']):.2f}x")
+
+    log("\n=========================================")
+    log("📊 [TEST 2] 100% MAX VOLUME RESULTS 📊")
+    log("=========================================")
+    log(f"Metric         | Needle UP  | Runout Groove | Multiplier")
+    log(f"---------------|------------|---------------|-----------")
+    log(f"Raw Volume RMS | {up_max['rms']:10.6f} | {down_max['rms']:13.6f} | {calc_diff(up_max['rms'], down_max['rms']):.2f}x")
+    log(f"Hiss Volume    | {up_max['hiss']:10.6f} | {down_max['hiss']:13.6f} | {calc_diff(up_max['hiss'], down_max['hiss']):.2f}x")
+    log(f"Zero Crossings | {up_max['zcr']:10.6f} | {down_max['zcr']:13.6f} | {calc_diff(up_max['zcr'], down_max['zcr']):.2f}x")
+    log(f"Crest Factor   | {up_max['crest']:10.6f} | {down_max['crest']:13.6f} | {calc_diff(up_max['crest'], down_max['crest']):.2f}x")
+    
+    log("\n=========================================")
     log("Copy these results and share them!")
     log("Sleeping to prevent auto-restart...")
     while True:
@@ -214,7 +223,7 @@ def run_diagnostics():
 if __name__ == "__main__":
     print("\033[2J\033[H", end="", flush=True)
     print("========================================================")
-    log(f"🚀 BOOTING VINYL GUARDIAN (DIAGNOSTIC BUILD)...")
+    log(f"🚀 BOOTING VINYL GUARDIAN (MAX GAIN TEST BUILD)...")
     print("========================================================")
     
     if CALIBRATION_MODE:
