@@ -127,7 +127,6 @@ def run_diagnostics():
                     history_crest.append(crest)
                     
                     # 5. Pop Detection (Count extreme transients)
-                    # Anything 6x louder than the local RMS is considered a dust pop
                     if rms_val > 0:
                         pops_in_chunk = np.sum(np.abs(audio_data) > (6.0 * rms_val))
                         total_pops += pops_in_chunk
@@ -174,14 +173,23 @@ def run_diagnostics():
         except OSError: pass
 
         if wait_for_runout:
+            # Drain lingering OS audio pops from previous volume changes
+            time.sleep(0.5)
+            for _ in range(15): inp.read()
+
             log("Waiting for you to drop the needle. Listening for music...")
+            trigger_chunks = 0
             while True:
                 length, data = inp.read()
                 if length > 0:
                     _, music_rms = calculate_audio_levels(data)
                     if music_rms > MUSIC_THRESHOLD:
-                        log("🎵 Music detected! Now waiting for the track to finish...")
-                        break
+                        trigger_chunks += 1
+                        if trigger_chunks >= 3: # Require 3 consecutive hits to ignore static pops
+                            log("🎵 Music detected! Now waiting for the track to finish...")
+                            break
+                    else:
+                        trigger_chunks = 0
             
             silence_chunks = 0
             target_silence = int(RATE / CHUNK * 3) 
