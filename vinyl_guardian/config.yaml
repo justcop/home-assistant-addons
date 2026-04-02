@@ -22,13 +22,13 @@ options:
   mqtt_password: ""
   test_capture_mode: false
   calibration_mode: false
-  mic_volume: null
-  music_threshold: null
-  rumble_threshold: null
-  motor_power_threshold: null
   recording_seconds: 10
   debug_logging: false
   advanced:
+    manual_override_mic_volume: null
+    manual_override_music_threshold: null
+    manual_override_rumble_threshold: null
+    manual_override_motor_threshold: null
     max_attempts: 3
     min_audio_seconds: 5
     audio_onset_threshold: 1000
@@ -47,13 +47,13 @@ schema:
   mqtt_password: "password?"
   test_capture_mode: "bool"
   calibration_mode: "bool"
-  mic_volume: "int(1,100)?"
-  music_threshold: "float?"
-  rumble_threshold: "float?"
-  motor_power_threshold: "float?"
   recording_seconds: "int"
   debug_logging: "bool"
   advanced: 
+    manual_override_mic_volume: "int(1,100)? # WARNING: Leave blank to use auto-calibration"
+    manual_override_music_threshold: "float? # WARNING: Leave blank to use auto-calibration"
+    manual_override_rumble_threshold: "float? # WARNING: Leave blank to use auto-calibration"
+    manual_override_motor_threshold: "float? # WARNING: Leave blank to use auto-calibration"
     max_attempts: "int"
     min_audio_seconds: "int"
     audio_onset_threshold: "int"
