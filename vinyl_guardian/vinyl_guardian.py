@@ -11,6 +11,7 @@ import alsaaudio
 import paho.mqtt.client as mqtt
 import asyncio
 import subprocess
+import tempfile
 from shazamio import Shazam
 import pylast
 import signal
@@ -103,6 +104,7 @@ CHANNELS = config.get("channels", 2)
 RATE = 44100
 FORMAT = alsaaudio.PCM_FORMAT_S16_LE
 CHUNK = 2048
+MAX_BUFFER_SIZE = RATE * CHANNELS * 2 * 60 # 60 seconds absolute max buffer
 
 # Global State & Thread Safety
 state_lock = threading.Lock()
@@ -117,6 +119,9 @@ paused_track_memory = None
 inp = None 
 current_display_status = "Powered Off"
 
+# Global Shazam Instance (Prevents Async Memory Leak)
+shazam_instance = Shazam()
+
 def log(message):
     print(f"[Vinyl Guardian] {message}", flush=True)
 
@@ -127,11 +132,26 @@ def signal_handler(sig, frame):
         if inp is not None: inp.close()
         mqtt_client.loop_stop()
         mqtt_client.disconnect()
-    except Exception as e: pass
+    except Exception as e:
+        log(f"⚠️ Error during graceful shutdown: {e}")
     sys.exit(0)
 
 signal.signal(signal.SIGTERM, signal_handler)
 signal.signal(signal.SIGINT, signal_handler)
+
+def save_atomic_json(filepath, data):
+    """Safely saves JSON data preventing corruption on crash."""
+    temp_fd, temp_path = tempfile.mkstemp(dir=SHARE_DIR)
+    try:
+        with os.fdopen(temp_fd, 'w') as f:
+            json.dump(data, f, indent=4)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temp_path, filepath)
+    except Exception as e:
+        log(f"⚠️ Failed to save atomic JSON to {filepath}: {e}")
+        try: os.unlink(temp_path)
+        except: pass
 
 # --- LAST.FM SETUP ---
 lastfm_network = None
@@ -197,8 +217,11 @@ def connect_mqtt():
 def change_status(new_status):
     global current_display_status
     if not CALIBRATION_MODE and new_status != current_display_status:
-        mqtt_client.publish("vinyl_guardian/status", new_status, retain=True)
-        current_display_status = new_status
+        if mqtt_client.is_connected():
+            mqtt_client.publish("vinyl_guardian/status", new_status, retain=True)
+            current_display_status = new_status
+        elif DEBUG:
+            log(f"⚠️ MQTT disconnected. Status update '{new_status}' dropped.")
 
 # --- HELPER: GET TRACK DURATION ---
 def get_track_duration(title, artist, adamid=None):
@@ -211,7 +234,12 @@ def get_track_duration(title, artist, adamid=None):
             res = requests.get(url, timeout=10)
             data = res.json()
             if data.get('resultCount', 0) > 0: return data['results'][0].get('trackTimeMillis', 0) / 1000.0
-        except: time.sleep(1)
+        except requests.exceptions.RequestException as e: 
+            if DEBUG: log(f"⚠️ iTunes lookup attempt {attempt+1} failed: {e}")
+            time.sleep(1)
+        except Exception as e: 
+            if DEBUG: log(f"⚠️ Unexpected iTunes lookup error: {e}")
+            break
     return 0
 
 # --- RECOGNITION ENGINE (SHAZAM) ---
@@ -219,8 +247,7 @@ def recognize_shazam(wav_path):
     log("Uploading to Shazam...")
     try:
         async def _recognize():
-            shazam = Shazam()
-            return await shazam.recognize(wav_path)
+            return await shazam_instance.recognize(wav_path)
         res_json = asyncio.run(_recognize())
         
         if isinstance(res_json, dict) and 'track' in res_json and isinstance(res_json.get('matches'), list) and len(res_json['matches']) > 0:
@@ -242,14 +269,22 @@ def recognize_shazam(wav_path):
                             elif meta.get('title') == 'Released': release_year = meta.get('text')
             return {"title": title, "artist": artist, "album": album, "release_year": release_year, "offset_seconds": res_json['matches'][0].get('offset', 0) if isinstance(res_json['matches'][0], dict) else 0, "duration": duration, "adamid": adamid}
         return None
-    except Exception as e: return None
+    except Exception as e: 
+        log(f"🚨 Shazam Engine Error: {e}")
+        return None
 
 # --- BACKGROUND WORKER ---
 def process_audio_background(audio_data_bytes, song_start_timestamp):
     global app_state, current_attempt, wake_up_time, consecutive_failures, current_track, scrobble_fired, last_scrobbled_track, paused_track_memory
-    log(f"🔬 Analyzing {RECORD_SECONDS}s capture (Attempt {current_attempt}/{MAX_ATTEMPTS})...")
+    
+    # Safely read attempt number for logging
+    with state_lock: local_attempt = current_attempt
+    log(f"🔬 Analyzing {RECORD_SECONDS}s capture (Attempt {local_attempt}/{MAX_ATTEMPTS})...")
 
     full_data = np.frombuffer(audio_data_bytes, dtype=np.int16)
+    peak = int(np.max(np.abs(full_data.astype(np.int32)))) if len(full_data) > 0 else 0
+    max_val = 32767
+    
     abs_data = np.abs(full_data)
     trigger = np.where(abs_data > AUDIO_ONSET_THRESHOLD)[0]
     start_idx = trigger[0] if len(trigger) > 0 else 0
@@ -260,8 +295,13 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
     trimmed_seconds = start_idx / RATE
     wav_temp = "/tmp/process.wav"
 
-    with wave.open(wav_temp, "wb") as wf:
-        wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(trimmed_bytes)
+    try:
+        with wave.open(wav_temp, "wb") as wf:
+            wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(trimmed_bytes)
+    except Exception as e:
+        log(f"⚠️ Failed to write temp wav file: {e}")
+        with state_lock: app_state = "IDLE"
+        return
     
     match = recognize_shazam(wav_temp)
 
@@ -293,9 +333,12 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
             
             paused_track_memory = None 
             
+            start_ts = int(song_start_timestamp + trimmed_seconds - raw_offset)
+            if start_ts < 0: start_ts = int(song_start_timestamp)
+            
             current_track = {
                 "title": match['title'], "artist": match['artist'], "album": match['album'],
-                "duration": total_duration, "start_timestamp": int(song_start_timestamp + trimmed_seconds - raw_offset),
+                "duration": total_duration, "start_timestamp": start_ts,
                 "session_start_time": song_start_timestamp, "scrobble_trigger_time": song_start_timestamp + scrobble_delay, 
                 "duration_known": duration_known, "previously_played": previously_played + late_start_offset,
                 "source": "Shazam"
@@ -304,7 +347,10 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
 
             log(f"🎶 MATCH FOUND: {match['title']} - {match['artist']}")
             mqtt_client.publish("vinyl_guardian/track", f"{match['title']} - {match['artist']}", retain=True)
-            mqtt_client.publish("vinyl_guardian/attributes", json.dumps(current_track), retain=True)
+            try:
+                mqtt_client.publish("vinyl_guardian/attributes", json.dumps(current_track), retain=True)
+            except TypeError as e:
+                log(f"⚠️ Failed to serialize track attributes: {e}")
             
             wake_up_time = current_track['start_timestamp'] + total_duration
             app_state = "SLEEPING"
@@ -329,8 +375,8 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
 
     try:
         if os.path.exists(wav_temp): os.remove(wav_temp)
-    except: pass
-    if TEST_CAPTURE_MODE: log("🛑 TEST CAPTURE COMPLETE."); os._exit(0)
+    except Exception as e:
+        log(f"⚠️ Failed to remove temp audio file: {e}")
 
 # --- AUDIO MATH ---
 def calculate_audio_levels(data):
@@ -354,31 +400,24 @@ def calculate_deep_metrics(data):
     music_rms = float(np.sqrt(np.mean(np.square(filtered_data)))) / 32768.0
     peak = np.max(np.abs(audio_data)) / 32768.0
     crest = peak / rms if rms > 0 else 1.0
+    zcr = np.sum(np.diff(np.sign(audio_data)) != 0) / len(audio_data)
     
-    return {"rms": rms, "music_rms": music_rms, "crest": crest}
+    return {"rms": rms, "music_rms": music_rms, "crest": crest, "zcr": zcr}
 
 # --- STATISTICAL BOUNDARY CALCULATOR ---
 def calc_variance_boundary(low_mean, low_std, high_mean, high_std):
-    """Calculates threshold dynamically based on the standard deviation (noise) of each physical state."""
     gap = high_mean - low_mean
     if gap <= 0: return low_mean + 0.0001
     
     total_noise = low_std + high_std
     if total_noise <= 0: return low_mean + (gap * 0.5)
     
-    # Weight the threshold away from the noisy state and toward the quiet state
     ratio = low_std / total_noise
-    
-    # Cap the ratio so the threshold doesn't hug a state *too* tightly (min 20%, max 80%)
     ratio = max(0.2, min(0.8, ratio))
     return low_mean + (gap * ratio)
 
 # --- STATE MACHINE SIMULATOR ---
 def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, h_nee, debounce_chunks):
-    """
-    Runs the exact logic of the main loop in fast-forward over the chronological 
-    chunk data. Ensures boundary crossings are caught cleanly.
-    """
     power_score, needle_score = 0, 0
     power_max = int(RATE / CHUNK * h_mot)
     needle_max = int(RATE / CHUNK * h_nee)
@@ -398,7 +437,6 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
         chunks_music = calibration_data[stage]["raw_chunks"]["music_rms"]
         chunks_crest = calibration_data[stage]["raw_chunks"]["crest"]
         
-        # Allow time for the physical state to transition and settle
         grace_period_chunks = int(max(power_max, needle_max) * 1.5)
         music_triggered = False
         trigger_chunks = 0
@@ -409,7 +447,6 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
             m_rms = chunks_music[i]
             crest = chunks_crest[i]
             
-            # Power State Logic
             if not turntable_on:
                 power_score = min(power_score + 1, power_max) if rms > t_mot else max(power_score - 1, 0)
                 if power_score >= power_max: turntable_on = True
@@ -417,7 +454,6 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
                 power_score = max(power_score - 1, 0) if rms < t_mot else min(power_score + 1, power_max)
                 if power_score <= 0: turntable_on = False
                     
-            # Needle State Logic
             if crest >= t_cre:
                 needle_score = min(needle_score + pop_boost, needle_max)
             elif rms >= t_rum:
@@ -427,19 +463,16 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
             
             needle_down = needle_score > (needle_max * 0.5)
             
-            # Music Logic
             if m_rms > t_mus:
                 trigger_chunks += 1
                 if trigger_chunks >= debounce_chunks: music_triggered = True
             else:
                 trigger_chunks = 0
 
-            # Verify that the transition actually happened within the grace period
             if i <= grace_period_chunks:
                 if turntable_on == expect_on and needle_down == expect_down:
                     state_transitioned_cleanly = True
 
-            # Strict Validation (Checked against every chunk AFTER grace period)
             if i > grace_period_chunks:
                 if not state_transitioned_cleanly:
                     return f"{stage}: Failed to transition during grace period."
@@ -448,7 +481,6 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
                 if needle_down != expect_down: 
                     return f"{stage}: Needle flicker detected. Expected {expect_down} but fell to {needle_down}."
                 
-        # Post-Stage Music Check
         if expect_music and not music_triggered:
             return f"{stage}: Music expected but not reliably detected."
         if not expect_music and music_triggered:
@@ -558,7 +590,6 @@ def run_calibration():
 
     inp.close()
 
-    # --- DYNAMIC THRESHOLD MATH (STATISTICAL INITIALIZATION) ---
     log("\n=======================================================")
     log("⚙️ GENERATING STATISTICAL BASELINES...")
     
@@ -568,34 +599,25 @@ def run_calibration():
     s4 = calibration_data["STAGE_4_LIFTED"]["summary"]
     s5 = calibration_data["STAGE_5_OFF"]["summary"]
     
-    # Calculate global state means and standard deviations
     off_mean = (s1["rms"]["mean"] + s5["rms"]["mean"]) / 2.0
     off_std = (s1["rms"]["std_dev"] + s5["rms"]["std_dev"]) / 2.0
-    
     on_mean = (s2["rms"]["mean"] + s4["rms"]["mean"]) / 2.0
     on_std = (s2["rms"]["std_dev"] + s4["rms"]["std_dev"]) / 2.0
-    
     play_mean = s3["rms"]["mean"]
     play_std = s3["rms"]["std_dev"]
-    
     music_idle_mean = (s2["music_rms"]["mean"] + s4["music_rms"]["mean"]) / 2.0
     music_idle_std = (s2["music_rms"]["std_dev"] + s4["music_rms"]["std_dev"]) / 2.0
     music_play_mean = s3["music_rms"]["mean"]
     music_play_std = s3["music_rms"]["std_dev"]
 
-    # 1. Variance-Weighted Boundaries
     guess_motor = calc_variance_boundary(off_mean, off_std, on_mean, on_std)
     guess_rumble = calc_variance_boundary(on_mean, on_std, play_mean, play_std)
     guess_music = calc_variance_boundary(music_idle_mean, music_idle_std, music_play_mean, music_play_std)
     
-    # 2. Six Sigma Crest Factor (Anomaly Detection)
     idle_crest_mean = np.mean([s1["crest"]["mean"], s2["crest"]["mean"], s4["crest"]["mean"], s5["crest"]["mean"]])
     idle_crest_std = np.mean([s1["crest"]["std_dev"], s2["crest"]["std_dev"], s4["crest"]["std_dev"], s5["crest"]["std_dev"]])
-    # 6 Standard Deviations above the mean ensures a 99.9996% chance of ignoring random background static
     guess_crest = max(idle_crest_mean + (idle_crest_std * 6.0), 2.5)
 
-    # 3. Dynamic Music Debounce Jitter Buffer
-    # If the idle background noise has high variance, increase the required consecutive chunks to prevent false starts
     guess_debounce = 3
     if music_idle_std > 0.005: guess_debounce = 5
     if music_idle_std > 0.010: guess_debounce = 8
@@ -603,7 +625,6 @@ def run_calibration():
     guess_m_hyst = 3.0
     guess_n_hyst = 2.0
 
-    # --- THE MONTE CARLO STATE MACHINE SIMULATOR ---
     log("🧪 EXECUTING ROBUSTNESS SIMULATION...")
     log("Validating boundaries and performing ±10% perturbation tests...")
 
@@ -612,13 +633,11 @@ def run_calibration():
     d_chunk = guess_debounce
     
     success = False
-    for hyst_loop in range(3): # Try 3 times with expanding time buffers
+    for hyst_loop in range(3): 
         for attempt in range(50):
-            # Baseline test
             result = simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, h_nee, d_chunk)
             
             if result == "PASS":
-                # Perturbation Testing: Verify we aren't resting on a razor's edge by testing ±10% variance
                 p_high = simulate_state_machine(calibration_data, t_mot*1.1, t_rum*1.1, t_cre*1.1, t_mus*1.1, h_mot, h_nee, d_chunk)
                 p_low = simulate_state_machine(calibration_data, t_mot*0.9, t_rum*0.9, t_cre*0.9, t_mus*0.9, h_mot, h_nee, d_chunk)
                 
@@ -626,34 +645,24 @@ def run_calibration():
                     success = True
                     break
                 else:
-                    log(f"  [Attempt {attempt}] Edge detected. Perturbation failed (High: {p_high[:15]}..., Low: {p_low[:15]}...). Nudging...")
-                    # Force the algorithm to keep nudging the thresholds away from the fragile edge
+                    log(f"  [Attempt {attempt}] Edge detected. Perturbation failed. Nudging...")
                     if p_high != "PASS": t_mot *= 0.98; t_rum *= 0.98; t_mus *= 0.98
                     if p_low != "PASS": t_mot *= 1.02; t_rum *= 1.02; t_mus *= 1.02
                     continue
                 
-            # If it fails, auto-correct the specific variable that caused the failure
-            if "Power expected False" in result or "Power flicker" in result: 
-                t_mot *= 1.10
-            elif "Power expected True" in result or "transition during grace" in result: 
-                t_mot *= 0.90
+            if "Power expected False" in result or "Power flicker" in result: t_mot *= 1.10
+            elif "Power expected True" in result or "transition during grace" in result: t_mot *= 0.90
             elif "Needle expected False" in result:
-                t_rum *= 1.10
-                t_cre += 0.2
+                t_rum *= 1.10; t_cre += 0.2
             elif "Needle expected True" in result:
-                t_rum *= 0.90
-                t_cre = max(1.5, t_cre - 0.2)
-            elif "Music expected but not reliably" in result: 
-                t_mus *= 0.90
-            elif "Music falsely detected" in result: 
-                t_mus *= 1.15
+                t_rum *= 0.90; t_cre = max(1.5, t_cre - 0.2)
+            elif "Music expected but not reliably" in result: t_mus *= 0.90
+            elif "Music falsely detected" in result: t_mus *= 1.15
             
-        if success: 
-            break
+        if success: break
         
         log(f"⚠️ Perturbation convergence failed. Expanding Hysteresis Time Buffers...")
-        h_mot += 2.0
-        h_nee += 1.5
+        h_mot += 2.0; h_nee += 1.5
         t_mot, t_rum, t_cre, t_mus = guess_motor, guess_rumble, guess_crest, guess_music
 
     if success:
@@ -662,14 +671,6 @@ def run_calibration():
         log("=======================================================")
         log(f"The algorithm successfully navigated all states and survived")
         log(f"the ±10% perturbation robustness tests.\n")
-        log(f"  mic_volume:             {current_vol}%")
-        log(f"  music_threshold:        {t_mus:.5f}")
-        log(f"  rumble_threshold:       {t_rum:.5f}")
-        log(f"  motor_power_threshold:  {t_mot:.5f}")
-        log(f"  runout_crest_threshold: {t_cre:.2f}")
-        log(f"  motor_hysteresis_sec:   {h_mot:.1f}s")
-        log(f"  needle_hysteresis_sec:  {h_nee:.1f}s")
-        log(f"  music_debounce_chunks:  {d_chunk}\n")
         
         auto_cal_data = {
             "mic_volume": current_vol,
@@ -681,16 +682,11 @@ def run_calibration():
             "needle_hysteresis_sec": float(h_nee),
             "music_debounce_chunks": int(d_chunk)
         }
-        
-        try:
-            with open(AUTO_CALIB_FILE, "w") as f: json.dump(auto_cal_data, f, indent=4)
-        except: pass
-        
+        save_atomic_json(AUTO_CALIB_FILE, auto_cal_data)
         log("Disable calibration_mode and restart the Add-on to deploy these settings!")
     else:
         log("\n❌ FAILED TO CONVERGE. Hardware states are completely overlapping.")
         log(f"Final error before aborting: {result}")
-        log("The physical noise floor is too high to mathematically separate states, even with expanded time buffers.")
     
     log("💤 Calibration finished. Sleeping to prevent auto-restart...")
     while True: time.sleep(3600)
@@ -784,39 +780,42 @@ def listen_and_identify():
                 change_status(idle_str)
 
             if now - last_pub >= 1.0:
-                mqtt_client.publish("vinyl_guardian/music_rms", f"{music_rms:.4f}")
-                mqtt_client.publish("vinyl_guardian/rumble_rms", f"{raw_rms:.4f}")
-                
-                if current_state == "SLEEPING" and current_track:
-                    pos_sec = max(0, int(now - current_track['start_timestamp']))
-                    dur_sec = int(current_track['duration'])
-                    if pos_sec > dur_sec > 0: pos_sec = dur_sec 
-                    p_m, p_s = divmod(pos_sec, 60)
-                    d_m, d_s = divmod(dur_sec, 60)
+                if mqtt_client.is_connected():
+                    mqtt_client.publish("vinyl_guardian/music_rms", f"{music_rms:.4f}")
+                    mqtt_client.publish("vinyl_guardian/rumble_rms", f"{raw_rms:.4f}")
                     
-                    if current_track.get('duration_known', True) and dur_sec > 0:
-                        percent = pos_sec / dur_sec
-                        filled = int(percent * 10) 
-                        bar = '█' * filled + '░' * (10 - filled)
-                        prog_str = f"[{bar}] {p_m:02d}:{p_s:02d} / {d_m:02d}:{d_s:02d}"
-                    else:
-                        prog_str = f"▶️ {p_m:02d}:{p_s:02d} / ??:??"
+                    if current_state == "SLEEPING" and current_track:
+                        pos_sec = max(0, int(now - current_track['start_timestamp']))
+                        dur_sec = int(current_track['duration'])
+                        if pos_sec > dur_sec > 0: pos_sec = dur_sec 
+                        p_m, p_s = divmod(pos_sec, 60)
+                        d_m, d_s = divmod(dur_sec, 60)
                         
-                    mqtt_client.publish("vinyl_guardian/progress", prog_str)
+                        if current_track.get('duration_known', True) and dur_sec > 0:
+                            percent = pos_sec / dur_sec
+                            filled = int(percent * 10) 
+                            bar = '█' * filled + '░' * (10 - filled)
+                            prog_str = f"[{bar}] {p_m:02d}:{p_s:02d} / {d_m:02d}:{d_s:02d}"
+                        else:
+                            prog_str = f"▶️ {p_m:02d}:{p_s:02d} / ??:??"
+                            
+                        mqtt_client.publish("vinyl_guardian/progress", prog_str)
 
-                elif current_state in ["RECORDING", "PROCESSING"]:
-                    pos_sec = max(0, int(now - song_start))
-                    p_m, p_s = divmod(pos_sec, 60)
-                    mqtt_client.publish("vinyl_guardian/progress", f"▶️ {p_m:02d}:{p_s:02d} / ??:??")
+                    elif current_state in ["RECORDING", "PROCESSING"]:
+                        pos_sec = max(0, int(now - song_start))
+                        p_m, p_s = divmod(pos_sec, 60)
+                        mqtt_client.publish("vinyl_guardian/progress", f"▶️ {p_m:02d}:{p_s:02d} / ??:??")
 
-                elif current_state in ["IDLE", "COOLDOWN"]:
-                    if turntable_on:
-                        mqtt_client.publish("vinyl_guardian/progress", "▶️ 00:00 / ??:??")
-                    else:
-                        mqtt_client.publish("vinyl_guardian/progress", "[░░░░░░░░░░] 00:00 / 00:00")
+                    elif current_state in ["IDLE", "COOLDOWN"]:
+                        if turntable_on:
+                            mqtt_client.publish("vinyl_guardian/progress", "▶️ 00:00 / ??:??")
+                        else:
+                            mqtt_client.publish("vinyl_guardian/progress", "[░░░░░░░░░░] 00:00 / 00:00")
                 
                 if DEBUG:
-                    if current_state == "RECORDING": status = f"🔴 REC {int((chunks/target)*100)}%"
+                    if current_state == "RECORDING": 
+                        pct = int((chunks/target)*100) if target > 0 else 0
+                        status = f"🔴 REC {pct}%"
                     elif current_state == "SLEEPING": status = f"💤 SLEEP ({max(0, int(wake_up_time - now))}s)" if now - last_sleep_log >= 15.0 else None
                     elif current_state == "COOLDOWN": status = f"⏳ COOLDOWN ({max(0, int(cooldown_end - now))}s)"
                     elif current_state == "PROCESSING": status = "⚙️ PROC"
@@ -840,7 +839,7 @@ def listen_and_identify():
                     if idle_silence_chunks == int(RATE / CHUNK * NEEDLE_LIFT_SECONDS):
                         new_track_val = "Unknown" if turntable_on else "None"
                         log(f"🔇 Prolonged silence detected. Setting track to '{new_track_val}'.")
-                        mqtt_client.publish("vinyl_guardian/track", new_track_val, retain=True)
+                        if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/track", new_track_val, retain=True)
                         idle_silence_chunks = 0 
                 else:
                     idle_silence_chunks = 0
@@ -850,7 +849,7 @@ def listen_and_identify():
                     if trigger_chunks >= DYNAMIC_DEBOUNCE_CHUNKS:
                         log(f"🎵 AUDIO DETECTED (Music Spike: {music_rms:.4f})")
                         change_status("Recording")
-                        mqtt_client.publish("vinyl_guardian/track", "Unknown", retain=True)
+                        if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/track", "Unknown", retain=True)
                         song_start, buffer, chunks, loud_chunks, silence_sleep = now, bytearray(data), 1, 1, 0
                         trigger_chunks = 0
                         idle_silence_chunks = 0
@@ -862,6 +861,16 @@ def listen_and_identify():
                 buffer.extend(data)
                 chunks += 1
                 if raw_rms > RUMBLE_THRESHOLD: loud_chunks += 1
+                
+                # Check for unbounded buffer growth (absolute safety limit of 60 seconds)
+                if len(buffer) > MAX_BUFFER_SIZE:
+                    log(f"⚠️ Recording buffer overflowed. Discarding memory and returning to IDLE.")
+                    buffer.clear()
+                    change_status("Needle Up" if turntable_on else "Powered Off")
+                    with state_lock: app_state = "IDLE"
+                    chunks, loud_chunks = 0, 0
+                    continue
+
                 if chunks >= target:
                     if loud_chunks >= (target / 2.0):
                         change_status("Processing")
@@ -911,9 +920,8 @@ def listen_and_identify():
                     else:
                         change_status("Powered Off")
                     
-                    if is_true_lift:
-                        new_track_val = "Unknown" if turntable_on else "None"
-                        mqtt_client.publish("vinyl_guardian/track", new_track_val, retain=True)
+                    if is_true_lift and mqtt_client.is_connected():
+                        mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
 
                     with state_lock: 
                         app_state, current_track, current_attempt, consecutive_failures, has_played_music = "IDLE", None, 1, 0, False
@@ -926,8 +934,10 @@ def listen_and_identify():
                     track_id = f"{current_track['title']} - {current_track['artist']}"
                     if track_id != last_scrobbled_track:
                         scrobble_to_lastfm(current_track['artist'], current_track['title'], current_track['start_timestamp'], current_track['album'])
-                        mqtt_client.publish("vinyl_guardian/scrobble_state", track_id, retain=True)
-                        mqtt_client.publish("vinyl_guardian/scrobble", json.dumps(current_track), retain=True)
+                        if mqtt_client.is_connected():
+                            mqtt_client.publish("vinyl_guardian/scrobble_state", track_id, retain=True)
+                            try: mqtt_client.publish("vinyl_guardian/scrobble", json.dumps(current_track), retain=True)
+                            except TypeError: pass
                         with state_lock: scrobble_fired, last_scrobbled_track, paused_track_memory = True, track_id, None
                     else:
                         log(f"⏭️ Skipping scrobble: '{track_id}' was just scrobbled.")
@@ -936,7 +946,7 @@ def listen_and_identify():
                 if now >= wake_up_time:
                     cooldown_end = now + 4
                     change_status("Cooldown")
-                    mqtt_client.publish("vinyl_guardian/track", "Unknown", retain=True)
+                    if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/track", "Unknown", retain=True)
                     with state_lock: 
                         app_state = "COOLDOWN"
                         current_track = None
@@ -959,6 +969,6 @@ if __name__ == "__main__":
         for f in files_to_clean:
             try:
                 if os.path.exists(f): os.remove(f); log(f"🧹 Cleaned up: {f}")
-            except: pass
+            except Exception as e: log(f"⚠️ Could not clear {f}: {e}")
         connect_mqtt()
         listen_and_identify()
