@@ -58,6 +58,7 @@ RECORD_SECONDS = config.get("recording_seconds", 10)
 RUNOUT_CREST_THRESHOLD = 4.5 
 MOTOR_HYSTERESIS_SEC = 3.0
 NEEDLE_HYSTERESIS_SEC = 2.0
+DYNAMIC_DEBOUNCE_CHUNKS = adv.get("trigger_debounce_chunks", 3)
 
 if os.path.exists(AUTO_CALIB_FILE):
     try:
@@ -70,6 +71,7 @@ if os.path.exists(AUTO_CALIB_FILE):
         RUNOUT_CREST_THRESHOLD = auto_cal.get("runout_crest_threshold", RUNOUT_CREST_THRESHOLD)
         MOTOR_HYSTERESIS_SEC = auto_cal.get("motor_hysteresis_sec", MOTOR_HYSTERESIS_SEC)
         NEEDLE_HYSTERESIS_SEC = auto_cal.get("needle_hysteresis_sec", NEEDLE_HYSTERESIS_SEC)
+        DYNAMIC_DEBOUNCE_CHUNKS = auto_cal.get("music_debounce_chunks", DYNAMIC_DEBOUNCE_CHUNKS)
         
         if not CALIBRATION_MODE:
             print("💡 Loaded dynamically tuned thresholds and state buffers from auto_calibration.json")
@@ -92,7 +94,6 @@ if UI_MIC is not None and UI_MIC > 0: MIC_VOLUME = UI_MIC
 MAX_ATTEMPTS = adv.get("max_attempts", 3)
 MIN_AUDIO_SECONDS = adv.get("min_audio_seconds", 5)
 AUDIO_ONSET_THRESHOLD = adv.get("audio_onset_threshold", 1000)      
-TRIGGER_DEBOUNCE_CHUNKS = adv.get("trigger_debounce_chunks", 3)       
 NEEDLE_LIFT_SECONDS = adv.get("needle_lift_seconds", 25)          
 CONSECUTIVE_FAILURE_TIMEOUT = adv.get("consecutive_failure_timeout", 1800) 
 FALLBACK_SLEEP_SECS = adv.get("fallback_sleep_secs", 60)          
@@ -353,15 +354,30 @@ def calculate_deep_metrics(data):
     music_rms = float(np.sqrt(np.mean(np.square(filtered_data)))) / 32768.0
     peak = np.max(np.abs(audio_data)) / 32768.0
     crest = peak / rms if rms > 0 else 1.0
-    zcr = np.sum(np.diff(np.sign(audio_data)) != 0) / len(audio_data)
     
-    return {"rms": rms, "music_rms": music_rms, "crest": crest, "zcr": zcr}
+    return {"rms": rms, "music_rms": music_rms, "crest": crest}
+
+# --- STATISTICAL BOUNDARY CALCULATOR ---
+def calc_variance_boundary(low_mean, low_std, high_mean, high_std):
+    """Calculates threshold dynamically based on the standard deviation (noise) of each physical state."""
+    gap = high_mean - low_mean
+    if gap <= 0: return low_mean + 0.0001
+    
+    total_noise = low_std + high_std
+    if total_noise <= 0: return low_mean + (gap * 0.5)
+    
+    # Weight the threshold away from the noisy state and toward the quiet state
+    ratio = low_std / total_noise
+    
+    # Cap the ratio so the threshold doesn't hug a state *too* tightly (min 20%, max 80%)
+    ratio = max(0.2, min(0.8, ratio))
+    return low_mean + (gap * ratio)
 
 # --- STATE MACHINE SIMULATOR ---
-def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, h_nee):
+def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, h_nee, debounce_chunks):
     """
     Runs the exact logic of the main loop in fast-forward over the chronological 
-    chunk data from all 5 stages. Returns a detailed error string if a state fails, or 'PASS'.
+    chunk data. Ensures boundary crossings are caught cleanly.
     """
     power_score, needle_score = 0, 0
     power_max = int(RATE / CHUNK * h_mot)
@@ -382,17 +398,18 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
         chunks_music = calibration_data[stage]["raw_chunks"]["music_rms"]
         chunks_crest = calibration_data[stage]["raw_chunks"]["crest"]
         
-        # Allow time for the physical state to settle in the math buffer
+        # Allow time for the physical state to transition and settle
         grace_period_chunks = int(max(power_max, needle_max) * 1.5)
         music_triggered = False
         trigger_chunks = 0
+        state_transitioned_cleanly = False
         
         for i in range(len(chunks_rms)):
             rms = chunks_rms[i]
             m_rms = chunks_music[i]
             crest = chunks_crest[i]
             
-            # 1. Power State Logic
+            # Power State Logic
             if not turntable_on:
                 power_score = min(power_score + 1, power_max) if rms > t_mot else max(power_score - 1, 0)
                 if power_score >= power_max: turntable_on = True
@@ -400,7 +417,7 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
                 power_score = max(power_score - 1, 0) if rms < t_mot else min(power_score + 1, power_max)
                 if power_score <= 0: turntable_on = False
                     
-            # 2. Needle State Logic
+            # Needle State Logic
             if crest >= t_cre:
                 needle_score = min(needle_score + pop_boost, needle_max)
             elif rms >= t_rum:
@@ -410,32 +427,39 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
             
             needle_down = needle_score > (needle_max * 0.5)
             
-            # 3. Music Logic
+            # Music Logic
             if m_rms > t_mus:
                 trigger_chunks += 1
-                if trigger_chunks >= TRIGGER_DEBOUNCE_CHUNKS: music_triggered = True
+                if trigger_chunks >= debounce_chunks: music_triggered = True
             else:
                 trigger_chunks = 0
 
-            # 4. Strict Validation (Checked against every single chunk after grace period)
+            # Verify that the transition actually happened within the grace period
+            if i <= grace_period_chunks:
+                if turntable_on == expect_on and needle_down == expect_down:
+                    state_transitioned_cleanly = True
+
+            # Strict Validation (Checked against every chunk AFTER grace period)
             if i > grace_period_chunks:
+                if not state_transitioned_cleanly:
+                    return f"{stage}: Failed to transition during grace period."
                 if turntable_on != expect_on: 
-                    return f"{stage}: Power expected {expect_on} but was {turntable_on} (RMS: {rms:.5f}, T: {t_mot:.5f})"
+                    return f"{stage}: Power flicker detected. Expected {expect_on} but fell to {turntable_on}."
                 if needle_down != expect_down: 
-                    return f"{stage}: Needle expected {expect_down} but was {needle_down} (RMS: {rms:.5f}, T: {t_rum:.5f})"
+                    return f"{stage}: Needle flicker detected. Expected {expect_down} but fell to {needle_down}."
                 
         # Post-Stage Music Check
         if expect_music and not music_triggered:
-            return f"{stage}: Music expected but not detected."
+            return f"{stage}: Music expected but not reliably detected."
         if not expect_music and music_triggered:
-            return f"{stage}: Music falsely detected (Threshold: {t_mus:.5f})."
+            return f"{stage}: Music falsely detected on static/noise."
             
     return "PASS"
 
 # --- DEEP DATA CALIBRATION ENGINE ---
 def run_calibration():
     log("=========================================")
-    log("🎛️ DEEP DATA & SIMULATION ENGINE 🎛️")
+    log("🎛️ DSP & STATISTICAL CALIBRATION ENGINE 🎛️")
     log("=========================================")
     
     try:
@@ -503,7 +527,7 @@ def run_calibration():
         log(f"🔴 Capturing 30 seconds of data for deep analysis...")
         target_chunks = int(RATE / CHUNK * 30)
         
-        stage_metrics = {"rms": [], "music_rms": [], "crest": [], "zcr": []}
+        stage_metrics = {"rms": [], "music_rms": [], "crest": []}
         
         chunks = 0
         while chunks < target_chunks:
@@ -521,16 +545,22 @@ def run_calibration():
         for k, v_list in stage_metrics.items():
             if v_list:
                 arr = np.array(v_list)
-                summary[k] = {"median": float(np.median(arr)), "mean": float(np.mean(arr)), "min": float(np.min(arr)), "max": float(np.max(arr)), "std_dev": float(np.std(arr))}
+                summary[k] = {
+                    "median": float(np.median(arr)), 
+                    "mean": float(np.mean(arr)), 
+                    "min": float(np.min(arr)), 
+                    "max": float(np.max(arr)), 
+                    "std_dev": float(np.std(arr))
+                }
         
         calibration_data[stage["id"]] = {"raw_chunks": stage_metrics, "summary": summary}
         log("✅ Capture complete.")
 
     inp.close()
-    
-    # --- DYNAMIC THRESHOLD MATH (INITIAL GUESSES) ---
+
+    # --- DYNAMIC THRESHOLD MATH (STATISTICAL INITIALIZATION) ---
     log("\n=======================================================")
-    log("⚙️ GENERATING BASELINE THRESHOLD GUESSES...")
+    log("⚙️ GENERATING STATISTICAL BASELINES...")
     
     s1 = calibration_data["STAGE_1_OFF"]["summary"]
     s2 = calibration_data["STAGE_2_ON_IDLE"]["summary"]
@@ -538,44 +568,74 @@ def run_calibration():
     s4 = calibration_data["STAGE_4_LIFTED"]["summary"]
     s5 = calibration_data["STAGE_5_OFF"]["summary"]
     
-    off_rumble = (s1["rms"]["median"] + s5["rms"]["median"]) / 2.0
-    on_rumble = (s2["rms"]["median"] + s4["rms"]["median"]) / 2.0
-    play_rumble = s3["rms"]["median"]
+    # Calculate global state means and standard deviations
+    off_mean = (s1["rms"]["mean"] + s5["rms"]["mean"]) / 2.0
+    off_std = (s1["rms"]["std_dev"] + s5["rms"]["std_dev"]) / 2.0
     
-    on_music = (s2["music_rms"]["median"] + s4["music_rms"]["median"]) / 2.0
-    play_music = s3["music_rms"]["median"]
+    on_mean = (s2["rms"]["mean"] + s4["rms"]["mean"]) / 2.0
+    on_std = (s2["rms"]["std_dev"] + s4["rms"]["std_dev"]) / 2.0
+    
+    play_mean = s3["rms"]["mean"]
+    play_std = s3["rms"]["std_dev"]
+    
+    music_idle_mean = (s2["music_rms"]["mean"] + s4["music_rms"]["mean"]) / 2.0
+    music_idle_std = (s2["music_rms"]["std_dev"] + s4["music_rms"]["std_dev"]) / 2.0
+    music_play_mean = s3["music_rms"]["mean"]
+    music_play_std = s3["music_rms"]["std_dev"]
 
-    guess_motor = max(0.0001, off_rumble + ((on_rumble - off_rumble) * 0.5))
-    guess_rumble = max(0.0001, on_rumble + ((play_rumble - on_rumble) * 0.15))
-    guess_music = max(0.0001, on_music + ((play_music - on_music) * 0.10))
+    # 1. Variance-Weighted Boundaries
+    guess_motor = calc_variance_boundary(off_mean, off_std, on_mean, on_std)
+    guess_rumble = calc_variance_boundary(on_mean, on_std, play_mean, play_std)
+    guess_music = calc_variance_boundary(music_idle_mean, music_idle_std, music_play_mean, music_play_std)
     
-    max_idle_crest = max(s1["crest"]["max"], s2["crest"]["max"], s4["crest"]["max"], s5["crest"]["max"])
-    guess_crest = max(max_idle_crest * 1.3, 2.5)
+    # 2. Six Sigma Crest Factor (Anomaly Detection)
+    idle_crest_mean = np.mean([s1["crest"]["mean"], s2["crest"]["mean"], s4["crest"]["mean"], s5["crest"]["mean"]])
+    idle_crest_std = np.mean([s1["crest"]["std_dev"], s2["crest"]["std_dev"], s4["crest"]["std_dev"], s5["crest"]["std_dev"]])
+    # 6 Standard Deviations above the mean ensures a 99.9996% chance of ignoring random background static
+    guess_crest = max(idle_crest_mean + (idle_crest_std * 6.0), 2.5)
+
+    # 3. Dynamic Music Debounce Jitter Buffer
+    # If the idle background noise has high variance, increase the required consecutive chunks to prevent false starts
+    guess_debounce = 3
+    if music_idle_std > 0.005: guess_debounce = 5
+    if music_idle_std > 0.010: guess_debounce = 8
 
     guess_m_hyst = 3.0
     guess_n_hyst = 2.0
 
     # --- THE MONTE CARLO STATE MACHINE SIMULATOR ---
-    log("🧪 EXECUTING AUTONOMOUS STATE MACHINE SIMULATION...")
-    log("Testing variables against chronological playback history...")
+    log("🧪 EXECUTING ROBUSTNESS SIMULATION...")
+    log("Validating boundaries and performing ±10% perturbation tests...")
 
     t_mot, t_rum, t_cre, t_mus = guess_motor, guess_rumble, guess_crest, guess_music
     h_mot, h_nee = guess_m_hyst, guess_n_hyst
+    d_chunk = guess_debounce
     
     success = False
     for hyst_loop in range(3): # Try 3 times with expanding time buffers
         for attempt in range(50):
-            # Run the entire 150-second state machine in fast-forward
-            result = simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, h_nee)
+            # Baseline test
+            result = simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, h_nee, d_chunk)
             
             if result == "PASS":
-                success = True
-                break
+                # Perturbation Testing: Verify we aren't resting on a razor's edge by testing ±10% variance
+                p_high = simulate_state_machine(calibration_data, t_mot*1.1, t_rum*1.1, t_cre*1.1, t_mus*1.1, h_mot, h_nee, d_chunk)
+                p_low = simulate_state_machine(calibration_data, t_mot*0.9, t_rum*0.9, t_cre*0.9, t_mus*0.9, h_mot, h_nee, d_chunk)
+                
+                if p_high == "PASS" and p_low == "PASS":
+                    success = True
+                    break
+                else:
+                    log(f"  [Attempt {attempt}] Edge detected. Perturbation failed (High: {p_high[:15]}..., Low: {p_low[:15]}...). Nudging...")
+                    # Force the algorithm to keep nudging the thresholds away from the fragile edge
+                    if p_high != "PASS": t_mot *= 0.98; t_rum *= 0.98; t_mus *= 0.98
+                    if p_low != "PASS": t_mot *= 1.02; t_rum *= 1.02; t_mus *= 1.02
+                    continue
                 
             # If it fails, auto-correct the specific variable that caused the failure
-            if "Power expected False" in result: 
+            if "Power expected False" in result or "Power flicker" in result: 
                 t_mot *= 1.10
-            elif "Power expected True" in result: 
+            elif "Power expected True" in result or "transition during grace" in result: 
                 t_mot *= 0.90
             elif "Needle expected False" in result:
                 t_rum *= 1.10
@@ -583,7 +643,7 @@ def run_calibration():
             elif "Needle expected True" in result:
                 t_rum *= 0.90
                 t_cre = max(1.5, t_cre - 0.2)
-            elif "Music expected but not detected" in result: 
+            elif "Music expected but not reliably" in result: 
                 t_mus *= 0.90
             elif "Music falsely detected" in result: 
                 t_mus *= 1.15
@@ -591,8 +651,7 @@ def run_calibration():
         if success: 
             break
         
-        # If threshold nudging failed 50 times, the noise is flickering. Increase Hysteresis (Time Buffers)!
-        log(f"⚠️ Flicker detected ({result}). Expanding Hysteresis Time Buffers...")
+        log(f"⚠️ Perturbation convergence failed. Expanding Hysteresis Time Buffers...")
         h_mot += 2.0
         h_nee += 1.5
         t_mot, t_rum, t_cre, t_mus = guess_motor, guess_rumble, guess_crest, guess_music
@@ -601,15 +660,16 @@ def run_calibration():
         log("\n=======================================================")
         log("✅ MATHEMATICAL SIMULATION PASSED! 100% RELIABILITY ACHIEVED.")
         log("=======================================================")
-        log(f"The algorithm successfully navigated all 5 stages chronologically")
-        log(f"using the following deeply-optimized parameters:\n")
+        log(f"The algorithm successfully navigated all states and survived")
+        log(f"the ±10% perturbation robustness tests.\n")
         log(f"  mic_volume:             {current_vol}%")
         log(f"  music_threshold:        {t_mus:.5f}")
         log(f"  rumble_threshold:       {t_rum:.5f}")
         log(f"  motor_power_threshold:  {t_mot:.5f}")
         log(f"  runout_crest_threshold: {t_cre:.2f}")
         log(f"  motor_hysteresis_sec:   {h_mot:.1f}s")
-        log(f"  needle_hysteresis_sec:  {h_nee:.1f}s\n")
+        log(f"  needle_hysteresis_sec:  {h_nee:.1f}s")
+        log(f"  music_debounce_chunks:  {d_chunk}\n")
         
         auto_cal_data = {
             "mic_volume": current_vol,
@@ -618,7 +678,8 @@ def run_calibration():
             "motor_power_threshold": float(t_mot),
             "runout_crest_threshold": float(t_cre),
             "motor_hysteresis_sec": float(h_mot),
-            "needle_hysteresis_sec": float(h_nee)
+            "needle_hysteresis_sec": float(h_nee),
+            "music_debounce_chunks": int(d_chunk)
         }
         
         try:
@@ -629,7 +690,7 @@ def run_calibration():
     else:
         log("\n❌ FAILED TO CONVERGE. Hardware states are completely overlapping.")
         log(f"Final error before aborting: {result}")
-        log("The physical noise floor is too high to distinguish between states.")
+        log("The physical noise floor is too high to mathematically separate states, even with expanded time buffers.")
     
     log("💤 Calibration finished. Sleeping to prevent auto-restart...")
     while True: time.sleep(3600)
@@ -648,7 +709,7 @@ def listen_and_identify():
     except Exception as e: log(f"🚨 ALSA Error: {e}"); sys.exit(1)
 
     log(f"Listening (Music: {MUSIC_THRESHOLD} | Rumble: {RUMBLE_THRESHOLD} | Motor: {MOTOR_POWER_THRESHOLD})...")
-    log(f"Hysteresis Buffers - Motor: {MOTOR_HYSTERESIS_SEC}s | Needle: {NEEDLE_HYSTERESIS_SEC}s | Crest: {RUNOUT_CREST_THRESHOLD}")
+    log(f"Hysteresis Buffers - Motor: {MOTOR_HYSTERESIS_SEC}s | Needle: {NEEDLE_HYSTERESIS_SEC}s | Crest: {RUNOUT_CREST_THRESHOLD} | Debounce: {DYNAMIC_DEBOUNCE_CHUNKS}")
     
     last_pub, last_sleep_log, cooldown_end, chunks, loud_chunks, silence_sleep, song_start = time.time(), 0, 0, 0, 0, 0, 0
     idle_silence_chunks = 0
@@ -786,7 +847,7 @@ def listen_and_identify():
 
                 if music_rms > MUSIC_THRESHOLD:
                     trigger_chunks += 1
-                    if trigger_chunks >= TRIGGER_DEBOUNCE_CHUNKS:
+                    if trigger_chunks >= DYNAMIC_DEBOUNCE_CHUNKS:
                         log(f"🎵 AUDIO DETECTED (Music Spike: {music_rms:.4f})")
                         change_status("Recording")
                         mqtt_client.publish("vinyl_guardian/track", "Unknown", retain=True)
