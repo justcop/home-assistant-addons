@@ -50,7 +50,7 @@ schema:
   recording_seconds: "int"
   debug_logging: "bool"
   advanced:
-    manual_override_mic_volume: "int(1,100)?"
+    manual_override_mic_volume: "int(0,100)?"
     manual_override_music_threshold: "float?"
     manual_override_rumble_threshold: "float?"
     manual_override_motor_threshold: "float?"
