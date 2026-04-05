@@ -16,6 +16,22 @@ from shazamio import Shazam
 import pylast
 import signal
 
+# --- GET ADDON VERSION FROM CONFIG.YAML ---
+def get_addon_version():
+    paths = ["config.yaml", "/config.yaml", "/app/config.yaml"]
+    for path in paths:
+        if os.path.exists(path):
+            try:
+                with open(path, 'r') as f:
+                    for line in f:
+                        if line.strip().startswith("version:"):
+                            return line.split(':', 1)[1].strip().strip('"').strip("'")
+            except Exception:
+                pass
+    return "Unknown"
+
+ADDON_VERSION = get_addon_version()
+
 # --- LOAD CONFIGURATION ---
 try:
     with open('/data/options.json') as f:
@@ -1077,7 +1093,7 @@ def listen_and_identify():
 if __name__ == "__main__":
     print("\033[2J\033[H", end="", flush=True)
     print("========================================================")
-    log(f"🚀 BOOTING VINYL GUARDIAN (v{config.get('version', '2.23.4')} Build)...")
+    log(f"🚀 BOOTING VINYL GUARDIAN (v{ADDON_VERSION} Build)...")
     print("========================================================")
    
     if CALIBRATION_MODE:
