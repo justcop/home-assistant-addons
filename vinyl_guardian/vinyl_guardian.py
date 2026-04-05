@@ -16,21 +16,8 @@ from shazamio import Shazam
 import pylast
 import signal
 
-# --- GET ADDON VERSION FROM CONFIG.YAML ---
-def get_addon_version():
-    paths = ["config.yaml", "/config.yaml", "/app/config.yaml"]
-    for path in paths:
-        if os.path.exists(path):
-            try:
-                with open(path, 'r') as f:
-                    for line in f:
-                        if line.strip().startswith("version:"):
-                            return line.split(':', 1)[1].strip().strip('"').strip("'")
-            except Exception:
-                pass
-    return "Unknown"
-
-ADDON_VERSION = get_addon_version()
+# Grab the version dynamically provided by run.sh
+VERSION = os.environ.get("ADDON_VERSION", "Unknown")
 
 # --- LOAD CONFIGURATION ---
 try:
@@ -425,7 +412,7 @@ def calc_variance_boundary(low_val, low_std, high_val, high_std):
     ratio = max(0.2, min(0.8, ratio))
     return low_val + (gap * ratio)
 
-# --- OUTLIER ERASER (Cleans accidental bumps from idle recordings) ---
+# --- OUTLIER ERASER ---
 def clean_stage_data(stage_metrics):
     cleaned = {}
     for k, v_list in stage_metrics.items():
@@ -433,7 +420,6 @@ def clean_stage_data(stage_metrics):
         med = float(np.median(arr))
         mad = float(np.median(np.abs(arr - med)))
         if mad == 0: mad = 1e-6
-        # 15x MAD will aggressively target only massive physical bumps/spikes
         threshold = med + (15 * mad)
         arr = np.where(arr > threshold, med, arr)
         cleaned[k] = arr.tolist()
@@ -508,7 +494,6 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
             p_acc = power_correct / eval_chunks
             n_acc = needle_correct / eval_chunks
             
-            # Require 85% accuracy instead of 100% strict perfection to allow for micro-anomalies
             if p_acc < 0.85:
                 return f"{stage}: Power mostly wrong (Acc: {p_acc*100:.1f}%)."
             if n_acc < 0.85:
@@ -586,7 +571,6 @@ def run_calibration():
                 log(f"⚠️ Failed to save {stage_id} wav: {e}")
             log("✅ Capture complete.")
    
-        # ERASER: Mathematically delete extreme bumps/clicks from non-playing stages
         if stage_id in ["STAGE_1_OFF", "STAGE_2_ON_IDLE", "STAGE_5_LIFTED", "STAGE_6_OFF"]:
             stage_metrics = clean_stage_data(stage_metrics)
 
@@ -598,7 +582,6 @@ def run_calibration():
        
         calibration_data[stage_id] = {"raw_chunks": stage_metrics, "summary": summary}
 
-    # --- ACTION 1: MIC CALIBRATION ---
     if not reuse_audio:
         log("\n" + "="*50)
         log("▶️ ACTION 1: 💽 Drop the needle onto a 🔊 LOUD playing record.")
@@ -638,7 +621,6 @@ def run_calibration():
                
             if current_vol == 1 or current_vol == 100: break
 
-    # --- ACTIONS 2-4: STATE RECORDING ---
     if not reuse_audio:
         log("\n" + "="*50)
         log("▶️ ACTION 2: 🛑 STOP the record and turn Turntable 🔌 OFF.")
@@ -663,7 +645,6 @@ def run_calibration():
         for _ in range(10): inp.read(); time.sleep(1)
     record_stage("STAGE_3_PLAYING", 30)
 
-    # --- ACTION 5: RUNOUT GROOVE ---
     if not reuse_audio:
         temp_music_thresh = calibration_data["STAGE_2_ON_IDLE"]["summary"]["music_rms"]["max"] * 1.25
        
@@ -691,7 +672,6 @@ def run_calibration():
     
     record_stage("STAGE_4_RUNOUT", 30)
 
-    # --- ACTIONS 6-7: FINAL STATES ---
     if not reuse_audio:
         log("\n" + "="*50)
         log("▶️ ACTION 6: ⬆️ Lift the needle (🔄 Motor still ON, ⬆️ Needle UP).")
@@ -710,7 +690,6 @@ def run_calibration():
 
     inp.close()
 
-    # --- DEEP DATA ANALYSIS OUTPUT ---
     log("\n📊 --- CALIBRATION STAGE ANALYSIS (CLEANED) ---")
     for st in ["STAGE_1_OFF", "STAGE_2_ON_IDLE", "STAGE_3_PLAYING", "STAGE_4_RUNOUT", "STAGE_5_LIFTED", "STAGE_6_OFF"]:
         if st in calibration_data:
@@ -746,7 +725,14 @@ def run_calibration():
     music_play_std = s3["music_rms"]["std_dev"]
 
     guess_motor = calc_variance_boundary(off_val, off_std, on_val, on_std)
-    guess_rumble = calc_variance_boundary(on_val, on_std, runout_val, runout_std)
+    
+    # OVERLAP BYPASS: If the Runout Groove is quieter than or equal to the Motor Idle, 
+    # strictly force the Rumble threshold well above the Motor noise to prevent false drops.
+    if runout_val > on_val + (on_std * 2):
+        guess_rumble = calc_variance_boundary(on_val, on_std, runout_val, runout_std)
+    else:
+        guess_rumble = on_val + (on_std * 6.0)
+        
     guess_music = calc_variance_boundary(music_idle_val, music_idle_std, music_play_val, music_play_std)
    
     idle_crest_mean = np.mean([s1["crest"]["median"], s2["crest"]["median"], s5["crest"]["median"], s6["crest"]["median"]])
@@ -1093,7 +1079,7 @@ def listen_and_identify():
 if __name__ == "__main__":
     print("\033[2J\033[H", end="", flush=True)
     print("========================================================")
-    log(f"🚀 BOOTING VINYL GUARDIAN (v{ADDON_VERSION} Build)...")
+    log(f"🚀 BOOTING VINYL GUARDIAN (v{VERSION} Build)...")
     print("========================================================")
    
     if CALIBRATION_MODE:
