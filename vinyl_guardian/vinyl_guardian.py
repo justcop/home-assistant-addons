@@ -16,7 +16,6 @@ from shazamio import Shazam
 import pylast
 import signal
 
-
 # --- LOAD CONFIGURATION ---
 try:
     with open('/data/options.json') as f:
@@ -25,18 +24,15 @@ except Exception as e:
     print(f"🚨 Failed to load config: {e}")
     sys.exit(1)
 
-
 # Path Setup
 SHARE_DIR = "/share/vinyl_guardian"
 os.makedirs(SHARE_DIR, exist_ok=True)
 AUTO_CALIB_FILE = os.path.join(SHARE_DIR, "auto_calibration.json")
 
-
 # System Modes
 CALIBRATION_MODE = config.get("calibration_mode", False)
 TEST_CAPTURE_MODE = config.get("test_capture_mode", False)
 DEBUG = config.get("debug_logging", False)
-
 
 # MQTT & API Keys
 MQTT_BROKER = config.get("mqtt_broker", "core-mosquitto")
@@ -44,16 +40,13 @@ MQTT_PORT = config.get("mqtt_port", 1883)
 MQTT_USER = config.get("mqtt_user", "")
 MQTT_PASS = config.get("mqtt_password", "")
 
-
 LFM_USER = config.get("lastfm_username", "")
 LFM_PASS = config.get("lastfm_password", "")
 LFM_KEY = config.get("lastfm_api_key", "")
 LFM_SECRET = config.get("lastfm_api_secret", "")
 
-
 # Load advanced dictionary
 adv = config.get("advanced", {})
-
 
 # --- HIERARCHICAL SETTINGS RESOLUTION ---
 MUSIC_THRESHOLD = 0.005
@@ -62,13 +55,11 @@ MOTOR_POWER_THRESHOLD = 0.0045
 MIC_VOLUME = 8
 RECORD_SECONDS = config.get("recording_seconds", 10)
 
-
 # Dynamic Calibration State Variables
 RUNOUT_CREST_THRESHOLD = 4.5
 MOTOR_HYSTERESIS_SEC = 3.0
 NEEDLE_HYSTERESIS_SEC = 2.0
 DYNAMIC_DEBOUNCE_CHUNKS = adv.get("trigger_debounce_chunks", 3)
-
 
 if os.path.exists(AUTO_CALIB_FILE):
     try:
@@ -88,22 +79,17 @@ if os.path.exists(AUTO_CALIB_FILE):
     except Exception as e:
         print(f"⚠️ Failed to read auto_calibration.json: {e}")
 
-
 UI_MUSIC = adv.get("manual_override_music_threshold")
 if UI_MUSIC is not None and UI_MUSIC > 0: MUSIC_THRESHOLD = UI_MUSIC
-
 
 UI_RUMBLE = adv.get("manual_override_rumble_threshold")
 if UI_RUMBLE is not None and UI_RUMBLE > 0: RUMBLE_THRESHOLD = UI_RUMBLE
 
-
 UI_MOTOR = adv.get("manual_override_motor_threshold")
 if UI_MOTOR is not None and UI_MOTOR > 0: MOTOR_POWER_THRESHOLD = UI_MOTOR
 
-
 UI_MIC = adv.get("manual_override_mic_volume")
 if UI_MIC is not None and UI_MIC > 0: MIC_VOLUME = UI_MIC
-
 
 # --- ENGINE TUNING PARAMETERS ---
 MAX_ATTEMPTS = adv.get("max_attempts", 3)
@@ -113,14 +99,12 @@ NEEDLE_LIFT_SECONDS = adv.get("needle_lift_seconds", 25)
 CONSECUTIVE_FAILURE_TIMEOUT = adv.get("consecutive_failure_timeout", 1800)
 FALLBACK_SLEEP_SECS = adv.get("fallback_sleep_secs", 60)          
 
-
 # Audio Settings
 CHANNELS = config.get("channels", 2)
 RATE = 44100
 FORMAT = alsaaudio.PCM_FORMAT_S16_LE
 CHUNK = 2048
 MAX_BUFFER_SIZE = RATE * CHANNELS * 2 * 60
-
 
 # Global State & Thread Safety
 state_lock = threading.Lock()
@@ -135,13 +119,10 @@ paused_track_memory = None
 inp = None
 current_display_status = "Powered Off"
 
-
 shazam_instance = Shazam()
-
 
 def log(message):
     print(f"[Vinyl Guardian] {message}", flush=True)
-
 
 def signal_handler(sig, frame):
     log("🛑 Shutting down gracefully...")
@@ -154,10 +135,8 @@ def signal_handler(sig, frame):
         log(f"⚠️ Error during shutdown: {e}")
     sys.exit(0)
 
-
 signal.signal(signal.SIGTERM, signal_handler)
 signal.signal(signal.SIGINT, signal_handler)
-
 
 def save_atomic_json(filepath, data):
     temp_fd, temp_path = tempfile.mkstemp(dir=SHARE_DIR)
@@ -172,7 +151,6 @@ def save_atomic_json(filepath, data):
         try: os.unlink(temp_path)
         except: pass
 
-
 # --- LAST.FM SETUP ---
 lastfm_network = None
 if not CALIBRATION_MODE and LFM_USER and LFM_PASS and LFM_KEY and LFM_SECRET:
@@ -180,7 +158,6 @@ if not CALIBRATION_MODE and LFM_USER and LFM_PASS and LFM_KEY and LFM_SECRET:
         lastfm_network = pylast.LastFMNetwork(api_key=LFM_KEY, api_secret=LFM_SECRET, username=LFM_USER, password_hash=pylast.md5(LFM_PASS))
         log("✅ Last.fm integration initialized.")
     except Exception as e: log(f"🚨 Last.fm initialization failed: {e}")
-
 
 def scrobble_to_lastfm(artist, title, start_timestamp, album=None):
     if not lastfm_network: return
@@ -191,11 +168,9 @@ def scrobble_to_lastfm(artist, title, start_timestamp, album=None):
         log(f"🎵 Successfully scrobbled to Last.fm: {title} by {artist}")
     except Exception as e: log(f"🚨 Last.fm Scrobble Failed: {e}")
 
-
 # --- MQTT SETUP ---
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 if MQTT_USER and MQTT_PASS: mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
-
 
 def publish_discovery():
     log("Publishing MQTT Auto-Discovery payloads...")
@@ -223,13 +198,11 @@ def publish_discovery():
             payload["payload_off"] = "OFF"
         mqtt_client.publish(f"homeassistant/{c['domain']}/vinyl_guardian/{key}/config", json.dumps(payload), retain=True)
 
-
     mqtt_client.publish("vinyl_guardian/status", "Powered Off", retain=True)
     mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
     mqtt_client.publish("vinyl_guardian/progress", "[░░░░░░░░░░] 00:00 / 00:00", retain=True)
     mqtt_client.publish("vinyl_guardian/scrobble_state", "None", retain=True)
     mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
-
 
 def connect_mqtt():
     if CALIBRATION_MODE: return
@@ -239,7 +212,6 @@ def connect_mqtt():
         publish_discovery()
     except Exception as e: log(f"🚨 MQTT Failed: {e}")
 
-
 def change_status(new_status):
     global current_display_status
     if not CALIBRATION_MODE and new_status != current_display_status:
@@ -247,7 +219,6 @@ def change_status(new_status):
             mqtt_client.publish("vinyl_guardian/status", new_status, retain=True)
             current_display_status = new_status
         elif DEBUG: log(f"⚠️ MQTT disconnected. Status dropped.")
-
 
 # --- HELPER: GET TRACK DURATION ---
 def get_track_duration(title, artist, adamid=None):
@@ -262,7 +233,6 @@ def get_track_duration(title, artist, adamid=None):
             if data.get('resultCount', 0) > 0: return data['results'][0].get('trackTimeMillis', 0) / 1000.0
         except Exception: time.sleep(1)
     return 0
-
 
 # --- RECOGNITION ENGINE (SHAZAM) ---
 def recognize_shazam(wav_path):
@@ -295,14 +265,12 @@ def recognize_shazam(wav_path):
         log(f"🚨 Shazam Error: {e}")
         return None
 
-
 # --- BACKGROUND WORKER ---
 def process_audio_background(audio_data_bytes, song_start_timestamp):
     global app_state, current_attempt, wake_up_time, consecutive_failures, current_track, scrobble_fired, last_scrobbled_track, paused_track_memory
    
     with state_lock: local_attempt = current_attempt
     log(f"🔬 Analyzing {RECORD_SECONDS}s capture (Attempt {local_attempt}/{MAX_ATTEMPTS})...")
-
 
     full_data = np.frombuffer(audio_data_bytes, dtype=np.int16)
     abs_data = np.abs(full_data)
@@ -311,11 +279,9 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
     min_s = RATE * MIN_AUDIO_SECONDS
     if len(full_data) - start_idx < min_s: start_idx = max(0, len(full_data) - min_s)
 
-
     trimmed_bytes = full_data[start_idx:].tobytes()
     trimmed_seconds = start_idx / RATE
     wav_temp = "/tmp/process.wav"
-
 
     try:
         with wave.open(wav_temp, "wb") as wf:
@@ -326,7 +292,6 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
         return
    
     match = recognize_shazam(wav_temp)
-
 
     with state_lock:
         if match:
@@ -348,7 +313,6 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
             late_start_offset = min(raw_offset, 30)
             if raw_offset > 2: scrobble_delay = max(2, scrobble_delay - late_start_offset)
 
-
             previously_played = 0
             if paused_track_memory and paused_track_memory["id"] == track_id:
                 previously_played = paused_track_memory["accumulated_playtime"]
@@ -368,7 +332,6 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
                 "source": "Shazam"
             }
             scrobble_fired = False
-
 
             log(f"🎶 MATCH FOUND: {match['title']} - {match['artist']}")
             mqtt_client.publish("vinyl_guardian/track", f"{match['title']} - {match['artist']}", retain=True)
@@ -396,12 +359,10 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
                     consecutive_failures = 0
                 app_state = "SLEEPING"
 
-
     try:
         if os.path.exists(wav_temp): os.remove(wav_temp)
     except: pass
     if TEST_CAPTURE_MODE: log("🛑 TEST CAPTURE COMPLETE."); os._exit(0)
-
 
 # --- AUDIO MATH ---
 def calculate_audio_levels(data):
@@ -416,20 +377,28 @@ def calculate_audio_levels(data):
         return raw_rms, music_rms, crest
     except Exception: return 0.0, 0.0, 1.0
 
-
 def calculate_deep_metrics(data):
     audio_data = np.frombuffer(data, dtype=np.int16).astype(np.float32)
     if len(audio_data) <= 1: return None
    
     rms = float(np.sqrt(np.mean(np.square(audio_data)))) / 32768.0
+    
+    # Low-pass filter approximation for music RMS
     filtered_data = audio_data[1:] - 0.95 * audio_data[:-1]
     music_rms = float(np.sqrt(np.mean(np.square(filtered_data)))) / 32768.0
+    
     peak = np.max(np.abs(audio_data)) / 32768.0
     crest = peak / rms if rms > 0 else 1.0
+    
+    # Zero Crossing Rate (Helps detect static/hiss vs low hum)
     zcr = np.sum(np.diff(np.sign(audio_data)) != 0) / len(audio_data)
+    
+    # High Frequency Energy Ratio (Proxy for spectral balance)
+    hf_data = audio_data[1:] - audio_data[:-1] 
+    hf_rms = float(np.sqrt(np.mean(np.square(hf_data)))) / 32768.0
+    hfer = hf_rms / rms if rms > 0 else 0
    
-    return {"rms": rms, "music_rms": music_rms, "crest": crest, "zcr": zcr}
-
+    return {"rms": rms, "music_rms": music_rms, "crest": crest, "zcr": float(zcr), "hfer": float(hfer)}
 
 # --- STATISTICAL BOUNDARY CALCULATOR ---
 def calc_variance_boundary(low_mean, low_std, high_mean, high_std):
@@ -442,7 +411,6 @@ def calc_variance_boundary(low_mean, low_std, high_mean, high_std):
     ratio = low_std / total_noise
     ratio = max(0.2, min(0.8, ratio))
     return low_mean + (gap * ratio)
-
 
 # --- STATE MACHINE SIMULATOR ---
 def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, h_nee, debounce_chunks):
@@ -497,11 +465,9 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
             else:
                 trigger_chunks = 0
 
-
             if i <= grace_period_chunks:
                 if turntable_on == expect_on and needle_down == expect_down:
                     state_transitioned_cleanly = True
-
 
             if i > grace_period_chunks:
                 if not state_transitioned_cleanly:
@@ -518,7 +484,6 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
            
     return "PASS"
 
-
 # --- DEEP DATA CALIBRATION ENGINE ---
 def run_calibration():
     print("\n\n")
@@ -526,68 +491,64 @@ def run_calibration():
     log("🎛️ VINYL GUARDIAN: AUTO-CALIBRATION WIZARD 🎛️")
     log("==================================================")
    
+    reuse_audio = adv.get("reuse_calibration_audio", False)
+    if reuse_audio:
+        log("♻️ 'reuse_calibration_audio' is ENABLED. Will attempt to load previous recordings.")
+
     try:
         inp = alsaaudio.PCM(type=alsaaudio.PCM_CAPTURE, mode=alsaaudio.PCM_NORMAL, device='default', channels=CHANNELS, rate=RATE, format=FORMAT, periodsize=CHUNK)
     except Exception as e:
         log(f"🚨 ALSA Error: {e}"); sys.exit(1)
 
-
     current_vol = MIC_VOLUME
-   
-    log("\n" + "="*50)
-    log("▶️ ACTION 1: Drop the needle onto a LOUD playing record.")
-    log("="*50)
-    log("⏳ Waiting 10 seconds for you to prepare...")
-    for i in range(10):
-        inp.read(); time.sleep(1)
-       
-    log(f"⚙️ Calibrating microphone volume...")
-    good_passes, target_chunks = 0, int(RATE / CHUNK * 3)
-   
-    while good_passes < 2:
-        try: subprocess.run(["pactl", "set-source-volume", "@DEFAULT_SOURCE@", f"{current_vol}%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except OSError: pass
-        for _ in range(5): inp.read()
-           
-        buffer = bytearray()
-        chunks = 0
-        while chunks < target_chunks:
-            length, data = inp.read()
-            if length > 0: buffer.extend(data); chunks += 1
-       
-        audio_data = np.frombuffer(buffer, dtype=np.int16)
-        peak = int(np.max(np.abs(audio_data.astype(np.int32)))) if len(audio_data) > 0 else 0
-       
-        if peak > 25000:
-            current_vol = max(1, current_vol - (5 if peak > 30000 else 2))
-            if DEBUG: log(f"📉 [Peak: {peak:5d}] - Auto-decreasing to {current_vol}%...")
-            good_passes = 0; time.sleep(0.5)
-        elif peak < 15000:
-            current_vol = min(100, current_vol + (5 if peak < 10000 else 2))
-            if DEBUG: log(f"📈 [Peak: {peak:5d}] - Auto-increasing to {current_vol}%...")
-            good_passes = 0; time.sleep(0.5)
-        else:
-            log(f"✅ Volume successfully locked at {current_vol}%!")
-            good_passes += 1
-           
-        if current_vol == 1 or current_vol == 100: break
-
-
     calibration_data = {}
    
     def record_stage(stage_id, duration_secs):
-        log(f"🔴 Recording {duration_secs} seconds of audio... Please wait.")
+        wav_path = os.path.join(SHARE_DIR, f"calib_{stage_id}.wav")
+        stage_metrics = {"rms": [], "music_rms": [], "crest": [], "zcr": [], "hfer": []}
         t_chunks = int(RATE / CHUNK * duration_secs)
-        stage_metrics = {"rms": [], "music_rms": [], "crest": []}
-        chunks = 0
-        while chunks < t_chunks:
-            length, data = inp.read()
-            if length > 0:
-                metrics = calculate_deep_metrics(data)
-                if metrics:
-                    for k in stage_metrics.keys(): stage_metrics[k].append(metrics[k])
-                chunks += 1
-       
+        
+        reuse_audio_for_stage = False
+        if reuse_audio and os.path.exists(wav_path):
+            log(f"♻️ Reusing existing audio file for {stage_id}...")
+            try:
+                with wave.open(wav_path, 'rb') as wf:
+                    raw_bytes = wf.readframes(wf.getnframes())
+                
+                chunk_bytes = CHUNK * CHANNELS * 2
+                for i in range(0, len(raw_bytes), chunk_bytes):
+                    chunk_data = raw_bytes[i:i + chunk_bytes]
+                    if len(chunk_data) == chunk_bytes:
+                        metrics = calculate_deep_metrics(chunk_data)
+                        if metrics:
+                            for k in stage_metrics.keys(): stage_metrics[k].append(metrics[k])
+                log("✅ Local file processed.")
+                reuse_audio_for_stage = True
+            except Exception as e:
+                log(f"⚠️ Failed to load {wav_path}: {e}. Falling back to live recording.")
+                reuse_audio_for_stage = False
+
+        if not reuse_audio_for_stage:
+            log(f"🔴 Recording {duration_secs} seconds of audio... Please wait.")
+            chunks = 0
+            buffer = bytearray()
+            while chunks < t_chunks:
+                length, data = inp.read()
+                if length > 0:
+                    buffer.extend(data)
+                    metrics = calculate_deep_metrics(data)
+                    if metrics:
+                        for k in stage_metrics.keys(): stage_metrics[k].append(metrics[k])
+                    chunks += 1
+            
+            try:
+                with wave.open(wav_path, "wb") as wf:
+                    wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(buffer)
+                log(f"💾 Saved raw audio to {wav_path}")
+            except Exception as e:
+                log(f"⚠️ Failed to save {stage_id} wav: {e}")
+            log("✅ Capture complete.")
+   
         summary = {}
         for k, v_list in stage_metrics.items():
             if v_list:
@@ -595,88 +556,134 @@ def run_calibration():
                 summary[k] = {"median": float(np.median(arr)), "mean": float(np.mean(arr)), "min": float(np.min(arr)), "max": float(np.max(arr)), "std_dev": float(np.std(arr))}
        
         calibration_data[stage_id] = {"raw_chunks": stage_metrics, "summary": summary}
-        log("✅ Capture complete.")
 
+    # --- ACTION 1: MIC CALIBRATION ---
+    if not reuse_audio:
+        log("\n" + "="*50)
+        log("▶️ ACTION 1: 💽 Drop the needle onto a 🔊 LOUD playing record.")
+        log("="*50)
+        log("⏳ Waiting 10 seconds for you to prepare...")
+        for i in range(10):
+            inp.read(); time.sleep(1)
+           
+        log(f"⚙️ Calibrating microphone volume...")
+        good_passes, target_chunks = 0, int(RATE / CHUNK * 3)
+       
+        while good_passes < 2:
+            try: subprocess.run(["pactl", "set-source-volume", "@DEFAULT_SOURCE@", f"{current_vol}%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except OSError: pass
+            for _ in range(5): inp.read()
+               
+            buffer = bytearray()
+            chunks = 0
+            while chunks < target_chunks:
+                length, data = inp.read()
+                if length > 0: buffer.extend(data); chunks += 1
+           
+            audio_data = np.frombuffer(buffer, dtype=np.int16)
+            peak = int(np.max(np.abs(audio_data.astype(np.int32)))) if len(audio_data) > 0 else 0
+           
+            if peak > 25000:
+                current_vol = max(1, current_vol - (5 if peak > 30000 else 2))
+                if DEBUG: log(f"📉 [Peak: {peak:5d}] - Auto-decreasing to {current_vol}%...")
+                good_passes = 0; time.sleep(0.5)
+            elif peak < 15000:
+                current_vol = min(100, current_vol + (5 if peak < 10000 else 2))
+                if DEBUG: log(f"📈 [Peak: {peak:5d}] - Auto-increasing to {current_vol}%...")
+                good_passes = 0; time.sleep(0.5)
+            else:
+                log(f"✅ Volume successfully locked at {current_vol}%!")
+                good_passes += 1
+               
+            if current_vol == 1 or current_vol == 100: break
 
-    log("\n" + "="*50)
-    log("▶️ ACTION 2: STOP the record and turn Turntable OFF.")
-    log("="*50)
-    log("⏳ Waiting 15 seconds for you to prepare...")
-    for _ in range(15): inp.read(); time.sleep(1)
+    # --- ACTIONS 2-4: STATE RECORDING ---
+    if not reuse_audio:
+        log("\n" + "="*50)
+        log("▶️ ACTION 2: 🛑 STOP the record and turn Turntable 🔌 OFF.")
+        log("="*50)
+        log("⏳ Waiting 15 seconds for you to prepare...")
+        for _ in range(15): inp.read(); time.sleep(1)
     record_stage("STAGE_1_OFF", 30)
 
-
-    log("\n" + "="*50)
-    log("▶️ ACTION 3: Turn Turntable ON (Motor spinning, Needle UP).")
-    log("="*50)
-    log("⏳ Waiting 10 seconds for you to prepare...")
-    for _ in range(10): inp.read(); time.sleep(1)
+    if not reuse_audio:
+        log("\n" + "="*50)
+        log("▶️ ACTION 3: ⚡ Turn Turntable ON (🔄 Motor spinning, ⬆️ Needle UP).")
+        log("="*50)
+        log("⏳ Waiting 10 seconds for you to prepare...")
+        for _ in range(10): inp.read(); time.sleep(1)
     record_stage("STAGE_2_ON_IDLE", 30)
 
-
-    log("\n" + "="*50)
-    log("▶️ ACTION 4: Drop the needle NEAR THE END of a playing track.")
-    log("="*50)
-    log("⏳ Waiting 10 seconds for you to prepare...")
-    for _ in range(10): inp.read(); time.sleep(1)
+    if not reuse_audio:
+        log("\n" + "="*50)
+        log("▶️ ACTION 4: ⬇️ Drop the needle NEAR THE END of a playing track 🎵.")
+        log("="*50)
+        log("⏳ Waiting 10 seconds for you to prepare...")
+        for _ in range(10): inp.read(); time.sleep(1)
     record_stage("STAGE_3_PLAYING", 30)
 
-
-    temp_music_thresh = (calibration_data["STAGE_3_PLAYING"]["summary"]["music_rms"]["median"] + calibration_data["STAGE_2_ON_IDLE"]["summary"]["music_rms"]["median"]) / 2.0
-   
-    log("\n" + "="*50)
-    log("▶️ ACTION 5: Let the track finish playing into the Runout Groove.")
-    log("="*50)
-    log("⏳ Listening for the music to stop...")
-    silence_chunks = 0
-    target_silence = int(RATE / CHUNK * 3.0)
-    while True:
-        length, data = inp.read()
-        if length > 0:
-            _, music_rms, _ = calculate_audio_levels(data)
-            if music_rms < temp_music_thresh:
-                silence_chunks += 1
-                if silence_chunks >= target_silence:
-                    log("🔇 Runout Groove detected! Settling...")
-                    break
-            else:
-                silence_chunks = 0
-   
-    for _ in range(int(RATE / CHUNK * 3.0)): inp.read()
+    # --- ACTION 5: RUNOUT GROOVE ---
+    if not reuse_audio:
+        # Tighter threshold: 25% above the absolute maximum noise seen during idle
+        temp_music_thresh = calibration_data["STAGE_2_ON_IDLE"]["summary"]["music_rms"]["max"] * 1.25
+       
+        log("\n" + "="*50)
+        log("▶️ ACTION 5: ⏳ Let the track finish playing into the 〰️ Runout Groove.")
+        log("="*50)
+        log("⏳ Listening for the music to stop...")
+        
+        silence_chunks = 0
+        target_silence = int(RATE / CHUNK * 15.0) # 15 seconds required
+        
+        while True:
+            length, data = inp.read()
+            if length > 0:
+                _, music_rms, _ = calculate_audio_levels(data)
+                if music_rms < temp_music_thresh:
+                    silence_chunks += 1
+                    if silence_chunks >= target_silence:
+                        log("🔇 15-second floor reached. Runout Groove detected! Settling...")
+                        break
+                else:
+                    silence_chunks = 0
+       
+        for _ in range(int(RATE / CHUNK * 3.0)): inp.read()
+    
     record_stage("STAGE_4_RUNOUT", 30)
 
-
-    log("\n" + "="*50)
-    log("▶️ ACTION 6: Lift the needle (Motor still ON, Needle UP).")
-    log("="*50)
-    log("⏳ Waiting 10 seconds for you to prepare...")
-    for _ in range(10): inp.read(); time.sleep(1)
+    # --- ACTIONS 6-7: FINAL STATES ---
+    if not reuse_audio:
+        log("\n" + "="*50)
+        log("▶️ ACTION 6: ⬆️ Lift the needle (🔄 Motor still ON, ⬆️ Needle UP).")
+        log("="*50)
+        log("⏳ Waiting 10 seconds for you to prepare...")
+        for _ in range(10): inp.read(); time.sleep(1)
     record_stage("STAGE_5_LIFTED", 30)
 
-
-    log("\n" + "="*50)
-    log("▶️ ACTION 7: Turn the Turntable OFF.")
-    log("="*50)
-    log("⏳ Waiting 10 seconds for you to prepare...")
-    for _ in range(10): inp.read(); time.sleep(1)
+    if not reuse_audio:
+        log("\n" + "="*50)
+        log("▶️ ACTION 7: 🔌 Turn the Turntable OFF.")
+        log("="*50)
+        log("⏳ Waiting 10 seconds for you to prepare...")
+        for _ in range(10): inp.read(); time.sleep(1)
     record_stage("STAGE_6_OFF", 30)
-
 
     inp.close()
 
+    # --- DEEP DATA ANALYSIS OUTPUT ---
+    log("\n📊 --- CALIBRATION STAGE ANALYSIS ---")
+    for st in ["STAGE_1_OFF", "STAGE_2_ON_IDLE", "STAGE_3_PLAYING", "STAGE_4_RUNOUT", "STAGE_5_LIFTED", "STAGE_6_OFF"]:
+        if st in calibration_data:
+            s = calibration_data[st]["summary"]
+            log(f"🔹 {st}:")
+            log(f"   ┣ RMS   : Mean {s['rms']['mean']:.6f} | Std {s['rms']['std_dev']:.6f} | Max {s['rms']['max']:.6f}")
+            log(f"   ┣ Music : Mean {s['music_rms']['mean']:.6f} | Std {s['music_rms']['std_dev']:.6f} | Max {s['music_rms']['max']:.6f}")
+            log(f"   ┣ Crest : Mean {s['crest']['mean']:.3f} | Std {s['crest']['std_dev']:.3f} | Max {s['crest']['max']:.3f}")
+            log(f"   ┣ ZCR   : Mean {s['zcr']['mean']:.5f} | Std {s['zcr']['std_dev']:.5f} | Max {s['zcr']['max']:.5f}")
+            log(f"   ┗ HFER  : Mean {s['hfer']['mean']:.5f} | Std {s['hfer']['std_dev']:.5f} | Max {s['hfer']['max']:.5f}")
+    log("--------------------------------------\n")
 
-    log("\n⚙️ Analyzing data and running statistical simulations... This may take a minute.")
-   
-    if DEBUG:
-        s1 = calibration_data["STAGE_1_OFF"]["summary"]
-        s2 = calibration_data["STAGE_2_ON_IDLE"]["summary"]
-        def calc_diff(off_val, on_val): return f"{on_val/off_val:.2f}x" if off_val > 0 else "N/A"
-        log("\n--- DEBUG: MOTOR OFF vs MOTOR ON ---")
-        log(f"RMS Median: {s1['rms']['median']:.6f} vs {s2['rms']['median']:.6f} ({calc_diff(s1['rms']['median'], s2['rms']['median'])})")
-        log(f"RMS Max:    {s1['rms']['max']:.6f} vs {s2['rms']['max']:.6f} ({calc_diff(s1['rms']['max'], s2['rms']['max'])})")
-        log(f"RMS StdDev: {s1['rms']['std_dev']:.6f} vs {s2['rms']['std_dev']:.6f} ({calc_diff(s1['rms']['std_dev'], s2['rms']['std_dev'])})")
-        log("------------------------------------\n")
-
+    log("⚙️ Analyzing data and running statistical simulations... This may take a minute.")
 
     s1 = calibration_data["STAGE_1_OFF"]["summary"]
     s2 = calibration_data["STAGE_2_ON_IDLE"]["summary"]
@@ -697,7 +704,6 @@ def run_calibration():
     music_play_mean = s3["music_rms"]["mean"]
     music_play_std = s3["music_rms"]["std_dev"]
 
-
     guess_motor = calc_variance_boundary(off_mean, off_std, on_mean, on_std)
     guess_rumble = calc_variance_boundary(on_mean, on_std, play_mean, play_std)
     guess_music = calc_variance_boundary(music_idle_mean, music_idle_std, music_play_mean, music_play_std)
@@ -706,15 +712,12 @@ def run_calibration():
     idle_crest_std = np.mean([s1["crest"]["std_dev"], s2["crest"]["std_dev"], s5["crest"]["std_dev"], s6["crest"]["std_dev"]])
     guess_crest = max(idle_crest_mean + (idle_crest_std * 6.0), 2.5)
 
-
     guess_debounce = 3
     if music_idle_std > 0.005: guess_debounce = 5
     if music_idle_std > 0.010: guess_debounce = 8
 
-
     guess_m_hyst = 3.0
     guess_n_hyst = 2.0
-
 
     t_mot, t_rum, t_cre, t_mus = guess_motor, guess_rumble, guess_crest, guess_music
     h_mot, h_nee = guess_m_hyst, guess_n_hyst
@@ -753,7 +756,6 @@ def run_calibration():
         h_mot += 2.0; h_nee += 1.5
         t_mot, t_rum, t_cre, t_mus = guess_motor, guess_rumble, guess_crest, guess_music
 
-
     if success:
         log("\n" + "="*50)
         log("✅ CALIBRATION SUCCESSFUL!")
@@ -782,7 +784,6 @@ def run_calibration():
     log("\n💤 Sleeping to prevent auto-restart. You can restart the Add-on now.")
     while True: time.sleep(3600)
 
-
 # --- MAIN LOOP ---
 def listen_and_identify():
     global app_state, current_attempt, wake_up_time, scrobble_fired, current_track, last_scrobbled_track, paused_track_memory, inp
@@ -795,7 +796,6 @@ def listen_and_identify():
     try:
         inp = alsaaudio.PCM(type=alsaaudio.PCM_CAPTURE, mode=alsaaudio.PCM_NORMAL, device='default', channels=CHANNELS, rate=RATE, format=FORMAT, periodsize=CHUNK)
     except Exception as e: log(f"🚨 ALSA Error: {e}"); sys.exit(1)
-
 
     log("Listening for needle drop...")
     if DEBUG:
@@ -823,7 +823,6 @@ def listen_and_identify():
    
     needle_down = False
 
-
     while True:
         length, data = inp.read()
         if length > 0:
@@ -833,10 +832,8 @@ def listen_and_identify():
             with state_lock:
                 current_state = app_state
 
-
             if current_state in ["RECORDING", "PROCESSING", "SLEEPING"]:
                 has_played_music = True
-
 
             # --- TRUE HYSTERESIS POWER DETECTION ---
             if not turntable_on:
@@ -855,7 +852,6 @@ def listen_and_identify():
                     mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
                     mqtt_client.publish("vinyl_guardian/progress", "[░░░░░░░░░░] 00:00 / 00:00", retain=True)
 
-
             # --- HYBRID NEEDLE DETECTION (Volume + Multiplier Pops) ---
             is_dust_pop = crest >= RUNOUT_CREST_THRESHOLD
            
@@ -868,7 +864,6 @@ def listen_and_identify():
            
             needle_down = needle_active_score > (needle_max_score * 0.5)
 
-
             # --- DYNAMIC PHYSICAL IDLE STATUS ---
             if current_state == "IDLE":
                 if not turntable_on:
@@ -878,7 +873,6 @@ def listen_and_identify():
                 else:
                     idle_str = "Needle Up"
                 change_status(idle_str)
-
 
             if now - last_pub >= 1.0:
                 if mqtt_client.is_connected():
@@ -902,12 +896,10 @@ def listen_and_identify():
                            
                         mqtt_client.publish("vinyl_guardian/progress", prog_str)
 
-
                     elif current_state in ["RECORDING", "PROCESSING"]:
                         pos_sec = max(0, int(now - song_start))
                         p_m, p_s = divmod(pos_sec, 60)
                         mqtt_client.publish("vinyl_guardian/progress", f"▶️ {p_m:02d}:{p_s:02d} / ??:??")
-
 
                     elif current_state in ["IDLE", "COOLDOWN"]:
                         if turntable_on:
@@ -936,7 +928,6 @@ def listen_and_identify():
                         if "SLEEP" in status: last_sleep_log = now
                 last_pub = now
 
-
             if current_state == "IDLE":
                 if not needle_down:
                     idle_silence_chunks += 1
@@ -947,7 +938,6 @@ def listen_and_identify():
                         idle_silence_chunks = 0
                 else:
                     idle_silence_chunks = 0
-
 
                 if music_rms > MUSIC_THRESHOLD:
                     trigger_chunks += 1
@@ -962,7 +952,6 @@ def listen_and_identify():
                 else:
                     trigger_chunks = 0  
 
-
             elif current_state == "RECORDING":
                 buffer.extend(data)
                 chunks += 1
@@ -975,7 +964,6 @@ def listen_and_identify():
                     with state_lock: app_state = "IDLE"
                     chunks, loud_chunks = 0, 0
                     continue
-
 
                 if chunks >= target:
                     if loud_chunks >= (target / 2.0):
@@ -998,7 +986,6 @@ def listen_and_identify():
                     required_silence_chunks = int(RATE / CHUNK * 4)
                 else:
                     required_silence_chunks = int(RATE / CHUNK * NEEDLE_LIFT_SECONDS)
-
 
                 if silence_sleep >= required_silence_chunks:
                     is_true_lift = False
@@ -1030,15 +1017,12 @@ def listen_and_identify():
                     if is_true_lift and mqtt_client.is_connected():
                         mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
 
-
                     with state_lock:
                         app_state, current_track, current_attempt, consecutive_failures, has_played_music = "IDLE", None, 1, 0, False
                     continue
 
-
                 current_silence_sec = silence_sleep * (CHUNK / RATE)
                 physical_now = now - current_silence_sec
-
 
                 if current_track and not scrobble_fired and physical_now >= current_track.get('scrobble_trigger_time', 0):
                     track_id = f"{current_track['title']} - {current_track['artist']}"
@@ -1053,7 +1037,6 @@ def listen_and_identify():
                         if DEBUG: log(f"⏭️ Skipping scrobble: '{track_id}' was just scrobbled.")
                         with state_lock: scrobble_fired = True
 
-
                 if now >= wake_up_time:
                     cooldown_end = now + 4
                     change_status("Cooldown")
@@ -1065,7 +1048,6 @@ def listen_and_identify():
             elif current_state == "COOLDOWN" and now >= cooldown_end:
                 log(f"🟢 Cooldown finished. Returning to IDLE.")
                 with state_lock: app_state = "IDLE"
-
 
 if __name__ == "__main__":
     print("\033[2J\033[H", end="", flush=True)
@@ -1086,4 +1068,3 @@ if __name__ == "__main__":
                 if DEBUG: log(f"⚠️ Could not clear {f}: {e}")
         connect_mqtt()
         listen_and_identify()
-
