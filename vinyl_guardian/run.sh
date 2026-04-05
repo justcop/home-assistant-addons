@@ -1,14 +1,24 @@
 #!/usr/bin/with-contenv bashio
 
-echo "[2026-03-30 $(date +"%H:%M:%S")] 🔄 BOOTING VINYL GUARDIAN v 🔄"
-echo "[2026-03-30 $(date +"%H:%M:%S")] ========================================================"
+# Extract version from config.yaml and pass it to Python
+CONFIG_PATH="/config.yaml"
+[ ! -f "$CONFIG_PATH" ] && CONFIG_PATH="/usr/src/app/config.yaml"
+
+if [ -f "$CONFIG_PATH" ]; then
+    export ADDON_VERSION=$(grep '^version:' "$CONFIG_PATH" | awk '{print $2}' | tr -d '"' | tr -d "'")
+else
+    export ADDON_VERSION="Unknown"
+fi
+
+echo "[$(date +"%Y-%m-%d %H:%M:%S")] 🔄 BOOTING VINYL GUARDIAN v${ADDON_VERSION} 🔄"
+echo "[$(date +"%Y-%m-%d %H:%M:%S")] ========================================================"
 
 # Ensure PulseAudio recognizes the hardware
-echo "[2026-03-30 $(date +"%H:%M:%S")] --- PULSEAUDIO HARDWARE DIAGNOSTIC ---"
+echo "[$(date +"%Y-%m-%d %H:%M:%S")] --- PULSEAUDIO HARDWARE DIAGNOSTIC ---"
 pactl info
-echo "[2026-03-30 $(date +"%H:%M:%S")] Available Audio Sources:"
+echo "[$(date +"%Y-%m-%d %H:%M:%S")] Available Audio Sources:"
 pactl list short sources
-echo "[2026-03-30 $(date +"%H:%M:%S")] --------------------------------------"
+echo "[$(date +"%Y-%m-%d %H:%M:%S")] --------------------------------------"
 
 # Find physical soundcard input
 PHYSICAL_SINK=$(pactl list short sources | grep "alsa_input" | awk '{print $2}' | head -n 1)
