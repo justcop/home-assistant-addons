@@ -54,6 +54,7 @@ adv = config.get("advanced", {})
 MUSIC_THRESHOLD = 0.005
 RUMBLE_THRESHOLD = 0.015
 MOTOR_POWER_THRESHOLD = 0.0045
+MOTOR_HFER_THRESHOLD = 0.0
 MIC_VOLUME = 8
 RECORD_SECONDS = config.get("recording_seconds", 10)
 
@@ -76,6 +77,7 @@ if os.path.exists(AUTO_CALIB_FILE):
         MOTOR_HYSTERESIS_SEC = auto_cal.get("motor_hysteresis_sec", MOTOR_HYSTERESIS_SEC)
         NEEDLE_HYSTERESIS_SEC = auto_cal.get("needle_hysteresis_sec", NEEDLE_HYSTERESIS_SEC)
         DYNAMIC_DEBOUNCE_CHUNKS = auto_cal.get("music_debounce_chunks", DYNAMIC_DEBOUNCE_CHUNKS)
+        MOTOR_HFER_THRESHOLD = auto_cal.get("motor_hfer_threshold", MOTOR_HFER_THRESHOLD)
         IS_SILENT_HW = auto_cal.get("is_silent_hw", False)
        
         if not CALIBRATION_MODE:
@@ -427,7 +429,7 @@ def clean_stage_data(stage_metrics):
     return cleaned
 
 # --- STATE MACHINE SIMULATOR ---
-def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, h_nee, debounce_chunks, is_silent_hw=False):
+def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, h_nee, debounce_chunks, is_silent_hw=False, t_hfer=0.0):
     power_max = int(RATE / CHUNK * h_mot)
     needle_max = int(RATE / CHUNK * h_nee)
     pop_boost = int(RATE / CHUNK * 2.5) 
@@ -443,8 +445,7 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
         expect_down = stage in ["STAGE_3_PLAYING", "STAGE_4_RUNOUT"]
         expect_music = stage == "STAGE_3_PLAYING"
        
-        # RESET STATE TO PREVENT WAV FILE STITCHING BLEED
-        # We explicitly isolate discontinuous recording stages to perfectly mirror real human usage
+        # Ensure stages don't bleed states into each other incorrectly during simulation
         if stage in ["STAGE_1_OFF", "STAGE_2_ON_IDLE", "STAGE_3_PLAYING", "STAGE_6_OFF"]:
             turntable_on = expect_on
             power_score = power_max if expect_on else 0
@@ -455,6 +456,7 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
         chunks_rms = calibration_data[stage]["raw_chunks"]["rms"]
         chunks_music = calibration_data[stage]["raw_chunks"]["music_rms"]
         chunks_crest = calibration_data[stage]["raw_chunks"]["crest"]
+        chunks_hfer = calibration_data[stage]["raw_chunks"]["hfer"]
        
         grace_period_chunks = int(max(power_max, needle_max) * 1.5)
         music_triggered = False
@@ -468,17 +470,25 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
             rms = chunks_rms[i]
             m_rms = chunks_music[i]
             crest = chunks_crest[i]
+            hfer = chunks_hfer[i]
            
-            if not turntable_on:
-                power_score = min(power_score + 1, power_max) if rms > t_mot else max(power_score - 1, 0)
+            # HFER Motor Detection
+            motor_on_cond = rms > t_mot
+            if t_hfer > 0.0 and rms < (t_mot * 4.0):
+                if hfer > t_hfer:
+                    motor_on_cond = False # Hiss dominates, motor is clearly off
+            
+            if motor_on_cond:
+                power_score = min(power_score + 1, power_max)
                 if power_score >= power_max: turntable_on = True
             else:
-                power_score = max(power_score - 1, 0) if rms < t_mot else min(power_score + 1, power_max)
+                power_score = max(power_score - 1, 0)
                 if power_score <= 0: 
                     turntable_on = False
                     has_played_music = False
                    
-            if crest >= t_cre:
+            is_dust_pop = crest >= t_cre
+            if is_dust_pop:
                 needle_score = min(needle_score + pop_boost, needle_max)
             elif rms >= t_rum:
                 needle_score = min(needle_score + 1, needle_max)
@@ -487,7 +497,8 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
            
             needle_down = needle_score > (needle_max * 0.5)
            
-            if m_rms > t_mus:
+            # CREST BLOCKER: Prevent pops from triggering music
+            if m_rms > t_mus and not is_dust_pop:
                 trigger_chunks += 1
                 if trigger_chunks >= debounce_chunks: 
                     music_triggered = True
@@ -495,10 +506,6 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
             else:
                 trigger_chunks = 0
 
-            if not is_silent_hw:
-                if turntable_on and has_played_music and not needle_down:
-                    has_played_music = False
-                    
             effective_needle = needle_down
             if is_silent_hw and turntable_on and has_played_music:
                 effective_needle = True
@@ -506,20 +513,23 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
             if i > grace_period_chunks:
                 eval_chunks += 1
                 
-                # TOTAL FORGIVENESS FOR SILENT HARDWARE:
-                # If hardware is completely silent, room noise will falsely trigger the OFF stages. 
-                # We totally forgive Power checking in OFF stages, and only strictly enforce PLAYING for Needle.
-                if is_silent_hw and stage in ["STAGE_1_OFF", "STAGE_6_OFF"]:
+                # TOTAL FORGIVENESS: If hardware is completely silent, rely purely on HFER.
+                # If HFER isn't available, we forgive the power tracking for OFF stages to ensure it saves.
+                if is_silent_hw and t_hfer == 0.0 and stage in ["STAGE_1_OFF", "STAGE_6_OFF"]:
                     power_correct += 1
                 else:
                     if turntable_on == expect_on: power_correct += 1
                 
-                if is_silent_hw and stage != "STAGE_3_PLAYING":
-                    needle_correct += 1
-                elif not is_silent_hw and stage == "STAGE_4_RUNOUT":
-                    needle_correct += 1
+                if is_silent_hw:
+                    if stage in ["STAGE_2_ON_IDLE", "STAGE_4_RUNOUT", "STAGE_5_LIFTED"]:
+                        needle_correct += 1
+                    else:
+                        if effective_needle == expect_down: needle_correct += 1
                 else:
-                    if effective_needle == expect_down: needle_correct += 1
+                    if stage == "STAGE_4_RUNOUT":
+                        needle_correct += 1 
+                    else:
+                        if effective_needle == expect_down: needle_correct += 1
                    
         if eval_chunks > 0:
             p_acc = power_correct / eval_chunks
@@ -729,6 +739,7 @@ def run_calibration():
             log(f"   ┣ RMS   : Median {s['rms']['median']:.6f} | Mean {s['rms']['mean']:.6f} | Max {s['rms']['max']:.6f}")
             log(f"   ┣ Music : Median {s['music_rms']['median']:.6f} | Mean {s['music_rms']['mean']:.6f} | Max {s['music_rms']['max']:.6f}")
             log(f"   ┣ Crest : Median {s['crest']['median']:.3f} | Mean {s['crest']['mean']:.3f} | Max {s['crest']['max']:.3f}")
+            log(f"   ┗ HFER  : Median {s['hfer']['median']:.4f} | Mean {s['hfer']['mean']:.4f}")
     log("----------------------------------------------\n")
 
     log("⚙️ Analyzing data and running statistical simulations... This may take a minute.")
@@ -758,9 +769,19 @@ def run_calibration():
     play_val = s3["rms"]["median"]
     runout_crest_max = s4["crest"]["max"]
 
+    hfer_off = min(s1["hfer"]["median"], s6["hfer"]["median"])
+    hfer_on = max(s2["hfer"]["median"], s5["hfer"]["median"])
+    
+    guess_motor_hfer = 0.0
     is_silent_hw = on_val < 0.0035
     if is_silent_hw:
         log("\n👻 SILENT HARDWARE DETECTED: Utilizing Inferential Latch and Rhythm Tracker.")
+        
+        # Deploy HFER Motor Detection if preamp hiss clearly drops when motor starts
+        if hfer_off > (hfer_on * 1.5):
+            guess_motor_hfer = (hfer_off + hfer_on) / 2.0
+            log(f"   HFER Hiss Detection Armed (Threshold: {guess_motor_hfer:.4f})")
+
         guess_motor = calc_variance_boundary(off_val, off_std, on_val, on_std)
         # Massive ceiling: Rumble threshold is 40% of the loud music volume, rendering room noise invisible
         guess_rumble = max(0.025, play_val * 0.4) 
@@ -772,9 +793,9 @@ def run_calibration():
         
     guess_music = calc_variance_boundary(music_idle_val, music_idle_std, music_play_val, music_play_std)
 
-    guess_debounce = 3
-    if music_idle_std > 0.005: guess_debounce = 5
-    if music_idle_std > 0.010: guess_debounce = 8
+    guess_debounce = 8 # Increased default to safely ignore accidental thick bumps
+    if music_idle_std > 0.005: guess_debounce = 10
+    if music_idle_std > 0.010: guess_debounce = 12
 
     # Start with snappy default assumptions
     guess_m_hyst = 1.5
@@ -787,11 +808,11 @@ def run_calibration():
     success = False
     for hyst_loop in range(3):
         for attempt in range(50):
-            result = simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, h_nee, d_chunk, is_silent_hw)
+            result = simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, h_nee, d_chunk, is_silent_hw, guess_motor_hfer)
            
             if result == "PASS":
-                p_high = simulate_state_machine(calibration_data, t_mot*1.1, t_rum*1.1, t_cre*1.1, t_mus*1.1, h_mot, h_nee, d_chunk, is_silent_hw)
-                p_low = simulate_state_machine(calibration_data, t_mot*0.9, t_rum*0.9, t_cre*0.9, t_mus*0.9, h_mot, h_nee, d_chunk, is_silent_hw)
+                p_high = simulate_state_machine(calibration_data, t_mot*1.1, t_rum*1.1, t_cre*1.1, t_mus*1.1, h_mot, h_nee, d_chunk, is_silent_hw, guess_motor_hfer)
+                p_low = simulate_state_machine(calibration_data, t_mot*0.9, t_rum*0.9, t_cre*0.9, t_mus*0.9, h_mot, h_nee, d_chunk, is_silent_hw, guess_motor_hfer)
                
                 if p_high == "PASS" and p_low == "PASS":
                     success = True
@@ -833,6 +854,7 @@ def run_calibration():
             "motor_hysteresis_sec": float(h_mot),
             "needle_hysteresis_sec": float(h_nee),
             "music_debounce_chunks": int(d_chunk),
+            "motor_hfer_threshold": float(guess_motor_hfer),
             "is_silent_hw": bool(is_silent_hw)
         }
         save_atomic_json(AUTO_CALIB_FILE, auto_cal_data)
@@ -862,7 +884,7 @@ def listen_and_identify():
 
     log("Listening for needle drop...")
     if DEBUG:
-        log(f"[DEBUG] Settings: Mus: {MUSIC_THRESHOLD:.4f} | Rum: {RUMBLE_THRESHOLD:.4f} | Mot: {MOTOR_POWER_THRESHOLD:.4f}")
+        log(f"[DEBUG] Settings: Mus: {MUSIC_THRESHOLD:.4f} | Rum: {RUMBLE_THRESHOLD:.4f} | Mot: {MOTOR_POWER_THRESHOLD:.4f} | HFER: {MOTOR_HFER_THRESHOLD:.4f}")
         log(f"[DEBUG] Buffers: Mot: {MOTOR_HYSTERESIS_SEC}s | Nee: {NEEDLE_HYSTERESIS_SEC}s | Crest: {RUNOUT_CREST_THRESHOLD} | Deb: {DYNAMIC_DEBOUNCE_CHUNKS}")
         log(f"[DEBUG] Hardware Profile: {'Silent (Latched)' if IS_SILENT_HW else 'Standard (Rumble)'}")
    
@@ -897,6 +919,11 @@ def listen_and_identify():
         length, data = inp.read()
         if length > 0:
             raw_rms, music_rms, crest = calculate_audio_levels(data)
+            
+            # Additional metric calculation for Motor Hiss checking
+            metrics = calculate_deep_metrics(data)
+            hfer = metrics["hfer"] if metrics else 0.0
+            
             now = time.time()
            
             with state_lock:
@@ -905,15 +932,20 @@ def listen_and_identify():
             if current_state in ["RECORDING", "PROCESSING", "SLEEPING"]:
                 has_played_music = True
 
-            # --- TRUE HYSTERESIS POWER DETECTION ---
-            if not turntable_on:
-                power_score = min(power_score + 1, power_max_score) if raw_rms > motor_on_thresh else max(power_score - 1, 0)
+            # --- HFER ENHANCED POWER DETECTION ---
+            motor_on_cond = raw_rms > motor_on_thresh
+            if MOTOR_HFER_THRESHOLD > 0.0 and raw_rms < (motor_on_thresh * 4.0):
+                if hfer > MOTOR_HFER_THRESHOLD:
+                    motor_on_cond = False # Hiss indicates motor is clearly off
+            
+            if motor_on_cond:
+                power_score = min(power_score + 1, power_max_score)
                 if power_score >= power_max_score:
                     turntable_on = True
                     mqtt_client.publish("vinyl_guardian/power", "ON", retain=True)
                     mqtt_client.publish("vinyl_guardian/track", "Unknown", retain=True)
             else:
-                power_score = max(power_score - 1, 0) if raw_rms < motor_off_thresh else min(power_score + 1, power_max_score)
+                power_score = max(power_score - 1, 0)
                 if power_score <= 0:
                     turntable_on = False
                     has_played_music = False
@@ -969,7 +1001,7 @@ def listen_and_identify():
                     idle_str = "Runout Groove" if has_played_music else "Lead-in Groove"
                 elif has_played_music:
                     if IS_SILENT_HW:
-                        # Fully locked state. Don't look for thumps that don't exist.
+                        # Fully locked state. Awaits the power-off HFER check to release.
                         idle_str = "Runout Groove"
                     else:
                         has_played_music = False
@@ -1039,7 +1071,8 @@ def listen_and_identify():
                 else:
                     idle_silence_chunks = 0
 
-                if music_rms > MUSIC_THRESHOLD:
+                # CREST BLOCKER: Massive pop spikes will no longer trigger music recording loops
+                if music_rms > MUSIC_THRESHOLD and not is_dust_pop:
                     trigger_chunks += 1
                     if trigger_chunks >= DYNAMIC_DEBOUNCE_CHUNKS:
                         log(f"🎵 AUDIO DETECTED (Music Spike: {music_rms:.4f})")
