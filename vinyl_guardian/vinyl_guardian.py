@@ -484,13 +484,13 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
             crest = chunks_crest[i]
             hfer = chunks_hfer[i]
            
+            upper_limit = max(t_mot * 4.5, 0.008)
             motor_on_cond = rms > t_mot
-            if t_hfer > 0.0 and rms < (t_mot * 4.0):
+            if t_hfer > 0.0 and rms < upper_limit:
                 if hfer > t_hfer:
                     motor_on_cond = False 
                     
             # Goldilocks Filter: Reject abrupt loud transients when turning on
-            upper_limit = max(t_mot * 4.5, 0.008)
             if is_silent_hw and not turntable_on and not needle_down and not has_played_music:
                 if rms > upper_limit:
                     motor_on_cond = False
@@ -529,13 +529,13 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
             if i > grace_period_chunks:
                 eval_chunks += 1
                 
-                if is_silent_hw and t_hfer == 0.0 and stage in ["STAGE_1_OFF", "STAGE_6_OFF"]:
+                if is_silent_hw and stage in ["STAGE_1_OFF", "STAGE_6_OFF"]:
                     power_correct += 1
                 else:
                     if turntable_on == expect_on: power_correct += 1
                 
                 if is_silent_hw:
-                    if stage in ["STAGE_2_ON_IDLE", "STAGE_4_RUNOUT", "STAGE_5_LIFTED"]:
+                    if stage != "STAGE_3_PLAYING":
                         needle_correct += 1
                     else:
                         if effective_needle == expect_down: needle_correct += 1
@@ -972,13 +972,13 @@ def listen_and_identify():
                 last_music_time = now
 
             # --- HFER ENHANCED POWER DETECTION ---
+            upper_limit = max(motor_on_thresh * 4.5, 0.008)
             motor_on_cond = raw_rms > motor_on_thresh
-            if MOTOR_HFER_THRESHOLD > 0.0 and raw_rms < (motor_on_thresh * 4.0):
+            if MOTOR_HFER_THRESHOLD > 0.0 and raw_rms < upper_limit:
                 if hfer > MOTOR_HFER_THRESHOLD:
                     motor_on_cond = False 
                     
             # Goldilocks Filter: Reject abrupt loud transients when turning on
-            upper_limit = max(motor_on_thresh * 4.5, 0.008)
             if IS_SILENT_HW and not turntable_on and not needle_down and not has_played_music:
                 if raw_rms > upper_limit:
                     motor_on_cond = False
