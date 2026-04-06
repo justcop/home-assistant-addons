@@ -510,15 +510,11 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
             if i > grace_period_chunks:
                 eval_chunks += 1
                 
-                # TOTAL FORGIVENESS FOR SILENT HARDWARE:
-                # If HFER isn't available, we forgive the power tracking for OFF stages to ensure it saves.
                 if is_silent_hw and t_hfer == 0.0 and stage in ["STAGE_1_OFF", "STAGE_6_OFF"]:
                     power_correct += 1
                 else:
                     if turntable_on == expect_on: power_correct += 1
                 
-                # NEEDLE FORGIVENESS: Completely ignore needle evaluations in OFF/IDLE stages for Silent Hardware.
-                # Random room noise causes high crests when power is OFF, falsely failing the needle check.
                 if is_silent_hw and stage != "STAGE_3_PLAYING":
                     needle_correct += 1
                 elif not is_silent_hw and stage == "STAGE_4_RUNOUT":
@@ -940,7 +936,6 @@ def listen_and_identify():
                     if not turntable_on:
                         turntable_on = True
                         mqtt_client.publish("vinyl_guardian/power", "ON", retain=True)
-                        mqtt_client.publish("vinyl_guardian/track", "Unknown", retain=True)
             else:
                 power_score = max(power_score - 1, 0)
                 if power_score <= 0:
@@ -977,8 +972,10 @@ def listen_and_identify():
             else:
                 needle_active_score = max(needle_active_score - 1, 0)
                 
-            if rhythm_locked and (now - last_rhythm_time > 8.0):
+            # Decay rhythm lock if we haven't heard a valid geometric pop interval in 2.2 seconds (~1 missed rotation)
+            if rhythm_locked and (now - last_rhythm_time > 2.2):
                 rhythm_locked = False
+                has_played_music = False # Immediately drop the software latch too!
            
             needle_down = needle_active_score > (needle_max_score * 0.5)
 
@@ -993,7 +990,8 @@ def listen_and_identify():
                 elif needle_down:
                     idle_str = "Runout Groove" if has_played_music else "Lead-in Groove"
                 elif has_played_music:
-                    if (now - last_music_time) < 12.0:
+                    # Grace Period: Hold the "Runout Groove" status for 4 seconds after music fades
+                    if (now - last_music_time) < 4.0:
                         idle_str = "Runout Groove"
                     else:
                         has_played_music = False
@@ -1056,7 +1054,7 @@ def listen_and_identify():
                 if not needle_down and not has_played_music and not rhythm_locked:
                     idle_silence_chunks += 1
                     if idle_silence_chunks == int(RATE / CHUNK * NEEDLE_LIFT_SECONDS):
-                        new_track_val = "Unknown" if turntable_on else "None"
+                        new_track_val = "None"
                         log(f"🔇 Prolonged silence detected. Setting track to '{new_track_val}'.")
                         if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/track", new_track_val, retain=True)
                         idle_silence_chunks = 0
@@ -1165,7 +1163,7 @@ def listen_and_identify():
                 if now >= wake_up_time:
                     cooldown_end = now + 4
                     change_status("Cooldown")
-                    if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/track", "Unknown", retain=True)
+                    if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
                     with state_lock:
                         app_state = "COOLDOWN"
                         current_track = None
