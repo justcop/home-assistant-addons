@@ -445,7 +445,6 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
         expect_down = stage in ["STAGE_3_PLAYING", "STAGE_4_RUNOUT"]
         expect_music = stage == "STAGE_3_PLAYING"
        
-        # Ensure stages don't bleed states into each other incorrectly during simulation
         if stage in ["STAGE_1_OFF", "STAGE_2_ON_IDLE", "STAGE_3_PLAYING", "STAGE_6_OFF"]:
             turntable_on = expect_on
             power_score = power_max if expect_on else 0
@@ -472,11 +471,10 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
             crest = chunks_crest[i]
             hfer = chunks_hfer[i]
            
-            # HFER Motor Detection
             motor_on_cond = rms > t_mot
             if t_hfer > 0.0 and rms < (t_mot * 4.0):
                 if hfer > t_hfer:
-                    motor_on_cond = False # Hiss dominates, motor is clearly off
+                    motor_on_cond = False 
             
             if motor_on_cond:
                 power_score = min(power_score + 1, power_max)
@@ -497,7 +495,6 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
            
             needle_down = needle_score > (needle_max * 0.5)
            
-            # CREST BLOCKER: Prevent pops from triggering music
             if m_rms > t_mus and not is_dust_pop:
                 trigger_chunks += 1
                 if trigger_chunks >= debounce_chunks: 
@@ -513,8 +510,6 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
             if i > grace_period_chunks:
                 eval_chunks += 1
                 
-                # TOTAL FORGIVENESS: If hardware is completely silent, rely purely on HFER.
-                # If HFER isn't available, we forgive the power tracking for OFF stages to ensure it saves.
                 if is_silent_hw and t_hfer == 0.0 and stage in ["STAGE_1_OFF", "STAGE_6_OFF"]:
                     power_correct += 1
                 else:
@@ -775,17 +770,16 @@ def run_calibration():
     guess_motor_hfer = 0.0
     is_silent_hw = on_val < 0.0035
     if is_silent_hw:
-        log("\n👻 SILENT HARDWARE DETECTED: Utilizing Inferential Latch and Rhythm Tracker.")
+        log("\n👻 SILENT HARDWARE DETECTED: Utilizing Advanced Rhythm Tracker.")
         
-        # Deploy HFER Motor Detection if preamp hiss clearly drops when motor starts
         if hfer_off > (hfer_on * 1.5):
             guess_motor_hfer = (hfer_off + hfer_on) / 2.0
             log(f"   HFER Hiss Detection Armed (Threshold: {guess_motor_hfer:.4f})")
 
         guess_motor = calc_variance_boundary(off_val, off_std, on_val, on_std)
-        # Massive ceiling: Rumble threshold is 40% of the loud music volume, rendering room noise invisible
         guess_rumble = max(0.025, play_val * 0.4) 
-        guess_crest = max(8.0, runout_crest_max * 1.5)
+        # Lower crest threshold for silent hardware so the Rhythm Tracker catches the pops reliably!
+        guess_crest = max(3.5, runout_crest_max * 0.75) 
     else:
         guess_motor = calc_variance_boundary(off_val, off_std, on_val, on_std)
         guess_rumble = calc_variance_boundary(on_val, on_std, runout_val, runout_std)
@@ -793,13 +787,12 @@ def run_calibration():
         
     guess_music = calc_variance_boundary(music_idle_val, music_idle_std, music_play_val, music_play_std)
 
-    guess_debounce = 8 # Increased default to safely ignore accidental thick bumps
+    guess_debounce = 8 
     if music_idle_std > 0.005: guess_debounce = 10
     if music_idle_std > 0.010: guess_debounce = 12
 
-    # Start with snappy default assumptions
     guess_m_hyst = 1.5
-    guess_n_hyst = 2.5 # Minimum to survive the 1.8s RPM rotation
+    guess_n_hyst = 2.5 
 
     t_mot, t_rum, t_cre, t_mus = guess_motor, guess_rumble, guess_crest, guess_music
     h_mot, h_nee = guess_m_hyst, guess_n_hyst
@@ -886,7 +879,7 @@ def listen_and_identify():
     if DEBUG:
         log(f"[DEBUG] Settings: Mus: {MUSIC_THRESHOLD:.4f} | Rum: {RUMBLE_THRESHOLD:.4f} | Mot: {MOTOR_POWER_THRESHOLD:.4f} | HFER: {MOTOR_HFER_THRESHOLD:.4f}")
         log(f"[DEBUG] Buffers: Mot: {MOTOR_HYSTERESIS_SEC}s | Nee: {NEEDLE_HYSTERESIS_SEC}s | Crest: {RUNOUT_CREST_THRESHOLD} | Deb: {DYNAMIC_DEBOUNCE_CHUNKS}")
-        log(f"[DEBUG] Hardware Profile: {'Silent (Latched)' if IS_SILENT_HW else 'Standard (Rumble)'}")
+        log(f"[DEBUG] Hardware Profile: {'Silent (Rhythm Tracker)' if IS_SILENT_HW else 'Standard (Rumble)'}")
    
     last_pub, last_sleep_log, cooldown_end, chunks, loud_chunks, silence_sleep, song_start = time.time(), 0, 0, 0, 0, 0, 0
     idle_silence_chunks = 0
@@ -908,10 +901,10 @@ def listen_and_identify():
     pop_score_boost = int(RATE / CHUNK * 2.5)
    
     needle_down = False
+    last_music_time = 0
     
-    # --- RHYTHM TRACKER VARIABLES ---
-    last_pop_time = 0
-    pop_intervals = []
+    # --- ADVANCED RHYTHM TRACKER VARIABLES ---
+    pop_history = []
     rhythm_locked = False
     last_rhythm_time = 0
 
@@ -920,7 +913,6 @@ def listen_and_identify():
         if length > 0:
             raw_rms, music_rms, crest = calculate_audio_levels(data)
             
-            # Additional metric calculation for Motor Hiss checking
             metrics = calculate_deep_metrics(data)
             hfer = metrics["hfer"] if metrics else 0.0
             
@@ -931,29 +923,35 @@ def listen_and_identify():
 
             if current_state in ["RECORDING", "PROCESSING", "SLEEPING"]:
                 has_played_music = True
+                last_music_time = now # Keep music timer fresh while processing/sleeping
+
+            if music_rms > MUSIC_THRESHOLD:
+                last_music_time = now
 
             # --- HFER ENHANCED POWER DETECTION ---
             motor_on_cond = raw_rms > motor_on_thresh
             if MOTOR_HFER_THRESHOLD > 0.0 and raw_rms < (motor_on_thresh * 4.0):
                 if hfer > MOTOR_HFER_THRESHOLD:
-                    motor_on_cond = False # Hiss indicates motor is clearly off
+                    motor_on_cond = False 
             
             if motor_on_cond:
                 power_score = min(power_score + 1, power_max_score)
                 if power_score >= power_max_score:
-                    turntable_on = True
-                    mqtt_client.publish("vinyl_guardian/power", "ON", retain=True)
-                    mqtt_client.publish("vinyl_guardian/track", "Unknown", retain=True)
+                    if not turntable_on:
+                        turntable_on = True
+                        mqtt_client.publish("vinyl_guardian/power", "ON", retain=True)
+                        mqtt_client.publish("vinyl_guardian/track", "Unknown", retain=True)
             else:
                 power_score = max(power_score - 1, 0)
                 if power_score <= 0:
-                    turntable_on = False
-                    has_played_music = False
-                    rhythm_locked = False
-                    mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
-                    log("🔌 Turntable turned off. Clearing track display to 'None'.")
-                    mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
-                    mqtt_client.publish("vinyl_guardian/progress", "[░░░░░░░░░░] 00:00 / 00:00", retain=True)
+                    if turntable_on:
+                        turntable_on = False
+                        has_played_music = False
+                        rhythm_locked = False
+                        mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
+                        log("🔌 Turntable turned off. Clearing track display to 'None'.")
+                        mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
+                        mqtt_client.publish("vinyl_guardian/progress", "[░░░░░░░░░░] 00:00 / 00:00", retain=True)
 
             # --- HYBRID NEEDLE DETECTION (Volume + Multiplier Pops) ---
             is_dust_pop = crest >= RUNOUT_CREST_THRESHOLD
@@ -961,47 +959,47 @@ def listen_and_identify():
             if is_dust_pop:
                 needle_active_score = min(needle_active_score + pop_score_boost, needle_max_score)
                 
-                # --- RPM HEARTBEAT DETECTOR ---
-                delta = now - last_pop_time
-                if delta > 0.8: # Ignore rapid micro-pops
-                    if 1.1 <= delta <= 2.0: # Valid range for 33.3 RPM (1.8s) and 45 RPM (1.33s)
-                        pop_intervals.append(delta)
-                        if len(pop_intervals) > 3:
-                            pop_intervals.pop(0)
-                    else:
-                        pop_intervals.clear() # Broken rhythm
-                    last_pop_time = now
-
-                    # Lock rhythm if we see at least 2 consecutive, consistent interval timings
-                    if len(pop_intervals) >= 2:
-                        avg_int = sum(pop_intervals) / len(pop_intervals)
-                        if all(abs(p - avg_int) < 0.2 for p in pop_intervals):
-                            rhythm_locked = True
-                            last_rhythm_time = now
+                # --- ADVANCED RPM HEARTBEAT DETECTOR ---
+                pop_history.append(now)
+                if len(pop_history) > 10:
+                    pop_history.pop(0)
+                    
+                # Look backwards through recent pops to find exact rotational spacing
+                # Tolerances catch 1 or 2 full rotations of 33.3 RPM (1.8s) or 45 RPM (1.33s)
+                for p in pop_history[:-1]:
+                    delta = now - p
+                    if (1.20 <= delta <= 1.45) or (1.65 <= delta <= 1.95) or \
+                       (2.50 <= delta <= 2.90) or (3.40 <= delta <= 3.80):
+                        rhythm_locked = True
+                        last_rhythm_time = now
+                        break
+                        
             elif raw_rms >= RUMBLE_THRESHOLD:
                 needle_active_score = min(needle_active_score + 1, needle_max_score)
             else:
                 needle_active_score = max(needle_active_score - 1, 0)
                 
-            # Decay rhythm lock if we haven't heard a valid pop heartbeat in 5 seconds
-            if rhythm_locked and (now - last_rhythm_time > 5.0):
+            # Starve the rhythm lock if we haven't heard a valid geometric pop interval in 8 seconds
+            if rhythm_locked and (now - last_rhythm_time > 8.0):
                 rhythm_locked = False
            
             needle_down = needle_active_score > (needle_max_score * 0.5)
 
-            # --- DYNAMIC PHYSICAL IDLE STATUS (With Software Latch) ---
+            # --- DYNAMIC PHYSICAL IDLE STATUS (With Sliding Window Tracker) ---
             if current_state == "IDLE":
                 if not turntable_on:
                     idle_str = "Powered Off"
                     has_played_music = False
+                    rhythm_locked = False
                 elif rhythm_locked:
                     # RHYTHM OVERRIDE: We mathematically hear the runout groove locked loop!
                     idle_str = "Runout Groove"
                 elif needle_down:
                     idle_str = "Runout Groove" if has_played_music else "Lead-in Groove"
                 elif has_played_music:
-                    if IS_SILENT_HW:
-                        # Fully locked state. Awaits the power-off HFER check to release.
+                    # Grace Period: Hold the "Runout Groove" status for 12 seconds after music fades
+                    # This gives the needle time to track inward and the rhythm tracker time to establish a lock.
+                    if (now - last_music_time) < 12.0:
                         idle_str = "Runout Groove"
                     else:
                         has_played_music = False
