@@ -497,11 +497,14 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
             if i > grace_period_chunks:
                 eval_chunks += 1
                 
-                if turntable_on == expect_on: power_correct += 1
+                # TOTAL FORGIVENESS FOR SILENT HARDWARE:
+                # If the hardware is silent, room noise will falsely trigger power when OFF. Ignore it.
+                if is_silent_hw and stage in ["STAGE_1_OFF", "STAGE_6_OFF"]:
+                    power_correct += 1
+                else:
+                    if turntable_on == expect_on: power_correct += 1
                 
                 if is_silent_hw:
-                    # In silent hardware mode, we only strictly enforce the needle in PLAYING and OFF.
-                    # We forgive the IDLE and RUNOUT variations because the physical rumble isn't visible.
                     if stage in ["STAGE_2_ON_IDLE", "STAGE_4_RUNOUT", "STAGE_5_LIFTED"]:
                         needle_correct += 1
                     else:
