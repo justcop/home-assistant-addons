@@ -745,20 +745,23 @@ def run_calibration():
     
     music_play_val = s3["music_rms"]["median"]
     music_play_std = s3["music_rms"]["std_dev"]
+    
+    play_val = s3["rms"]["median"]
+    runout_crest_max = s4["crest"]["max"]
 
     is_silent_hw = on_val < 0.0035
     if is_silent_hw:
         log("\n👻 SILENT HARDWARE DETECTED: Utilizing Inferential Latch and Rhythm Tracker.")
         guess_motor = calc_variance_boundary(off_val, off_std, on_val, on_std)
-        guess_rumble = max(0.008, on_val + (on_std * 6.0))
+        # Massive ceiling: Rumble threshold is 40% of the loud music volume, rendering room noise invisible
+        guess_rumble = max(0.025, play_val * 0.4) 
+        guess_crest = max(8.0, runout_crest_max * 1.5)
     else:
         guess_motor = calc_variance_boundary(off_val, off_std, on_val, on_std)
         guess_rumble = calc_variance_boundary(on_val, on_std, runout_val, runout_std)
+        guess_crest = max(3.0, runout_crest_max * 0.85)
         
     guess_music = calc_variance_boundary(music_idle_val, music_idle_std, music_play_val, music_play_std)
-   
-    runout_crest_max = s4["crest"]["max"]
-    guess_crest = max(3.0, runout_crest_max * 0.85)
 
     guess_debounce = 3
     if music_idle_std > 0.005: guess_debounce = 5
@@ -846,7 +849,7 @@ def listen_and_identify():
        
     try:
         inp = alsaaudio.PCM(type=alsaaudio.PCM_CAPTURE, mode=alsaaudio.PCM_NORMAL, device='default', channels=CHANNELS, rate=RATE, format=FORMAT, periodsize=CHUNK)
-    except Exception as e: log(f"🚨 ALSA Error: {e}"); sysexit(1)
+    except Exception as e: log(f"🚨 ALSA Error: {e}"); sys.exit(1)
 
     log("Listening for needle drop...")
     if DEBUG:
