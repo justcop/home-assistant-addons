@@ -275,7 +275,10 @@ def recognize_shazam(wav_path):
 def process_audio_background(audio_data_bytes, song_start_timestamp):
     global app_state, current_attempt, wake_up_time, consecutive_failures, current_track, scrobble_fired, last_scrobbled_track, paused_track_memory
    
-    with state_lock: local_attempt = current_attempt
+    local_attempt = None
+    with state_lock: 
+        local_attempt = current_attempt
+        
     log(f"🔬 Analyzing {RECORD_SECONDS}s capture (Attempt {local_attempt}/{MAX_ATTEMPTS})...")
 
     full_data = np.frombuffer(audio_data_bytes, dtype=np.int16)
@@ -341,8 +344,13 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
 
             log(f"🎶 MATCH FOUND: {match['title']} - {match['artist']}")
             mqtt_client.publish("vinyl_guardian/track", f"{match['title']} - {match['artist']}", retain=True)
-            try: mqtt_client.publish("vinyl_guardian/attributes", json.dumps(current_track), retain=True)
-            except TypeError: pass
+            try: 
+                payload = json.dumps(current_track)
+                mqtt_client.publish("vinyl_guardian/attributes", payload, retain=True)
+            except TypeError as e:
+                log(f"⚠️ MQTT attribute serialization failed: {e}")
+            except Exception as e:
+                pass
            
             wake_up_time = current_track['start_timestamp'] + total_duration
             app_state = "SLEEPING"
@@ -395,13 +403,15 @@ def calculate_deep_metrics(data):
     peak = np.max(np.abs(audio_data)) / 32768.0
     crest = peak / rms if rms > 0 else 1.0
     
-    zcr = np.sum(np.diff(np.sign(audio_data)) != 0) / len(audio_data)
-    
-    hf_data = audio_data[1:] - audio_data[:-1] 
-    hf_rms = float(np.sqrt(np.mean(np.square(hf_data)))) / 32768.0
-    hfer = hf_rms / rms if rms > 0 else 0
+    # HFER Z-Div Protection
+    if rms < 0.0001:
+        hfer = 0.0
+    else:
+        hf_data = audio_data[1:] - audio_data[:-1] 
+        hf_rms = float(np.sqrt(np.mean(np.square(hf_data)))) / 32768.0
+        hfer = hf_rms / rms
    
-    return {"rms": rms, "music_rms": music_rms, "crest": crest, "zcr": float(zcr), "hfer": float(hfer)}
+    return {"rms": rms, "music_rms": music_rms, "crest": crest, "hfer": float(hfer)}
 
 # --- STATISTICAL BOUNDARY CALCULATOR ---
 def calc_variance_boundary(low_val, low_std, high_val, high_std):
@@ -432,7 +442,11 @@ def clean_stage_data(stage_metrics):
 def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, h_nee, debounce_chunks, is_silent_hw=False, t_hfer=0.0):
     power_max = int(RATE / CHUNK * h_mot)
     needle_max = int(RATE / CHUNK * h_nee)
-    pop_boost = int(RATE / CHUNK * 2.5) 
+    
+    # Dynamically scale pop boost based on a generic RPM rhythm
+    avg_pop_interval = (1.8 + 1.33) / 2.0
+    pop_boost = int(RATE / CHUNK * (avg_pop_interval * 0.6))
+    pop_boost = max(int(RATE / CHUNK * 1.0), min(int(RATE / CHUNK * 3.0), pop_boost))
    
     stages_order = ["STAGE_1_OFF", "STAGE_2_ON_IDLE", "STAGE_3_PLAYING", "STAGE_4_RUNOUT", "STAGE_5_LIFTED", "STAGE_6_OFF"]
    
@@ -515,20 +529,24 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
                 else:
                     if turntable_on == expect_on: power_correct += 1
                 
-                if is_silent_hw and stage != "STAGE_3_PLAYING":
-                    needle_correct += 1
-                elif not is_silent_hw and stage == "STAGE_4_RUNOUT":
-                    needle_correct += 1
+                if is_silent_hw:
+                    if stage in ["STAGE_2_ON_IDLE", "STAGE_4_RUNOUT", "STAGE_5_LIFTED"]:
+                        needle_correct += 1
+                    else:
+                        if effective_needle == expect_down: needle_correct += 1
                 else:
-                    if effective_needle == expect_down: needle_correct += 1
+                    if stage == "STAGE_4_RUNOUT":
+                        needle_correct += 1 
+                    else:
+                        if effective_needle == expect_down: needle_correct += 1
                    
         if eval_chunks > 0:
             p_acc = power_correct / eval_chunks
             n_acc = needle_correct / eval_chunks
             
-            if p_acc < 0.85:
+            if p_acc < 0.95:
                 return f"{stage}: Power mostly wrong (Acc: {p_acc*100:.1f}%)."
-            if n_acc < 0.85:
+            if n_acc < 0.92:
                 return f"{stage}: Needle mostly wrong (Acc: {n_acc*100:.1f}%)."
                
         if expect_music and not music_triggered:
@@ -559,7 +577,7 @@ def run_calibration():
    
     def record_stage(stage_id, duration_secs):
         wav_path = os.path.join(SHARE_DIR, f"calib_{stage_id}.wav")
-        stage_metrics = {"rms": [], "music_rms": [], "crest": [], "zcr": [], "hfer": []}
+        stage_metrics = {"rms": [], "music_rms": [], "crest": [], "hfer": []}
         t_chunks = int(RATE / CHUNK * duration_secs)
         
         reuse_audio_for_stage = False
@@ -687,10 +705,17 @@ def run_calibration():
         
         silence_chunks = 0
         target_silence = int(RATE / CHUNK * 15.0) 
+        runout_timeout = int(RATE / CHUNK * 600.0) # Changed to 10 minutes (600 seconds)
+        timeout_chunks = 0
         
         while True:
             length, data = inp.read()
             if length > 0:
+                timeout_chunks += 1
+                if timeout_chunks > runout_timeout:
+                    log("⚠️ Runout detection timeout reached (10 mins). Proceeding.")
+                    break
+                    
                 _, music_rms, _ = calculate_audio_levels(data)
                 if music_rms < temp_music_thresh:
                     silence_chunks += 1
@@ -758,13 +783,17 @@ def run_calibration():
     music_play_std = s3["music_rms"]["std_dev"]
     
     play_val = s3["rms"]["median"]
-    runout_crest_max = s4["crest"]["max"]
-
+    
     hfer_off = min(s1["hfer"]["median"], s6["hfer"]["median"])
     hfer_on = max(s2["hfer"]["median"], s5["hfer"]["median"])
     
     guess_motor_hfer = 0.0
-    is_silent_hw = on_val < 0.0035
+    
+    silence_ratio = on_val / play_val if play_val > 0 else 1.0
+    is_silent_hw = silence_ratio < 0.15 or on_val < 0.0035
+
+    runout_crest_std = s4["crest"]["std_dev"]
+
     if is_silent_hw:
         log("\n👻 SILENT HARDWARE DETECTED: Utilizing Advanced Rhythm Tracker.")
         
@@ -774,11 +803,11 @@ def run_calibration():
 
         guess_motor = calc_variance_boundary(off_val, off_std, on_val, on_std)
         guess_rumble = max(0.025, play_val * 0.4) 
-        guess_crest = max(3.5, runout_crest_max * 0.75) 
+        guess_crest = max(2.5, s4["crest"]["median"] + (runout_crest_std * 3.0))
     else:
         guess_motor = calc_variance_boundary(off_val, off_std, on_val, on_std)
         guess_rumble = calc_variance_boundary(on_val, on_std, runout_val, runout_std)
-        guess_crest = max(3.0, runout_crest_max * 0.85)
+        guess_crest = max(2.5, s4["crest"]["median"] + (runout_crest_std * 2.5))
         
     guess_music = calc_variance_boundary(music_idle_val, music_idle_std, music_play_val, music_play_std)
 
@@ -786,9 +815,8 @@ def run_calibration():
     if music_idle_std > 0.005: guess_debounce = 10
     if music_idle_std > 0.010: guess_debounce = 12
 
-    # Start with snappy default assumptions
     guess_m_hyst = 1.5
-    guess_n_hyst = 2.5 # Minimum to survive the 1.8s RPM rotation
+    guess_n_hyst = 2.5 
 
     t_mot, t_rum, t_cre, t_mus = guess_motor, guess_rumble, guess_crest, guess_music
     h_mot, h_nee = guess_m_hyst, guess_n_hyst
@@ -800,8 +828,9 @@ def run_calibration():
             result = simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, h_nee, d_chunk, is_silent_hw, guess_motor_hfer)
            
             if result == "PASS":
-                p_high = simulate_state_machine(calibration_data, t_mot*1.1, t_rum*1.1, t_cre*1.1, t_mus*1.1, h_mot, h_nee, d_chunk, is_silent_hw, guess_motor_hfer)
-                p_low = simulate_state_machine(calibration_data, t_mot*0.9, t_rum*0.9, t_cre*0.9, t_mus*0.9, h_mot, h_nee, d_chunk, is_silent_hw, guess_motor_hfer)
+                # Ensure the parameters can survive slight real world fluctuations
+                p_high = simulate_state_machine(calibration_data, t_mot*1.1, t_rum*1.1, t_cre*1.1, t_mus*1.1, h_mot*1.1, h_nee*1.1, int(d_chunk*1.2), is_silent_hw, guess_motor_hfer)
+                p_low = simulate_state_machine(calibration_data, t_mot*0.9, t_rum*0.9, t_cre*0.9, t_mus*0.9, h_mot*0.9, h_nee*0.9, int(d_chunk*0.8), is_silent_hw, guess_motor_hfer)
                
                 if p_high == "PASS" and p_low == "PASS":
                     success = True
@@ -894,7 +923,10 @@ def listen_and_identify():
    
     needle_active_score = 0
     needle_max_score = int(RATE / CHUNK * NEEDLE_HYSTERESIS_SEC)
-    pop_score_boost = int(RATE / CHUNK * 2.5)
+    
+    avg_pop_interval = (1.8 + 1.33) / 2.0
+    pop_score_boost = int(RATE / CHUNK * (avg_pop_interval * 0.6))
+    pop_score_boost = max(int(RATE / CHUNK * 1.0), min(int(RATE / CHUNK * 3.0), pop_score_boost))
    
     needle_down = False
     last_music_time = 0
@@ -903,6 +935,13 @@ def listen_and_identify():
     pop_history = []
     rhythm_locked = False
     last_rhythm_time = 0
+    
+    VALID_RPM_INTERVALS = [
+        (0.90, 1.50),   # 45 RPM
+        (1.65, 1.95),   # 33⅓ RPM
+        (2.50, 2.90),   # 45 RPM 2x harmonic
+        (3.40, 3.80)    # 33⅓ RPM 2x harmonic
+    ]
 
     while True:
         length, data = inp.read()
@@ -959,23 +998,26 @@ def listen_and_identify():
                 if len(pop_history) > 10:
                     pop_history.pop(0)
                     
+                match_count = 0
                 for p in pop_history[:-1]:
                     delta = now - p
-                    if (1.20 <= delta <= 1.45) or (1.65 <= delta <= 1.95) or \
-                       (2.50 <= delta <= 2.90) or (3.40 <= delta <= 3.80):
-                        rhythm_locked = True
-                        last_rhythm_time = now
-                        break
+                    for lo, hi in VALID_RPM_INTERVALS:
+                        if lo <= delta <= hi:
+                            match_count += 1
+                            break
+                            
+                if match_count >= 2:
+                    rhythm_locked = True
+                    last_rhythm_time = now
                         
             elif raw_rms >= RUMBLE_THRESHOLD:
                 needle_active_score = min(needle_active_score + 1, needle_max_score)
             else:
                 needle_active_score = max(needle_active_score - 1, 0)
                 
-            # Decay rhythm lock if we haven't heard a valid geometric pop interval in 2.2 seconds (~1 missed rotation)
-            if rhythm_locked and (now - last_rhythm_time > 2.2):
+            if rhythm_locked and (now - last_rhythm_time > 4.0):
                 rhythm_locked = False
-                has_played_music = False # Immediately drop the software latch too!
+                has_played_music = False 
            
             needle_down = needle_active_score > (needle_max_score * 0.5)
 
@@ -990,7 +1032,6 @@ def listen_and_identify():
                 elif needle_down:
                     idle_str = "Runout Groove" if has_played_music else "Lead-in Groove"
                 elif has_played_music:
-                    # Grace Period: Hold the "Runout Groove" status for 4 seconds after music fades
                     if (now - last_music_time) < 4.0:
                         idle_str = "Runout Groove"
                     else:
@@ -1153,8 +1194,13 @@ def listen_and_identify():
                         scrobble_to_lastfm(current_track['artist'], current_track['title'], current_track['start_timestamp'], current_track['album'])
                         if mqtt_client.is_connected():
                             mqtt_client.publish("vinyl_guardian/scrobble_state", track_id, retain=True)
-                            try: mqtt_client.publish("vinyl_guardian/scrobble", json.dumps(current_track), retain=True)
-                            except TypeError: pass
+                            try:
+                                payload = json.dumps(current_track)
+                                mqtt_client.publish("vinyl_guardian/scrobble", payload, retain=True)
+                            except TypeError as e:
+                                log(f"⚠️ MQTT attribute serialization failed: {e}")
+                            except Exception:
+                                pass
                         with state_lock: scrobble_fired, last_scrobbled_track, paused_track_memory = True, track_id, None
                     else:
                         if DEBUG: log(f"⏭️ Skipping scrobble: '{track_id}' was just scrobbled.")
