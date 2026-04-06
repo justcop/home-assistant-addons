@@ -16,7 +16,6 @@ from shazamio import Shazam
 import pylast
 import signal
 
-# Grab the version dynamically provided by run.sh
 VERSION = os.environ.get("ADDON_VERSION", "Unknown")
 
 # --- LOAD CONFIGURATION ---
@@ -426,7 +425,7 @@ def clean_stage_data(stage_metrics):
     return cleaned
 
 # --- STATE MACHINE SIMULATOR ---
-def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, h_nee, debounce_chunks):
+def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, h_nee, debounce_chunks, is_silent_hw=False):
     power_max = int(RATE / CHUNK * h_mot)
     needle_max = int(RATE / CHUNK * h_nee)
     pop_boost = int(RATE / CHUNK * 1.0)
@@ -482,13 +481,19 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
 
             if i > grace_period_chunks:
                 eval_chunks += 1
-                if turntable_on == expect_on: power_correct += 1
                 
-                # Relaxed rule: Runout is sometimes identical to IDLE noise floor, don't rigidly fail it
-                if stage == "STAGE_4_RUNOUT":
-                    needle_correct += 1 
+                # If hardware is silent, forgive non-music mechanical states. 
+                # We only strictly enforce that PLAYING triggers power and needle.
+                if is_silent_hw and stage != "STAGE_3_PLAYING":
+                    power_correct += 1
+                    needle_correct += 1
                 else:
-                    if needle_down == expect_down: needle_correct += 1
+                    if turntable_on == expect_on: power_correct += 1
+                    
+                    if stage == "STAGE_4_RUNOUT":
+                        needle_correct += 1 
+                    else:
+                        if needle_down == expect_down: needle_correct += 1
                    
         if eval_chunks > 0:
             p_acc = power_correct / eval_chunks
@@ -724,14 +729,16 @@ def run_calibration():
     music_play_val = s3["music_rms"]["median"]
     music_play_std = s3["music_rms"]["std_dev"]
 
-    guess_motor = calc_variance_boundary(off_val, off_std, on_val, on_std)
-    
-    # OVERLAP BYPASS: If the Runout Groove is quieter than or equal to the Motor Idle, 
-    # strictly force the Rumble threshold well above the Motor noise to prevent false drops.
-    if runout_val > on_val + (on_std * 2):
-        guess_rumble = calc_variance_boundary(on_val, on_std, runout_val, runout_std)
+    # --- SILENT HARDWARE DETECTION ---
+    is_silent_hw = on_val < 0.0035
+    if is_silent_hw:
+        log("\n👻 SILENT HARDWARE DETECTED: Motor hum is quieter than standard room noise.")
+        log("   Applying Environmental Failsafe Clamps to prevent false-triggers.")
+        guess_motor = max(0.006, calc_variance_boundary(off_val, off_std, on_val, on_std))
+        guess_rumble = max(0.010, calc_variance_boundary(on_val, on_std, runout_val, runout_std))
     else:
-        guess_rumble = on_val + (on_std * 6.0)
+        guess_motor = calc_variance_boundary(off_val, off_std, on_val, on_std)
+        guess_rumble = calc_variance_boundary(on_val, on_std, runout_val, runout_std)
         
     guess_music = calc_variance_boundary(music_idle_val, music_idle_std, music_play_val, music_play_std)
    
@@ -753,11 +760,11 @@ def run_calibration():
     success = False
     for hyst_loop in range(3):
         for attempt in range(50):
-            result = simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, h_nee, d_chunk)
+            result = simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, h_nee, d_chunk, is_silent_hw)
            
             if result == "PASS":
-                p_high = simulate_state_machine(calibration_data, t_mot*1.1, t_rum*1.1, t_cre*1.1, t_mus*1.1, h_mot, h_nee, d_chunk)
-                p_low = simulate_state_machine(calibration_data, t_mot*0.9, t_rum*0.9, t_cre*0.9, t_mus*0.9, h_mot, h_nee, d_chunk)
+                p_high = simulate_state_machine(calibration_data, t_mot*1.1, t_rum*1.1, t_cre*1.1, t_mus*1.1, h_mot, h_nee, d_chunk, is_silent_hw)
+                p_low = simulate_state_machine(calibration_data, t_mot*0.9, t_rum*0.9, t_cre*0.9, t_mus*0.9, h_mot, h_nee, d_chunk, is_silent_hw)
                
                 if p_high == "PASS" and p_low == "PASS":
                     success = True
@@ -951,7 +958,8 @@ def listen_and_identify():
                         status = f"🟢 {dbg_str.upper()}"
                        
                     if status:
-                        print(f"[{time.strftime('%H:%M:%S')}] {status} | Music: {music_rms:.4f} | Crest: {crest:.2f}", flush=True)
+                        # Added raw RMS so you can watch how your movement changes the microphone levels
+                        print(f"[{time.strftime('%H:%M:%S')}] {status} | RMS: {raw_rms:.4f} | Music: {music_rms:.4f} | Crest: {crest:.2f}", flush=True)
                         if "SLEEP" in status: last_sleep_log = now
                 last_pub = now
 
