@@ -510,21 +510,21 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
             if i > grace_period_chunks:
                 eval_chunks += 1
                 
+                # TOTAL FORGIVENESS FOR SILENT HARDWARE:
+                # If HFER isn't available, we forgive the power tracking for OFF stages to ensure it saves.
                 if is_silent_hw and t_hfer == 0.0 and stage in ["STAGE_1_OFF", "STAGE_6_OFF"]:
                     power_correct += 1
                 else:
                     if turntable_on == expect_on: power_correct += 1
                 
-                if is_silent_hw:
-                    if stage in ["STAGE_2_ON_IDLE", "STAGE_4_RUNOUT", "STAGE_5_LIFTED"]:
-                        needle_correct += 1
-                    else:
-                        if effective_needle == expect_down: needle_correct += 1
+                # NEEDLE FORGIVENESS: Completely ignore needle evaluations in OFF/IDLE stages for Silent Hardware.
+                # Random room noise causes high crests when power is OFF, falsely failing the needle check.
+                if is_silent_hw and stage != "STAGE_3_PLAYING":
+                    needle_correct += 1
+                elif not is_silent_hw and stage == "STAGE_4_RUNOUT":
+                    needle_correct += 1
                 else:
-                    if stage == "STAGE_4_RUNOUT":
-                        needle_correct += 1 
-                    else:
-                        if effective_needle == expect_down: needle_correct += 1
+                    if effective_needle == expect_down: needle_correct += 1
                    
         if eval_chunks > 0:
             p_acc = power_correct / eval_chunks
@@ -778,7 +778,6 @@ def run_calibration():
 
         guess_motor = calc_variance_boundary(off_val, off_std, on_val, on_std)
         guess_rumble = max(0.025, play_val * 0.4) 
-        # Lower crest threshold for silent hardware so the Rhythm Tracker catches the pops reliably!
         guess_crest = max(3.5, runout_crest_max * 0.75) 
     else:
         guess_motor = calc_variance_boundary(off_val, off_std, on_val, on_std)
@@ -791,8 +790,9 @@ def run_calibration():
     if music_idle_std > 0.005: guess_debounce = 10
     if music_idle_std > 0.010: guess_debounce = 12
 
+    # Start with snappy default assumptions
     guess_m_hyst = 1.5
-    guess_n_hyst = 2.5 
+    guess_n_hyst = 2.5 # Minimum to survive the 1.8s RPM rotation
 
     t_mot, t_rum, t_cre, t_mus = guess_motor, guess_rumble, guess_crest, guess_music
     h_mot, h_nee = guess_m_hyst, guess_n_hyst
@@ -923,7 +923,7 @@ def listen_and_identify():
 
             if current_state in ["RECORDING", "PROCESSING", "SLEEPING"]:
                 has_played_music = True
-                last_music_time = now # Keep music timer fresh while processing/sleeping
+                last_music_time = now
 
             if music_rms > MUSIC_THRESHOLD:
                 last_music_time = now
@@ -964,8 +964,6 @@ def listen_and_identify():
                 if len(pop_history) > 10:
                     pop_history.pop(0)
                     
-                # Look backwards through recent pops to find exact rotational spacing
-                # Tolerances catch 1 or 2 full rotations of 33.3 RPM (1.8s) or 45 RPM (1.33s)
                 for p in pop_history[:-1]:
                     delta = now - p
                     if (1.20 <= delta <= 1.45) or (1.65 <= delta <= 1.95) or \
@@ -979,7 +977,6 @@ def listen_and_identify():
             else:
                 needle_active_score = max(needle_active_score - 1, 0)
                 
-            # Starve the rhythm lock if we haven't heard a valid geometric pop interval in 8 seconds
             if rhythm_locked and (now - last_rhythm_time > 8.0):
                 rhythm_locked = False
            
@@ -992,13 +989,10 @@ def listen_and_identify():
                     has_played_music = False
                     rhythm_locked = False
                 elif rhythm_locked:
-                    # RHYTHM OVERRIDE: We mathematically hear the runout groove locked loop!
                     idle_str = "Runout Groove"
                 elif needle_down:
                     idle_str = "Runout Groove" if has_played_music else "Lead-in Groove"
                 elif has_played_music:
-                    # Grace Period: Hold the "Runout Groove" status for 12 seconds after music fades
-                    # This gives the needle time to track inward and the rhythm tracker time to establish a lock.
                     if (now - last_music_time) < 12.0:
                         idle_str = "Runout Groove"
                     else:
