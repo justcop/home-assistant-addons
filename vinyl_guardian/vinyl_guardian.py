@@ -59,8 +59,8 @@ RECORD_SECONDS = config.get("recording_seconds", 10)
 
 # Dynamic Calibration State Variables
 RUNOUT_CREST_THRESHOLD = 4.5
-MOTOR_HYSTERESIS_SEC = 3.0
-NEEDLE_HYSTERESIS_SEC = 2.0
+MOTOR_HYSTERESIS_SEC = 1.5 
+NEEDLE_HYSTERESIS_SEC = 2.5 # Must be > 1.8s to bridge 33.3RPM pops
 DYNAMIC_DEBOUNCE_CHUNKS = adv.get("trigger_debounce_chunks", 3)
 
 if os.path.exists(AUTO_CALIB_FILE):
@@ -428,9 +428,13 @@ def clean_stage_data(stage_metrics):
 def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, h_nee, debounce_chunks, is_silent_hw=False):
     power_max = int(RATE / CHUNK * h_mot)
     needle_max = int(RATE / CHUNK * h_nee)
-    pop_boost = int(RATE / CHUNK * 1.0)
+    pop_boost = int(RATE / CHUNK * 2.5) # Heavy boost to survive 33.3RPM gaps
    
     stages_order = ["STAGE_1_OFF", "STAGE_2_ON_IDLE", "STAGE_3_PLAYING", "STAGE_4_RUNOUT", "STAGE_5_LIFTED", "STAGE_6_OFF"]
+   
+    turntable_on, needle_down = False, False
+    has_played_music = False
+    power_score, needle_score = 0, 0
    
     for stage in stages_order:
         expect_on = stage in ["STAGE_2_ON_IDLE", "STAGE_3_PLAYING", "STAGE_4_RUNOUT", "STAGE_5_LIFTED"]
@@ -448,9 +452,6 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
         eval_chunks = 0
         power_correct = 0
         needle_correct = 0
-        
-        power_score, needle_score = 0, 0
-        turntable_on, needle_down = False, False
        
         for i in range(len(chunks_rms)):
             rms = chunks_rms[i]
@@ -462,7 +463,9 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
                 if power_score >= power_max: turntable_on = True
             else:
                 power_score = max(power_score - 1, 0) if rms < t_mot else min(power_score + 1, power_max)
-                if power_score <= 0: turntable_on = False
+                if power_score <= 0: 
+                    turntable_on = False
+                    has_played_music = False
                    
             if crest >= t_cre:
                 needle_score = min(needle_score + pop_boost, needle_max)
@@ -475,25 +478,27 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
            
             if m_rms > t_mus:
                 trigger_chunks += 1
-                if trigger_chunks >= debounce_chunks: music_triggered = True
+                if trigger_chunks >= debounce_chunks: 
+                    music_triggered = True
+                    has_played_music = True
             else:
                 trigger_chunks = 0
+
+            # The Lift Thump Detector: Break the latch if we hear a spike
+            if turntable_on and has_played_music and not needle_down:
+                if rms > (t_mot * 2.0):
+                    has_played_music = False
+
+            # Calculate Effective Needle state using the Inferential Latch
+            effective_needle = needle_down
+            if turntable_on and has_played_music:
+                effective_needle = True
 
             if i > grace_period_chunks:
                 eval_chunks += 1
                 
-                # If hardware is silent, forgive non-music mechanical states. 
-                # We only strictly enforce that PLAYING triggers power and needle.
-                if is_silent_hw and stage != "STAGE_3_PLAYING":
-                    power_correct += 1
-                    needle_correct += 1
-                else:
-                    if turntable_on == expect_on: power_correct += 1
-                    
-                    if stage == "STAGE_4_RUNOUT":
-                        needle_correct += 1 
-                    else:
-                        if needle_down == expect_down: needle_correct += 1
+                if turntable_on == expect_on: power_correct += 1
+                if effective_needle == expect_down: needle_correct += 1
                    
         if eval_chunks > 0:
             p_acc = power_correct / eval_chunks
@@ -729,11 +734,9 @@ def run_calibration():
     music_play_val = s3["music_rms"]["median"]
     music_play_std = s3["music_rms"]["std_dev"]
 
-    # --- SILENT HARDWARE DETECTION ---
     is_silent_hw = on_val < 0.0035
     if is_silent_hw:
-        log("\n👻 SILENT HARDWARE DETECTED: Motor hum is quieter than standard room noise.")
-        log("   Applying Environmental Failsafe Clamps to prevent false-triggers.")
+        log("\n👻 SILENT HARDWARE DETECTED: Utilizing Inferential Latch and Thump Detectors.")
         guess_motor = max(0.006, calc_variance_boundary(off_val, off_std, on_val, on_std))
         guess_rumble = max(0.010, calc_variance_boundary(on_val, on_std, runout_val, runout_std))
     else:
@@ -742,16 +745,16 @@ def run_calibration():
         
     guess_music = calc_variance_boundary(music_idle_val, music_idle_std, music_play_val, music_play_std)
    
-    idle_crest_mean = np.mean([s1["crest"]["median"], s2["crest"]["median"], s5["crest"]["median"], s6["crest"]["median"]])
-    idle_crest_std = np.mean([s1["crest"]["std_dev"], s2["crest"]["std_dev"], s5["crest"]["std_dev"], s6["crest"]["std_dev"]])
-    guess_crest = max(idle_crest_mean + (idle_crest_std * 6.0), 2.5)
+    runout_crest_max = s4["crest"]["max"]
+    guess_crest = max(3.0, runout_crest_max * 0.85)
 
     guess_debounce = 3
     if music_idle_std > 0.005: guess_debounce = 5
     if music_idle_std > 0.010: guess_debounce = 8
 
-    guess_m_hyst = 3.0
-    guess_n_hyst = 2.0
+    # Start with snappy default assumptions
+    guess_m_hyst = 1.5
+    guess_n_hyst = 2.5 # Minimum to survive the 1.8s RPM rotation
 
     t_mot, t_rum, t_cre, t_mus = guess_motor, guess_rumble, guess_crest, guess_music
     h_mot, h_nee = guess_m_hyst, guess_n_hyst
@@ -787,7 +790,8 @@ def run_calibration():
         if success: break
        
         if DEBUG: log(f"⚠️ Expanding Hysteresis Time Buffers...")
-        h_mot += 2.0; h_nee += 1.5
+        h_mot = min(h_mot + 1.0, 4.0)
+        h_nee = min(h_nee + 0.5, 3.0)
         t_mot, t_rum, t_cre, t_mus = guess_motor, guess_rumble, guess_crest, guess_music
 
     if success:
@@ -853,7 +857,7 @@ def listen_and_identify():
    
     needle_active_score = 0
     needle_max_score = int(RATE / CHUNK * NEEDLE_HYSTERESIS_SEC)
-    pop_score_boost = int(RATE / CHUNK * 1.0)
+    pop_score_boost = int(RATE / CHUNK * 2.5)
    
     needle_down = False
 
@@ -898,14 +902,25 @@ def listen_and_identify():
            
             needle_down = needle_active_score > (needle_max_score * 0.5)
 
-            # --- DYNAMIC PHYSICAL IDLE STATUS ---
+            # --- DYNAMIC PHYSICAL IDLE STATUS (With Software Latch) ---
             if current_state == "IDLE":
                 if not turntable_on:
                     idle_str = "Powered Off"
+                    has_played_music = False
                 elif needle_down:
                     idle_str = "Runout Groove" if has_played_music else "Lead-in Groove"
+                elif has_played_music:
+                    # Inferential Latch: Motor is ON and music finished, hold the Runout Groove status!
+                    # We only break the latch if we hear the loud Thump of the tonearm being lifted.
+                    if raw_rms > (motor_on_thresh * 2.0):
+                        has_played_music = False
+                        idle_str = "Needle Up"
+                        if DEBUG: log("⬆️ Lift thump detected! Unlatching Runout Groove.")
+                    else:
+                        idle_str = "Runout Groove"
                 else:
                     idle_str = "Needle Up"
+                    
                 change_status(idle_str)
 
             if now - last_pub >= 1.0:
@@ -949,22 +964,16 @@ def listen_and_identify():
                     elif current_state == "COOLDOWN": status = f"⏳ COOLDOWN ({max(0, int(cooldown_end - now))}s)"
                     elif current_state == "PROCESSING": status = "⚙️ PROC"
                     else:
-                        if not turntable_on:
-                            dbg_str = "Powered Off"
-                        elif needle_down:
-                            dbg_str = "Runout Groove" if has_played_music else "Lead-in Groove"
-                        else:
-                            dbg_str = "Needle Up"
-                        status = f"🟢 {dbg_str.upper()}"
+                        status = f"🟢 {idle_str.upper()}"
                        
                     if status:
-                        # Added raw RMS so you can watch how your movement changes the microphone levels
                         print(f"[{time.strftime('%H:%M:%S')}] {status} | RMS: {raw_rms:.4f} | Music: {music_rms:.4f} | Crest: {crest:.2f}", flush=True)
                         if "SLEEP" in status: last_sleep_log = now
                 last_pub = now
 
             if current_state == "IDLE":
-                if not needle_down:
+                # Only count silence towards clearing the track if the latch isn't holding us in the runout groove
+                if not needle_down and not has_played_music:
                     idle_silence_chunks += 1
                     if idle_silence_chunks == int(RATE / CHUNK * NEEDLE_LIFT_SECONDS):
                         new_track_val = "Unknown" if turntable_on else "None"
