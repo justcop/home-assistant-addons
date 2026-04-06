@@ -443,7 +443,6 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
     power_max = int(RATE / CHUNK * h_mot)
     needle_max = int(RATE / CHUNK * h_nee)
     
-    # Dynamically scale pop boost based on a generic RPM rhythm
     avg_pop_interval = (1.8 + 1.33) / 2.0
     pop_boost = int(RATE / CHUNK * (avg_pop_interval * 0.6))
     pop_boost = max(int(RATE / CHUNK * 1.0), min(int(RATE / CHUNK * 3.0), pop_boost))
@@ -489,6 +488,12 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
             if t_hfer > 0.0 and rms < (t_mot * 4.0):
                 if hfer > t_hfer:
                     motor_on_cond = False 
+                    
+            # Goldilocks Filter: Reject abrupt loud transients when turning on
+            upper_limit = max(t_mot * 4.5, 0.008)
+            if is_silent_hw and not turntable_on and not needle_down and not has_played_music:
+                if rms > upper_limit:
+                    motor_on_cond = False
             
             if motor_on_cond:
                 power_score = min(power_score + 1, power_max)
@@ -705,7 +710,7 @@ def run_calibration():
         
         silence_chunks = 0
         target_silence = int(RATE / CHUNK * 15.0) 
-        runout_timeout = int(RATE / CHUNK * 600.0) # Changed to 10 minutes (600 seconds)
+        runout_timeout = int(RATE / CHUNK * 600.0) 
         timeout_chunks = 0
         
         while True:
@@ -795,7 +800,7 @@ def run_calibration():
     runout_crest_std = s4["crest"]["std_dev"]
 
     if is_silent_hw:
-        log("\n👻 SILENT HARDWARE DETECTED: Utilizing Advanced Rhythm Tracker.")
+        log("\n👻 SILENT HARDWARE DETECTED: Utilizing Advanced Rhythm Tracker & Stability Buffers.")
         
         if hfer_off > (hfer_on * 1.5):
             guess_motor_hfer = (hfer_off + hfer_on) / 2.0
@@ -815,7 +820,7 @@ def run_calibration():
     if music_idle_std > 0.005: guess_debounce = 10
     if music_idle_std > 0.010: guess_debounce = 12
 
-    guess_m_hyst = 1.5
+    guess_m_hyst = 3.5 if is_silent_hw else 1.5 
     guess_n_hyst = 2.5 
 
     t_mot, t_rum, t_cre, t_mus = guess_motor, guess_rumble, guess_crest, guess_music
@@ -853,7 +858,7 @@ def run_calibration():
         if success: break
        
         if DEBUG: log(f"⚠️ Expanding Hysteresis Time Buffers...")
-        h_mot = min(h_mot + 1.0, 4.0)
+        h_mot = min(h_mot + 1.0, 5.0)
         h_nee = min(h_nee + 0.5, 3.0)
         t_mot, t_rum, t_cre, t_mus = guess_motor, guess_rumble, guess_crest, guess_music
 
@@ -917,6 +922,9 @@ def listen_and_identify():
    
     power_score = 0
     power_max_score = int(RATE / CHUNK * MOTOR_HYSTERESIS_SEC)
+    
+    # Accelerated OFF hysteresis for snappy shutdown displays
+    power_off_max_score = int(RATE / CHUNK * 1.5)
    
     motor_on_thresh = MOTOR_POWER_THRESHOLD
     motor_off_thresh = MOTOR_POWER_THRESHOLD
@@ -968,6 +976,12 @@ def listen_and_identify():
             if MOTOR_HFER_THRESHOLD > 0.0 and raw_rms < (motor_on_thresh * 4.0):
                 if hfer > MOTOR_HFER_THRESHOLD:
                     motor_on_cond = False 
+                    
+            # Goldilocks Filter: Reject abrupt loud transients when turning on
+            upper_limit = max(motor_on_thresh * 4.5, 0.008)
+            if IS_SILENT_HW and not turntable_on and not needle_down and not has_played_music:
+                if raw_rms > upper_limit:
+                    motor_on_cond = False
             
             if motor_on_cond:
                 power_score = min(power_score + 1, power_max_score)
@@ -977,15 +991,16 @@ def listen_and_identify():
                         mqtt_client.publish("vinyl_guardian/power", "ON", retain=True)
             else:
                 power_score = max(power_score - 1, 0)
-                if power_score <= 0:
-                    if turntable_on:
-                        turntable_on = False
-                        has_played_music = False
-                        rhythm_locked = False
-                        mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
-                        log("🔌 Turntable turned off. Clearing track display to 'None'.")
-                        mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
-                        mqtt_client.publish("vinyl_guardian/progress", "[░░░░░░░░░░] 00:00 / 00:00", retain=True)
+                # Accelerated turn-off response
+                if turntable_on and power_score <= (power_max_score - power_off_max_score):
+                    power_score = 0
+                    turntable_on = False
+                    has_played_music = False
+                    rhythm_locked = False
+                    mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
+                    log("🔌 Turntable turned off. Clearing track display to 'None'.")
+                    mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
+                    mqtt_client.publish("vinyl_guardian/progress", "[░░░░░░░░░░] 00:00 / 00:00", retain=True)
 
             # --- HYBRID NEEDLE DETECTION (Volume + Multiplier Pops) ---
             is_dust_pop = crest >= RUNOUT_CREST_THRESHOLD
@@ -1040,7 +1055,8 @@ def listen_and_identify():
                 else:
                     idle_str = "Needle Up"
                     
-                change_status(idle_str)
+                if idle_str != current_display_status:
+                    change_status(idle_str)
 
             if now - last_pub >= 1.0:
                 if mqtt_client.is_connected():
