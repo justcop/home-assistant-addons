@@ -486,7 +486,6 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
             else:
                 trigger_chunks = 0
 
-            # If normal hardware, and needle lifts, break the latch
             if not is_silent_hw:
                 if turntable_on and has_played_music and not needle_down:
                     has_played_music = False
@@ -498,12 +497,20 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
             if i > grace_period_chunks:
                 eval_chunks += 1
                 
-                if is_silent_hw and stage != "STAGE_3_PLAYING":
-                    power_correct += 1
-                    needle_correct += 1
+                if turntable_on == expect_on: power_correct += 1
+                
+                if is_silent_hw:
+                    # In silent hardware mode, we only strictly enforce the needle in PLAYING and OFF.
+                    # We forgive the IDLE and RUNOUT variations because the physical rumble isn't visible.
+                    if stage in ["STAGE_2_ON_IDLE", "STAGE_4_RUNOUT", "STAGE_5_LIFTED"]:
+                        needle_correct += 1
+                    else:
+                        if effective_needle == expect_down: needle_correct += 1
                 else:
-                    if turntable_on == expect_on: power_correct += 1
-                    if effective_needle == expect_down: needle_correct += 1
+                    if stage == "STAGE_4_RUNOUT":
+                        needle_correct += 1 
+                    else:
+                        if effective_needle == expect_down: needle_correct += 1
                    
         if eval_chunks > 0:
             p_acc = power_correct / eval_chunks
@@ -741,9 +748,9 @@ def run_calibration():
 
     is_silent_hw = on_val < 0.0035
     if is_silent_hw:
-        log("\n👻 SILENT HARDWARE DETECTED: Utilizing Inferential Latch")
-        guess_motor = max(0.006, calc_variance_boundary(off_val, off_std, on_val, on_std))
-        guess_rumble = max(0.010, calc_variance_boundary(on_val, on_std, runout_val, runout_std))
+        log("\n👻 SILENT HARDWARE DETECTED: Utilizing Inferential Latch and Rhythm Tracker.")
+        guess_motor = calc_variance_boundary(off_val, off_std, on_val, on_std)
+        guess_rumble = max(0.008, on_val + (on_std * 6.0))
     else:
         guess_motor = calc_variance_boundary(off_val, off_std, on_val, on_std)
         guess_rumble = calc_variance_boundary(on_val, on_std, runout_val, runout_std)
@@ -839,7 +846,7 @@ def listen_and_identify():
        
     try:
         inp = alsaaudio.PCM(type=alsaaudio.PCM_CAPTURE, mode=alsaaudio.PCM_NORMAL, device='default', channels=CHANNELS, rate=RATE, format=FORMAT, periodsize=CHUNK)
-    except Exception as e: log(f"🚨 ALSA Error: {e}"); sys.exit(1)
+    except Exception as e: log(f"🚨 ALSA Error: {e}"); sysexit(1)
 
     log("Listening for needle drop...")
     if DEBUG:
@@ -950,6 +957,7 @@ def listen_and_identify():
                     idle_str = "Runout Groove" if has_played_music else "Lead-in Groove"
                 elif has_played_music:
                     if IS_SILENT_HW:
+                        # Fully locked state. Don't look for thumps that don't exist.
                         idle_str = "Runout Groove"
                     else:
                         has_played_music = False
