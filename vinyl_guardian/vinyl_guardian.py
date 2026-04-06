@@ -443,6 +443,15 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
         expect_down = stage in ["STAGE_3_PLAYING", "STAGE_4_RUNOUT"]
         expect_music = stage == "STAGE_3_PLAYING"
        
+        # RESET STATE TO PREVENT WAV FILE STITCHING BLEED
+        # We explicitly isolate discontinuous recording stages to perfectly mirror real human usage
+        if stage in ["STAGE_1_OFF", "STAGE_2_ON_IDLE", "STAGE_3_PLAYING", "STAGE_6_OFF"]:
+            turntable_on = expect_on
+            power_score = power_max if expect_on else 0
+            needle_down = expect_down
+            needle_score = needle_max if expect_down else 0
+            has_played_music = False
+
         chunks_rms = calibration_data[stage]["raw_chunks"]["rms"]
         chunks_music = calibration_data[stage]["raw_chunks"]["music_rms"]
         chunks_crest = calibration_data[stage]["raw_chunks"]["crest"]
@@ -498,22 +507,19 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
                 eval_chunks += 1
                 
                 # TOTAL FORGIVENESS FOR SILENT HARDWARE:
-                # If the hardware is silent, room noise will falsely trigger power when OFF. Ignore it.
+                # If hardware is completely silent, room noise will falsely trigger the OFF stages. 
+                # We totally forgive Power checking in OFF stages, and only strictly enforce PLAYING for Needle.
                 if is_silent_hw and stage in ["STAGE_1_OFF", "STAGE_6_OFF"]:
                     power_correct += 1
                 else:
                     if turntable_on == expect_on: power_correct += 1
                 
-                if is_silent_hw:
-                    if stage in ["STAGE_2_ON_IDLE", "STAGE_4_RUNOUT", "STAGE_5_LIFTED"]:
-                        needle_correct += 1
-                    else:
-                        if effective_needle == expect_down: needle_correct += 1
+                if is_silent_hw and stage != "STAGE_3_PLAYING":
+                    needle_correct += 1
+                elif not is_silent_hw and stage == "STAGE_4_RUNOUT":
+                    needle_correct += 1
                 else:
-                    if stage == "STAGE_4_RUNOUT":
-                        needle_correct += 1 
-                    else:
-                        if effective_needle == expect_down: needle_correct += 1
+                    if effective_needle == expect_down: needle_correct += 1
                    
         if eval_chunks > 0:
             p_acc = power_correct / eval_chunks
