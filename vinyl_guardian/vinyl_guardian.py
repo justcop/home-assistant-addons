@@ -825,7 +825,8 @@ def run_calibration():
 
         guess_motor = calc_variance_boundary(off_val, off_std, on_val, on_std)
         guess_rumble = max(0.025, play_val * 0.4) 
-        guess_crest = max(2.5, s4["crest"]["median"] + (runout_crest_std * 3.0))
+        # For Silent HW, lower the pop crest requirement to accurately lock the rhythm beat easily
+        guess_crest = max(2.5, s4["crest"]["median"] + (runout_crest_std * 2.5))
     else:
         guess_motor = calc_variance_boundary(off_val, off_std, on_val, on_std)
         guess_rumble = calc_variance_boundary(on_val, on_std, runout_val, runout_std)
@@ -965,11 +966,12 @@ def listen_and_identify():
     rhythm_locked = False
     last_rhythm_time = 0
     
+    # Tighter real-world RPM timing windows to prevent false locks on random static
     VALID_RPM_INTERVALS = [
-        (0.90, 1.50),   # 45 RPM
-        (1.65, 1.95),   # 33⅓ RPM
-        (2.50, 2.90),   # 45 RPM 2x harmonic
-        (3.40, 3.80)    # 33⅓ RPM 2x harmonic
+        (1.20, 1.46),   # 45 RPM (~1.33s)
+        (1.65, 1.95),   # 33⅓ RPM (~1.80s)
+        (2.45, 2.85),   # 45 RPM 2x harmonic
+        (3.35, 3.85)    # 33⅓ RPM 2x harmonic
     ]
     
     # Guardian Engine States
@@ -1003,8 +1005,8 @@ def listen_and_identify():
 
             if current_state in ["RECORDING", "PROCESSING", "SLEEPING"]:
                 has_played_music = True
-                last_music_time = now
 
+            # FIX: Only update the last music time if music is actively crossing the threshold
             if music_rms > MUSIC_THRESHOLD:
                 last_music_time = now
 
@@ -1065,7 +1067,7 @@ def listen_and_identify():
                 needle_active_score = min(needle_active_score + pop_score_boost, needle_max_score)
                 
                 pop_history.append(now)
-                if len(pop_history) > 10:
+                if len(pop_history) > 15:
                     pop_history.pop(0)
                     
                 match_count = 0
@@ -1086,29 +1088,41 @@ def listen_and_identify():
             else:
                 needle_active_score = max(needle_active_score - 1, 0)
                 
-            if rhythm_locked and (now - last_rhythm_time > 4.0):
+            # Allow the rhythm lock to persist slightly longer between missing pops
+            if rhythm_locked and (now - last_rhythm_time > 6.0):
                 rhythm_locked = False
-                has_played_music = False 
            
             needle_down = needle_active_score > (needle_max_score * 0.5)
+
+            # Calculate precise continuous silence using our fixed last_music_time
+            continuous_silence = now - last_music_time
 
             new_vinyl_status = "Motor Idle"
             if not turntable_on:
                 new_vinyl_status = "Powered Off"
                 has_played_music = False
                 rhythm_locked = False
-            elif current_state in ["RECORDING", "PROCESSING", "SLEEPING"]:
+            elif current_state in ["RECORDING", "PROCESSING"]:
                 new_vinyl_status = "Playing"
-            elif rhythm_locked and has_played_music:
-                new_vinyl_status = "Runout Groove"
-            elif has_played_music:
-                if (now - last_music_time) < 4.0:
+            elif current_state == "SLEEPING":
+                # During a track, only allow "Runout Groove" if it has been perfectly silent for 10 seconds AND rhythm is locked
+                if continuous_silence >= 10.0:
+                    if rhythm_locked:
+                        new_vinyl_status = "Runout Groove"
+                    else:
+                        new_vinyl_status = "Motor Idle"
+                else:
+                    new_vinyl_status = "Playing"
+            else:
+                # IDLE or COOLDOWN
+                if has_played_music and continuous_silence >= 10.0 and rhythm_locked:
                     new_vinyl_status = "Runout Groove"
                 else:
-                    has_played_music = False
                     new_vinyl_status = "Motor Idle"
-            else:
-                new_vinyl_status = "Motor Idle"
+                
+                # Auto-wipe the played music flag if sitting completely idle and silent for 15 seconds
+                if continuous_silence >= 15.0 and not rhythm_locked:
+                    has_played_music = False
                 
             change_3_tier_status(new_vinyl_status, current_guardian_state)
 
@@ -1235,25 +1249,30 @@ def listen_and_identify():
                 required_silence_chunks = int(RATE / CHUNK * NEEDLE_LIFT_SECONDS)
 
                 if silence_sleep >= required_silence_chunks:
-                    log(f"🔇 {NEEDLE_LIFT_SECONDS}-second dropout timer expired. Music has stopped.")
-                    if current_track and not scrobble_fired:
-                        silence_duration = required_silence_chunks * (CHUNK / RATE)
-                        time_played = (now - current_track['session_start_time']) - silence_duration + current_track.get('previously_played', 0)
+                    if rhythm_locked:
+                        # We are actively locked in the runout groove! 
+                        # Do NOT abort the track! Let the natural duration finish to ensure a successful scrobble!
+                        pass
+                    else:
+                        log(f"🔇 {NEEDLE_LIFT_SECONDS}-second dropout timer expired. Needle lift detected.")
+                        if current_track and not scrobble_fired:
+                            silence_duration = required_silence_chunks * (CHUNK / RATE)
+                            time_played = (now - current_track['session_start_time']) - silence_duration + current_track.get('previously_played', 0)
+                           
+                            if time_played > 5:  
+                                track_id = f"{current_track['title']} - {current_track['artist']}"
+                                with state_lock:
+                                    paused_track_memory = {"id": track_id, "accumulated_playtime": time_played}
+                                log(f"⏸️ Track aborted (Paused). Total saved playtime: {int(time_played)}s.")
+                            else:
+                                log("🔇 Track aborted before scrobble threshold.")
                        
-                        if time_played > 5:  
-                            track_id = f"{current_track['title']} - {current_track['artist']}"
-                            with state_lock:
-                                paused_track_memory = {"id": track_id, "accumulated_playtime": time_played}
-                            log(f"⏸️ Track aborted (Paused). Total saved playtime: {int(time_played)}s.")
-                        else:
-                            log("🔇 Track aborted before scrobble threshold.")
-                   
-                    if mqtt_client.is_connected():
-                        mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
+                        if mqtt_client.is_connected():
+                            mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
 
-                    with state_lock:
-                        app_state, current_track, current_attempt, consecutive_failures, has_played_music = "IDLE", None, 1, 0, False
-                    continue
+                        with state_lock:
+                            app_state, current_track, current_attempt, consecutive_failures, has_played_music = "IDLE", None, 1, 0, False
+                        continue
 
                 current_silence_sec = silence_sleep * (CHUNK / RATE)
                 physical_now = now - current_silence_sec
