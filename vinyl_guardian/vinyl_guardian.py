@@ -189,19 +189,21 @@ if MQTT_USER and MQTT_PASS: mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
 def publish_discovery():
     log("Publishing MQTT Auto-Discovery payloads...")
     device_info = {"identifiers": ["vinyl_guardian_01"], "name": "Vinyl Guardian", "manufacturer": "Custom Add-on"}
+    
+    # 🧹 Wipe deprecated sensors from Home Assistant to clean up your entity list
+    deprecated_sensors = ["music_rms", "rumble_rms", "scrobble", "scrobble_countdown", "scrobble_state"]
+    for old_sensor in deprecated_sensors:
+        mqtt_client.publish(f"homeassistant/sensor/vinyl_guardian/{old_sensor}/config", "", retain=True)
+
+    # 📋 The new ordered, unified sensor list
     configs = {
+        "power": {"name": "Turntable Power", "topic": "power", "icon": "mdi:power", "domain": "binary_sensor"},
         "status": {"name": "Vinyl Status", "topic": "status", "icon": "mdi:record-player", "domain": "sensor"},
         "engine": {"name": "Guardian Engine State", "topic": "engine_state", "icon": "mdi:cpu-64-bit", "domain": "sensor"},
         "track": {"name": "Vinyl Current Track", "topic": "track", "icon": "mdi:music-circle", "attr": True, "domain": "sensor"},
-        "progress": {"name": "Vinyl Track Progress", "topic": "progress", "icon": "mdi:clock-outline", "domain": "sensor"},
-        "scrobble_countdown": {"name": "Scrobble Countdown", "topic": "scrobble_countdown", "icon": "mdi:timer-sand", "domain": "sensor"},
-        "scrobble": {"name": "Vinyl Last Scrobble", "topic": "scrobble_state", "icon": "mdi:lastpass", "attr_topic": "scrobble", "domain": "sensor"},
-        "power": {"name": "Turntable Power", "topic": "power", "icon": "mdi:power", "domain": "binary_sensor"}
+        "scrobble_status": {"name": "Scrobble Status", "topic": "scrobble_status", "icon": "mdi:lastpass", "domain": "sensor"},
+        "progress": {"name": "Vinyl Track Progress", "topic": "progress", "icon": "mdi:clock-outline", "domain": "sensor"}
     }
-    
-    # Send blank payloads to remove the old RMS sensors from Home Assistant
-    mqtt_client.publish("homeassistant/sensor/vinyl_guardian/music_rms/config", "", retain=True)
-    mqtt_client.publish("homeassistant/sensor/vinyl_guardian/rumble_rms/config", "", retain=True)
 
     for key, c in configs.items():
         payload = {
@@ -209,21 +211,18 @@ def publish_discovery():
             "device": device_info, "icon": c["icon"]
         }
         if c.get("attr"): payload["json_attributes_topic"] = "vinyl_guardian/attributes"
-        if c.get("attr_topic"): payload["json_attributes_topic"] = f"vinyl_guardian/{c['attr_topic']}"
-        if c.get("state_class"): payload["state_class"] = c["state_class"]
-        if c.get("unit"): payload["unit_of_measurement"] = c["unit"]
         if c["domain"] == "binary_sensor":
             payload["payload_on"] = "ON"
             payload["payload_off"] = "OFF"
         mqtt_client.publish(f"homeassistant/{c['domain']}/vinyl_guardian/{key}/config", json.dumps(payload), retain=True)
 
+    # 🧼 Explicitly force the boot states to NONE and OFF so "Unknown" is completely banished
+    mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
     mqtt_client.publish("vinyl_guardian/status", "Powered Off", retain=True)
     mqtt_client.publish("vinyl_guardian/engine_state", "Off", retain=True)
     mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
+    mqtt_client.publish("vinyl_guardian/scrobble_status", "Off", retain=True)
     mqtt_client.publish("vinyl_guardian/progress", "[░░░░░░░░░░] 00:00 / 00:00", retain=True)
-    mqtt_client.publish("vinyl_guardian/scrobble_countdown", "Off", retain=True)
-    mqtt_client.publish("vinyl_guardian/scrobble_state", "None", retain=True)
-    mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
 
 def connect_mqtt():
     if CALIBRATION_MODE: return
@@ -1115,12 +1114,12 @@ def listen_and_identify():
 
             if now - last_pub >= 1.0:
                 if mqtt_client.is_connected():
-                    # Calculate Scrobble Countdown Display
+                    # Calculate Scrobble Status Display
                     if not turntable_on:
                         scrob_str = "Off"
                     elif current_state == "SLEEPING" and current_track:
                         if scrobble_fired:
-                            scrob_str = "Scrobbled ✅"
+                            scrob_str = f"Scrobbled: {last_scrobbled_track.split(' - ')[0]} ✅"
                         else:
                             current_silence_sec = silence_sleep * (CHUNK / RATE)
                             physical_now = now - current_silence_sec
@@ -1131,9 +1130,12 @@ def listen_and_identify():
                             else:
                                 scrob_str = "Scrobbling... 🚀"
                     else:
-                        scrob_str = "Waiting ⏸️"
+                        if last_scrobbled_track:
+                            scrob_str = f"Scrobbled: {last_scrobbled_track.split(' - ')[0]} ✅"
+                        else:
+                            scrob_str = "Waiting ⏸️"
                         
-                    mqtt_client.publish("vinyl_guardian/scrobble_countdown", scrob_str, retain=True)
+                    mqtt_client.publish("vinyl_guardian/scrobble_status", scrob_str, retain=True)
 
                     if current_state == "SLEEPING" and current_track:
                         pos_sec = max(0, int(now - current_track['start_timestamp']))
