@@ -194,11 +194,15 @@ def publish_discovery():
         "engine": {"name": "Guardian Engine State", "topic": "engine_state", "icon": "mdi:cpu-64-bit", "domain": "sensor"},
         "track": {"name": "Vinyl Current Track", "topic": "track", "icon": "mdi:music-circle", "attr": True, "domain": "sensor"},
         "progress": {"name": "Vinyl Track Progress", "topic": "progress", "icon": "mdi:clock-outline", "domain": "sensor"},
-        "music_rms": {"name": "Vinyl Music RMS", "topic": "music_rms", "icon": "mdi:waveform", "domain": "sensor", "state_class": "measurement", "unit": "RMS"},
-        "rumble_rms": {"name": "Vinyl Rumble RMS", "topic": "rumble_rms", "icon": "mdi:vibrate", "domain": "sensor", "state_class": "measurement", "unit": "RMS"},
+        "scrobble_countdown": {"name": "Scrobble Countdown", "topic": "scrobble_countdown", "icon": "mdi:timer-sand", "domain": "sensor"},
         "scrobble": {"name": "Vinyl Last Scrobble", "topic": "scrobble_state", "icon": "mdi:lastpass", "attr_topic": "scrobble", "domain": "sensor"},
         "power": {"name": "Turntable Power", "topic": "power", "icon": "mdi:power", "domain": "binary_sensor"}
     }
+    
+    # Send blank payloads to remove the old RMS sensors from Home Assistant
+    mqtt_client.publish("homeassistant/sensor/vinyl_guardian/music_rms/config", "", retain=True)
+    mqtt_client.publish("homeassistant/sensor/vinyl_guardian/rumble_rms/config", "", retain=True)
+
     for key, c in configs.items():
         payload = {
             "name": c["name"], "state_topic": f"vinyl_guardian/{c['topic']}", "unique_id": f"vinyl_guardian_{key}",
@@ -217,6 +221,7 @@ def publish_discovery():
     mqtt_client.publish("vinyl_guardian/engine_state", "Listening", retain=True)
     mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
     mqtt_client.publish("vinyl_guardian/progress", "[░░░░░░░░░░] 00:00 / 00:00", retain=True)
+    mqtt_client.publish("vinyl_guardian/scrobble_countdown", "Waiting ⏸️", retain=True)
     mqtt_client.publish("vinyl_guardian/scrobble_state", "None", retain=True)
     mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
 
@@ -362,7 +367,7 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
                 mqtt_client.publish("vinyl_guardian/attributes", payload, retain=True)
             except TypeError as e:
                 log(f"⚠️ MQTT attribute serialization failed: {e}")
-            except Exception:
+            except Exception as e:
                 pass
            
             wake_up_time = current_track['start_timestamp'] + total_duration
@@ -684,7 +689,6 @@ def run_calibration():
                
             if current_vol == 1 or current_vol == 100: break
 
-    # Shortened redundant stages to 15 seconds
     if not reuse_audio:
         log("\n" + "="*50)
         log("▶️ ACTION 2: 🛑 STOP the record and turn Turntable 🔌 OFF.")
@@ -1021,7 +1025,7 @@ def listen_and_identify():
                 if power_score >= power_max_score:
                     if not turntable_on:
                         turntable_on = True
-                        mqtt_client.publish("vinyl_guardian/power", "ON", retain=True)
+                        if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/power", "ON", retain=True)
                         
                         # 👻 DUMP THE GHOST CATCHER TO FILE!
                         if DEBUG_GHOST_CATCHER:
@@ -1046,9 +1050,10 @@ def listen_and_identify():
                     turntable_on = False
                     has_played_music = False
                     rhythm_locked = False
-                    mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
-                    mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
-                    mqtt_client.publish("vinyl_guardian/progress", "[░░░░░░░░░░] 00:00 / 00:00", retain=True)
+                    if mqtt_client.is_connected(): 
+                        mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
+                        mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
+                        mqtt_client.publish("vinyl_guardian/progress", "[░░░░░░░░░░] 00:00 / 00:00", retain=True)
 
             # --- TIER 2: VINYL STATUS (Needle / Rhythm Logic) ---
             is_dust_pop = crest >= RUNOUT_CREST_THRESHOLD
@@ -1105,9 +1110,24 @@ def listen_and_identify():
 
             if now - last_pub >= 1.0:
                 if mqtt_client.is_connected():
-                    mqtt_client.publish("vinyl_guardian/music_rms", f"{music_rms:.4f}")
-                    mqtt_client.publish("vinyl_guardian/rumble_rms", f"{raw_rms:.4f}")
-                   
+                    # Calculate Scrobble Countdown Display
+                    if current_state == "SLEEPING" and current_track:
+                        if scrobble_fired:
+                            scrob_str = "Scrobbled ✅"
+                        else:
+                            current_silence_sec = silence_sleep * (CHUNK / RATE)
+                            physical_now = now - current_silence_sec
+                            time_left = max(0, int(current_track.get('scrobble_trigger_time', 0) - physical_now))
+                            if time_left > 0:
+                                m, s = divmod(time_left, 60)
+                                scrob_str = f"In {m:02d}:{s:02d} ⏳"
+                            else:
+                                scrob_str = "Scrobbling... 🚀"
+                    else:
+                        scrob_str = "Waiting ⏸️"
+                        
+                    mqtt_client.publish("vinyl_guardian/scrobble_countdown", scrob_str, retain=True)
+
                     if current_state == "SLEEPING" and current_track:
                         pos_sec = max(0, int(now - current_track['start_timestamp']))
                         dur_sec = int(current_track['duration'])
@@ -1154,6 +1174,14 @@ def listen_and_identify():
 
             # --- TIER 3: GUARDIAN ENGINE STATE MACHINE ---
             if current_state == "IDLE":
+                if not needle_down and not has_played_music and not rhythm_locked:
+                    idle_silence_chunks += 1
+                    if idle_silence_chunks == int(RATE / CHUNK * NEEDLE_LIFT_SECONDS):
+                        if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
+                        idle_silence_chunks = 0
+                else:
+                    idle_silence_chunks = 0
+
                 if music_rms > MUSIC_THRESHOLD and not is_dust_pop:
                     trigger_chunks += 1
                     if trigger_chunks >= DYNAMIC_DEBOUNCE_CHUNKS:
@@ -1173,6 +1201,7 @@ def listen_and_identify():
                 if len(buffer) > MAX_BUFFER_SIZE:
                     log(f"⚠️ Recording buffer overflowed. Discarding memory and returning to Listening.")
                     buffer.clear()
+                    if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
                     with state_lock: app_state = "IDLE"
                     chunks, loud_chunks = 0, 0
                     continue
@@ -1183,6 +1212,7 @@ def listen_and_identify():
                         threading.Thread(target=process_audio_background, args=(bytes(buffer), song_start)).start()
                     else:
                         log(f"⚠️ Sample discarded (Too quiet).")
+                        if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
                         with state_lock: app_state = "IDLE"
                     buffer, chunks, loud_chunks = bytearray(), 0, 0
            
