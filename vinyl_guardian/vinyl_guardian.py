@@ -131,7 +131,7 @@ inp = None
 
 # New 3-Tier State Tracking Variables
 current_display_status = "Powered Off"
-current_engine_status = "Listening"
+current_engine_status = "Off"
 
 shazam_instance = Shazam()
 
@@ -218,10 +218,10 @@ def publish_discovery():
         mqtt_client.publish(f"homeassistant/{c['domain']}/vinyl_guardian/{key}/config", json.dumps(payload), retain=True)
 
     mqtt_client.publish("vinyl_guardian/status", "Powered Off", retain=True)
-    mqtt_client.publish("vinyl_guardian/engine_state", "Listening", retain=True)
+    mqtt_client.publish("vinyl_guardian/engine_state", "Off", retain=True)
     mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
     mqtt_client.publish("vinyl_guardian/progress", "[░░░░░░░░░░] 00:00 / 00:00", retain=True)
-    mqtt_client.publish("vinyl_guardian/scrobble_countdown", "Waiting ⏸️", retain=True)
+    mqtt_client.publish("vinyl_guardian/scrobble_countdown", "Off", retain=True)
     mqtt_client.publish("vinyl_guardian/scrobble_state", "None", retain=True)
     mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
 
@@ -1055,6 +1055,10 @@ def listen_and_identify():
                         mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
                         mqtt_client.publish("vinyl_guardian/progress", "[░░░░░░░░░░] 00:00 / 00:00", retain=True)
 
+            # Override Guardian State UI if Power is Off
+            if not turntable_on:
+                current_guardian_state = "Off"
+
             # --- TIER 2: VINYL STATUS (Needle / Rhythm Logic) ---
             is_dust_pop = crest >= RUNOUT_CREST_THRESHOLD
            
@@ -1073,7 +1077,8 @@ def listen_and_identify():
                             match_count += 1
                             break
                             
-                if match_count >= 2:
+                # Enforcing the Music Requirement for the Rhythm Lock
+                if match_count >= 2 and has_played_music:
                     rhythm_locked = True
                     last_rhythm_time = now
                         
@@ -1093,10 +1098,10 @@ def listen_and_identify():
                 new_vinyl_status = "Powered Off"
                 has_played_music = False
                 rhythm_locked = False
-            elif rhythm_locked:
-                new_vinyl_status = "Runout Groove"
             elif current_state in ["RECORDING", "PROCESSING", "SLEEPING"]:
                 new_vinyl_status = "Playing"
+            elif rhythm_locked and has_played_music:
+                new_vinyl_status = "Runout Groove"
             elif has_played_music:
                 if (now - last_music_time) < 4.0:
                     new_vinyl_status = "Runout Groove"
@@ -1111,7 +1116,9 @@ def listen_and_identify():
             if now - last_pub >= 1.0:
                 if mqtt_client.is_connected():
                     # Calculate Scrobble Countdown Display
-                    if current_state == "SLEEPING" and current_track:
+                    if not turntable_on:
+                        scrob_str = "Off"
+                    elif current_state == "SLEEPING" and current_track:
                         if scrobble_fired:
                             scrob_str = "Scrobbled ✅"
                         else:
@@ -1182,11 +1189,11 @@ def listen_and_identify():
                 else:
                     idle_silence_chunks = 0
 
-                if music_rms > MUSIC_THRESHOLD and not is_dust_pop:
+                if turntable_on and music_rms > MUSIC_THRESHOLD and not is_dust_pop:
                     trigger_chunks += 1
                     if trigger_chunks >= DYNAMIC_DEBOUNCE_CHUNKS:
                         log(f"🎵 AUDIO DETECTED (Music Spike: {music_rms:.4f})")
-                        if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/track", "Unknown", retain=True)
+                        if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/track", "Searching...", retain=True)
                         song_start, buffer, chunks, loud_chunks, silence_sleep = now, bytearray(data), 1, 1, 0
                         trigger_chunks = 0
                         with state_lock: app_state = "RECORDING"
