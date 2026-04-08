@@ -1,6 +1,6 @@
 name: "Vinyl Guardian"
 description: "Detects needle drops, IDs vinyl records, and natively scrobbles to Last.fm."
-version: "3.31.17b"
+version: "3.31.18b"
 slug: "vinyl_guardian"
 init: false
 arch:
