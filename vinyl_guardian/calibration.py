@@ -1,367 +1,241 @@
-import sys
 import os
 import time
-import wave
-import subprocess
-import alsaaudio
+import json
 import numpy as np
-from config import *
-from audio_math import *
+import sounddevice as sd
+import soundfile as sf
+import librosa
+import warnings
 
-FORMAT = alsaaudio.PCM_FORMAT_S16_LE
+# Suppress librosa warnings for clean output
+warnings.filterwarnings('ignore')
 
-def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, h_nee, debounce_chunks, is_silent_hw=False, t_hfer=0.0, t_ceil=0.015):
-    power_max = int(RATE / CHUNK * h_mot)
-    needle_max = int(RATE / CHUNK * h_nee)
+# --- CONFIGURATION ---
+SAMPLE_RATE = 22050
+AUDIO_DEVICE = os.environ.get('AUDIO_DEVICE', 'default')
+CALIB_DIR = "calibration_data"
+CONFIG_FILE = "config.json"
+
+if not os.path.exists(CALIB_DIR):
+    os.makedirs(CALIB_DIR)
+
+FILES = {
+    "floor": os.path.join(CALIB_DIR, "calib_off_floor.wav"),
+    "spinup": os.path.join(CALIB_DIR, "calib_spin_up.wav"),
+    "transition": os.path.join(CALIB_DIR, "calib_music_to_runout.wav"),
+    "lift": os.path.join(CALIB_DIR, "calib_needle_lift.wav"),
+    "powerdown": os.path.join(CALIB_DIR, "calib_power_down.wav"),
+    "disturbance": os.path.join(CALIB_DIR, "calib_disturbance.wav")
+}
+
+# --- UTILITY: MAD OUTLIER REJECTION ---
+def reject_outliers_mad(data, threshold=3.5):
+    """Removes sudden pops/clicks from stable data using Median Absolute Deviation"""
+    if len(data) == 0: return data
+    med = np.median(data)
+    mad = np.median(np.abs(data - med))
+    if mad == 0: return data
+    modified_z_scores = 0.6745 * (data - med) / mad
+    return data[np.abs(modified_z_scores) <= threshold]
+
+# --- RECORDING ENGINE ---
+def record_chunk(duration):
+    """Records a temporary chunk of audio"""
+    audio = sd.rec(int(duration * SAMPLE_RATE), samplerate=SAMPLE_RATE, channels=1, device=AUDIO_DEVICE)
+    sd.wait()
+    return audio[:, 0]
+
+def record_file(filename, duration, prompt):
+    print(f"\n{prompt}")
+    for i in range(3, 0, -1):
+        print(f"⏱️ Starting in {i}...")
+        time.sleep(1)
+    print("🔴 RECORDING...")
+    audio = record_chunk(duration)
+    sf.write(filename, audio, SAMPLE_RATE)
+    print(f"✅ Saved to {filename}")
+    return audio
+
+# --- STEP 0: GAIN STAGING ---
+def gain_staging():
+    print("\n" + "="*50)
+    print("🎚️  STEP 0: PRE-CALIBRATION GAIN STAGING")
+    print("="*50)
+    print("🔊 Please drop the needle onto a LOUD section of a record.")
+    print("   We need to lock in your hardware volume before calibrating.")
+    input("▶️  Press ENTER when music is playing loudly...")
     
-    avg_pop_interval = (1.8 + 1.33) / 2.0
-    pop_boost = int(RATE / CHUNK * (avg_pop_interval * 0.6))
-    pop_boost = max(int(RATE / CHUNK * 1.0), min(int(RATE / CHUNK * 3.0), pop_boost))
-   
-    stages_order = ["STAGE_1_OFF", "STAGE_2_ON_IDLE", "STAGE_3_PLAYING", "STAGE_4_RUNOUT", "STAGE_5_LIFTED", "STAGE_6_OFF"]
-   
-    turntable_on, needle_down = False, False
-    has_played_music = False
-    power_score, needle_score = 0, 0
-   
-    for stage in stages_order:
-        expect_on = stage in ["STAGE_2_ON_IDLE", "STAGE_3_PLAYING", "STAGE_4_RUNOUT", "STAGE_5_LIFTED"]
-        expect_down = stage in ["STAGE_3_PLAYING", "STAGE_4_RUNOUT"]
-        expect_music = stage == "STAGE_3_PLAYING"
-       
-        if stage in ["STAGE_1_OFF", "STAGE_2_ON_IDLE", "STAGE_3_PLAYING", "STAGE_6_OFF"]:
-            turntable_on = expect_on
-            power_score = power_max if expect_on else 0
-            needle_down = expect_down
-            needle_score = needle_max if expect_down else 0
-            has_played_music = False
-
-        chunks_rms = calibration_data[stage]["raw_chunks"]["rms"]
-        chunks_music = calibration_data[stage]["raw_chunks"]["music_rms"]
-        chunks_crest = calibration_data[stage]["raw_chunks"]["crest"]
-        chunks_hfer = calibration_data[stage]["raw_chunks"]["hfer"]
-       
-        grace_period_chunks = int(max(power_max, needle_max) * 1.5)
-        music_triggered = False
-        trigger_chunks = 0
-        eval_chunks, power_correct, needle_correct = 0, 0, 0
-       
-        for i in range(len(chunks_rms)):
-            rms, m_rms, crest, hfer = chunks_rms[i], chunks_music[i], chunks_crest[i], chunks_hfer[i]
-            motor_on_cond = False
-            
-            if rms > t_mot:
-                if rms < t_ceil:
-                    motor_on_cond = True
-                    if t_hfer > 0.0 and hfer > t_hfer:
-                        motor_on_cond = False
-                else:
-                    if turntable_on: motor_on_cond = True
-                    else: motor_on_cond = False
-            
-            if motor_on_cond:
-                power_score = min(power_score + 1, power_max)
-                if power_score >= power_max: turntable_on = True
-            else:
-                power_score = max(power_score - 1, 0)
-                if power_score <= 0: 
-                    turntable_on, has_played_music = False, False
-                   
-            is_dust_pop = crest >= t_cre
-            if is_dust_pop: needle_score = min(needle_score + pop_boost, needle_max)
-            elif rms >= t_rum: needle_score = min(needle_score + 1, needle_max)
-            else: needle_score = max(needle_score - 1, 0)
-           
-            needle_down = needle_score > (needle_max * 0.5)
-           
-            if m_rms > t_mus and not is_dust_pop:
-                trigger_chunks += 1
-                if trigger_chunks >= debounce_chunks: 
-                    music_triggered, has_played_music = True, True
-            else:
-                trigger_chunks = 0
-
-            effective_needle = needle_down
-            if is_silent_hw and turntable_on and has_played_music: effective_needle = True
-
-            if i > grace_period_chunks:
-                eval_chunks += 1
-                if is_silent_hw and stage in ["STAGE_1_OFF", "STAGE_6_OFF"]: power_correct += 1
-                else:
-                    if turntable_on == expect_on: power_correct += 1
-                
-                if is_silent_hw:
-                    if stage != "STAGE_3_PLAYING": needle_correct += 1
-                    else:
-                        if effective_needle == expect_down: needle_correct += 1
-                else:
-                    if stage == "STAGE_4_RUNOUT": needle_correct += 1 
-                    else:
-                        if effective_needle == expect_down: needle_correct += 1
-                   
-        if eval_chunks > 0:
-            p_acc = power_correct / eval_chunks
-            n_acc = needle_correct / eval_chunks
-            if p_acc < 0.95: return f"{stage}: Power mostly wrong (Acc: {p_acc*100:.1f}%)."
-            if n_acc < 0.92: return f"{stage}: Needle mostly wrong (Acc: {n_acc*100:.1f}%)."
-               
-        if expect_music and not music_triggered: return f"{stage}: Music expected but not reliably detected."
-        if not expect_music and music_triggered: return f"{stage}: Music falsely detected on static/noise."
-           
-    return "PASS"
-
-def run_calibration():
-    print("\n\n")
-    log("==================================================")
-    log("🎛️ VINYL GUARDIAN: AUTO-CALIBRATION WIZARD 🎛️")
-    log("==================================================")
-   
-    reuse_audio = adv.get("reuse_calibration_audio", False)
-    if reuse_audio: log("♻️ 'reuse_calibration_audio' is ENABLED. Will attempt to load previous recordings.")
-
-    try:
-        inp = alsaaudio.PCM(type=alsaaudio.PCM_CAPTURE, mode=alsaaudio.PCM_NORMAL, device='default', channels=CHANNELS, rate=RATE, format=FORMAT, periodsize=CHUNK)
-    except Exception as e:
-        log(f"🚨 ALSA Error: {e}"); sys.exit(1)
-
-    current_vol = MIC_VOLUME
-    calibration_data = {}
-   
-    def record_stage(stage_id, duration_secs):
-        wav_path = os.path.join(SHARE_DIR, f"calib_{stage_id}.wav")
-        stage_metrics = {"rms": [], "music_rms": [], "crest": [], "hfer": []}
-        t_chunks = int(RATE / CHUNK * duration_secs)
-        shave_chunks = int(RATE / CHUNK * 10.0)
+    while True:
+        print("\n🎧 Listening for 3 seconds...")
+        audio = record_chunk(3.0)
+        peak = np.max(np.abs(audio))
         
-        reuse_audio_for_stage = False
-        if reuse_audio and os.path.exists(wav_path):
-            log(f"♻️ Reusing existing audio file for {stage_id}...")
-            try:
-                with wave.open(wav_path, 'rb') as wf: raw_bytes = wf.readframes(wf.getnframes())
-                chunk_bytes = CHUNK * CHANNELS * 2
-                chunks = 0
-                for i in range(0, len(raw_bytes), chunk_bytes):
-                    chunk_data = raw_bytes[i:i + chunk_bytes]
-                    if len(chunk_data) == chunk_bytes:
-                        if chunks >= shave_chunks:
-                            metrics = calculate_deep_metrics(chunk_data)
-                            if metrics:
-                                for k in stage_metrics.keys(): stage_metrics[k].append(metrics[k])
-                        chunks += 1
-                log("✅ Local file processed.")
-                reuse_audio_for_stage = True
-            except Exception as e:
-                log(f"⚠️ Failed to load {wav_path}: {e}. Falling back to live recording.")
-                reuse_audio_for_stage = False
+        if peak > 0.85:
+            print(f"⚠️ Peak: {peak:.2f} (TOO HIGH - Clipping risk!)")
+            print("👇 Action: Turn DOWN your pre-amp or capture card volume.")
+            input("🔄 Press ENTER to test again...")
+        elif peak < 0.45:
+            print(f"⚠️ Peak: {peak:.2f} (TOO LOW - Weak signal!)")
+            print("👆 Action: Turn UP your pre-amp or capture card volume.")
+            input("🔄 Press ENTER to test again...")
+        else:
+            print(f"✅ Peak: {peak:.2f} (PERFECT!)")
+            print("🔒 Gain stage locked. DO NOT touch the volume dials anymore.")
+            break
+            
+    print("\n⏹️  Please stop the record and turn the turntable OFF completely.")
+    input("⚙️  Press ENTER to begin the main calibration chain...")
 
-        if not reuse_audio_for_stage:
-            log(f"🔴 Recording {duration_secs} seconds of audio... Please wait.")
-            chunks = 0; buffer = bytearray()
-            while chunks < t_chunks:
-                length, data = inp.read()
-                if length > 0:
-                    buffer.extend(data)
-                    if chunks >= shave_chunks:
-                        metrics = calculate_deep_metrics(data)
-                        if metrics:
-                            for k in stage_metrics.keys(): stage_metrics[k].append(metrics[k])
-                    chunks += 1
-            try:
-                with wave.open(wav_path, "wb") as wf:
-                    wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(buffer)
-                log(f"💾 Saved full raw audio to {wav_path} (First 10s shaved from internal math)")
-            except Exception as e: log(f"⚠️ Failed to save {stage_id} wav: {e}")
-            log("✅ Capture complete.")
-   
-        if stage_id in ["STAGE_1_OFF", "STAGE_2_ON_IDLE", "STAGE_5_LIFTED", "STAGE_6_OFF"]:
-            stage_metrics = clean_stage_data(stage_metrics)
-
-        summary = {}
-        for k, v_list in stage_metrics.items():
-            if v_list:
-                arr = np.array(v_list)
-                summary[k] = {"median": float(np.median(arr)), "mean": float(np.mean(arr)), "min": float(np.min(arr)), "max": float(np.max(arr)), "std_dev": float(np.std(arr))}
-       
-        calibration_data[stage_id] = {"raw_chunks": stage_metrics, "summary": summary}
-
-    if not reuse_audio:
-        log("\n" + "="*50); log("▶️ ACTION 1: 💽 Drop the needle onto a 🔊 LOUD playing record."); log("="*50)
-        log("⏳ Waiting 10 seconds for you to prepare...")
-        for i in range(10): inp.read(); time.sleep(1)
-           
-        log(f"⚙️ Calibrating microphone volume...")
-        good_passes, target_chunks = 0, int(RATE / CHUNK * 3)
-       
-        while good_passes < 2:
-            try: subprocess.run(["pactl", "set-source-volume", "@DEFAULT_SOURCE@", f"{current_vol}%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            except OSError: pass
-            for _ in range(5): inp.read()
-               
-            buffer = bytearray(); chunks = 0
-            while chunks < target_chunks:
-                length, data = inp.read()
-                if length > 0: buffer.extend(data); chunks += 1
-           
-            audio_data = np.frombuffer(buffer, dtype=np.int16)
-            peak = int(np.max(np.abs(audio_data.astype(np.int32)))) if len(audio_data) > 0 else 0
-           
-            if peak > 25000:
-                current_vol = max(1, current_vol - (5 if peak > 30000 else 2))
-                if DEBUG: log(f"📉 [Peak: {peak:5d}] - Auto-decreasing to {current_vol}%...")
-                good_passes = 0; time.sleep(0.5)
-            elif peak < 15000:
-                current_vol = min(100, current_vol + (5 if peak < 10000 else 2))
-                if DEBUG: log(f"📈 [Peak: {peak:5d}] - Auto-increasing to {current_vol}%...")
-                good_passes = 0; time.sleep(0.5)
-            else:
-                log(f"✅ Volume successfully locked at {current_vol}%!")
-                good_passes += 1
-               
-            if current_vol == 1 or current_vol == 100: break
-
-    if not reuse_audio:
-        log("\n" + "="*50); log("▶️ ACTION 2: 🛑 STOP the record and turn Turntable 🔌 OFF."); log("="*50)
-        log("⏳ Waiting 10 seconds for you to prepare...")
-        for _ in range(10): inp.read(); time.sleep(1)
-    record_stage("STAGE_1_OFF", 25)
-
-    if not reuse_audio:
-        log("\n" + "="*50); log("▶️ ACTION 3: ⚡ Turn Turntable ON (🔄 Motor spinning, ⬆️ Needle UP)."); log("="*50)
-        log("⏳ Waiting 10 seconds for you to prepare...")
-        for _ in range(10): inp.read(); time.sleep(1)
-    record_stage("STAGE_2_ON_IDLE", 25)
-
-    if not reuse_audio:
-        log("\n" + "="*50); log("▶️ ACTION 4: ⬇️ Drop the needle NEAR THE END of a playing track 🎵."); log("="*50)
-        log("⏳ Waiting 10 seconds for you to prepare...")
-        for _ in range(10): inp.read(); time.sleep(1)
-    record_stage("STAGE_3_PLAYING", 30)
-
-    if not reuse_audio:
-        temp_music_thresh = calibration_data["STAGE_2_ON_IDLE"]["summary"]["music_rms"]["max"] * 1.25
-        log("\n" + "="*50); log("▶️ ACTION 5: ⏳ Let the track finish playing into the 〰️ Runout Groove."); log("="*50)
-        log("⏳ Listening for the music to stop...")
-        silence_chunks, target_silence = 0, int(RATE / CHUNK * 15.0) 
-        runout_timeout, timeout_chunks = int(RATE / CHUNK * 600.0), 0
-        while True:
-            length, data = inp.read()
-            if length > 0:
-                timeout_chunks += 1
-                if timeout_chunks > runout_timeout:
-                    log("⚠️ Runout detection timeout reached (10 mins). Proceeding.")
-                    break
-                _, music_rms, _ = calculate_audio_levels(data)
-                if music_rms < temp_music_thresh:
-                    silence_chunks += 1
-                    if silence_chunks >= target_silence:
-                        log("🔇 15-second floor reached. Runout Groove detected! Settling...")
-                        break
-                else: silence_chunks = 0
-        for _ in range(int(RATE / CHUNK * 3.0)): inp.read()
+# --- ANALYSIS & SIMULATION ---
+def analyze_files():
+    print("\n" + "="*50)
+    print("🧠 ANALYZING FILES & EXTRACTING THRESHOLDS")
+    print("="*50)
     
-    record_stage("STAGE_4_RUNOUT", 30)
-
-    if not reuse_audio:
-        log("\n" + "="*50); log("▶️ ACTION 6: ⬆️ Lift the needle (🔄 Motor still ON, ⬆️ Needle UP)."); log("="*50)
-        log("⏳ Waiting 10 seconds for you to prepare...")
-        for _ in range(10): inp.read(); time.sleep(1)
-    record_stage("STAGE_5_LIFTED", 25)
-
-    if not reuse_audio:
-        log("\n" + "="*50); log("▶️ ACTION 7: 🔌 Turn the Turntable OFF."); log("="*50)
-        log("⏳ Waiting 10 seconds for you to prepare...")
-        for _ in range(10): inp.read(); time.sleep(1)
-    record_stage("STAGE_6_OFF", 25)
-    inp.close()
-
-    log("\n📊 --- CALIBRATION STAGE ANALYSIS (CLEANED) ---")
-    for st in ["STAGE_1_OFF", "STAGE_2_ON_IDLE", "STAGE_3_PLAYING", "STAGE_4_RUNOUT", "STAGE_5_LIFTED", "STAGE_6_OFF"]:
-        if st in calibration_data:
-            s = calibration_data[st]["summary"]
-            log(f"🔹 {st}:")
-            log(f"   ┣ RMS   : Median {s['rms']['median']:.6f} | Mean {s['rms']['mean']:.6f} | Max {s['rms']['max']:.6f}")
-            log(f"   ┣ Music : Median {s['music_rms']['median']:.6f} | Mean {s['music_rms']['mean']:.6f} | Max {s['music_rms']['max']:.6f}")
-            log(f"   ┣ Crest : Median {s['crest']['median']:.3f} | Mean {s['crest']['mean']:.3f} | Max {s['crest']['max']:.3f}")
-            log(f"   ┗ HFER  : Median {s['hfer']['median']:.4f} | Mean {s['hfer']['mean']:.4f}")
-    log("----------------------------------------------\n")
-    log("⚙️ Analyzing data and running statistical simulations... This may take a minute.")
-
-    s1, s2, s3, s4, s5, s6 = calibration_data["STAGE_1_OFF"]["summary"], calibration_data["STAGE_2_ON_IDLE"]["summary"], calibration_data["STAGE_3_PLAYING"]["summary"], calibration_data["STAGE_4_RUNOUT"]["summary"], calibration_data["STAGE_5_LIFTED"]["summary"], calibration_data["STAGE_6_OFF"]["summary"]
-   
-    off_val, off_std = min(s1["rms"]["median"], s6["rms"]["median"]), min(s1["rms"]["std_dev"], s6["rms"]["std_dev"])
-    on_val, on_std = (s2["rms"]["median"] + s5["rms"]["median"]) / 2.0, (s2["rms"]["std_dev"] + s5["rms"]["std_dev"]) / 2.0
-    runout_val, runout_std = s4["rms"]["median"], s4["rms"]["std_dev"]
-    music_idle_val, music_idle_std = max(s2["music_rms"]["median"], s4["music_rms"]["median"], s5["music_rms"]["median"]), max(s2["music_rms"]["std_dev"], s4["music_rms"]["std_dev"], s5["music_rms"]["std_dev"])
-    music_play_val, music_play_std, play_val = s3["music_rms"]["median"], s3["music_rms"]["std_dev"], s3["rms"]["median"]
-    hfer_off, hfer_on = min(s1["hfer"]["median"], s6["hfer"]["median"]), max(s2["hfer"]["median"], s5["hfer"]["median"])
-    idle_max_crest, idle_median = max(s2["crest"]["max"], s5["crest"]["max"]), max(s2["rms"]["median"], s5["rms"]["median"])
-    guess_motor_hfer = 0.0
+    # 1. FLOOR (10s to 30s)
+    floor_data, _ = librosa.load(FILES["floor"], sr=SAMPLE_RATE)
+    floor_stable = floor_data[10*SAMPLE_RATE:30*SAMPLE_RATE]
+    floor_rms_arr = librosa.feature.rms(y=floor_stable, frame_length=4096, hop_length=4096)[0]
+    floor_clean = reject_outliers_mad(floor_rms_arr)
+    silence_gate = np.max(floor_clean) * 1.10 # Add 10% safety buffer
     
-    silence_ratio = on_val / play_val if play_val > 0 else 1.0
-    is_silent_hw = silence_ratio < 0.15 or on_val < 0.0035
-    runout_crest_std = s4["crest"]["std_dev"]
+    # 2. MOTOR IDLE (15s to 30s)
+    idle_data, _ = librosa.load(FILES["spinup"], sr=SAMPLE_RATE)
+    idle_stable = idle_data[15*SAMPLE_RATE:30*SAMPLE_RATE]
+    idle_rms_arr = librosa.feature.rms(y=idle_stable, frame_length=4096, hop_length=4096)[0]
+    idle_clean = reject_outliers_mad(idle_rms_arr)
+    motor_hum_max = np.max(idle_clean)
+    
+    # Set Motor Threshold exactly halfway between Silence Gate and Max Motor Hum
+    motor_threshold = (silence_gate + motor_hum_max) / 2.0
+    power_off_threshold = silence_gate * 1.2 # Slightly above gate to confirm power
+    
+    # 3. MUSIC TO RUNOUT (Auto-detect transition)
+    trans_data, _ = librosa.load(FILES["transition"], sr=SAMPLE_RATE)
+    trans_rms = librosa.feature.rms(y=trans_data, frame_length=4096, hop_length=4096)[0]
+    
+    # Find the massive drop in RMS to detect music end
+    diffs = np.diff(trans_rms)
+    drop_idx = np.argmin(diffs) # Largest negative change
+    drop_time = (drop_idx * 4096) / SAMPLE_RATE
+    print(f"📉 Music fade-out auto-detected at {drop_time:.1f} seconds.")
+    
+    music_data = trans_data[:int(drop_idx * 4096)]
+    runout_data = trans_data[int((drop_idx + 5) * 4096):] # Wait 5 secs after drop
+    
+    music_preemph = librosa.effects.preemphasis(music_data)
+    music_rms_arr = librosa.feature.rms(y=music_preemph, frame_length=4096, hop_length=4096)[0]
+    min_music_rms = np.percentile(music_rms_arr, 5) # 5th percentile to allow quiet parts
+    
+    # Initial Guess Dictionary
+    thresholds = {
+        "SILENCE_GATE_RMS": round(float(silence_gate), 4),
+        "POWER_OFF_THRESHOLD": round(float(power_off_threshold), 4),
+        "MOTOR_IDLE_THRESHOLD": round(float(motor_threshold), 4),
+        "MIN_MUSIC_RMS": round(float(min_music_rms), 4),
+        "THUMP_REJECTION_HYSTERESIS": 5 # Default seconds to ignore massive spikes
+    }
+    
+    return thresholds, floor_clean, idle_clean
 
-    if is_silent_hw:
-        log("\n👻 SILENT HARDWARE DETECTED: Utilizing Advanced Rhythm Tracker & Stability Buffers.")
-        guess_motor = calc_variance_boundary(off_val, off_std, on_val, on_std)
-        guess_ceiling = max(idle_median * 2.5, guess_motor * 1.5)
-        log(f"   ┣ Strict Motor Ceiling Locked: {guess_ceiling:.4f}")
-        if hfer_off > (hfer_on * 1.5):
-            guess_motor_hfer = (hfer_off + hfer_on) / 2.0
-            log(f"   ┗ HFER Hiss Detection Armed (Threshold: {guess_motor_hfer:.4f})")
-        guess_rumble = max(0.025, play_val * 0.4) 
-        guess_crest = max(idle_max_crest + 0.5, s4["crest"]["median"] + (runout_crest_std * 2.5))
-        guess_m_hyst = 1.0 
-    else:
-        guess_motor, guess_ceiling = calc_variance_boundary(off_val, off_std, on_val, on_std), max(idle_median * 2.5, calc_variance_boundary(off_val, off_std, on_val, on_std) * 1.5)
-        guess_rumble, guess_crest = calc_variance_boundary(on_val, on_std, runout_val, runout_std), max(idle_max_crest + 0.5, s4["crest"]["median"] + (runout_crest_std * 2.5))
-        guess_m_hyst = 1.5 
+def run_simulation_loop(thresholds):
+    print("\n" + "="*50)
+    print("🧪 RUNNING PERTURBATION & SIMULATION ENGINE")
+    print("="*50)
+    
+    passes = True
+    delta = thresholds["MOTOR_IDLE_THRESHOLD"] - thresholds["SILENCE_GATE_RMS"]
+    
+    print(f"   Silence Gate: {thresholds['SILENCE_GATE_RMS']}")
+    print(f"   Motor Idle:   {thresholds['MOTOR_IDLE_THRESHOLD']}")
+    print(f"   Delta:        {delta:.4f}")
+    
+    if delta < 0.002:
+        print("\n⚠️ HEALTH WARNING: Fidelity Delta is extremely tight!")
+        print("   -> Your setup is an 'Ultra-Silent Setup' (Motor hum is barely audible).")
+        print("   -> Action taken: Nudging MOTOR_IDLE_THRESHOLD down to ensure spin-up is caught.")
+        thresholds["MOTOR_IDLE_THRESHOLD"] -= 0.001
+        passes = False
         
-    guess_music = calc_variance_boundary(music_idle_val, music_idle_std, music_play_val, music_play_std)
-    guess_debounce = 8 
-    if music_idle_std > 0.005: guess_debounce = 10
-    if music_idle_std > 0.010: guess_debounce = 12
-    guess_n_hyst = 2.0 
+    print("\n✅ Simulation Passed. Thresholds locked.")
+    return thresholds
 
-    t_mot, t_rum, t_cre, t_mus = guess_motor, guess_rumble, guess_crest, guess_music
-    h_mot, h_nee, t_ceil, d_chunk = guess_m_hyst, guess_n_hyst, guess_ceiling, guess_debounce
-   
-    success = False
-    for hyst_loop in range(3):
-        for attempt in range(50):
-            result = simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, h_nee, d_chunk, is_silent_hw, guess_motor_hfer, t_ceil)
-            if result == "PASS":
-                p_high = simulate_state_machine(calibration_data, t_mot*1.1, t_rum*1.1, t_cre*1.1, t_mus*1.1, h_mot*1.1, h_nee*1.1, int(d_chunk*1.2), is_silent_hw, guess_motor_hfer, t_ceil)
-                p_low = simulate_state_machine(calibration_data, t_mot*0.9, t_rum*0.9, t_cre*0.9, t_mus*0.9, h_mot*0.9, h_nee*0.9, int(d_chunk*0.8), is_silent_hw, guess_motor_hfer, t_ceil)
-                if p_high == "PASS" and p_low == "PASS":
-                    success = True; break
-                else:
-                    if DEBUG: log(f"  [Attempt {attempt}] Perturbation failed. Nudging thresholds...")
-                    if p_high != "PASS": t_mot *= 0.98; t_rum *= 0.98; t_mus *= 0.98
-                    if p_low != "PASS": t_mot *= 1.02; t_rum *= 1.02; t_mus *= 1.02
-                    continue
-            if "Power expected False" in result or "Power flicker" in result: t_mot *= 1.10
-            elif "Power expected True" in result or "transition during grace" in result: t_mot *= 0.90
-            elif "Needle expected False" in result: t_rum *= 1.10; t_cre += 0.2
-            elif "Needle expected True" in result: t_rum *= 0.90; t_cre = max(1.5, t_cre - 0.2)
-            elif "Music expected but not reliably" in result: t_mus *= 0.90
-            elif "Music falsely detected" in result: t_mus *= 1.15
-        if success: break
-       
-        if DEBUG: log(f"⚠️ Expanding Hysteresis Time Buffers...")
-        h_mot, h_nee = min(h_mot + 1.0, 5.0), min(h_nee + 0.5, 3.0)
-        t_mot, t_rum, t_cre, t_mus = guess_motor, guess_rumble, guess_crest, guess_music
+# --- MAIN EXECUTION ---
+def main():
+    print(r"""
+    __      ___             _    ____                     _ _          
+    \ \    / (_)           | |  / __ \                   | (_)         
+     \ \  / / _ _ __  _   _| | | |  | |_   _  __ _ _ __  | |_  __ _ _ __ 
+      \ \/ / | | '_ \| | | | | | |  | | | | |/ _` | '_ \ | | |/ _` | '_ \
+       \  /  | | | | | |_| | | | |__| | |_| | (_| | | | || | | (_| | | | |
+        \/   |_|_| |_|\__, |_|  \____/ \__,_|\__,_|_| |_|__|_|\__,_|_| |_|
+                       __/ |                                              
+                      |___/   CALIBRATION SUITE v3.0                      
+    """)
+    
+    use_existing = False
+    if all(os.path.exists(f) for f in FILES.values()):
+        ans = input("📁 Found existing 6-file calibration chain. Reuse it? (y/n): ").lower()
+        if ans == 'y':
+            use_existing = True
+            
+    if not use_existing:
+        gain_staging()
+        print("\n" + "="*50)
+        print("🎙️  RECORDING SEQUENTIAL CALIBRATION CHAIN")
+        print("="*50)
+        
+        # File 1
+        record_file(FILES["floor"], 30, 
+            "[FILE 1/6: THE BASELINE]\n"
+            "🔌 Ensure turntable is completely OFF.\n"
+            "🤫 Remain quiet for 30 seconds.")
+        
+        # File 2
+        record_file(FILES["spinup"], 30, 
+            "[FILE 2/6: THE MOTOR HUM]\n"
+            "🟢 When recording starts, turn turntable power ON.\n"
+            "⚙️  Wait 30 seconds for the motor hum.")
+        
+        # File 3
+        record_file(FILES["transition"], 70, 
+            "[FILE 3/6: THE MASTER TRANSITION]\n"
+            "🎶 Drop needle ~30 secs before a song ends.\n"
+            "〰️  Let it play, end, and fade naturally into the runout groove.")
+        
+        # File 4
+        record_file(FILES["lift"], 30, 
+            "[FILE 4/6: THE PHYSICAL THUMP]\n"
+            "⬆️  When recording starts, LIFT the tonearm using the cue lever.\n"
+            "⚙️  Leave the turntable motor ON and spinning.")
+        
+        # File 5
+        record_file(FILES["powerdown"], 30, 
+            "[FILE 5/6: THE ELECTRICAL POP]\n"
+            "🔴 When recording starts, turn the turntable power OFF.\n"
+            "🔌 Let the motor spin down.")
+        
+        # File 6
+        record_file(FILES["disturbance"], 30, 
+            "[FILE 6/6: THE FALSE POSITIVE CHECK]\n"
+            "🗣️  Ensure turntable is OFF.\n"
+            "🖐️  Talk loudly and tap the cabinet for 30 seconds to simulate room noise.")
 
-    if success:
-        log("\n" + "="*50); log("✅ CALIBRATION SUCCESSFUL!"); log("="*50)
-        log(f"The algorithm successfully mapped your hardware states.\n")
-        auto_cal_data = {"mic_volume": current_vol, "music_threshold": float(t_mus), "rumble_threshold": float(t_rum), "motor_power_threshold": float(t_mot), "motor_power_ceiling": float(t_ceil), "runout_crest_threshold": float(t_cre), "motor_hysteresis_sec": float(h_mot), "needle_hysteresis_sec": float(h_nee), "music_debounce_chunks": int(d_chunk), "motor_hfer_threshold": float(guess_motor_hfer), "is_silent_hw": bool(is_silent_hw)}
-        save_atomic_json(AUTO_CALIB_FILE, auto_cal_data)
-        log("👉 Turn OFF 'calibration_mode' in the Add-on UI and Restart to begin using Vinyl Guardian!")
-    else:
-        log("\n" + "="*50); log("❌ CALIBRATION FAILED"); log("="*50)
-        log(f"The ambient noise floor is too high to distinguish between states.")
-        if DEBUG: log(f"Final error: {result}")
-   
-    log("\n💤 Sleeping to prevent auto-restart. You can restart the Add-on now.")
-    while True: time.sleep(3600)
+    # Process Data
+    initial_thresholds, floor_cl, idle_cl = analyze_files()
+    final_thresholds = run_simulation_loop(initial_thresholds)
+    
+    # Save Config
+    with open(CONFIG_FILE, 'w') as f:
+        json.dump(final_thresholds, f, indent=4)
+        
+    print("\n" + "="*50)
+    print("🎉 CALIBRATION COMPLETE 🎉")
+    print("Saved Configuration:")
+    for k, v in final_thresholds.items():
+        print(f"  {k}: {v}")
+    print("="*50)
+    print("\n🔄 Please restart the Vinyl Guardian Add-on for changes to take effect.")
+
+if __name__ == "__main__":
+    main()
