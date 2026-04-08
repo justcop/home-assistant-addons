@@ -49,6 +49,11 @@ def get_music_rms(audio_data):
     filtered_data = audio_data[1:] - 0.95 * audio_data[:-1]
     return float(np.sqrt(np.mean(np.square(filtered_data))))
 
+def get_crest_factor(audio_data):
+    rms = get_rms(audio_data)
+    if rms == 0: return 0.0
+    return float(np.max(np.abs(audio_data)) / rms)
+
 def load_wav(filename):
     with wave.open(filename, 'rb') as wf:
         n_frames = wf.getnframes()
@@ -95,7 +100,6 @@ def record_chunk(duration):
     return raw_audio, audio_data
 
 def record_segmented_file(filename, action_dur, settle_dur, steady_dur, prompt):
-    """3-Phase Recording: Action Window -> Mechanical Settle -> Steady State"""
     print(f"\n" + "-"*50, flush=True)
     print(f"{prompt}", flush=True)
     
@@ -123,25 +127,22 @@ def record_segmented_file(filename, action_dur, settle_dur, steady_dur, prompt):
     time.sleep(1)
 
 def record_dynamic_transition(filename):
-    """Special Live-Listening recorder for File 3"""
     print(f"\n" + "-"*50, flush=True)
     print("[FILE 3/6: THE MASTER TRANSITION]\n🎶 ACTION: Drop needle on the LAST TRACK now.")
-    print("〰️  The system will listen live for the track to end, automatically wait for the runout groove, and capture the rumble.", flush=True)
+    print("〰️  The system will listen live for the track to end, wait for the runout groove, and capture the rumble.", flush=True)
     
     raw_bytes = bytearray()
     
-    # Phase 1: Action (10s)
     print(f"🎬 ACTION WINDOW (10s): Drop the needle NOW!", flush=True)
     chunk_b, _ = record_chunk(10.0)
     raw_bytes.extend(chunk_b)
     
-    # Phase 2: Live Music Monitoring
     print("🎵 MUSIC PHASE: Listening for the track to naturally end...", flush=True)
     max_music_rms = 0.0
     consecutive_low = 0
     music_ended = False
     
-    for i in range(360): # Max 6 minutes fail-safe
+    for i in range(360):
         chunk_b, audio = record_chunk(1.0)
         raw_bytes.extend(chunk_b)
         rms = get_rms(audio)
@@ -165,12 +166,10 @@ def record_dynamic_transition(filename):
     if not music_ended:
         print("⚠️ Fail-safe reached. Max 6 minutes recorded without detecting end of song.", flush=True)
         
-    # Phase 3: Wait for needle to travel
     print("⏳ TRANSIT PHASE (20s): Waiting for needle to firmly reach runout groove...", flush=True)
     chunk_b, _ = record_chunk(20.0)
     raw_bytes.extend(chunk_b)
     
-    # Phase 4: Runout Capture
     print("⏺️ STEADY STATE (20s): Capturing pure runout rumble and surface noise...", flush=True)
     chunk_b, _ = record_chunk(20.0)
     raw_bytes.extend(chunk_b)
@@ -197,8 +196,7 @@ def gain_staging():
     step = 16 
     last_direction = 0 
     set_mic_volume(current_vol)
-    
-    time.sleep(10) # Wait for needle drop
+    time.sleep(10) 
     
     while True:
         _, audio_data = record_chunk(3.0)
@@ -232,56 +230,150 @@ def gain_staging():
     time.sleep(5)
     return current_vol
 
-# --- ANALYSIS ---
-def analyze_files(files):
+# --- SIMULATION & TIMELINE ENGINE ---
+def simulate_timeline(data, thresholds, initial_state):
+    """Miniature State Machine to chronologically prove the threshold logic"""
+    chunk_size = 8192 # ~0.37s chunks
+    chunks = len(data) // chunk_size
+    
+    current_state = initial_state
+    state_history = [initial_state] * 4 # Require 4 chunks to agree to switch state
+    transitions = [f"   -> 0.0s : Started {initial_state}"]
+    
+    for i in range(chunks):
+        chunk = data[i*chunk_size : (i+1)*chunk_size]
+        r = get_rms(chunk)
+        m = get_music_rms(chunk)
+        c = get_crest_factor(chunk)
+        
+        is_pop = c >= 3.5
+        
+        if r < thresholds["SILENCE_GATE_RMS"]:
+            s = "OFF"
+        elif m >= thresholds["music_threshold"] and not is_pop:
+            s = "MUSIC"
+        elif r >= thresholds["motor_power_threshold"]:
+            s = "IDLE"
+        else:
+            s = "OFF"
+            
+        state_history.append(s)
+        state_history.pop(0)
+        
+        latest = state_history[-1]
+        # Debounce: 3 out of 4 chunks must agree to transition
+        if state_history.count(latest) >= 3:
+            if latest != current_state:
+                time_sec = (i * chunk_size) / RATE
+                transitions.append(f"   -> {time_sec:.1f}s : Switched to {latest}")
+                current_state = latest
+                
+    return transitions, current_state
+
+def analyze_and_simulate(files):
     print("\n" + "="*50, flush=True)
-    print("🧠 ANALYZING THE SEQUENTIAL CHAIN", flush=True)
+    print("🧠 CALCULATING HARDWARE THRESHOLDS", flush=True)
     print("="*50, flush=True)
     
-    # 1. Floor analysis: Cross-check File 1 and File 5
+    # 1. Math Extraction
     floor_1_data = load_wav(files["floor"])
-    floor_1_rms = chunked_rms(floor_1_data) # All 30s is steady floor
-    
     powerdown_data = load_wav(files["powerdown"])
-    # Skip first 20s (10s action + 10s spindown settle)
-    floor_5_rms = chunked_rms(powerdown_data[20*RATE:]) 
+    combined_floor = np.concatenate((chunked_rms(floor_1_data), chunked_rms(powerdown_data[20*RATE:])))
+    baseline_noise_max = np.max(reject_outliers_mad(combined_floor))
     
-    combined_floor = np.concatenate((floor_1_rms, floor_5_rms))
-    silence_gate = np.max(reject_outliers_mad(combined_floor)) * 1.10
-    
-    # 2. Motor Idle analysis: Cross-check File 2 and File 4
     spinup_data = load_wav(files["spinup"])
-    # Skip first 20s (10s action + 10s spinup settle to reach full speed)
-    idle_2_rms = chunked_rms(spinup_data[20*RATE:])
-    
     lift_data = load_wav(files["lift"])
-    # Skip first 15s (10s action + 5s tonearm mechanical settle)
-    idle_4_rms = chunked_rms(lift_data[15*RATE:])
+    combined_idle = np.concatenate((chunked_rms(spinup_data[20*RATE:]), chunked_rms(lift_data[15*RATE:])))
+    motor_hum_median = np.median(reject_outliers_mad(combined_idle))
     
-    combined_idle = np.concatenate((idle_2_rms, idle_4_rms))
-    motor_hum_max = np.max(reject_outliers_mad(combined_idle))
-    
-    motor_threshold = (silence_gate + motor_hum_max) / 2.0
-    
-    # 3. Transition Analysis: Because of dynamic recording, the LAST 20s is perfectly guaranteed to be runout groove.
     trans_data = load_wav(files["transition"])
-    
-    runout_data = trans_data[-20*RATE:]
-    music_data = trans_data[10*RATE : -40*RATE] # Skip first 10s action window and skip 40s tail
+    runout_data = trans_data[-20*RATE:] # Guaranteed by dynamic record
+    music_data = trans_data[10*RATE : -40*RATE]
     
     music_rms_arr = chunked_music_rms(music_data)
-    min_music_rms = np.percentile(music_rms_arr, 5) 
+    music_min = np.percentile(music_rms_arr, 5) 
+    runout_rumble_max = np.max(reject_outliers_mad(chunked_rms(runout_data)))
     
-    runout_rms_arr = chunked_rms(runout_data)
-    runout_rumble_max = np.max(reject_outliers_mad(runout_rms_arr))
+    disturb_data = load_wav(files["disturbance"])
 
-    return {
-        "SILENCE_GATE_RMS": round(float(silence_gate), 5),
-        "motor_power_threshold": round(float(motor_threshold), 5),
+    # 2. Initial Threshold Guesses
+    thresholds = {
+        "SILENCE_GATE_RMS": round(float(baseline_noise_max * 1.15), 5),
+        "motor_power_threshold": round(float((baseline_noise_max * 1.15 + motor_hum_median) / 2.0), 5),
         "motor_power_ceiling": round(float(runout_rumble_max * 1.3), 5),
-        "music_threshold": round(float(min_music_rms), 5),
+        "music_threshold": round(float(music_min * 0.85), 5),
         "is_silent_hw": False
     }
+
+    # 3. The Perturbation Loop (Nudge until 100% Pass)
+    print("\n🧪 STARTING SIMULATION & PERTURBATION ENGINE", flush=True)
+    for attempt in range(5):
+        print(f"\n--- Internal Simulation Pass {attempt + 1} ---", flush=True)
+        all_passed = True
+        
+        _, end1 = simulate_timeline(floor_1_data, thresholds, "OFF")
+        if end1 != "OFF":
+            print("   ⚠️ File 1 failed to hold OFF. Raising Silence Gate.", flush=True)
+            thresholds["SILENCE_GATE_RMS"] *= 1.10
+            all_passed = False
+
+        _, end2 = simulate_timeline(spinup_data, thresholds, "OFF")
+        if end2 != "IDLE":
+            print("   ⚠️ File 2 failed to catch Motor Hum. Lowering Motor Threshold.", flush=True)
+            thresholds["motor_power_threshold"] *= 0.90
+            all_passed = False
+
+        trans3, end3 = simulate_timeline(trans_data, thresholds, "IDLE")
+        if not any("MUSIC" in t for t in trans3):
+            print("   ⚠️ File 3 failed to trigger MUSIC. Lowering Music Threshold.", flush=True)
+            thresholds["music_threshold"] *= 0.90
+            all_passed = False
+        elif end3 != "IDLE":
+            print("   ⚠️ File 3 failed to return to IDLE in runout. Raising Music Threshold.", flush=True)
+            thresholds["music_threshold"] *= 1.10
+            all_passed = False
+            
+        trans6, end6 = simulate_timeline(disturb_data, thresholds, "OFF")
+        if any("MUSIC" in t for t in trans6):
+            print("   ⚠️ File 6 falsely triggered MUSIC from room noise. Raising Music Threshold.", flush=True)
+            thresholds["music_threshold"] *= 1.15
+            all_passed = False
+
+        if all_passed:
+            print("   ✅ All logic verified. Locking Thresholds.", flush=True)
+            break
+
+    # 4. Final Visual Report Card
+    print("\n" + "="*50, flush=True)
+    print("📜 FINAL TIMELINE VERIFICATION (The Report Card)", flush=True)
+    print("="*50, flush=True)
+    
+    print("\n[FILE 1: BASELINE] Expected: Stays OFF", flush=True)
+    trans, end = simulate_timeline(floor_1_data, thresholds, "OFF")
+    for t in trans: print(t, flush=True)
+    print("   ✅ PASS" if end == "OFF" and len(trans) == 1 else "   ❌ FAIL", flush=True)
+
+    print("\n[FILE 2: MOTOR HUM] Expected: OFF -> Action Window -> IDLE", flush=True)
+    trans, end = simulate_timeline(spinup_data, thresholds, "OFF")
+    for t in trans: print(t, flush=True)
+    print("   ✅ PASS" if end == "IDLE" else "   ❌ FAIL", flush=True)
+
+    print("\n[FILE 3: MASTER TRANSITION] Expected: IDLE -> Action Window -> MUSIC -> Runout -> IDLE", flush=True)
+    trans, end = simulate_timeline(trans_data, thresholds, "IDLE")
+    for t in trans: print(t, flush=True)
+    print("   ✅ PASS" if "MUSIC" in str(trans) and end == "IDLE" else "   ❌ FAIL", flush=True)
+    
+    print("\n[FILE 5: POWER DOWN] Expected: IDLE -> Action Window -> OFF", flush=True)
+    trans, end = simulate_timeline(powerdown_data, thresholds, "IDLE")
+    for t in trans: print(t, flush=True)
+    print("   ✅ PASS" if end == "OFF" else "   ❌ FAIL", flush=True)
+    
+    print("\n[FILE 6: ROOM NOISE] Expected: Stays OFF (No Music Trigger)", flush=True)
+    trans, end = simulate_timeline(disturb_data, thresholds, "OFF")
+    for t in trans: print(t, flush=True)
+    print("   ✅ PASS" if end == "OFF" and not any("MUSIC" in t for t in trans) else "   ❌ FAIL", flush=True)
+
+    return thresholds
 
 # --- MAIN EXECUTION ---
 def run_calibration():
@@ -322,30 +414,24 @@ def run_calibration():
     if not use_existing:
         final_mic_vol = gain_staging()
         
-        # File 1: Action (0s) -> Settle (0s) -> Steady (30s)
         record_segmented_file(FILES["floor"], 0, 0, 30, 
             "[FILE 1/6: THE BASELINE]\n🔌 Turntable: OFF\n🤫 Action: Stay quiet.")
         
-        # File 2: Action (10s) -> Settle Spinup (10s) -> Steady Hum (15s)
         record_segmented_file(FILES["spinup"], 10, 10, 15, 
             "[FILE 2/6: THE MOTOR HUM]\n🟢 Action: Turn turntable power ON.")
         
-        # File 3: Live Dynamic Recording
         record_dynamic_transition(FILES["transition"])
         
-        # File 4: Action (10s) -> Settle Thump (5s) -> Steady Hum (15s)
         record_segmented_file(FILES["lift"], 10, 5, 15, 
             "[FILE 4/6: THE PHYSICAL THUMP]\n⬆️  Action: LIFT the tonearm with the cue lever.")
         
-        # File 5: Action (10s) -> Settle Spindown (10s) -> Steady Floor (15s)
         record_segmented_file(FILES["powerdown"], 10, 10, 15, 
             "[FILE 5/6: THE ELECTRICAL POP]\n🔴 Action: Turn the turntable power OFF.")
         
-        # File 6: Action (0s) -> Settle (0s) -> Steady Disturbance (30s)
-        record_segmented_file(FILES["disturbance"], 0, 0, 30, 
+        record_segmented_file(FILES["disturbance"], 30, 0, 
             "[FILE 6/6: ROOM NOISE]\n🗣️  Action: Talk and tap the cabinet for 30s.")
 
-    thresholds = analyze_files(FILES)
+    thresholds = analyze_and_simulate(FILES)
     if not use_existing: thresholds["MIC_VOLUME"] = final_mic_vol
     
     with open(AUTO_CALIB_FILE, 'w') as f: json.dump(thresholds, f, indent=4)
@@ -353,12 +439,14 @@ def run_calibration():
         
     print("\n" + "="*50, flush=True)
     print("🎉 CALIBRATION COMPLETE 🎉", flush=True)
-    print(f"Volume locked at {thresholds.get('MIC_VOLUME', 'Unknown')}%", flush=True)
+    print("\n🔒 Final Tuned Logic Map:", flush=True)
+    for key, value in thresholds.items():
+        print(f"   - {key}: {value}", flush=True)
+    
     print("\n🔄 Please disable CALIBRATION_MODE in your config and RESTART the Add-on.", flush=True)
     print("💤 Calibration engine is now idling indefinitely to prevent restart loops...", flush=True)
     
-    while True:
-        time.sleep(3600)
+    while True: time.sleep(3600)
 
 if __name__ == "__main__":
     run_calibration()
