@@ -277,17 +277,6 @@ def listen_and_identify():
         log(f"[DEBUG] Buffers: Mot: {MOTOR_HYSTERESIS_SEC}s | Nee: {NEEDLE_HYSTERESIS_SEC}s | Crest: {RUNOUT_CREST_THRESHOLD} | Deb: {DYNAMIC_DEBOUNCE_CHUNKS}")
         log(f"[DEBUG] Hardware Profile: {'Silent (Rhythm Tracker)' if IS_SILENT_HW else 'Standard (Rumble)'}")
 
-    # --- NEW: LOAD CALIBRATION THRESHOLDS ---
-    silence_gate_rms = 0.035
-    try:
-        calib_file = "config.json"
-        if os.path.exists(calib_file):
-            with open(calib_file, "r") as f:
-                calib_data = json.load(f)
-                silence_gate_rms = calib_data.get("SILENCE_GATE_RMS", 0.035)
-    except Exception as e:
-        log(f"⚠️ Could not load config.json: {e}. Using default silence gate.")
-
     last_pub, last_sleep_log, cooldown_end, chunks, loud_chunks, silence_sleep, song_start = time.time(), 0, 0, 0, 0, 0, 0
     idle_silence_chunks, target = 0, int(RATE / CHUNK * RECORD_SECONDS)
     buffer = bytearray()
@@ -297,13 +286,12 @@ def listen_and_identify():
     motor_on_thresh, motor_ceiling = MOTOR_POWER_THRESHOLD, MOTOR_POWER_CEILING
     needle_active_score, needle_max_score = 0, int(RATE / CHUNK * NEEDLE_HYSTERESIS_SEC)
     
-    avg_pop_interval = (1.8 + 1.33) / 2.0
+    avg_pop_interval = sum((lo + hi) / 2 for lo, hi in RUNOUT_RPM_INTERVALS) / len(RUNOUT_RPM_INTERVALS)
     pop_score_boost = int(RATE / CHUNK * (avg_pop_interval * 0.6))
     pop_score_boost = max(int(RATE / CHUNK * 1.0), min(int(RATE / CHUNK * 3.0), pop_score_boost))
     
     needle_down, last_music_time = False, 0
     pop_history, rhythm_locked, last_rhythm_time = [], False, 0
-    VALID_RPM_INTERVALS = [(1.20, 1.46), (1.65, 1.95), (2.45, 2.85), (3.35, 3.85)]
     engine_state_map = {"IDLE": "Listening", "RECORDING": "Recording", "PROCESSING": "Processing", "SLEEPING": "Tracking", "COOLDOWN": "Cooldown"}
 
     # Smart Logging Trackers
@@ -325,12 +313,17 @@ def listen_and_identify():
             
             # --- THE HARD SILENCE GATE ---
             # If the raw RMS is below the established floor, block all activity
-            if raw_rms < silence_gate_rms:
+            if raw_rms < SILENCE_GATE_RMS:
                 music_rms = 0.0
                 crest = 0.0
                 is_dust_pop = False
             else:
-                is_dust_pop = crest >= RUNOUT_CREST_THRESHOLD
+                peak = raw_rms * crest  # peak = raw_rms * (peak/raw_rms)
+                is_dust_pop = is_valid_pop(raw_rms, peak, {
+                    "runout_crest_threshold": RUNOUT_CREST_THRESHOLD,
+                    "pop_amplitude_threshold": POP_AMPLITUDE_THRESHOLD,
+                    "motor_power_ceiling": MOTOR_POWER_CEILING,
+                })
 
             with state_lock:
                 current_state = app_state
@@ -399,17 +392,17 @@ def listen_and_identify():
                 
             if is_dust_pop:
                 needle_active_score = min(needle_active_score + pop_score_boost, needle_max_score)
-                pop_history.append(now)
-                if len(pop_history) > 15:
-                    pop_history.pop(0)
-                match_count = 0
-                for p in pop_history[:-1]:
-                    delta = now - p
-                    for lo, hi in VALID_RPM_INTERVALS:
-                        if lo <= delta <= hi:
-                            match_count += 1; break
-                if match_count >= 2:
-                    rhythm_locked, last_rhythm_time = True, now
+                peak = raw_rms * crest
+                pop_history, rhythm_locked, last_rhythm_time = update_rhythm_lock(
+                    pop_history, now, peak, rhythm_locked, last_rhythm_time
+                )
+            elif music_rms > MUSIC_THRESHOLD:
+                # Music is playing — runout pops are impossible. Clear pop history so
+                # drum hits or loud passages can never accidentally lock the rhythm
+                # detector. Mirrors calibration's simulate_timeline rule.
+                pop_history.clear()
+                rhythm_locked = False
+                needle_active_score = min(needle_active_score + 1, needle_max_score)
             elif raw_rms >= RUMBLE_THRESHOLD:
                 needle_active_score = min(needle_active_score + 1, needle_max_score)
             else:
@@ -421,20 +414,32 @@ def listen_and_identify():
             needle_down = needle_active_score > (needle_max_score * 0.5)
             continuous_silence = now - last_music_time
             
-            new_vinyl_status = "Motor Idle"
+            # --- VINYL STATUS RESOLUTION ---
+            # Hard rules (matching calibration's simulate_timeline hierarchy):
+            #   1. Turntable off  → always "Powered Off"
+            #   2. Music playing  → always "Playing" (music beats runout — can't be both)
+            #   3. Runout groove  → "Runout Groove" (only reachable when no music)
+            #   4. Motor on, quiet → "Motor Idle"
             if not turntable_on:
                 new_vinyl_status = "Powered Off"
-            elif rhythm_locked:
-                new_vinyl_status = "Runout Groove"
             elif current_state in ["RECORDING", "PROCESSING"]:
+                # Actively capturing/identifying — music is definitively present
                 new_vinyl_status = "Playing"
-            elif has_played_music:
-                if continuous_silence < 2.0:
-                    new_vinyl_status = "Playing"
-                else:
-                    new_vinyl_status = "Between Tracks"
-                    if continuous_silence >= int(RATE / CHUNK * NEEDLE_LIFT_SECONDS) * (CHUNK / RATE) and not rhythm_locked:
-                        has_played_music = False
+            elif has_played_music and continuous_silence < 2.0:
+                # Recently heard music (brief inter-track gap) — still Playing
+                new_vinyl_status = "Playing"
+            elif has_played_music and continuous_silence < int(RATE / CHUNK * NEEDLE_LIFT_SECONDS) * (CHUNK / RATE):
+                # Longer silence but haven't crossed the needle-lift threshold yet
+                new_vinyl_status = "Between Tracks"
+            elif rhythm_locked:
+                # No music, but rhythmic runout pops confirmed — runout groove
+                new_vinyl_status = "Runout Groove"
+            else:
+                # Motor is on but no music, no runout
+                if has_played_music:
+                    # Crossed the needle-lift window — reset
+                    has_played_music = False
+                new_vinyl_status = "Motor Idle"
                         
             change_3_tier_status(new_vinyl_status, current_guardian_state)
             
