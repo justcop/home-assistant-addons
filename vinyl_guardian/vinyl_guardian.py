@@ -243,7 +243,6 @@ def publish_discovery():
             payload["payload_off"] = "OFF"
         mqtt_client.publish(f"homeassistant/{c['domain']}/vinyl_guardian/{key}/config", json.dumps(payload), retain=True)
 
-    # 🧼 Explicitly force ALL states to boot defaults and clear old attributes
     mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
     mqtt_client.publish("vinyl_guardian/status", "Powered Off", retain=True)
     mqtt_client.publish("vinyl_guardian/engine_state", "Off", retain=True)
@@ -307,8 +306,6 @@ def recognize_shazam(wav_path):
             duration = 0
             release_year = "Unknown"
             adamid = track.get('trackadamid')
-            
-            # 🖼️ GRAB ALBUM ART URL
             image_url = track.get('images', {}).get('coverart', '')
            
             for section in track.get('sections', []):
@@ -449,7 +446,6 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
             else:
                 consecutive_failures += 1
                 log(f"❌ Max attempts reached. Fallback to gap detection.")
-                # Clear attributes before publishing Unknown Track to clear album art
                 mqtt_client.publish("vinyl_guardian/attributes", "{}", retain=True)
                 mqtt_client.publish("vinyl_guardian/track", "Unknown Track", retain=True)
                 current_attempt = 1
@@ -689,7 +685,7 @@ def run_calibration():
         stage_metrics = {"rms": [], "music_rms": [], "crest": [], "hfer": []}
         t_chunks = int(RATE / CHUNK * duration_secs)
         
-        shave_chunks = int(RATE / CHUNK * 10.0) # Shave the first 10 seconds of analysis
+        shave_chunks = int(RATE / CHUNK * 10.0)
         
         reuse_audio_for_stage = False
         if reuse_audio and os.path.exists(wav_path):
@@ -723,7 +719,6 @@ def run_calibration():
                 length, data = inp.read()
                 if length > 0:
                     buffer.extend(data)
-                    # ONLY add data to the math engine if we have passed the 10-second shave threshold
                     if chunks >= shave_chunks:
                         metrics = calculate_deep_metrics(data)
                         if metrics:
@@ -1085,12 +1080,14 @@ def audit_ghost_files():
             for i in range(0, len(raw_bytes), chunk_bytes):
                 data = raw_bytes[i:i+chunk_bytes]
                 if len(data) == chunk_bytes:
-                    raw_rms, _, _ = calculate_audio_levels(data)
+                    raw_rms, music_rms, crest = calculate_audio_levels(data)
                     metrics = calculate_deep_metrics(data)
                     hfer = metrics["hfer"] if metrics else 0.0
                     
                     motor_on_cond = False
-                    if raw_rms > MOTOR_POWER_THRESHOLD:
+                    if music_rms > MUSIC_THRESHOLD and not (crest >= RUNOUT_CREST_THRESHOLD):
+                        motor_on_cond = True
+                    elif raw_rms > MOTOR_POWER_THRESHOLD:
                         if raw_rms < MOTOR_POWER_CEILING:
                             motor_on_cond = True
                             if MOTOR_HFER_THRESHOLD > 0.0 and hfer > MOTOR_HFER_THRESHOLD:
@@ -1192,6 +1189,8 @@ def listen_and_identify():
             metrics = calculate_deep_metrics(data)
             hfer = metrics["hfer"] if metrics else 0.0
             now = time.time()
+            
+            is_dust_pop = crest >= RUNOUT_CREST_THRESHOLD
            
             with state_lock:
                 current_state = app_state
@@ -1205,10 +1204,13 @@ def listen_and_identify():
                 last_music_time = now
 
             motor_on_cond = False
-            if raw_rms > motor_on_thresh:
+            if music_rms > MUSIC_THRESHOLD and not is_dust_pop:
+                motor_on_cond = True
+            elif raw_rms > motor_on_thresh:
                 if raw_rms < motor_ceiling:
                     motor_on_cond = True
-                    if MOTOR_HFER_THRESHOLD > 0.0 and hfer > MOTOR_HFER_THRESHOLD:
+                    # Only apply HFER ghost rejection if we aren't currently playing a song
+                    if MOTOR_HFER_THRESHOLD > 0.0 and hfer > MOTOR_HFER_THRESHOLD and not has_played_music:
                         motor_on_cond = False
                 else:
                     if turntable_on:
@@ -1235,7 +1237,12 @@ def listen_and_identify():
                             except Exception:
                                 pass
             else:
-                power_score = max(power_score - 1, 0)
+                # 🛡️ THE SUSTAIN LOCK: Do not allow the turntable to power off if we are actively tracking a song.
+                if has_played_music or rhythm_locked:
+                    power_score = power_max_score
+                else:
+                    power_score = max(power_score - 1, 0)
+                    
                 if turntable_on and power_score <= 0:
                     turntable_on, has_played_music, rhythm_locked = False, False, False
                     with state_lock:
@@ -1257,7 +1264,6 @@ def listen_and_identify():
             if not turntable_on:
                 current_guardian_state = "Off"
 
-            is_dust_pop = crest >= RUNOUT_CREST_THRESHOLD
             if is_dust_pop:
                 needle_active_score = min(needle_active_score + pop_score_boost, needle_max_score)
                 pop_history.append(now)
@@ -1373,7 +1379,7 @@ def listen_and_identify():
                     trigger_chunks += 1
                     if trigger_chunks >= DYNAMIC_DEBOUNCE_CHUNKS:
                         if not turntable_on:
-                            turntable_on, power_score = True, power_max_score
+                            turntable_on, power_score = power_max_score
                             if mqtt_client.is_connected():
                                 mqtt_client.publish("vinyl_guardian/power", "ON", retain=True)
                         if mqtt_client.is_connected():
