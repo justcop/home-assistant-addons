@@ -238,17 +238,18 @@ def gain_staging():
     return current_vol
 
 # --- SIMULATION & TIMELINE ENGINE ---
-def find_rhythmic_pulse(data, start_sec):
+def find_rhythmic_pulse(data, start_sec, noise_floor):
     chunk_size = 4096 
     chunks = len(data) // chunk_size
     pop_history = []
     
     for i in range(chunks):
         chunk = data[i*chunk_size : (i+1)*chunk_size]
-        c = get_crest_factor(chunk)
-        time_sec = (i * chunk_size) / RATE
+        r = get_rms(chunk)
+        max_val = np.max(np.abs(chunk))
         
-        if c >= 3.5:
+        if r > 0 and (max_val / r >= 3.5) and (max_val > noise_floor * 1.5):
+            time_sec = (i * chunk_size) / RATE
             for pt in reversed(pop_history[-10:]):
                 diff = time_sec - pt
                 if (1.65 <= diff <= 1.95) or (1.20 <= diff <= 1.45):
@@ -265,48 +266,52 @@ def simulate_timeline(data, thresholds, initial_state):
     transitions = [f"   -> 0.0s : Started {initial_state}"]
     
     pop_history = []
-    rhythmic_lock = False
-    last_lock_print = -10.0
+    runout_active = False
+    last_print = -10.0
     
     for i in range(chunks):
         chunk = data[i*chunk_size : (i+1)*chunk_size]
         r = get_rms(chunk)
         m = get_music_rms(chunk)
-        c = get_crest_factor(chunk)
+        max_val = np.max(np.abs(chunk))
         time_sec = (i * chunk_size) / RATE
         
-        is_pop = c >= 3.5
+        # Absolute thresholds
+        is_pop = (r > 0) and (max_val / r >= 3.5) and (max_val > thresholds["SILENCE_GATE_RMS"] * 1.5)
+        is_music = (m >= thresholds["music_threshold"]) and not is_pop
+        is_off = (not thresholds["is_silent_hw"]) and (r < thresholds["SILENCE_GATE_RMS"])
         
-        # 🌟 THE RHYTHMIC RUNOUT ENGINE 🌟
-        if is_pop:
-            for pt in reversed(pop_history[-10:]):
-                diff = time_sec - pt
-                # Look for 33.3 RPM (1.8s pop) or 45 RPM (1.33s pop) timing signatures
-                if (1.65 <= diff <= 1.95) or (1.20 <= diff <= 1.45):
-                    rhythmic_lock = True
-                    if time_sec - last_lock_print > 6.0:
-                        transitions.append(f"   -> {time_sec:.1f}s : 🔄 33/45 RPM Rhythmic Pulse Locked")
-                        last_lock_print = time_sec
-                    break
-            pop_history.append(time_sec)
-            
-        # Drop the runout lock if we don't hear a pulse for 4 seconds
-        if len(pop_history) > 0 and (time_sec - pop_history[-1] > 4.0):
-            rhythmic_lock = False
-            
-        # State Logic Matrix
-        if rhythmic_lock:
-            s = "RUNOUT" # Explicit RUNOUT State mapping!
-        elif thresholds["is_silent_hw"]:
-            if m >= thresholds["music_threshold"] and not is_pop:
-                s = "MUSIC"
-            else:
-                s = "OFF"
+        # 🌟 STRICT STATE HIERARCHY 🌟
+        if is_off:
+            s = "OFF"
+            pop_history.clear() 
+            runout_active = False # Immediately release Runout if absolute silence (needle lifted AND motor off)
+        elif is_music:
+            s = "MUSIC"
+            pop_history.clear() 
+            runout_active = False # Immediately release Runout if music detected
         else:
-            if r < thresholds["SILENCE_GATE_RMS"]:
-                s = "OFF"
-            elif m >= thresholds["music_threshold"] and not is_pop:
-                s = "MUSIC"
+            if is_pop:
+                for pt in reversed(pop_history[-10:]):
+                    diff = time_sec - pt
+                    if (1.65 <= diff <= 1.95) or (1.20 <= diff <= 1.45):
+                        runout_active = True
+                        if time_sec - last_print > 6.0:
+                            transitions.append(f"   -> {time_sec:.1f}s : 🔄 33/45 RPM Rhythmic Pulse Detected")
+                            last_print = time_sec
+                        break
+                pop_history.append(time_sec)
+                
+            # If no pop is detected for 4.0 seconds (missed 2 rotations), drop the runout tracking!
+            # This happens exactly when the needle is lifted via cue lever.
+            if len(pop_history) > 0 and (time_sec - pop_history[-1] > 4.0):
+                runout_active = False 
+                
+            # Final resolution
+            if runout_active:
+                s = "RUNOUT"
+            elif thresholds["is_silent_hw"]:
+                s = "OFF" 
             elif r >= thresholds["motor_power_threshold"]:
                 s = "IDLE"
             else:
@@ -360,7 +365,7 @@ def analyze_and_simulate(files):
         
     print_log(f"   [DATA] True music end calculated at: {drop_time_sec:.2f}s")
     
-    pulse_start_time = find_rhythmic_pulse(trans_data[int(drop_time_sec * RATE):], drop_time_sec)
+    pulse_start_time = find_rhythmic_pulse(trans_data[int(drop_time_sec * RATE):], drop_time_sec, baseline_noise_max)
     
     if pulse_start_time:
         print_log(f"   [DATA] 🎯 Confirmed rhythmic 33/45 RPM pulsing begins at: {pulse_start_time:.2f}s")
@@ -479,6 +484,11 @@ def analyze_and_simulate(files):
     for t in trans: print_log(t)
     print_log("   ✅ PASS" if "MUSIC" in str(trans) and "RUNOUT" in str(trans) and end == "RUNOUT" and len(trans) <= 8 else "   ❌ FAIL")
     
+    print_log(f"\n[FILE 4: NEEDLE LIFT] Expected: {expected_file2} -> Action Thump -> {expected_file2}")
+    trans, end = simulate_timeline(lift_data, thresholds, expected_file2)
+    for t in trans: print_log(t)
+    print_log("   ✅ PASS" if end == expected_file2 and not any("MUSIC" in t for t in trans) else "   ❌ FAIL")
+
     print_log("\n[FILE 5: POWER DOWN] Expected: IDLE -> Action Window -> OFF")
     trans, end = simulate_timeline(powerdown_data, thresholds, expected_file3)
     for t in trans: print_log(t)
