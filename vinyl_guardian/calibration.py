@@ -16,8 +16,6 @@ warnings.filterwarnings('ignore')
 from config import SHARE_DIR, AUTO_CALIB_FILE, RATE, CHANNELS, CHUNK
 
 # --- HOME ASSISTANT OPTION LOADING ---
-# Home Assistant options from config.yaml are typically available as ENV vars
-# or in /data/options.json. We'll check the environment first.
 REUSE_CALIB_OPT = os.environ.get('REUSE_CALIBRATION_AUDIO', 'false').lower() == 'true'
 
 # --- CONFIGURATION ---
@@ -98,20 +96,16 @@ def record_segmented_file(filename, transition_duration, steady_duration, prompt
     full_bytes = trans_bytes + steady_bytes
     
     with wave.open(filename, 'wb') as wf:
-        wf.setnchannels(CHANNELS)
-        wf.setsampwidth(2)
-        wf.setframerate(RATE)
-        wf.writeframes(full_bytes)
+        wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(full_bytes)
         
     print(f"✅ Saved to {os.path.basename(filename)}", flush=True)
-    time.sleep(2)
+    time.sleep(1)
 
 # --- STEP 0: AUTOMATED GAIN STAGING ---
 def set_mic_volume(vol_pct):
     try:
         subprocess.run(["pactl", "set-source-volume", "@DEFAULT_SOURCE@", f"{vol_pct}%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception:
-        pass
+    except Exception: pass
 
 def gain_staging():
     print("\n" + "="*50, flush=True)
@@ -156,7 +150,7 @@ def gain_staging():
             break
             
     print("\n⏹️  ACTION: Stop the record and turn the turntable OFF completely.", flush=True)
-    time.sleep(10)
+    time.sleep(5)
     return current_vol
 
 # --- ANALYSIS ---
@@ -165,33 +159,52 @@ def analyze_files(files):
     print("🧠 ANALYZING THE SEQUENTIAL CHAIN", flush=True)
     print("="*50, flush=True)
     
+    # 1. Floor analysis (10s to end)
     floor_data = load_wav(files["floor"])
-    floor_stable = floor_data[10*RATE:]
-    floor_rms = chunked_rms(floor_stable)
+    floor_rms = chunked_rms(floor_data[10*RATE:])
     silence_gate = np.max(reject_outliers_mad(floor_rms)) * 1.10
     
+    # 2. Motor Idle analysis (15s to end)
     idle_data = load_wav(files["spinup"])
-    idle_stable = idle_data[15*RATE:]
-    idle_rms = chunked_rms(idle_stable)
+    idle_rms = chunked_rms(idle_data[15*RATE:])
     motor_hum_max = np.max(reject_outliers_mad(idle_rms))
-    
     motor_threshold = (silence_gate + motor_hum_max) / 2.0
     
+    # 3. Transition Analysis (THE SMART BIT)
+    print("📉 Scanning transition file for music-to-runout drop-off...", flush=True)
     trans_data = load_wav(files["transition"])
-    trans_rms = chunked_rms(trans_data)
+    trans_rms = chunked_rms(trans_data, chunk_size=8192) # Larger chunk for smoother diff
+    
     diffs = np.diff(trans_rms)
     drop_idx = np.argmin(diffs)
-    drop_time = (drop_idx * 4096) / RATE
-    print(f"📉 Music fade-out auto-detected at {drop_time:.1f} seconds.", flush=True)
+    drop_time_sec = (drop_idx * 8192) / RATE
     
-    music_data = trans_data[:int(drop_idx * 4096)]
+    # Sanity Check: If the drop is in the last 45 seconds or first 30, it's likely a bad capture
+    if drop_time_sec > (360 - 45):
+         print("⚠️ WARNING: No music end detected early enough! Did the track finish?", flush=True)
+         # Fallback to last 30 seconds
+         runout_window = trans_data[-30*RATE:]
+    else:
+        # We start the Runout Sample 20 seconds AFTER the detected drop (Definitively in the runout)
+        # We take a 20 second sample window
+        runout_start = int((drop_time_sec + 20) * RATE)
+        runout_end = int((drop_time_sec + 40) * RATE)
+        runout_window = trans_data[runout_start:runout_end]
+        print(f"✅ Music end detected at {drop_time_sec:.1f}s.")
+        print(f"   Waiting 20s for runout stabilization. Sampling from {drop_time_sec+20:.1f}s to {drop_time_sec+40:.1f}s.", flush=True)
+    
+    music_data = trans_data[:int(drop_time_sec * RATE)]
     music_rms_arr = chunked_music_rms(music_data)
     min_music_rms = np.percentile(music_rms_arr, 5) 
     
+    # Use the specific Runout Window to define Rumble/Pop ceilings
+    runout_rms_arr = chunked_rms(runout_window)
+    runout_rumble_max = np.max(reject_outliers_mad(runout_rms_arr))
+
     return {
         "SILENCE_GATE_RMS": round(float(silence_gate), 5),
         "motor_power_threshold": round(float(motor_threshold), 5),
-        "motor_power_ceiling": round(float(motor_hum_max * 1.5), 5),
+        "motor_power_ceiling": round(float(runout_rumble_max * 1.3), 5),
         "music_threshold": round(float(min_music_rms), 5),
         "is_silent_hw": False
     }
@@ -218,19 +231,17 @@ def run_calibration():
         "disturbance": os.path.join(CALIB_DIR, "calib_disturbance.wav")
     }
 
-    # Handle Reuse Audio Logic - Using variable from environment check
     if not REUSE_CALIB_OPT:
-        print("\n🧹 REUSE_CALIBRATION_AUDIO is OFF. Clearing old data and starting fresh...", flush=True)
-        if os.path.exists(CALIB_DIR):
-            shutil.rmtree(CALIB_DIR)
+        print("\n🧹 Fresh calibration requested. Clearing old data...", flush=True)
+        if os.path.exists(CALIB_DIR): shutil.rmtree(CALIB_DIR)
         os.makedirs(CALIB_DIR)
         use_existing = False
     else:
         if all(os.path.exists(f) for f in FILES.values()):
-            print("\n📁 REUSE_CALIBRATION_AUDIO is ON. Using existing recordings.", flush=True)
+            print("\n📁 Reusing existing recordings found in calibration_data/.", flush=True)
             use_existing = True
         else:
-            print("\n⚠️  REUSE_CALIBRATION_AUDIO is ON but files are missing. Starting fresh...", flush=True)
+            print("\n⚠️  Files missing. Starting fresh recordings...", flush=True)
             if not os.path.exists(CALIB_DIR): os.makedirs(CALIB_DIR)
             use_existing = False
             
@@ -238,22 +249,22 @@ def run_calibration():
         final_mic_vol = gain_staging()
         
         record_segmented_file(FILES["floor"], 0, 30, 
-            "[FILE 1/6: THE BASELINE]\n🔌 Turntable should be OFF.\n🤫 No action required. Stay quiet.")
+            "[FILE 1/6: THE BASELINE]\n🔌 Turntable: OFF\n🤫 Action: Stay quiet.")
         
         record_segmented_file(FILES["spinup"], 10, 20, 
-            "[FILE 2/6: THE MOTOR HUM]\n🟢 ACTION: Turn turntable power ON now.\n⚙️  The first 10s will capture the spin-up.")
+            "[FILE 2/6: THE MOTOR HUM]\n🟢 Action: Turn turntable power ON now.")
         
         record_segmented_file(FILES["transition"], 15, 345, 
-            "[FILE 3/6: THE MASTER TRANSITION]\n🎶 ACTION: Drop needle on the LAST TRACK of a record side now.\n〰️  6-minute capture for natural fade into runout.")
+            "[FILE 3/6: THE MASTER TRANSITION]\n🎶 Action: Drop needle on the LAST TRACK now.\n〰️  Recording 6 mins to catch the music-to-runout fade.")
         
         record_segmented_file(FILES["lift"], 10, 20, 
-            "[FILE 4/6: THE PHYSICAL THUMP]\n⬆️  ACTION: LIFT the tonearm with the cue lever now.\n⚙️  Keep the motor ON.")
+            "[FILE 4/6: THE PHYSICAL THUMP]\n⬆️  Action: LIFT the tonearm with the cue lever now.")
         
         record_segmented_file(FILES["powerdown"], 10, 20, 
-            "[FILE 5/6: THE ELECTRICAL POP]\n🔴 ACTION: Turn the turntable power OFF now.")
+            "[FILE 5/6: THE ELECTRICAL POP]\n🔴 Action: Turn the turntable power OFF now.")
         
         record_segmented_file(FILES["disturbance"], 30, 0, 
-            "[FILE 6/6: FALSE POSITIVE CHECK]\n🗣️  ACTION: Talk loudly and tap your turntable cabinet for the next 30s.")
+            "[FILE 6/6: ROOM NOISE]\n🗣️  Action: Talk and tap the cabinet for 30s.")
 
     thresholds = analyze_files(FILES)
     if not use_existing: thresholds["MIC_VOLUME"] = final_mic_vol
@@ -263,8 +274,8 @@ def run_calibration():
         
     print("\n" + "="*50, flush=True)
     print("🎉 CALIBRATION COMPLETE 🎉", flush=True)
-    print(f"Saved to {AUTO_CALIB_FILE}", flush=True)
-    print("🔄 Please disable CALIBRATION_MODE and restart the Add-on.", flush=True)
+    print(f"Volume locked at {thresholds.get('MIC_VOLUME', 'Unknown')}%", flush=True)
+    print("🔄 Restart Add-on (Calibration Mode: OFF) to begin tracking.", flush=True)
     sys.exit(0)
 
 if __name__ == "__main__":
