@@ -2,6 +2,7 @@ import os
 import time
 import json
 import wave
+import subprocess
 import numpy as np
 import alsaaudio
 import warnings
@@ -31,7 +32,6 @@ FILES = {
 
 # --- NATIVE MATH UTILITIES ---
 def reject_outliers_mad(data, threshold=3.5):
-    """Removes sudden pops/clicks from stable data using Median Absolute Deviation"""
     if len(data) == 0: return data
     med = np.median(data)
     mad = np.median(np.abs(data - med))
@@ -40,28 +40,23 @@ def reject_outliers_mad(data, threshold=3.5):
     return data[np.abs(modified_z_scores) <= threshold]
 
 def get_rms(audio_data):
-    """Calculates Raw RMS using native numpy"""
     return float(np.sqrt(np.mean(np.square(audio_data))))
 
 def get_music_rms(audio_data):
-    """Calculates Filtered Music RMS using native numpy"""
     if len(audio_data) <= 1: return 0.0
     filtered_data = audio_data[1:] - 0.95 * audio_data[:-1]
     return float(np.sqrt(np.mean(np.square(filtered_data))))
 
 def load_wav(filename):
-    """Loads a wav file into a numpy array"""
     with wave.open(filename, 'rb') as wf:
         n_frames = wf.getnframes()
         audio_bytes = wf.readframes(n_frames)
         audio_data = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
-        # Average to mono if stereo
         if wf.getnchannels() == 2:
             audio_data = audio_data.reshape(-1, 2).mean(axis=1)
         return audio_data
 
 def chunked_rms(data, chunk_size=4096):
-    """Calculates RMS over small blocks of time to find drop-offs"""
     chunks = len(data) // chunk_size
     rms_arr = np.zeros(chunks)
     for i in range(chunks):
@@ -77,7 +72,6 @@ def chunked_music_rms(data, chunk_size=4096):
 
 # --- ALSA RECORDING ENGINE ---
 def record_chunk(duration):
-    """Records a temporary chunk of audio using the native ALSA engine"""
     try:
         inp = alsaaudio.PCM(type=alsaaudio.PCM_CAPTURE, mode=alsaaudio.PCM_NORMAL, device='default', channels=CHANNELS, rate=RATE, format=FORMAT, periodsize=CHUNK)
     except Exception as e:
@@ -113,44 +107,118 @@ def record_file(filename, duration, prompt):
         
     print(f"✅ Saved to {filename}", flush=True)
 
-# --- STEP 0: GAIN STAGING ---
+# --- STEP 0: AUTOMATED GAIN STAGING ---
+def set_mic_volume(vol_pct):
+    try:
+        subprocess.run(["pactl", "set-source-volume", "@DEFAULT_SOURCE@", f"{vol_pct}%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+
 def gain_staging():
     print("\n" + "="*50, flush=True)
-    print("🎚️  STEP 0: PRE-CALIBRATION GAIN STAGING", flush=True)
+    print("🎚️  STEP 0: AUTO-CALIBRATING SOFTWARE VOLUME", flush=True)
     print("="*50, flush=True)
-    print("🔊 Please drop the needle onto a LOUD section of a record.", flush=True)
-    print("   We need to lock in your hardware volume before calibrating.", flush=True)
+    print("🔊 Find the LOUDEST, most aggressive record you own (e.g. Dance/Rock).", flush=True)
+    print("   Drop the needle onto the loudest part of the track.", flush=True)
     print("⏱️  Waiting 15 seconds for you to drop the needle...", flush=True)
     time.sleep(15)
     
+    current_vol = 50
+    step = 16 # Start with large 16% jumps
+    last_direction = 0 # 1 for up, -1 for down
+    
+    set_mic_volume(current_vol)
+    print(f"\n⚙️  Starting digital volume at {current_vol}%...", flush=True)
+    
     while True:
-        print("\n🎧 Listening for 3 seconds...", flush=True)
-        _, audio_data = record_chunk(3.0)
+        # --- PHASE 1: QUICK DIAL ---
+        print("\n🎧 Phase 1: Quick Dialing (Adaptive 1% Targeting)...", flush=True)
+        quick_dial_passed = False
         
-        if len(audio_data) == 0:
-            print("🚨 ERROR: No audio received from microphone.", flush=True)
-            break
+        while not quick_dial_passed:
+            _, audio_data = record_chunk(3.0)
+            if len(audio_data) == 0:
+                print("🚨 ERROR: No audio received.", flush=True)
+                return current_vol
+                
+            peak = np.max(np.abs(audio_data))
             
-        peak = np.max(np.abs(audio_data))
+            if peak > 0.80: # Too Hot
+                if last_direction == 1: step = max(1, step // 2) # Overshot! Halve the step size.
+                last_direction = -1
+                
+                if current_vol <= 1:
+                    print("\n🚨 ERROR: Reached 1% software volume but still clipping! Lower physical gain.", flush=True)
+                    break
+                    
+                current_vol = max(1, current_vol - step)
+                set_mic_volume(current_vol)
+                print(f"   Peak {peak:.2f} (Too Hot)  -> Dropping vol to {current_vol}% (Step: {step}%)", flush=True)
+                
+            elif peak < 0.50: # Too Quiet
+                if last_direction == -1: step = max(1, step // 2) # Overshot! Halve the step size.
+                last_direction = 1
+                
+                if current_vol >= 100:
+                    print("\n🚨 ERROR: Reached 100% software volume but signal is weak! Raise physical gain.", flush=True)
+                    break
+                    
+                current_vol = min(100, current_vol + step)
+                set_mic_volume(current_vol)
+                print(f"   Peak {peak:.2f} (Too Weak) -> Raising vol to {current_vol}% (Step: {step}%)", flush=True)
+                
+            else:
+                print(f"   Peak {peak:.2f} (Perfect)  -> Locking in at {current_vol}%", flush=True)
+                quick_dial_passed = True
+
+        # --- PHASE 2: 15-SECOND VERIFICATION ---
+        print("\n🎧 Phase 2: 15-Second Peak Hold Verification...", flush=True)
+        target_duration = 15
+        clipping = False
+        max_peak_seen = 0.0
         
-        if peak > 0.85:
-            print(f"⚠️ Peak: {peak:.2f} (TOO HIGH - Clipping risk!)", flush=True)
-            print("👇 Action: Turn DOWN your pre-amp or capture card volume.", flush=True)
-            print("⏱️  Retesting in 10 seconds...", flush=True)
-            time.sleep(10)
-        elif peak < 0.45:
-            print(f"⚠️ Peak: {peak:.2f} (TOO LOW - Weak signal!)", flush=True)
-            print("👆 Action: Turn UP your pre-amp or capture card volume.", flush=True)
-            print("⏱️  Retesting in 10 seconds...", flush=True)
-            time.sleep(10)
+        for i in range(target_duration):
+            _, audio_data = record_chunk(1.0)
+            if len(audio_data) == 0: continue
+                
+            peak = np.max(np.abs(audio_data))
+            max_peak_seen = max(max_peak_seen, peak)
+            
+            meter_fill = int((peak / 1.0) * 20)
+            meter = f"[{'█'*meter_fill}{'░'*(20-meter_fill)}]"
+            print(f"   Sec {i+1:02d}/{target_duration} | Peak: {peak:.3f} {meter}", flush=True)
+            
+            if peak > 0.85:
+                clipping = True
+                break
+                
+        if clipping:
+            step = max(1, step // 2)
+            current_vol = max(1, current_vol - step)
+            last_direction = -1
+            set_mic_volume(current_vol)
+            print(f"\n⚠️ CLIPPING DETECTED! Nudging down to {current_vol}% and restarting Quick Dial...", flush=True)
+            time.sleep(1)
+            continue
+            
+        elif max_peak_seen < 0.40:
+            step = max(1, step // 2)
+            current_vol = min(100, current_vol + step)
+            last_direction = 1
+            set_mic_volume(current_vol)
+            print(f"\n⚠️ SIGNAL TOO WEAK (Max: {max_peak_seen:.2f}). Nudging up to {current_vol}% and restarting Quick Dial...", flush=True)
+            time.sleep(1)
+            continue
+            
         else:
-            print(f"✅ Peak: {peak:.2f} (PERFECT!)", flush=True)
-            print("🔒 Gain stage locked. DO NOT touch the volume dials anymore.", flush=True)
+            print(f"\n✅ VOLUME VERIFIED! Sustained 15 seconds perfectly.", flush=True)
+            print(f"   Max Peak: {max_peak_seen:.2f} | Final Software Volume: {current_vol}%", flush=True)
             break
             
     print("\n⏹️  Please stop the record and turn the turntable OFF completely.", flush=True)
     print("⏱️  Waiting 15 seconds to begin main calibration...", flush=True)
     time.sleep(15)
+    return current_vol
 
 # --- ANALYSIS & SIMULATION ---
 def analyze_files():
@@ -163,7 +231,7 @@ def analyze_files():
     floor_stable = floor_data[10*RATE:30*RATE]
     floor_rms_arr = chunked_rms(floor_stable)
     floor_clean = reject_outliers_mad(floor_rms_arr)
-    silence_gate = np.max(floor_clean) * 1.10 # Add 10% safety buffer
+    silence_gate = np.max(floor_clean) * 1.10
     
     # 2. MOTOR IDLE (15s to 30s)
     idle_data = load_wav(FILES["spinup"])
@@ -172,24 +240,21 @@ def analyze_files():
     idle_clean = reject_outliers_mad(idle_rms_arr)
     motor_hum_max = np.max(idle_clean)
     
-    # Set Motor Threshold exactly halfway between Silence Gate and Max Motor Hum
     motor_threshold = (silence_gate + motor_hum_max) / 2.0
     
     # 3. MUSIC TO RUNOUT (Auto-detect transition)
     trans_data = load_wav(FILES["transition"])
     trans_rms = chunked_rms(trans_data)
     
-    # Find the massive drop in RMS to detect music end
     diffs = np.diff(trans_rms)
-    drop_idx = np.argmin(diffs) # Largest negative change
+    drop_idx = np.argmin(diffs)
     drop_time = (drop_idx * 4096) / RATE
     print(f"📉 Music fade-out auto-detected at {drop_time:.1f} seconds.", flush=True)
     
     music_data = trans_data[:int(drop_idx * 4096)]
     music_rms_arr = chunked_music_rms(music_data)
-    min_music_rms = np.percentile(music_rms_arr, 5) # 5th percentile to allow quiet parts
+    min_music_rms = np.percentile(music_rms_arr, 5)
     
-    # Return thresholds mapping to our standard JSON keys
     thresholds = {
         "SILENCE_GATE_RMS": round(float(silence_gate), 5),
         "motor_power_threshold": round(float(motor_threshold), 5),
@@ -197,7 +262,6 @@ def analyze_files():
         "music_threshold": round(float(min_music_rms), 5),
         "is_silent_hw": False
     }
-    
     return thresholds
 
 def run_simulation_loop(thresholds):
@@ -243,52 +307,35 @@ def run_calibration():
         use_existing = True
             
     if not use_existing:
-        gain_staging()
+        final_mic_vol = gain_staging()
         print("\n" + "="*50, flush=True)
         print("🎙️  RECORDING SEQUENTIAL CALIBRATION CHAIN", flush=True)
         print("="*50, flush=True)
         
-        # File 1
         record_file(FILES["floor"], 30, 
-            "[FILE 1/6: THE BASELINE]\n"
-            "🔌 Ensure turntable is completely OFF.\n"
-            "🤫 Remain quiet for 30 seconds.")
+            "[FILE 1/6: THE BASELINE]\n🔌 Ensure turntable is completely OFF.\n🤫 Remain quiet for 30 seconds.")
         
-        # File 2
         record_file(FILES["spinup"], 30, 
-            "[FILE 2/6: THE MOTOR HUM]\n"
-            "🟢 When recording starts, turn turntable power ON.\n"
-            "⚙️  Wait 30 seconds for the motor hum.")
+            "[FILE 2/6: THE MOTOR HUM]\n🟢 When recording starts, turn turntable power ON.\n⚙️  Wait 30 seconds for the motor hum.")
         
-        # File 3
         record_file(FILES["transition"], 70, 
-            "[FILE 3/6: THE MASTER TRANSITION]\n"
-            "🎶 Drop needle ~30 secs before a song ends.\n"
-            "〰️  Let it play, end, and fade naturally into the runout groove.")
+            "[FILE 3/6: THE MASTER TRANSITION]\n🎶 Drop needle ~30 secs before a song ends.\n〰️  Let it play, end, and fade naturally into the runout groove.")
         
-        # File 4
         record_file(FILES["lift"], 30, 
-            "[FILE 4/6: THE PHYSICAL THUMP]\n"
-            "⬆️  When recording starts, LIFT the tonearm using the cue lever.\n"
-            "⚙️  Leave the turntable motor ON and spinning.")
+            "[FILE 4/6: THE PHYSICAL THUMP]\n⬆️  When recording starts, LIFT the tonearm using the cue lever.\n⚙️  Leave the turntable motor ON and spinning.")
         
-        # File 5
         record_file(FILES["powerdown"], 30, 
-            "[FILE 5/6: THE ELECTRICAL POP]\n"
-            "🔴 When recording starts, turn the turntable power OFF.\n"
-            "🔌 Let the motor spin down.")
+            "[FILE 5/6: THE ELECTRICAL POP]\n🔴 When recording starts, turn the turntable power OFF.\n🔌 Let the motor spin down.")
         
-        # File 6
         record_file(FILES["disturbance"], 30, 
-            "[FILE 6/6: THE FALSE POSITIVE CHECK]\n"
-            "🗣️  Ensure turntable is OFF.\n"
-            "🖐️  Talk loudly and tap the cabinet for 30 seconds to simulate room noise.")
+            "[FILE 6/6: THE FALSE POSITIVE CHECK]\n🗣️  Ensure turntable is OFF.\n🖐️  Talk loudly and tap the cabinet for 30 seconds to simulate room noise.")
 
-    # Process Data
     initial_thresholds = analyze_files()
+    if not use_existing:
+        initial_thresholds["MIC_VOLUME"] = final_mic_vol
+        
     final_thresholds = run_simulation_loop(initial_thresholds)
     
-    # Save Config to both known locations to ensure main script grabs it
     with open(AUTO_CALIB_FILE, 'w') as f:
         json.dump(final_thresholds, f, indent=4)
         
@@ -303,7 +350,6 @@ def run_calibration():
     print("="*50, flush=True)
     print("\n🔄 Please disable CALIBRATION_MODE in your config and restart the Add-on.", flush=True)
     
-    # Exit gracefully to prevent the add-on from continuing into the main loop
     sys.exit(0)
 
 if __name__ == "__main__":
