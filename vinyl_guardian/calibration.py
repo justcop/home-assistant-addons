@@ -30,6 +30,15 @@ if os.path.exists(OPTIONS_FILE):
 # --- CONFIGURATION ---
 FORMAT = alsaaudio.PCM_FORMAT_S16_LE
 CALIB_DIR = os.path.join(SHARE_DIR, "calibration_data")
+REPORT_FILE = os.path.join(SHARE_DIR, "calibration_report.txt")
+
+# Global report list for file output
+report_log = []
+
+def print_log(msg):
+    """Prints to console and saves to the report log"""
+    print(msg, flush=True)
+    report_log.append(msg)
 
 # --- NATIVE MATH UTILITIES ---
 def reject_outliers_mad(data, threshold=3.5):
@@ -145,33 +154,33 @@ def record_dynamic_transition(filename):
     for i in range(360):
         chunk_b, audio = record_chunk(1.0)
         raw_bytes.extend(chunk_b)
-        rms = get_rms(audio)
+        # Isolate music frequencies so rumble doesn't confuse it
+        m_rms = get_music_rms(audio)
         
         if i < 15:
-            max_music_rms = max(max_music_rms, rms)
+            max_music_rms = max(max_music_rms, m_rms)
             continue
             
-        threshold = max(max_music_rms * 0.25, 0.005) 
-        if rms < threshold:
+        # Lowered to 15% to survive quiet acoustic sections
+        threshold = max(max_music_rms * 0.15, 0.002) 
+        if m_rms < threshold:
             consecutive_low += 1
         else:
             consecutive_low = 0
-            max_music_rms = max(max_music_rms, rms) 
+            max_music_rms = max(max_music_rms, m_rms) 
             
-        if consecutive_low >= 5: 
-            print(f"📉 MUSIC DROP-OFF DETECTED! (Silence hit at {i+10}s)", flush=True)
+        # Wait for 12 solid seconds of quiet to be completely sure the track ended
+        if consecutive_low >= 12: 
+            print(f"📉 MUSIC DROP-OFF DETECTED! (Track ended ~12s ago)", flush=True)
             music_ended = True
             break
             
     if not music_ended:
         print("⚠️ Fail-safe reached. Max 6 minutes recorded without detecting end of song.", flush=True)
         
-    print("⏳ TRANSIT PHASE (20s): Waiting for needle to firmly reach runout groove...", flush=True)
-    chunk_b, _ = record_chunk(20.0)
-    raw_bytes.extend(chunk_b)
-    
-    print("⏺️ STEADY STATE (20s): Capturing pure runout rumble and surface noise...", flush=True)
-    chunk_b, _ = record_chunk(20.0)
+    # We already recorded 12s of quiet/runout. We only need 15s more to get a great sample.
+    print("⏺️ STEADY STATE (15s): Capturing remaining pure runout rumble...", flush=True)
+    chunk_b, _ = record_chunk(15.0)
     raw_bytes.extend(chunk_b)
     
     with wave.open(filename, 'wb') as wf:
@@ -248,14 +257,21 @@ def simulate_timeline(data, thresholds, initial_state):
         
         is_pop = c >= 3.5
         
-        if r < thresholds["SILENCE_GATE_RMS"]:
-            s = "OFF"
-        elif m >= thresholds["music_threshold"] and not is_pop:
-            s = "MUSIC"
-        elif r >= thresholds["motor_power_threshold"]:
-            s = "IDLE"
+        # State Machine perfectly matching Vinyl Guardian logic
+        if thresholds["is_silent_hw"]:
+            if m >= thresholds["music_threshold"] and not is_pop:
+                s = "MUSIC"
+            else:
+                s = "OFF"
         else:
-            s = "OFF"
+            if r < thresholds["SILENCE_GATE_RMS"]:
+                s = "OFF"
+            elif m >= thresholds["music_threshold"] and not is_pop:
+                s = "MUSIC"
+            elif r >= thresholds["motor_power_threshold"]:
+                s = "IDLE"
+            else:
+                s = "OFF"
             
         state_history.append(s)
         state_history.pop(0)
@@ -270,9 +286,9 @@ def simulate_timeline(data, thresholds, initial_state):
     return transitions, current_state
 
 def analyze_and_simulate(files):
-    print("\n" + "="*50, flush=True)
-    print("🧠 CALCULATING HARDWARE THRESHOLDS", flush=True)
-    print("="*50, flush=True)
+    print_log("\n" + "="*50)
+    print_log("🧠 CALCULATING HARDWARE THRESHOLDS")
+    print_log("="*50)
     
     floor_1_data = load_wav(files["floor"])
     powerdown_data = load_wav(files["powerdown"])
@@ -284,166 +300,145 @@ def analyze_and_simulate(files):
     combined_idle = np.concatenate((chunked_rms(spinup_data[20*RATE:]), chunked_rms(lift_data[15*RATE:])))
     motor_hum_median = np.median(reject_outliers_mad(combined_idle))
     
-    # ---------------------------------------------------------
-    # --- HEAVY DEBUGGING BLOCK FOR FILE 3 (MASTER TRANSITION) ---
-    # ---------------------------------------------------------
     trans_data = load_wav(files["transition"])
     trans_duration = len(trans_data) / RATE
-    print(f"   [DEBUG] File 3 Total Duration: {trans_duration:.2f} seconds", flush=True)
+    print_log(f"   [DATA] File 3 Total Duration: {trans_duration:.2f} seconds")
     
-    print("📉 Scanning transition file for drop-off (ignoring first 25s needle drop)...", flush=True)
+    print_log("📉 Scanning transition file for drop-off (ignoring first 25s needle drop)...")
     search_start = 25 * RATE
     search_data = trans_data[search_start:]
-    print(f"   [DEBUG] Search Window Size: {len(search_data) / RATE:.2f} seconds", flush=True)
     
     if len(search_data) > 8192:
         trans_rms = chunked_rms(search_data, chunk_size=8192)
         diffs = np.diff(trans_rms)
-        
         if len(diffs) > 0:
             local_drop_idx = np.argmin(diffs)
             drop_time_sec = 25.0 + ((local_drop_idx * 8192) / RATE)
         else:
-            print("   [DEBUG] ⚠️ Diff array empty! Hard fallback triggered.", flush=True)
             drop_time_sec = 25.0
     else:
-        print("   [DEBUG] ⚠️ Search data too small to analyze! Hard fallback triggered.", flush=True)
-        drop_time_sec = max(25.0, trans_duration - 40)
+        drop_time_sec = max(25.0, trans_duration - 25)
         
-    print(f"   [DEBUG] Drop-time calculated at: {drop_time_sec:.2f}s", flush=True)
+    print_log(f"   [DATA] True music end calculated at: {drop_time_sec:.2f}s")
     
-    # Runout Extraction Logic
-    runout_start = int((drop_time_sec + 20) * RATE)
-    runout_end = int((drop_time_sec + 40) * RATE)
-    
-    if runout_start >= len(trans_data): 
-        print("   [DEBUG] ⚠️ Runout start exceeded file length! Adjusting...", flush=True)
-        runout_start = max(0, len(trans_data) - 20*RATE)
-        
-    if runout_end > len(trans_data): 
-        runout_end = len(trans_data)
-        
+    # Safely extract Runout Data
+    runout_start = int((drop_time_sec + 5) * RATE)
+    runout_end = len(trans_data)
     runout_data = trans_data[runout_start:runout_end]
-    print(f"   [DEBUG] Extracted Runout Data from {runout_start/RATE:.1f}s to {runout_end/RATE:.1f}s", flush=True)
+    if len(runout_data) == 0: runout_data = trans_data[-8192:] 
     
-    if len(runout_data) == 0: 
-        print("   [DEBUG] ⚠️ Runout data empty! Using last chunk of file.", flush=True)
-        runout_data = trans_data[-8192:] 
-    
-    # Music Extraction Logic
+    # Safely extract Music Data
     music_start = 25 * RATE
     music_end = int(drop_time_sec * RATE)
-    
-    if music_end <= music_start: 
-        print("   [DEBUG] ⚠️ music_end was <= music_start. Forcing a 5-second slice...", flush=True)
-        music_end = min(len(trans_data), music_start + 5*RATE)
-    
+    if music_end <= music_start: music_end = min(len(trans_data), music_start + 5*RATE)
     music_data = trans_data[music_start:music_end]
-    print(f"   [DEBUG] Extracted Music Data from {music_start/RATE:.1f}s to {music_end/RATE:.1f}s", flush=True)
     
-    # Robust Math Execution
     music_rms_arr = chunked_music_rms(music_data)
-    print(f"   [DEBUG] Music array chunks mapped: {len(music_rms_arr)}", flush=True)
-    
-    if len(music_rms_arr) > 0:
-        music_min = float(np.percentile(music_rms_arr, 5))
-    else:
-        print("   [DEBUG] 🚨 FATAL: music_rms_arr is empty. Using hardcoded safe default (0.005).", flush=True)
-        music_min = 0.005
+    music_min = float(np.percentile(music_rms_arr, 5)) if len(music_rms_arr) > 0 else 0.005
     
     runout_rms_arr = chunked_rms(runout_data)
-    print(f"   [DEBUG] Runout array chunks mapped: {len(runout_rms_arr)}", flush=True)
-    
-    if len(runout_rms_arr) > 0:
-        runout_rumble_max = float(np.max(reject_outliers_mad(runout_rms_arr)))
-    else:
-        print("   [DEBUG] 🚨 FATAL: runout_rms_arr is empty. Using hardcoded safe default (0.015).", flush=True)
-        runout_rumble_max = 0.015
+    runout_rumble_max = float(np.max(reject_outliers_mad(runout_rms_arr))) if len(runout_rms_arr) > 0 else 0.015
     
     disturb_data = load_wav(files["disturbance"])
     disturb_rms_arr = chunked_music_rms(disturb_data)
-    if len(disturb_rms_arr) > 0:
-        disturb_music_rms = float(np.max(disturb_rms_arr))
-    else:
-        disturb_music_rms = 0.0
-    # ---------------------------------------------------------
+    disturb_music_rms = float(np.max(disturb_rms_arr)) if len(disturb_rms_arr) > 0 else 0.0
 
-    # Initial Threshold Guesses
+    # Intelligent Hardware Profiling
+    silence_gate = float(baseline_noise_max * 1.15)
+    if motor_hum_median <= baseline_noise_max * 1.3:
+        is_silent_hw = True
+        motor_power_threshold = float(silence_gate * 1.5) # Force it high out of the way
+        print_log("   [INFO] 🔕 Hardware is extremely quiet. Enabling Silent Hardware Mode.")
+    else:
+        is_silent_hw = False
+        motor_power_threshold = float((baseline_noise_max * 1.15 + motor_hum_median) / 2.0)
+
     thresholds = {
-        "SILENCE_GATE_RMS": round(float(baseline_noise_max * 1.15), 5),
-        "motor_power_threshold": round(float((baseline_noise_max * 1.15 + motor_hum_median) / 2.0), 5),
+        "SILENCE_GATE_RMS": round(silence_gate, 5),
+        "motor_power_threshold": round(motor_power_threshold, 5),
         "motor_power_ceiling": round(float(runout_rumble_max * 1.3), 5),
         "music_threshold": round(float(music_min * 0.85), 5),
-        "is_silent_hw": False
+        "is_silent_hw": is_silent_hw
     }
 
     # Simulation & Nudging Loop
-    print("\n🧪 STARTING SIMULATION & PERTURBATION ENGINE", flush=True)
+    print_log("\n🧪 STARTING SIMULATION & PERTURBATION ENGINE")
     for attempt in range(5):
-        print(f"\n--- Internal Simulation Pass {attempt + 1} ---", flush=True)
+        print_log(f"\n--- Internal Simulation Pass {attempt + 1} ---")
         all_passed = True
         
         _, end1 = simulate_timeline(floor_1_data, thresholds, "OFF")
         if end1 != "OFF":
-            print("   ⚠️ File 1 failed to hold OFF. Raising Silence Gate.", flush=True)
+            print_log("   ⚠️ File 1 failed to hold OFF. Raising Silence Gate.")
             thresholds["SILENCE_GATE_RMS"] *= 1.10
             all_passed = False
 
-        _, end2 = simulate_timeline(spinup_data, thresholds, "OFF")
-        if end2 != "IDLE":
-            print("   ⚠️ File 2 failed to catch Motor Hum. Lowering Motor Threshold.", flush=True)
-            thresholds["motor_power_threshold"] *= 0.90
-            all_passed = False
+        if not thresholds["is_silent_hw"]:
+            _, end2 = simulate_timeline(spinup_data, thresholds, "OFF")
+            if end2 != "IDLE":
+                new_motor = thresholds["motor_power_threshold"] * 0.90
+                # Clamp check to prevent the "below silence gate" trap
+                if new_motor <= thresholds["SILENCE_GATE_RMS"] * 1.05:
+                    print_log("   ⚠️ Motor hum hit noise floor limit. Engaging Silent Hardware Mode.")
+                    thresholds["is_silent_hw"] = True
+                else:
+                    print_log("   ⚠️ File 2 failed to catch Motor Hum. Lowering Motor Threshold.")
+                    thresholds["motor_power_threshold"] = new_motor
+                all_passed = False
 
         trans3, end3 = simulate_timeline(trans_data, thresholds, "IDLE")
         if not any("MUSIC" in t for t in trans3):
-            print("   ⚠️ File 3 failed to trigger MUSIC. Lowering Music Threshold.", flush=True)
+            print_log("   ⚠️ File 3 failed to trigger MUSIC. Lowering Music Threshold.")
             thresholds["music_threshold"] *= 0.90
             all_passed = False
-        elif end3 != "IDLE":
-            print("   ⚠️ File 3 failed to return to IDLE in runout. Raising Music Threshold.", flush=True)
+            
+        expected_runout = "OFF" if thresholds["is_silent_hw"] else "IDLE"
+        if end3 != expected_runout:
+            print_log("   ⚠️ File 3 failed to return to Runout state. Raising Music Threshold.")
             thresholds["music_threshold"] *= 1.10
             all_passed = False
             
         trans6, end6 = simulate_timeline(disturb_data, thresholds, "OFF")
         if any("MUSIC" in t for t in trans6):
-            print("   ⚠️ File 6 falsely triggered MUSIC from room noise. Raising Music Threshold.", flush=True)
+            print_log("   ⚠️ File 6 falsely triggered MUSIC from room noise. Raising Music Threshold.")
             thresholds["music_threshold"] *= 1.15
             all_passed = False
 
         if all_passed:
-            print("   ✅ All logic verified. Locking Thresholds.", flush=True)
+            print_log("   ✅ All logic verified. Locking Thresholds.")
             break
 
     # Visual Report Card
-    print("\n" + "="*50, flush=True)
-    print("📜 FINAL TIMELINE VERIFICATION (The Report Card)", flush=True)
-    print("="*50, flush=True)
+    print_log("\n" + "="*50)
+    print_log("📜 FINAL TIMELINE VERIFICATION (The Report Card)")
+    print_log("="*50)
     
-    print("\n[FILE 1: BASELINE] Expected: Stays OFF", flush=True)
+    print_log("\n[FILE 1: BASELINE] Expected: Stays OFF")
     trans, end = simulate_timeline(floor_1_data, thresholds, "OFF")
-    for t in trans: print(t, flush=True)
-    print("   ✅ PASS" if end == "OFF" and len(trans) == 1 else "   ❌ FAIL", flush=True)
+    for t in trans: print_log(t)
+    print_log("   ✅ PASS" if end == "OFF" and len(trans) == 1 else "   ❌ FAIL")
 
-    print("\n[FILE 2: MOTOR HUM] Expected: OFF -> Action Window -> IDLE", flush=True)
+    expected_file2 = "OFF" if thresholds["is_silent_hw"] else "IDLE"
+    print_log(f"\n[FILE 2: MOTOR HUM] Expected: OFF -> Action Window -> {expected_file2}")
     trans, end = simulate_timeline(spinup_data, thresholds, "OFF")
-    for t in trans: print(t, flush=True)
-    print("   ✅ PASS" if end == "IDLE" else "   ❌ FAIL", flush=True)
+    for t in trans: print_log(t)
+    print_log("   ✅ PASS" if end == expected_file2 else "   ❌ FAIL")
 
-    print("\n[FILE 3: MASTER TRANSITION] Expected: IDLE -> Action Window -> MUSIC -> Runout -> IDLE", flush=True)
-    trans, end = simulate_timeline(trans_data, thresholds, "IDLE")
-    for t in trans: print(t, flush=True)
-    print("   ✅ PASS" if "MUSIC" in str(trans) and end == "IDLE" else "   ❌ FAIL", flush=True)
+    expected_file3 = "OFF" if thresholds["is_silent_hw"] else "IDLE"
+    print_log(f"\n[FILE 3: MASTER TRANSITION] Expected: {expected_file3} -> Action Window -> MUSIC -> Runout -> {expected_file3}")
+    trans, end = simulate_timeline(trans_data, thresholds, expected_file3)
+    for t in trans: print_log(t)
+    print_log("   ✅ PASS" if "MUSIC" in str(trans) and end == expected_file3 else "   ❌ FAIL")
     
-    print("\n[FILE 5: POWER DOWN] Expected: IDLE -> Action Window -> OFF", flush=True)
-    trans, end = simulate_timeline(powerdown_data, thresholds, "IDLE")
-    for t in trans: print(t, flush=True)
-    print("   ✅ PASS" if end == "OFF" else "   ❌ FAIL", flush=True)
+    print_log("\n[FILE 5: POWER DOWN] Expected: IDLE -> Action Window -> OFF")
+    trans, end = simulate_timeline(powerdown_data, thresholds, expected_file3)
+    for t in trans: print_log(t)
+    print_log("   ✅ PASS" if end == "OFF" else "   ❌ FAIL")
     
-    print("\n[FILE 6: ROOM NOISE] Expected: Stays OFF (No Music Trigger)", flush=True)
+    print_log("\n[FILE 6: ROOM NOISE] Expected: Stays OFF (No Music Trigger)")
     trans, end = simulate_timeline(disturb_data, thresholds, "OFF")
-    for t in trans: print(t, flush=True)
-    print("   ✅ PASS" if end == "OFF" and not any("MUSIC" in t for t in trans) else "   ❌ FAIL", flush=True)
+    for t in trans: print_log(t)
+    print_log("   ✅ PASS" if end == "OFF" and not any("MUSIC" in t for t in trans) else "   ❌ FAIL")
 
     return thresholds
 
@@ -508,14 +503,19 @@ def run_calibration():
     
     with open(AUTO_CALIB_FILE, 'w') as f: json.dump(thresholds, f, indent=4)
     with open("config.json", 'w') as f: json.dump(thresholds, f, indent=4)
-        
-    print("\n" + "="*50, flush=True)
-    print("🎉 CALIBRATION COMPLETE 🎉", flush=True)
-    print("\n🔒 Final Tuned Logic Map:", flush=True)
-    for key, value in thresholds.items():
-        print(f"   - {key}: {value}", flush=True)
     
-    print("\n🔄 Please disable CALIBRATION_MODE in your config and RESTART the Add-on.", flush=True)
+    # Save Report to Share Folder
+    with open(REPORT_FILE, 'w') as f:
+        f.write("\n".join(report_log))
+        
+    print_log("\n" + "="*50)
+    print_log("🎉 CALIBRATION COMPLETE 🎉")
+    print_log("\n🔒 Final Tuned Logic Map:")
+    for key, value in thresholds.items():
+        print_log(f"   - {key}: {value}")
+    
+    print("\n📄 A copy of this report was saved to: " + REPORT_FILE, flush=True)
+    print("🔄 Please disable CALIBRATION_MODE in your config and RESTART the Add-on.", flush=True)
     print("💤 Calibration engine is now idling indefinitely to prevent restart loops...", flush=True)
     
     while True: time.sleep(3600)
