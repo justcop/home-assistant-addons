@@ -610,8 +610,8 @@ def listen_and_identify():
                             match_count += 1
                             break
                             
-                # Enforcing the Music Requirement for the Rhythm Lock
-                if match_count >= 2 and has_played_music:
+                # Activating Rhythm Lock (Music requirement removed)
+                if match_count >= 2:
                     rhythm_locked = True
                     last_rhythm_time = now
                         
