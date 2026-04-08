@@ -16,7 +16,7 @@ from shazamio import Shazam
 import pylast
 import signal
 
-VERSION = os.environ.get("ADDON_VERSION", "Unknown")
+VERSION = os.environ.get("VERSION", "Unknown")
 
 # --- LOAD CONFIGURATION ---
 try:
