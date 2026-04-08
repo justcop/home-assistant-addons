@@ -1,20 +1,20 @@
 import os
 import time
 import json
+import wave
 import numpy as np
-import sounddevice as sd
-import soundfile as sf
-import librosa
+import alsaaudio
 import warnings
 
-# Suppress librosa warnings for clean output
+# Suppress numpy warnings for clean output
 warnings.filterwarnings('ignore')
 
+# Import settings from your existing config
+from config import SHARE_DIR, AUTO_CALIB_FILE, RATE, CHANNELS, CHUNK
+
 # --- CONFIGURATION ---
-SAMPLE_RATE = 22050
-AUDIO_DEVICE = os.environ.get('AUDIO_DEVICE', 'default')
-CALIB_DIR = "calibration_data"
-CONFIG_FILE = "config.json"
+FORMAT = alsaaudio.PCM_FORMAT_S16_LE
+CALIB_DIR = os.path.join(SHARE_DIR, "calibration_data")
 
 if not os.path.exists(CALIB_DIR):
     os.makedirs(CALIB_DIR)
@@ -28,7 +28,7 @@ FILES = {
     "disturbance": os.path.join(CALIB_DIR, "calib_disturbance.wav")
 }
 
-# --- UTILITY: MAD OUTLIER REJECTION ---
+# --- NATIVE MATH UTILITIES ---
 def reject_outliers_mad(data, threshold=3.5):
     """Removes sudden pops/clicks from stable data using Median Absolute Deviation"""
     if len(data) == 0: return data
@@ -38,12 +38,64 @@ def reject_outliers_mad(data, threshold=3.5):
     modified_z_scores = 0.6745 * (data - med) / mad
     return data[np.abs(modified_z_scores) <= threshold]
 
-# --- RECORDING ENGINE ---
+def get_rms(audio_data):
+    """Calculates Raw RMS using native numpy"""
+    return float(np.sqrt(np.mean(np.square(audio_data))))
+
+def get_music_rms(audio_data):
+    """Calculates Filtered Music RMS using native numpy"""
+    if len(audio_data) <= 1: return 0.0
+    filtered_data = audio_data[1:] - 0.95 * audio_data[:-1]
+    return float(np.sqrt(np.mean(np.square(filtered_data))))
+
+def load_wav(filename):
+    """Loads a wav file into a numpy array"""
+    with wave.open(filename, 'rb') as wf:
+        n_frames = wf.getnframes()
+        audio_bytes = wf.readframes(n_frames)
+        audio_data = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+        # Average to mono if stereo
+        if wf.getnchannels() == 2:
+            audio_data = audio_data.reshape(-1, 2).mean(axis=1)
+        return audio_data
+
+def chunked_rms(data, chunk_size=4096):
+    """Calculates RMS over small blocks of time to find drop-offs"""
+    chunks = len(data) // chunk_size
+    rms_arr = np.zeros(chunks)
+    for i in range(chunks):
+        rms_arr[i] = get_rms(data[i*chunk_size:(i+1)*chunk_size])
+    return rms_arr
+
+def chunked_music_rms(data, chunk_size=4096):
+    chunks = len(data) // chunk_size
+    rms_arr = np.zeros(chunks)
+    for i in range(chunks):
+        rms_arr[i] = get_music_rms(data[i*chunk_size:(i+1)*chunk_size])
+    return rms_arr
+
+# --- ALSA RECORDING ENGINE ---
 def record_chunk(duration):
-    """Records a temporary chunk of audio"""
-    audio = sd.rec(int(duration * SAMPLE_RATE), samplerate=SAMPLE_RATE, channels=1, device=AUDIO_DEVICE)
-    sd.wait()
-    return audio[:, 0]
+    """Records a temporary chunk of audio using the native ALSA engine"""
+    try:
+        inp = alsaaudio.PCM(type=alsaaudio.PCM_CAPTURE, mode=alsaaudio.PCM_NORMAL, device='default', channels=CHANNELS, rate=RATE, format=FORMAT, periodsize=CHUNK)
+    except Exception as e:
+        print(f"🚨 ALSA Error: Could not open microphone -> {e}")
+        return bytearray(), np.array([])
+
+    frames_to_record = int(RATE * duration)
+    frames_recorded = 0
+    raw_audio = bytearray()
+    
+    while frames_recorded < frames_to_record:
+        length, data = inp.read()
+        if length > 0:
+            raw_audio.extend(data)
+            frames_recorded += length
+            
+    inp.close()
+    audio_data = np.frombuffer(raw_audio, dtype=np.int16).astype(np.float32) / 32768.0
+    return raw_audio, audio_data
 
 def record_file(filename, duration, prompt):
     print(f"\n{prompt}")
@@ -51,10 +103,15 @@ def record_file(filename, duration, prompt):
         print(f"⏱️ Starting in {i}...")
         time.sleep(1)
     print("🔴 RECORDING...")
-    audio = record_chunk(duration)
-    sf.write(filename, audio, SAMPLE_RATE)
+    raw_bytes, _ = record_chunk(duration)
+    
+    with wave.open(filename, 'wb') as wf:
+        wf.setnchannels(CHANNELS)
+        wf.setsampwidth(2)
+        wf.setframerate(RATE)
+        wf.writeframes(raw_bytes)
+        
     print(f"✅ Saved to {filename}")
-    return audio
 
 # --- STEP 0: GAIN STAGING ---
 def gain_staging():
@@ -67,8 +124,13 @@ def gain_staging():
     
     while True:
         print("\n🎧 Listening for 3 seconds...")
-        audio = record_chunk(3.0)
-        peak = np.max(np.abs(audio))
+        _, audio_data = record_chunk(3.0)
+        
+        if len(audio_data) == 0:
+            print("🚨 ERROR: No audio received from microphone.")
+            break
+            
+        peak = np.max(np.abs(audio_data))
         
         if peak > 0.85:
             print(f"⚠️ Peak: {peak:.2f} (TOO HIGH - Clipping risk!)")
@@ -93,75 +155,70 @@ def analyze_files():
     print("="*50)
     
     # 1. FLOOR (10s to 30s)
-    floor_data, _ = librosa.load(FILES["floor"], sr=SAMPLE_RATE)
-    floor_stable = floor_data[10*SAMPLE_RATE:30*SAMPLE_RATE]
-    floor_rms_arr = librosa.feature.rms(y=floor_stable, frame_length=4096, hop_length=4096)[0]
+    floor_data = load_wav(FILES["floor"])
+    floor_stable = floor_data[10*RATE:30*RATE]
+    floor_rms_arr = chunked_rms(floor_stable)
     floor_clean = reject_outliers_mad(floor_rms_arr)
     silence_gate = np.max(floor_clean) * 1.10 # Add 10% safety buffer
     
     # 2. MOTOR IDLE (15s to 30s)
-    idle_data, _ = librosa.load(FILES["spinup"], sr=SAMPLE_RATE)
-    idle_stable = idle_data[15*SAMPLE_RATE:30*SAMPLE_RATE]
-    idle_rms_arr = librosa.feature.rms(y=idle_stable, frame_length=4096, hop_length=4096)[0]
+    idle_data = load_wav(FILES["spinup"])
+    idle_stable = idle_data[15*RATE:30*RATE]
+    idle_rms_arr = chunked_rms(idle_stable)
     idle_clean = reject_outliers_mad(idle_rms_arr)
     motor_hum_max = np.max(idle_clean)
     
     # Set Motor Threshold exactly halfway between Silence Gate and Max Motor Hum
     motor_threshold = (silence_gate + motor_hum_max) / 2.0
-    power_off_threshold = silence_gate * 1.2 # Slightly above gate to confirm power
     
     # 3. MUSIC TO RUNOUT (Auto-detect transition)
-    trans_data, _ = librosa.load(FILES["transition"], sr=SAMPLE_RATE)
-    trans_rms = librosa.feature.rms(y=trans_data, frame_length=4096, hop_length=4096)[0]
+    trans_data = load_wav(FILES["transition"])
+    trans_rms = chunked_rms(trans_data)
     
     # Find the massive drop in RMS to detect music end
     diffs = np.diff(trans_rms)
     drop_idx = np.argmin(diffs) # Largest negative change
-    drop_time = (drop_idx * 4096) / SAMPLE_RATE
+    drop_time = (drop_idx * 4096) / RATE
     print(f"📉 Music fade-out auto-detected at {drop_time:.1f} seconds.")
     
     music_data = trans_data[:int(drop_idx * 4096)]
-    runout_data = trans_data[int((drop_idx + 5) * 4096):] # Wait 5 secs after drop
-    
-    music_preemph = librosa.effects.preemphasis(music_data)
-    music_rms_arr = librosa.feature.rms(y=music_preemph, frame_length=4096, hop_length=4096)[0]
+    music_rms_arr = chunked_music_rms(music_data)
     min_music_rms = np.percentile(music_rms_arr, 5) # 5th percentile to allow quiet parts
     
-    # Initial Guess Dictionary
+    # Return thresholds mapping to our standard JSON keys
     thresholds = {
-        "SILENCE_GATE_RMS": round(float(silence_gate), 4),
-        "POWER_OFF_THRESHOLD": round(float(power_off_threshold), 4),
-        "MOTOR_IDLE_THRESHOLD": round(float(motor_threshold), 4),
-        "MIN_MUSIC_RMS": round(float(min_music_rms), 4),
-        "THUMP_REJECTION_HYSTERESIS": 5 # Default seconds to ignore massive spikes
+        "SILENCE_GATE_RMS": round(float(silence_gate), 5),
+        "motor_power_threshold": round(float(motor_threshold), 5),
+        "motor_power_ceiling": round(float(motor_hum_max * 1.5), 5),
+        "music_threshold": round(float(min_music_rms), 5),
+        "is_silent_hw": False
     }
     
-    return thresholds, floor_clean, idle_clean
+    return thresholds
 
 def run_simulation_loop(thresholds):
     print("\n" + "="*50)
     print("🧪 RUNNING PERTURBATION & SIMULATION ENGINE")
     print("="*50)
     
-    passes = True
-    delta = thresholds["MOTOR_IDLE_THRESHOLD"] - thresholds["SILENCE_GATE_RMS"]
+    delta = thresholds["motor_power_threshold"] - thresholds["SILENCE_GATE_RMS"]
     
     print(f"   Silence Gate: {thresholds['SILENCE_GATE_RMS']}")
-    print(f"   Motor Idle:   {thresholds['MOTOR_IDLE_THRESHOLD']}")
-    print(f"   Delta:        {delta:.4f}")
+    print(f"   Motor Idle:   {thresholds['motor_power_threshold']}")
+    print(f"   Delta:        {delta:.5f}")
     
     if delta < 0.002:
         print("\n⚠️ HEALTH WARNING: Fidelity Delta is extremely tight!")
         print("   -> Your setup is an 'Ultra-Silent Setup' (Motor hum is barely audible).")
         print("   -> Action taken: Nudging MOTOR_IDLE_THRESHOLD down to ensure spin-up is caught.")
-        thresholds["MOTOR_IDLE_THRESHOLD"] -= 0.001
-        passes = False
+        thresholds["motor_power_threshold"] -= 0.001
+        thresholds["is_silent_hw"] = True
         
     print("\n✅ Simulation Passed. Thresholds locked.")
     return thresholds
 
 # --- MAIN EXECUTION ---
-def main():
+def run_calibration():
     print(r"""
     __      ___             _    ____                     _ _          
     \ \    / (_)           | |  / __ \                   | (_)         
@@ -222,11 +279,14 @@ def main():
             "🖐️  Talk loudly and tap the cabinet for 30 seconds to simulate room noise.")
 
     # Process Data
-    initial_thresholds, floor_cl, idle_cl = analyze_files()
+    initial_thresholds = analyze_files()
     final_thresholds = run_simulation_loop(initial_thresholds)
     
-    # Save Config
-    with open(CONFIG_FILE, 'w') as f:
+    # Save Config to both known locations to ensure main script grabs it
+    with open(AUTO_CALIB_FILE, 'w') as f:
+        json.dump(final_thresholds, f, indent=4)
+        
+    with open("config.json", 'w') as f:
         json.dump(final_thresholds, f, indent=4)
         
     print("\n" + "="*50)
@@ -238,4 +298,4 @@ def main():
     print("\n🔄 Please restart the Vinyl Guardian Add-on for changes to take effect.")
 
 if __name__ == "__main__":
-    main()
+    run_calibration()
