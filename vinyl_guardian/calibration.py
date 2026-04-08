@@ -91,7 +91,7 @@ def record_chunk(duration):
     try:
         inp = alsaaudio.PCM(type=alsaaudio.PCM_CAPTURE, mode=alsaaudio.PCM_NORMAL, device='default', channels=CHANNELS, rate=RATE, format=FORMAT, periodsize=CHUNK)
     except Exception as e:
-        print(f"🚨 ALSA Error: Could not open microphone -> {e}", flush=True)
+        print_log(f"🚨 ALSA Error: Could not open microphone -> {e}")
         return bytearray(), np.array([])
 
     frames_to_record = int(RATE * duration)
@@ -109,44 +109,44 @@ def record_chunk(duration):
     return raw_audio, audio_data
 
 def record_segmented_file(filename, action_dur, settle_dur, steady_dur, prompt):
-    print(f"\n" + "-"*50, flush=True)
-    print(f"{prompt}", flush=True)
+    print_log(f"\n" + "-"*50)
+    print_log(f"{prompt}")
     
     raw_bytes = bytearray()
     
     if action_dur > 0:
-        print(f"🎬 ACTION WINDOW ({action_dur}s): Perform action NOW!", flush=True)
+        print_log(f"🎬 ACTION WINDOW ({action_dur}s): Perform action NOW!")
         chunk_b, _ = record_chunk(action_dur)
         raw_bytes.extend(chunk_b)
         
     if settle_dur > 0:
-        print(f"⏳ SETTLING ({settle_dur}s): Allowing motor/reverb to stabilize...", flush=True)
+        print_log(f"⏳ SETTLING ({settle_dur}s): Allowing motor/reverb to stabilize...")
         chunk_b, _ = record_chunk(settle_dur)
         raw_bytes.extend(chunk_b)
         
     if steady_dur > 0:
-        print(f"⏹️  STEADY STATE ({steady_dur}s): Capturing stable background...", flush=True)
+        print_log(f"⏹️  STEADY STATE ({steady_dur}s): Capturing stable background...")
         chunk_b, _ = record_chunk(steady_dur)
         raw_bytes.extend(chunk_b)
     
     with wave.open(filename, 'wb') as wf:
         wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(raw_bytes)
         
-    print(f"✅ Saved to {os.path.basename(filename)}", flush=True)
+    print_log(f"✅ Saved to {os.path.basename(filename)}")
     time.sleep(1)
 
 def record_dynamic_transition(filename):
-    print(f"\n" + "-"*50, flush=True)
-    print("[FILE 3/6: THE MASTER TRANSITION]\n🎶 ACTION: Drop needle on the LAST TRACK now.")
-    print("〰️  The system will listen live for the track to end, wait for the runout groove, and capture the rumble.", flush=True)
+    print_log(f"\n" + "-"*50)
+    print_log("[FILE 3/6: THE MASTER TRANSITION]\n🎶 ACTION: Drop needle on the LAST TRACK now.")
+    print_log("〰️  The system will listen live for the track to end, wait for the runout groove, and capture the rumble.")
     
     raw_bytes = bytearray()
     
-    print(f"🎬 ACTION WINDOW (25s): Drop the needle NOW!", flush=True)
+    print_log(f"🎬 ACTION WINDOW (25s): Drop the needle NOW!")
     chunk_b, _ = record_chunk(25.0)
     raw_bytes.extend(chunk_b)
     
-    print("🎵 MUSIC PHASE: Listening for the track to naturally end...", flush=True)
+    print_log("🎵 MUSIC PHASE: Listening for the track to naturally end...")
     max_music_rms = 0.0
     consecutive_low = 0
     music_ended = False
@@ -154,14 +154,13 @@ def record_dynamic_transition(filename):
     for i in range(360):
         chunk_b, audio = record_chunk(1.0)
         raw_bytes.extend(chunk_b)
-        # Isolate music frequencies so rumble doesn't confuse it
+        
         m_rms = get_music_rms(audio)
         
         if i < 15:
             max_music_rms = max(max_music_rms, m_rms)
             continue
             
-        # Lowered to 15% to survive quiet acoustic sections
         threshold = max(max_music_rms * 0.15, 0.002) 
         if m_rms < threshold:
             consecutive_low += 1
@@ -169,24 +168,22 @@ def record_dynamic_transition(filename):
             consecutive_low = 0
             max_music_rms = max(max_music_rms, m_rms) 
             
-        # Wait for 12 solid seconds of quiet to be completely sure the track ended
         if consecutive_low >= 12: 
-            print(f"📉 MUSIC DROP-OFF DETECTED! (Track ended ~12s ago)", flush=True)
+            print_log(f"📉 MUSIC DROP-OFF DETECTED! (Track ended ~12s ago)")
             music_ended = True
             break
             
     if not music_ended:
-        print("⚠️ Fail-safe reached. Max 6 minutes recorded without detecting end of song.", flush=True)
+        print_log("⚠️ Fail-safe reached. Max 6 minutes recorded without detecting end of song.")
         
-    # We already recorded 12s of quiet/runout. We only need 15s more to get a great sample.
-    print("⏺️ STEADY STATE (15s): Capturing remaining pure runout rumble...", flush=True)
+    print_log("⏺️ STEADY STATE (15s): Capturing remaining pure runout rumble...")
     chunk_b, _ = record_chunk(15.0)
     raw_bytes.extend(chunk_b)
     
     with wave.open(filename, 'wb') as wf:
         wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(raw_bytes)
         
-    print(f"✅ Saved dynamic transition to {os.path.basename(filename)}", flush=True)
+    print_log(f"✅ Saved dynamic transition to {os.path.basename(filename)}")
     time.sleep(1)
 
 # --- STEP 0: AUTOMATED GAIN STAGING ---
@@ -195,11 +192,11 @@ def set_mic_volume(vol_pct):
     except: pass
 
 def gain_staging():
-    print("\n" + "="*50, flush=True)
-    print("🎚️  STEP 0: AUTO-CALIBRATING SOFTWARE VOLUME", flush=True)
-    print("="*50, flush=True)
-    print("🔊 ACTION: Find the LOUDEST record you own and drop the needle NOW.", flush=True)
-    print("   Searching for 1% precision sweet spot...", flush=True)
+    print_log("\n" + "="*50)
+    print_log("🎚️  STEP 0: AUTO-CALIBRATING SOFTWARE VOLUME")
+    print_log("="*50)
+    print_log("🔊 ACTION: Find the LOUDEST record you own and drop the needle NOW.")
+    print_log("   Searching for 1% precision sweet spot...")
     
     current_vol = 50
     step = 16 
@@ -218,47 +215,89 @@ def gain_staging():
             last_direction = -1
             current_vol = max(1, current_vol - step)
             set_mic_volume(current_vol)
-            print(f"   Peak {peak:.2f} (Hot) -> Vol: {current_vol}%", flush=True)
+            print_log(f"   Peak {peak:.2f} (Hot) -> Vol: {current_vol}%")
         elif peak < 0.50:
             if last_direction == -1: step = max(1, step // 2)
             last_direction = 1
             current_vol = min(100, current_vol + step)
             set_mic_volume(current_vol)
-            print(f"   Peak {peak:.2f} (Low) -> Vol: {current_vol}%", flush=True)
+            print_log(f"   Peak {peak:.2f} (Low) -> Vol: {current_vol}%")
         else:
-            print(f"   Peak {peak:.2f} (Testing...) -> Verifying {current_vol}% for 10s...", flush=True)
+            print_log(f"   Peak {peak:.2f} (Testing...) -> Verifying {current_vol}% for 10s...")
             _, v_data = record_chunk(10.0)
             v_peak = np.max(np.abs(v_data))
             if v_peak > 0.85:
                 current_vol -= 1
                 set_mic_volume(current_vol)
                 continue
-            print(f"✅ VOLUME LOCKED at {current_vol}%", flush=True)
+            print_log(f"✅ VOLUME LOCKED at {current_vol}%")
             break
             
-    print("\n⏹️  ACTION: Stop the record and turn the turntable OFF completely.", flush=True)
+    print_log("\n⏹️  ACTION: Stop the record and turn the turntable OFF completely.")
     time.sleep(5)
     return current_vol
 
 # --- SIMULATION & TIMELINE ENGINE ---
+def find_rhythmic_pulse(data, start_sec):
+    chunk_size = 4096 
+    chunks = len(data) // chunk_size
+    pop_history = []
+    
+    for i in range(chunks):
+        chunk = data[i*chunk_size : (i+1)*chunk_size]
+        c = get_crest_factor(chunk)
+        time_sec = (i * chunk_size) / RATE
+        
+        if c >= 3.5:
+            for pt in reversed(pop_history[-10:]):
+                diff = time_sec - pt
+                if (1.65 <= diff <= 1.95) or (1.20 <= diff <= 1.45):
+                    return start_sec + time_sec
+            pop_history.append(time_sec)
+    return None
+
 def simulate_timeline(data, thresholds, initial_state):
-    chunk_size = 8192
+    chunk_size = 4096 
     chunks = len(data) // chunk_size
     
     current_state = initial_state
-    state_history = [initial_state] * 4 
+    state_history = [initial_state] * 6 
     transitions = [f"   -> 0.0s : Started {initial_state}"]
+    
+    pop_history = []
+    rhythmic_lock = False
+    last_lock_print = -10.0
     
     for i in range(chunks):
         chunk = data[i*chunk_size : (i+1)*chunk_size]
         r = get_rms(chunk)
         m = get_music_rms(chunk)
         c = get_crest_factor(chunk)
+        time_sec = (i * chunk_size) / RATE
         
         is_pop = c >= 3.5
         
-        # State Machine perfectly matching Vinyl Guardian logic
-        if thresholds["is_silent_hw"]:
+        # 🌟 THE RHYTHMIC RUNOUT ENGINE 🌟
+        if is_pop:
+            for pt in reversed(pop_history[-10:]):
+                diff = time_sec - pt
+                # Look for 33.3 RPM (1.8s pop) or 45 RPM (1.33s pop) timing signatures
+                if (1.65 <= diff <= 1.95) or (1.20 <= diff <= 1.45):
+                    rhythmic_lock = True
+                    if time_sec - last_lock_print > 6.0:
+                        transitions.append(f"   -> {time_sec:.1f}s : 🔄 33/45 RPM Rhythmic Pulse Locked")
+                        last_lock_print = time_sec
+                    break
+            pop_history.append(time_sec)
+            
+        # Drop the runout lock if we don't hear a pulse for 4 seconds
+        if len(pop_history) > 0 and (time_sec - pop_history[-1] > 4.0):
+            rhythmic_lock = False
+            
+        # State Logic Matrix
+        if rhythmic_lock:
+            s = "RUNOUT" # Explicit RUNOUT State mapping!
+        elif thresholds["is_silent_hw"]:
             if m >= thresholds["music_threshold"] and not is_pop:
                 s = "MUSIC"
             else:
@@ -272,14 +311,14 @@ def simulate_timeline(data, thresholds, initial_state):
                 s = "IDLE"
             else:
                 s = "OFF"
-            
+        
         state_history.append(s)
         state_history.pop(0)
         
         latest = state_history[-1]
-        if state_history.count(latest) >= 3:
+        # Require 4 of the last 6 chunks to agree before switching to avoid flutter
+        if state_history.count(latest) >= 4:
             if latest != current_state:
-                time_sec = (i * chunk_size) / RATE
                 transitions.append(f"   -> {time_sec:.1f}s : Switched to {latest}")
                 current_state = latest
                 
@@ -304,8 +343,8 @@ def analyze_and_simulate(files):
     trans_duration = len(trans_data) / RATE
     print_log(f"   [DATA] File 3 Total Duration: {trans_duration:.2f} seconds")
     
-    print_log("📉 Scanning transition file for drop-off (ignoring first 25s needle drop)...")
-    search_start = 25 * RATE
+    print_log("📉 Scanning transition file for drop-off...")
+    search_start = 10 * RATE 
     search_data = trans_data[search_start:]
     
     if len(search_data) > 8192:
@@ -313,28 +352,35 @@ def analyze_and_simulate(files):
         diffs = np.diff(trans_rms)
         if len(diffs) > 0:
             local_drop_idx = np.argmin(diffs)
-            drop_time_sec = 25.0 + ((local_drop_idx * 8192) / RATE)
+            drop_time_sec = 10.0 + ((local_drop_idx * 8192) / RATE)
         else:
-            drop_time_sec = 25.0
+            drop_time_sec = trans_duration - 15.0
     else:
-        drop_time_sec = max(25.0, trans_duration - 25)
+        drop_time_sec = max(10.0, trans_duration - 15)
         
     print_log(f"   [DATA] True music end calculated at: {drop_time_sec:.2f}s")
     
-    # Safely extract Runout Data
-    runout_start = int((drop_time_sec + 5) * RATE)
-    runout_end = len(trans_data)
-    runout_data = trans_data[runout_start:runout_end]
+    pulse_start_time = find_rhythmic_pulse(trans_data[int(drop_time_sec * RATE):], drop_time_sec)
+    
+    if pulse_start_time:
+        print_log(f"   [DATA] 🎯 Confirmed rhythmic 33/45 RPM pulsing begins at: {pulse_start_time:.2f}s")
+        runout_start = int(pulse_start_time * RATE)
+    else:
+        print_log(f"   [DATA] ⚠️ Could not find exact runout pulse. Using default 5s buffer.")
+        runout_start = int((drop_time_sec + 5) * RATE)
+        
+    runout_data = trans_data[runout_start:]
     if len(runout_data) == 0: runout_data = trans_data[-8192:] 
     
-    # Safely extract Music Data
-    music_start = 25 * RATE
-    music_end = int(drop_time_sec * RATE)
-    if music_end <= music_start: music_end = min(len(trans_data), music_start + 5*RATE)
-    music_data = trans_data[music_start:music_end]
+    raw_music_chunk = trans_data[:int(drop_time_sec * RATE)]
+    raw_music_rms_arr = chunked_music_rms(raw_music_chunk)
+    valid_music_rms_arr = raw_music_rms_arr[raw_music_rms_arr > (baseline_noise_max * 2.0)]
     
-    music_rms_arr = chunked_music_rms(music_data)
-    music_min = float(np.percentile(music_rms_arr, 5)) if len(music_rms_arr) > 0 else 0.005
+    if len(valid_music_rms_arr) > 0:
+        music_min = float(np.percentile(valid_music_rms_arr, 5))
+    else:
+        print_log("   [DEBUG] 🚨 Warning: No valid music found above noise floor. Fallback used.")
+        music_min = 0.005
     
     runout_rms_arr = chunked_rms(runout_data)
     runout_rumble_max = float(np.max(reject_outliers_mad(runout_rms_arr))) if len(runout_rms_arr) > 0 else 0.015
@@ -345,9 +391,9 @@ def analyze_and_simulate(files):
 
     # Intelligent Hardware Profiling
     silence_gate = float(baseline_noise_max * 1.15)
-    if motor_hum_median <= baseline_noise_max * 1.3:
+    if motor_hum_median <= baseline_noise_max * 1.4:
         is_silent_hw = True
-        motor_power_threshold = float(silence_gate * 1.5) # Force it high out of the way
+        motor_power_threshold = float(silence_gate * 1.5) 
         print_log("   [INFO] 🔕 Hardware is extremely quiet. Enabling Silent Hardware Mode.")
     else:
         is_silent_hw = False
@@ -363,7 +409,7 @@ def analyze_and_simulate(files):
 
     # Simulation & Nudging Loop
     print_log("\n🧪 STARTING SIMULATION & PERTURBATION ENGINE")
-    for attempt in range(5):
+    for attempt in range(6):
         print_log(f"\n--- Internal Simulation Pass {attempt + 1} ---")
         all_passed = True
         
@@ -377,7 +423,6 @@ def analyze_and_simulate(files):
             _, end2 = simulate_timeline(spinup_data, thresholds, "OFF")
             if end2 != "IDLE":
                 new_motor = thresholds["motor_power_threshold"] * 0.90
-                # Clamp check to prevent the "below silence gate" trap
                 if new_motor <= thresholds["SILENCE_GATE_RMS"] * 1.05:
                     print_log("   ⚠️ Motor hum hit noise floor limit. Engaging Silent Hardware Mode.")
                     thresholds["is_silent_hw"] = True
@@ -386,16 +431,20 @@ def analyze_and_simulate(files):
                     thresholds["motor_power_threshold"] = new_motor
                 all_passed = False
 
-        trans3, end3 = simulate_timeline(trans_data, thresholds, "IDLE")
+        expected_file3_start = "OFF" if thresholds["is_silent_hw"] else "IDLE"
+        trans3, end3 = simulate_timeline(trans_data, thresholds, expected_file3_start)
+        
         if not any("MUSIC" in t for t in trans3):
-            print_log("   ⚠️ File 3 failed to trigger MUSIC. Lowering Music Threshold.")
-            thresholds["music_threshold"] *= 0.90
+            print_log("   ⚠️ File 3 failed to trigger MUSIC at all. Lowering Music Threshold.")
+            thresholds["music_threshold"] *= 0.85
             all_passed = False
-            
-        expected_runout = "OFF" if thresholds["is_silent_hw"] else "IDLE"
-        if end3 != expected_runout:
-            print_log("   ⚠️ File 3 failed to return to Runout state. Raising Music Threshold.")
-            thresholds["music_threshold"] *= 1.10
+        elif len(trans3) > 8:
+            print_log(f"   ⚠️ File 3 state is bouncing! ({len(trans3)} state changes). Lowering Music Threshold to stabilize state.")
+            thresholds["music_threshold"] *= 0.85
+            all_passed = False
+        elif end3 == "MUSIC":
+            print_log("   ⚠️ File 3 failed to exit MUSIC. Raising Music Threshold.")
+            thresholds["music_threshold"] *= 1.15
             all_passed = False
             
         trans6, end6 = simulate_timeline(disturb_data, thresholds, "OFF")
@@ -425,10 +474,10 @@ def analyze_and_simulate(files):
     print_log("   ✅ PASS" if end == expected_file2 else "   ❌ FAIL")
 
     expected_file3 = "OFF" if thresholds["is_silent_hw"] else "IDLE"
-    print_log(f"\n[FILE 3: MASTER TRANSITION] Expected: {expected_file3} -> Action Window -> MUSIC -> Runout -> {expected_file3}")
+    print_log(f"\n[FILE 3: MASTER TRANSITION] Expected: {expected_file3} -> MUSIC -> RUNOUT")
     trans, end = simulate_timeline(trans_data, thresholds, expected_file3)
     for t in trans: print_log(t)
-    print_log("   ✅ PASS" if "MUSIC" in str(trans) and end == expected_file3 else "   ❌ FAIL")
+    print_log("   ✅ PASS" if "MUSIC" in str(trans) and "RUNOUT" in str(trans) and end == "RUNOUT" and len(trans) <= 8 else "   ❌ FAIL")
     
     print_log("\n[FILE 5: POWER DOWN] Expected: IDLE -> Action Window -> OFF")
     trans, end = simulate_timeline(powerdown_data, thresholds, expected_file3)
@@ -465,16 +514,16 @@ def run_calibration():
     }
 
     if not REUSE_CALIB_OPT:
-        print("\n🧹 REUSE_CALIBRATION_AUDIO is OFF. Clearing old data...", flush=True)
+        print_log("\n🧹 REUSE_CALIBRATION_AUDIO is OFF. Clearing old data...")
         if os.path.exists(CALIB_DIR): shutil.rmtree(CALIB_DIR)
         os.makedirs(CALIB_DIR)
         use_existing = False
     else:
         if all(os.path.exists(f) for f in FILES.values()):
-            print("\n📁 REUSE_CALIBRATION_AUDIO is ON. Reusing existing recordings.", flush=True)
+            print_log("\n📁 REUSE_CALIBRATION_AUDIO is ON. Reusing existing recordings.")
             use_existing = True
         else:
-            print("\n⚠️  REUSE_CALIBRATION_AUDIO is ON, but files are missing. Starting fresh recordings...", flush=True)
+            print_log("\n⚠️  REUSE_CALIBRATION_AUDIO is ON, but files are missing. Starting fresh recordings...")
             if not os.path.exists(CALIB_DIR): os.makedirs(CALIB_DIR)
             use_existing = False
             
@@ -504,7 +553,6 @@ def run_calibration():
     with open(AUTO_CALIB_FILE, 'w') as f: json.dump(thresholds, f, indent=4)
     with open("config.json", 'w') as f: json.dump(thresholds, f, indent=4)
     
-    # Save Report to Share Folder
     with open(REPORT_FILE, 'w') as f:
         f.write("\n".join(report_log))
         
