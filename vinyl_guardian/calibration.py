@@ -239,6 +239,7 @@ def gain_staging():
 
 # --- SIMULATION & TIMELINE ENGINE ---
 def find_rhythmic_pulse(data, start_sec, noise_floor):
+    """Initial generous pass just to locate the start of the runout groove."""
     chunk_size = 4096 
     chunks = len(data) // chunk_size
     pop_history = []
@@ -248,14 +249,17 @@ def find_rhythmic_pulse(data, start_sec, noise_floor):
         r = get_rms(chunk)
         max_val = np.max(np.abs(chunk))
         
-        # Absolute validation: Must be louder than 3x the noise floor to filter digital static
-        if r > 0 and (max_val / r >= 4.0) and (max_val > noise_floor * 3.0):
+        # Extremely generous threshold just to find the start point
+        if r > 0 and (max_val / r >= 3.0) and (max_val > noise_floor * 1.5):
             time_sec = (i * chunk_size) / RATE
-            for pt in reversed(pop_history[-10:]):
-                diff = time_sec - pt
+            for pt_time, pt_val in reversed(pop_history[-10:]):
+                diff = time_sec - pt_time
                 if (1.65 <= diff <= 1.95) or (1.20 <= diff <= 1.45):
-                    return start_sec + time_sec
-            pop_history.append(time_sec)
+                    # Check Amplitude Similarity (Must be the SAME physical scratch)
+                    if (pt_val * 0.4) <= max_val <= (pt_val * 2.5):
+                        return start_sec + time_sec
+            # Store tuple of (Time, Amplitude)
+            pop_history.append((time_sec, max_val))
     return None
 
 def simulate_timeline(data, thresholds, initial_state):
@@ -277,11 +281,11 @@ def simulate_timeline(data, thresholds, initial_state):
         max_val = np.max(np.abs(chunk))
         time_sec = (i * chunk_size) / RATE
         
-        # Strict Pop Definition: Crest > 4.0 AND Amplitude > 3x Noise Floor
-        is_pop = (r > 0) and (max_val / r >= 4.0) and (max_val > thresholds["SILENCE_GATE_RMS"] * 3.0)
+        # 🌟 DYNAMIC, FUTURE-PROOF POP DETECTION 🌟
+        is_pop = (r > 0) and (max_val / r >= thresholds["pop_crest_threshold"]) and (max_val >= thresholds["pop_amplitude_threshold"])
         is_music = m >= thresholds["music_threshold"]
         
-        # 🌟 STRICT STATE HIERARCHY 🌟
+        # STRICT STATE HIERARCHY
         if is_music:
             s = "MUSIC"
             pop_history.clear() # Music stops the pop detector so drums don't confuse it
@@ -289,18 +293,22 @@ def simulate_timeline(data, thresholds, initial_state):
         else:
             # Not music. Is it a pop?
             if is_pop:
-                for pt in reversed(pop_history[-10:]):
-                    diff = time_sec - pt
+                for pt_time, pt_val in reversed(pop_history[-10:]):
+                    diff = time_sec - pt_time
+                    # 1. Matches RPM Timing?
                     if (1.65 <= diff <= 1.95) or (1.20 <= diff <= 1.45):
-                        runout_active = True
-                        if time_sec - last_print > 6.0:
-                            transitions.append(f"   -> {time_sec:.1f}s : 🔄 33/45 RPM Rhythmic Pulse Detected")
-                            last_print = time_sec
-                        break
-                pop_history.append(time_sec)
+                        # 2. Matches physical amplitude of previous pop?
+                        if (pt_val * 0.4) <= max_val <= (pt_val * 2.5):
+                            runout_active = True
+                            if time_sec - last_print > 6.0:
+                                transitions.append(f"   -> {time_sec:.1f}s : 🔄 33/45 RPM Rhythmic Pulse Detected")
+                                last_print = time_sec
+                            break
+                # Always append the tuple (Time, Amplitude)
+                pop_history.append((time_sec, max_val))
                 
-            # If no pop is detected for 4.0 seconds (missed 2 rotations), drop the runout lock
-            if len(pop_history) > 0 and (time_sec - pop_history[-1] > 4.0):
+            # If no pop is detected for 4.0 seconds, drop the runout tracking
+            if len(pop_history) > 0 and (time_sec - pop_history[-1][0] > 4.0):
                 runout_active = False 
                 
             # Resolve State
@@ -319,7 +327,7 @@ def simulate_timeline(data, thresholds, initial_state):
         state_history.pop(0)
         
         latest = state_history[-1]
-        # Require 4 of the last 6 chunks to agree (0.54s debounce) to switch states
+        # Require 4 of the last 6 chunks to agree (0.54s debounce)
         if state_history.count(latest) >= 4:
             if latest != current_state:
                 transitions.append(f"   -> {time_sec:.1f}s : Switched to {latest}")
@@ -348,7 +356,6 @@ def analyze_and_simulate(files):
     
     print_log("📉 Scanning transition file for true end of music...")
     
-    # Smarter Music End Calculation (Ignores loud needle drops entirely)
     search_start_idx = int(25 * RATE / 8192) 
     trans_m_rms = chunked_music_rms(trans_data, chunk_size=8192)
     
@@ -380,6 +387,32 @@ def analyze_and_simulate(files):
     runout_data = trans_data[runout_start:]
     if len(runout_data) == 0: runout_data = trans_data[-8192:] 
     
+    # 🌟 NEW DYNAMIC POP EXTRACTION 🌟
+    runout_chunks = len(runout_data) // 4096
+    runout_crests = []
+    runout_amps = []
+    
+    for i in range(runout_chunks):
+        chunk = runout_data[i*4096:(i+1)*4096]
+        r = get_rms(chunk)
+        if r > 0:
+            m_val = np.max(np.abs(chunk))
+            runout_crests.append(m_val / r)
+            runout_amps.append(m_val)
+            
+    if len(runout_crests) > 0:
+        base_crest = np.percentile(runout_crests, 90)
+        pop_crest_threshold = max(3.0, base_crest * 0.70)
+        
+        base_amp = np.percentile(runout_amps, 90)
+        pop_amplitude_threshold = max(baseline_noise_max * 1.5, base_amp * 0.70)
+        print_log(f"   [DATA] 📐 Pop Profile Extracted: Crest={base_crest:.2f} (Threshold: {pop_crest_threshold:.2f})")
+    else:
+        print_log("   [DEBUG] 🚨 Warning: Runout extraction failed. Falling back to default tolerances.")
+        pop_crest_threshold = 3.5
+        pop_amplitude_threshold = baseline_noise_max * 2.0
+    
+    # Extract Music Floor
     raw_music_chunk = trans_data[:int(drop_time_sec * RATE)]
     raw_music_rms_arr = chunked_music_rms(raw_music_chunk)
     valid_music_rms_arr = raw_music_rms_arr[raw_music_rms_arr > (baseline_noise_max * 2.0)]
@@ -387,15 +420,12 @@ def analyze_and_simulate(files):
     if len(valid_music_rms_arr) > 0:
         music_min = float(np.percentile(valid_music_rms_arr, 5))
     else:
-        print_log("   [DEBUG] 🚨 Warning: No valid music found above noise floor. Fallback used.")
         music_min = 0.005
     
     runout_rms_arr = chunked_rms(runout_data)
     runout_rumble_max = float(np.max(reject_outliers_mad(runout_rms_arr))) if len(runout_rms_arr) > 0 else 0.015
     
     disturb_data = load_wav(files["disturbance"])
-    disturb_rms_arr = chunked_music_rms(disturb_data)
-    disturb_music_rms = float(np.max(disturb_rms_arr)) if len(disturb_rms_arr) > 0 else 0.0
 
     # Intelligent Hardware Profiling
     silence_gate = float(baseline_noise_max * 1.15)
@@ -412,6 +442,8 @@ def analyze_and_simulate(files):
         "motor_power_threshold": round(motor_power_threshold, 5),
         "motor_power_ceiling": round(float(runout_rumble_max * 1.3), 5),
         "music_threshold": round(float(music_min * 0.85), 5),
+        "pop_crest_threshold": round(float(pop_crest_threshold), 3),
+        "pop_amplitude_threshold": round(float(pop_amplitude_threshold), 6),
         "is_silent_hw": is_silent_hw
     }
 
@@ -425,6 +457,7 @@ def analyze_and_simulate(files):
         if end1 != "OFF":
             print_log("   ⚠️ File 1 failed to hold OFF. Raising Silence Gate.")
             thresholds["SILENCE_GATE_RMS"] *= 1.10
+            thresholds["pop_amplitude_threshold"] *= 1.10 
             all_passed = False
 
         if not thresholds["is_silent_hw"]:
@@ -459,6 +492,11 @@ def analyze_and_simulate(files):
         if any("MUSIC" in t for t in trans6):
             print_log("   ⚠️ File 6 falsely triggered MUSIC from room noise. Raising Music Threshold.")
             thresholds["music_threshold"] *= 1.15
+            all_passed = False
+        elif any("RUNOUT" in t for t in trans6):
+            print_log("   ⚠️ File 6 falsely triggered RUNOUT pops from room noise. Raising Pop Sensitivity.")
+            thresholds["pop_crest_threshold"] *= 1.10
+            thresholds["pop_amplitude_threshold"] *= 1.15
             all_passed = False
 
         if all_passed:
@@ -497,10 +535,10 @@ def analyze_and_simulate(files):
     for t in trans: print_log(t)
     print_log("   ✅ PASS" if end == "OFF" else "   ❌ FAIL")
     
-    print_log("\n[FILE 6: ROOM NOISE] Expected: Stays OFF (No Music Trigger)")
+    print_log("\n[FILE 6: ROOM NOISE] Expected: Stays OFF (No Runout or Music Triggers)")
     trans, end = simulate_timeline(disturb_data, thresholds, "OFF")
     for t in trans: print_log(t)
-    print_log("   ✅ PASS" if end == "OFF" and not any("MUSIC" in t for t in trans) else "   ❌ FAIL")
+    print_log("   ✅ PASS" if end == "OFF" and not any("MUSIC" in t for t in trans) and not any("RUNOUT" in t for t in trans) else "   ❌ FAIL")
 
     return thresholds
 
