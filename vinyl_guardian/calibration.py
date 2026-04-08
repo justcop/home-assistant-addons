@@ -248,7 +248,8 @@ def find_rhythmic_pulse(data, start_sec, noise_floor):
         r = get_rms(chunk)
         max_val = np.max(np.abs(chunk))
         
-        if r > 0 and (max_val / r >= 3.5) and (max_val > noise_floor * 1.5):
+        # Absolute validation: Must be louder than 3x the noise floor to filter digital static
+        if r > 0 and (max_val / r >= 4.0) and (max_val > noise_floor * 3.0):
             time_sec = (i * chunk_size) / RATE
             for pt in reversed(pop_history[-10:]):
                 diff = time_sec - pt
@@ -276,21 +277,17 @@ def simulate_timeline(data, thresholds, initial_state):
         max_val = np.max(np.abs(chunk))
         time_sec = (i * chunk_size) / RATE
         
-        # Absolute thresholds
-        is_pop = (r > 0) and (max_val / r >= 3.5) and (max_val > thresholds["SILENCE_GATE_RMS"] * 1.5)
-        is_music = (m >= thresholds["music_threshold"]) and not is_pop
-        is_off = (not thresholds["is_silent_hw"]) and (r < thresholds["SILENCE_GATE_RMS"])
+        # Strict Pop Definition: Crest > 4.0 AND Amplitude > 3x Noise Floor
+        is_pop = (r > 0) and (max_val / r >= 4.0) and (max_val > thresholds["SILENCE_GATE_RMS"] * 3.0)
+        is_music = m >= thresholds["music_threshold"]
         
         # 🌟 STRICT STATE HIERARCHY 🌟
-        if is_off:
-            s = "OFF"
-            pop_history.clear() 
-            runout_active = False # Immediately release Runout if absolute silence (needle lifted AND motor off)
-        elif is_music:
+        if is_music:
             s = "MUSIC"
-            pop_history.clear() 
-            runout_active = False # Immediately release Runout if music detected
+            pop_history.clear() # Music stops the pop detector so drums don't confuse it
+            runout_active = False
         else:
+            # Not music. Is it a pop?
             if is_pop:
                 for pt in reversed(pop_history[-10:]):
                     diff = time_sec - pt
@@ -302,16 +299,17 @@ def simulate_timeline(data, thresholds, initial_state):
                         break
                 pop_history.append(time_sec)
                 
-            # If no pop is detected for 4.0 seconds (missed 2 rotations), drop the runout tracking!
-            # This happens exactly when the needle is lifted via cue lever.
+            # If no pop is detected for 4.0 seconds (missed 2 rotations), drop the runout lock
             if len(pop_history) > 0 and (time_sec - pop_history[-1] > 4.0):
                 runout_active = False 
                 
-            # Final resolution
+            # Resolve State
             if runout_active:
                 s = "RUNOUT"
             elif thresholds["is_silent_hw"]:
-                s = "OFF" 
+                s = "OFF" # Motor hum is invisible, default to OFF if no runout groove detected
+            elif r < thresholds["SILENCE_GATE_RMS"]:
+                s = "OFF"
             elif r >= thresholds["motor_power_threshold"]:
                 s = "IDLE"
             else:
@@ -321,7 +319,7 @@ def simulate_timeline(data, thresholds, initial_state):
         state_history.pop(0)
         
         latest = state_history[-1]
-        # Require 4 of the last 6 chunks to agree before switching to avoid flutter
+        # Require 4 of the last 6 chunks to agree (0.54s debounce) to switch states
         if state_history.count(latest) >= 4:
             if latest != current_state:
                 transitions.append(f"   -> {time_sec:.1f}s : Switched to {latest}")
@@ -348,20 +346,25 @@ def analyze_and_simulate(files):
     trans_duration = len(trans_data) / RATE
     print_log(f"   [DATA] File 3 Total Duration: {trans_duration:.2f} seconds")
     
-    print_log("📉 Scanning transition file for drop-off...")
-    search_start = 10 * RATE 
-    search_data = trans_data[search_start:]
+    print_log("📉 Scanning transition file for true end of music...")
     
-    if len(search_data) > 8192:
-        trans_rms = chunked_rms(search_data, chunk_size=8192)
-        diffs = np.diff(trans_rms)
-        if len(diffs) > 0:
-            local_drop_idx = np.argmin(diffs)
-            drop_time_sec = 10.0 + ((local_drop_idx * 8192) / RATE)
+    # Smarter Music End Calculation (Ignores loud needle drops entirely)
+    search_start_idx = int(25 * RATE / 8192) 
+    trans_m_rms = chunked_music_rms(trans_data, chunk_size=8192)
+    
+    if len(trans_m_rms) > search_start_idx:
+        search_arr = trans_m_rms[search_start_idx:]
+        peak_music = np.max(search_arr)
+        threshold = max(peak_music * 0.15, 0.002)
+        
+        active_indices = np.where(search_arr > threshold)[0]
+        if len(active_indices) > 0:
+            last_active = active_indices[-1]
+            drop_time_sec = 25.0 + (last_active * 8192 / RATE)
         else:
-            drop_time_sec = trans_duration - 15.0
+            drop_time_sec = 25.0
     else:
-        drop_time_sec = max(10.0, trans_duration - 15)
+        drop_time_sec = trans_duration - 15.0
         
     print_log(f"   [DATA] True music end calculated at: {drop_time_sec:.2f}s")
     
