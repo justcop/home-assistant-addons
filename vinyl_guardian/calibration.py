@@ -159,34 +159,27 @@ def analyze_files(files):
     print("🧠 ANALYZING THE SEQUENTIAL CHAIN", flush=True)
     print("="*50, flush=True)
     
-    # 1. Floor analysis (10s to end)
     floor_data = load_wav(files["floor"])
     floor_rms = chunked_rms(floor_data[10*RATE:])
     silence_gate = np.max(reject_outliers_mad(floor_rms)) * 1.10
     
-    # 2. Motor Idle analysis (15s to end)
     idle_data = load_wav(files["spinup"])
     idle_rms = chunked_rms(idle_data[15*RATE:])
     motor_hum_max = np.max(reject_outliers_mad(idle_rms))
     motor_threshold = (silence_gate + motor_hum_max) / 2.0
     
-    # 3. Transition Analysis (THE SMART BIT)
     print("📉 Scanning transition file for music-to-runout drop-off...", flush=True)
     trans_data = load_wav(files["transition"])
-    trans_rms = chunked_rms(trans_data, chunk_size=8192) # Larger chunk for smoother diff
+    trans_rms = chunked_rms(trans_data, chunk_size=8192) 
     
     diffs = np.diff(trans_rms)
     drop_idx = np.argmin(diffs)
     drop_time_sec = (drop_idx * 8192) / RATE
     
-    # Sanity Check: If the drop is in the last 45 seconds or first 30, it's likely a bad capture
     if drop_time_sec > (360 - 45):
          print("⚠️ WARNING: No music end detected early enough! Did the track finish?", flush=True)
-         # Fallback to last 30 seconds
          runout_window = trans_data[-30*RATE:]
     else:
-        # We start the Runout Sample 20 seconds AFTER the detected drop (Definitively in the runout)
-        # We take a 20 second sample window
         runout_start = int((drop_time_sec + 20) * RATE)
         runout_end = int((drop_time_sec + 40) * RATE)
         runout_window = trans_data[runout_start:runout_end]
@@ -197,7 +190,6 @@ def analyze_files(files):
     music_rms_arr = chunked_music_rms(music_data)
     min_music_rms = np.percentile(music_rms_arr, 5) 
     
-    # Use the specific Runout Window to define Rumble/Pop ceilings
     runout_rms_arr = chunked_rms(runout_window)
     runout_rumble_max = np.max(reject_outliers_mad(runout_rms_arr))
 
@@ -275,8 +267,12 @@ def run_calibration():
     print("\n" + "="*50, flush=True)
     print("🎉 CALIBRATION COMPLETE 🎉", flush=True)
     print(f"Volume locked at {thresholds.get('MIC_VOLUME', 'Unknown')}%", flush=True)
-    print("🔄 Restart Add-on (Calibration Mode: OFF) to begin tracking.", flush=True)
-    sys.exit(0)
+    print("\n🔄 Please disable CALIBRATION_MODE in your config and RESTART the Add-on.", flush=True)
+    print("💤 Calibration engine is now idling indefinitely to prevent restart loops...", flush=True)
+    
+    # Indefinite sleep to wait for manual restart
+    while True:
+        time.sleep(3600)
 
 if __name__ == "__main__":
     run_calibration()
