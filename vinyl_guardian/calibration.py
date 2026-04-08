@@ -5,6 +5,7 @@ import wave
 import numpy as np
 import alsaaudio
 import warnings
+import sys
 
 # Suppress numpy warnings for clean output
 warnings.filterwarnings('ignore')
@@ -80,7 +81,7 @@ def record_chunk(duration):
     try:
         inp = alsaaudio.PCM(type=alsaaudio.PCM_CAPTURE, mode=alsaaudio.PCM_NORMAL, device='default', channels=CHANNELS, rate=RATE, format=FORMAT, periodsize=CHUNK)
     except Exception as e:
-        print(f"🚨 ALSA Error: Could not open microphone -> {e}")
+        print(f"🚨 ALSA Error: Could not open microphone -> {e}", flush=True)
         return bytearray(), np.array([])
 
     frames_to_record = int(RATE * duration)
@@ -98,11 +99,10 @@ def record_chunk(duration):
     return raw_audio, audio_data
 
 def record_file(filename, duration, prompt):
-    print(f"\n{prompt}")
-    for i in range(3, 0, -1):
-        print(f"⏱️ Starting in {i}...")
-        time.sleep(1)
-    print("🔴 RECORDING...")
+    print(f"\n{prompt}", flush=True)
+    print("⏱️  Waiting 10 seconds before recording...", flush=True)
+    time.sleep(10)
+    print("🔴 RECORDING...", flush=True)
     raw_bytes, _ = record_chunk(duration)
     
     with wave.open(filename, 'wb') as wf:
@@ -111,48 +111,52 @@ def record_file(filename, duration, prompt):
         wf.setframerate(RATE)
         wf.writeframes(raw_bytes)
         
-    print(f"✅ Saved to {filename}")
+    print(f"✅ Saved to {filename}", flush=True)
 
 # --- STEP 0: GAIN STAGING ---
 def gain_staging():
-    print("\n" + "="*50)
-    print("🎚️  STEP 0: PRE-CALIBRATION GAIN STAGING")
-    print("="*50)
-    print("🔊 Please drop the needle onto a LOUD section of a record.")
-    print("   We need to lock in your hardware volume before calibrating.")
-    input("▶️  Press ENTER when music is playing loudly...")
+    print("\n" + "="*50, flush=True)
+    print("🎚️  STEP 0: PRE-CALIBRATION GAIN STAGING", flush=True)
+    print("="*50, flush=True)
+    print("🔊 Please drop the needle onto a LOUD section of a record.", flush=True)
+    print("   We need to lock in your hardware volume before calibrating.", flush=True)
+    print("⏱️  Waiting 15 seconds for you to drop the needle...", flush=True)
+    time.sleep(15)
     
     while True:
-        print("\n🎧 Listening for 3 seconds...")
+        print("\n🎧 Listening for 3 seconds...", flush=True)
         _, audio_data = record_chunk(3.0)
         
         if len(audio_data) == 0:
-            print("🚨 ERROR: No audio received from microphone.")
+            print("🚨 ERROR: No audio received from microphone.", flush=True)
             break
             
         peak = np.max(np.abs(audio_data))
         
         if peak > 0.85:
-            print(f"⚠️ Peak: {peak:.2f} (TOO HIGH - Clipping risk!)")
-            print("👇 Action: Turn DOWN your pre-amp or capture card volume.")
-            input("🔄 Press ENTER to test again...")
+            print(f"⚠️ Peak: {peak:.2f} (TOO HIGH - Clipping risk!)", flush=True)
+            print("👇 Action: Turn DOWN your pre-amp or capture card volume.", flush=True)
+            print("⏱️  Retesting in 10 seconds...", flush=True)
+            time.sleep(10)
         elif peak < 0.45:
-            print(f"⚠️ Peak: {peak:.2f} (TOO LOW - Weak signal!)")
-            print("👆 Action: Turn UP your pre-amp or capture card volume.")
-            input("🔄 Press ENTER to test again...")
+            print(f"⚠️ Peak: {peak:.2f} (TOO LOW - Weak signal!)", flush=True)
+            print("👆 Action: Turn UP your pre-amp or capture card volume.", flush=True)
+            print("⏱️  Retesting in 10 seconds...", flush=True)
+            time.sleep(10)
         else:
-            print(f"✅ Peak: {peak:.2f} (PERFECT!)")
-            print("🔒 Gain stage locked. DO NOT touch the volume dials anymore.")
+            print(f"✅ Peak: {peak:.2f} (PERFECT!)", flush=True)
+            print("🔒 Gain stage locked. DO NOT touch the volume dials anymore.", flush=True)
             break
             
-    print("\n⏹️  Please stop the record and turn the turntable OFF completely.")
-    input("⚙️  Press ENTER to begin the main calibration chain...")
+    print("\n⏹️  Please stop the record and turn the turntable OFF completely.", flush=True)
+    print("⏱️  Waiting 15 seconds to begin main calibration...", flush=True)
+    time.sleep(15)
 
 # --- ANALYSIS & SIMULATION ---
 def analyze_files():
-    print("\n" + "="*50)
-    print("🧠 ANALYZING FILES & EXTRACTING THRESHOLDS")
-    print("="*50)
+    print("\n" + "="*50, flush=True)
+    print("🧠 ANALYZING FILES & EXTRACTING THRESHOLDS", flush=True)
+    print("="*50, flush=True)
     
     # 1. FLOOR (10s to 30s)
     floor_data = load_wav(FILES["floor"])
@@ -179,7 +183,7 @@ def analyze_files():
     diffs = np.diff(trans_rms)
     drop_idx = np.argmin(diffs) # Largest negative change
     drop_time = (drop_idx * 4096) / RATE
-    print(f"📉 Music fade-out auto-detected at {drop_time:.1f} seconds.")
+    print(f"📉 Music fade-out auto-detected at {drop_time:.1f} seconds.", flush=True)
     
     music_data = trans_data[:int(drop_idx * 4096)]
     music_rms_arr = chunked_music_rms(music_data)
@@ -197,24 +201,24 @@ def analyze_files():
     return thresholds
 
 def run_simulation_loop(thresholds):
-    print("\n" + "="*50)
-    print("🧪 RUNNING PERTURBATION & SIMULATION ENGINE")
-    print("="*50)
+    print("\n" + "="*50, flush=True)
+    print("🧪 RUNNING PERTURBATION & SIMULATION ENGINE", flush=True)
+    print("="*50, flush=True)
     
     delta = thresholds["motor_power_threshold"] - thresholds["SILENCE_GATE_RMS"]
     
-    print(f"   Silence Gate: {thresholds['SILENCE_GATE_RMS']}")
-    print(f"   Motor Idle:   {thresholds['motor_power_threshold']}")
-    print(f"   Delta:        {delta:.5f}")
+    print(f"   Silence Gate: {thresholds['SILENCE_GATE_RMS']}", flush=True)
+    print(f"   Motor Idle:   {thresholds['motor_power_threshold']}", flush=True)
+    print(f"   Delta:        {delta:.5f}", flush=True)
     
     if delta < 0.002:
-        print("\n⚠️ HEALTH WARNING: Fidelity Delta is extremely tight!")
-        print("   -> Your setup is an 'Ultra-Silent Setup' (Motor hum is barely audible).")
-        print("   -> Action taken: Nudging MOTOR_IDLE_THRESHOLD down to ensure spin-up is caught.")
+        print("\n⚠️ HEALTH WARNING: Fidelity Delta is extremely tight!", flush=True)
+        print("   -> Your setup is an 'Ultra-Silent Setup' (Motor hum is barely audible).", flush=True)
+        print("   -> Action taken: Nudging MOTOR_IDLE_THRESHOLD down to ensure spin-up is caught.", flush=True)
         thresholds["motor_power_threshold"] -= 0.001
         thresholds["is_silent_hw"] = True
         
-    print("\n✅ Simulation Passed. Thresholds locked.")
+    print("\n✅ Simulation Passed. Thresholds locked.", flush=True)
     return thresholds
 
 # --- MAIN EXECUTION ---
@@ -228,19 +232,21 @@ def run_calibration():
         \/   |_|_| |_|\__, |_|  \____/ \__,_|\__,_|_| |_|__|_|\__,_|_| |_|
                        __/ |                                              
                       |___/   CALIBRATION SUITE v3.0                      
-    """)
+    """, flush=True)
     
     use_existing = False
     if all(os.path.exists(f) for f in FILES.values()):
-        ans = input("📁 Found existing 6-file calibration chain. Reuse it? (y/n): ").lower()
-        if ans == 'y':
-            use_existing = True
+        print("\n📁 Found existing 6-file calibration chain.", flush=True)
+        print("   -> REUSING existing files.", flush=True)
+        print("   -> To record a fresh calibration, delete the 'calibration_data' folder.", flush=True)
+        time.sleep(3)
+        use_existing = True
             
     if not use_existing:
         gain_staging()
-        print("\n" + "="*50)
-        print("🎙️  RECORDING SEQUENTIAL CALIBRATION CHAIN")
-        print("="*50)
+        print("\n" + "="*50, flush=True)
+        print("🎙️  RECORDING SEQUENTIAL CALIBRATION CHAIN", flush=True)
+        print("="*50, flush=True)
         
         # File 1
         record_file(FILES["floor"], 30, 
@@ -289,13 +295,16 @@ def run_calibration():
     with open("config.json", 'w') as f:
         json.dump(final_thresholds, f, indent=4)
         
-    print("\n" + "="*50)
-    print("🎉 CALIBRATION COMPLETE 🎉")
-    print("Saved Configuration:")
+    print("\n" + "="*50, flush=True)
+    print("🎉 CALIBRATION COMPLETE 🎉", flush=True)
+    print("Saved Configuration:", flush=True)
     for k, v in final_thresholds.items():
-        print(f"  {k}: {v}")
-    print("="*50)
-    print("\n🔄 Please restart the Vinyl Guardian Add-on for changes to take effect.")
+        print(f"  {k}: {v}", flush=True)
+    print("="*50, flush=True)
+    print("\n🔄 Please disable CALIBRATION_MODE in your config and restart the Add-on.", flush=True)
+    
+    # Exit gracefully to prevent the add-on from continuing into the main loop
+    sys.exit(0)
 
 if __name__ == "__main__":
     run_calibration()
