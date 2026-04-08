@@ -44,6 +44,8 @@ RUMBLE_THRESHOLD = 0.015
 MOTOR_POWER_THRESHOLD = 0.0045
 MOTOR_POWER_CEILING = 0.0150
 MOTOR_HFER_THRESHOLD = 0.0
+SILENCE_GATE_RMS = 0.003
+POP_AMPLITUDE_THRESHOLD = 0.0
 MIC_VOLUME = 8
 RECORD_SECONDS = config.get("recording_seconds", 10)
 
@@ -89,6 +91,8 @@ if os.path.exists(AUTO_CALIB_FILE):
         DYNAMIC_DEBOUNCE_CHUNKS = auto_cal.get("music_debounce_chunks", DYNAMIC_DEBOUNCE_CHUNKS)
         MOTOR_HFER_THRESHOLD = auto_cal.get("motor_hfer_threshold", MOTOR_HFER_THRESHOLD)
         IS_SILENT_HW = auto_cal.get("is_silent_hw", False)
+        SILENCE_GATE_RMS = auto_cal.get("SILENCE_GATE_RMS", SILENCE_GATE_RMS)
+        POP_AMPLITUDE_THRESHOLD = auto_cal.get("pop_amplitude_threshold", POP_AMPLITUDE_THRESHOLD)
        
         if not CALIBRATION_MODE:
             print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [Vinyl Guardian] 💡 Successfully loaded hardware calibration profile.")
