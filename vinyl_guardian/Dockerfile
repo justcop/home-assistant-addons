@@ -20,7 +20,8 @@ RUN python3 -m pip install --no-cache-dir --break-system-packages numpy paho-mqt
 WORKDIR /usr/src/app
 
 COPY run.sh /usr/src/app/run.sh
-COPY vinyl_guardian.py /usr/src/app/vinyl_guardian.py
+# This tells Docker to grab every .py file in your folder
+COPY *.py /usr/src/app/
 
 RUN chmod a+x /usr/src/app/run.sh
 
