@@ -12,9 +12,13 @@ import sys
 # Suppress numpy warnings for clean output
 warnings.filterwarnings('ignore')
 
-# Import settings from your existing config
-# Ensure REUSE_CALIBRATION_AUDIO is defined in your config.py/options
-from config import SHARE_DIR, AUTO_CALIB_FILE, RATE, CHANNELS, CHUNK, REUSE_CALIBRATION_AUDIO
+# Import standard settings from your existing config
+from config import SHARE_DIR, AUTO_CALIB_FILE, RATE, CHANNELS, CHUNK
+
+# --- HOME ASSISTANT OPTION LOADING ---
+# Home Assistant options from config.yaml are typically available as ENV vars
+# or in /data/options.json. We'll check the environment first.
+REUSE_CALIB_OPT = os.environ.get('REUSE_CALIBRATION_AUDIO', 'false').lower() == 'true'
 
 # --- CONFIGURATION ---
 FORMAT = alsaaudio.PCM_FORMAT_S16_LE
@@ -214,9 +218,9 @@ def run_calibration():
         "disturbance": os.path.join(CALIB_DIR, "calib_disturbance.wav")
     }
 
-    # Handle Reuse Audio Logic
-    if not REUSE_CALIBRATION_AUDIO:
-        print("\n🧹 REUSE_CALIBRATION_AUDIO is OFF. Clearing old data...", flush=True)
+    # Handle Reuse Audio Logic - Using variable from environment check
+    if not REUSE_CALIB_OPT:
+        print("\n🧹 REUSE_CALIBRATION_AUDIO is OFF. Clearing old data and starting fresh...", flush=True)
         if os.path.exists(CALIB_DIR):
             shutil.rmtree(CALIB_DIR)
         os.makedirs(CALIB_DIR)
