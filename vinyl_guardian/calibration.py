@@ -133,8 +133,9 @@ def record_dynamic_transition(filename):
     
     raw_bytes = bytearray()
     
-    print(f"🎬 ACTION WINDOW (10s): Drop the needle NOW!", flush=True)
-    chunk_b, _ = record_chunk(10.0)
+    # Increased Action Window to 25s for precise needle drops
+    print(f"🎬 ACTION WINDOW (25s): Drop the needle NOW!", flush=True)
+    chunk_b, _ = record_chunk(25.0)
     raw_bytes.extend(chunk_b)
     
     print("🎵 MUSIC PHASE: Listening for the track to naturally end...", flush=True)
@@ -196,6 +197,7 @@ def gain_staging():
     step = 16 
     last_direction = 0 
     set_mic_volume(current_vol)
+    
     time.sleep(10) 
     
     while True:
@@ -287,14 +289,28 @@ def analyze_and_simulate(files):
     motor_hum_median = np.median(reject_outliers_mad(combined_idle))
     
     trans_data = load_wav(files["transition"])
-    runout_data = trans_data[-20*RATE:] # Guaranteed by dynamic record
-    music_data = trans_data[10*RATE : -40*RATE]
+    trans_rms = chunked_rms(trans_data, chunk_size=8192)
+    diffs = np.diff(trans_rms)
+    drop_idx = np.argmin(diffs)
+    drop_time_sec = (drop_idx * 8192) / RATE
     
+    if drop_time_sec > (len(trans_data)/RATE - 45):
+         drop_time_sec = (len(trans_data)/RATE - 45) # Fallback slice
+         
+    runout_start = int((drop_time_sec + 20) * RATE)
+    runout_end = int((drop_time_sec + 40) * RATE)
+    runout_data = trans_data[runout_start:runout_end]
+    
+    # Ignore the first 25 seconds (the expanded action window) to ensure we only measure music
+    music_data = trans_data[25*RATE : int(drop_time_sec * RATE)]
     music_rms_arr = chunked_music_rms(music_data)
     music_min = np.percentile(music_rms_arr, 5) 
-    runout_rumble_max = np.max(reject_outliers_mad(chunked_rms(runout_data)))
+    
+    runout_rms_arr = chunked_rms(runout_data)
+    runout_rumble_max = np.max(reject_outliers_mad(runout_rms_arr))
     
     disturb_data = load_wav(files["disturbance"])
+    disturb_music_rms = np.max(chunked_music_rms(disturb_data))
 
     # 2. Initial Threshold Guesses
     thresholds = {
@@ -428,7 +444,7 @@ def run_calibration():
         record_segmented_file(FILES["powerdown"], 10, 10, 15, 
             "[FILE 5/6: THE ELECTRICAL POP]\n🔴 Action: Turn the turntable power OFF.")
         
-        record_segmented_file(FILES["disturbance"], 30, 0, 
+        record_segmented_file(FILES["disturbance"], 0, 0, 30, 
             "[FILE 6/6: ROOM NOISE]\n🗣️  Action: Talk and tap the cabinet for 30s.")
 
     thresholds = analyze_and_simulate(FILES)
