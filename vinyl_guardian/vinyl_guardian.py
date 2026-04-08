@@ -515,7 +515,7 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
                     if t_hfer > 0.0 and hfer > t_hfer:
                         motor_on_cond = False
                 else:
-                    if turntable_on or power_score > 0:
+                    if turntable_on:
                         motor_on_cond = True
                     else:
                         motor_on_cond = False
@@ -1101,13 +1101,11 @@ def listen_and_identify():
                         motor_on_cond = False
                 else:
                     # Sound is LOUDER than the strict ceiling. 
-                    if turntable_on or power_score > 0:
-                        # ⚡ IN-PROGRESS VIP PASS: 
-                        # Turntable is already on, OR it started turning on a fraction of a second ago.
-                        # Allow the sudden loud music to finish waking it up!
+                    if turntable_on:
+                        # VIP Pass: Turntable is officially ON. Allow loud music/handling noise.
                         motor_on_cond = True
                     else:
-                        # Bouncer activated: Turntable is OFF and power score is 0. Block the loud spike!
+                        # Bouncer activated: Turntable is officially OFF. Block the loud spike!
                         motor_on_cond = False
             
             if motor_on_cond:
