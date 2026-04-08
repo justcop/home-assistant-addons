@@ -64,8 +64,8 @@ RECORD_SECONDS = config.get("recording_seconds", 10)
 
 # Dynamic Calibration State Variables
 RUNOUT_CREST_THRESHOLD = 4.5
-MOTOR_HYSTERESIS_SEC = 1.5 
-NEEDLE_HYSTERESIS_SEC = 2.5 
+MOTOR_HYSTERESIS_SEC = 1.0 
+NEEDLE_HYSTERESIS_SEC = 2.0 
 DYNAMIC_DEBOUNCE_CHUNKS = adv.get("trigger_debounce_chunks", 3)
 IS_SILENT_HW = False
 
@@ -597,6 +597,7 @@ def run_calibration():
         wav_path = os.path.join(SHARE_DIR, f"calib_{stage_id}.wav")
         stage_metrics = {"rms": [], "music_rms": [], "crest": [], "hfer": []}
         t_chunks = int(RATE / CHUNK * duration_secs)
+        
         shave_chunks = int(RATE / CHUNK * 10.0) # Shave the first 10 seconds of analysis
         
         reuse_audio_for_stage = False
@@ -815,6 +816,9 @@ def run_calibration():
     max_room_transient = max(s1["rms"]["max"], s6["rms"]["max"])
     if max_room_transient < 0.005: max_room_transient = 0.008 
     
+    # 🆕 Dynamic Crest Floor (Ensures random motor static never falsely triggers dust pops)
+    idle_max_crest = max(s2["crest"]["max"], s5["crest"]["max"])
+    
     guess_motor_hfer = 0.0
     
     silence_ratio = on_val / play_val if play_val > 0 else 1.0
@@ -832,11 +836,16 @@ def run_calibration():
 
         guess_motor = calc_variance_boundary(off_val, off_std, on_val, on_std)
         guess_rumble = max(0.025, play_val * 0.4) 
-        guess_crest = max(2.5, s4["crest"]["median"] + (runout_crest_std * 2.5))
+        # Hard floor implemented: Pop threshold MUST be at least 0.5 above idle static
+        guess_crest = max(idle_max_crest + 0.5, s4["crest"]["median"] + (runout_crest_std * 2.5))
+        
+        # ⚡ NEW: Ultra-fast UI response for Silent Hardware! We trust the data!
+        guess_m_hyst = 1.0 
     else:
         guess_motor = calc_variance_boundary(off_val, off_std, on_val, on_std)
         guess_rumble = calc_variance_boundary(on_val, on_std, runout_val, runout_std)
-        guess_crest = max(2.5, s4["crest"]["median"] + (runout_crest_std * 2.5))
+        guess_crest = max(idle_max_crest + 0.5, s4["crest"]["median"] + (runout_crest_std * 2.5))
+        guess_m_hyst = 1.5 
         
     guess_music = calc_variance_boundary(music_idle_val, music_idle_std, music_play_val, music_play_std)
 
@@ -844,8 +853,7 @@ def run_calibration():
     if music_idle_std > 0.005: guess_debounce = 10
     if music_idle_std > 0.010: guess_debounce = 12
 
-    guess_m_hyst = 3.5 if is_silent_hw else 1.5 
-    guess_n_hyst = 2.5 
+    guess_n_hyst = 2.0 
 
     t_mot, t_rum, t_cre, t_mus = guess_motor, guess_rumble, guess_crest, guess_music
     h_mot, h_nee = guess_m_hyst, guess_n_hyst
@@ -882,7 +890,7 @@ def run_calibration():
         if success: break
        
         if DEBUG: log(f"⚠️ Expanding Hysteresis Time Buffers...")
-        h_mot = min(h_mot + 1.0, 5.0)
+        h_mot = min(h_mot + 1.0, 3.0)
         h_nee = min(h_nee + 0.5, 3.0)
         t_mot, t_rum, t_cre, t_mus = guess_motor, guess_rumble, guess_crest, guess_music
 
@@ -949,13 +957,11 @@ def listen_and_identify():
     has_played_music = False
     trigger_chunks = 0  
    
-    power_score = 0
+    # The Power Score buffer
     power_max_score = int(RATE / CHUNK * MOTOR_HYSTERESIS_SEC)
-    
-    power_off_max_score = int(RATE / CHUNK * 1.5)
+    power_score = 0
    
     motor_on_thresh = MOTOR_POWER_THRESHOLD
-    motor_off_thresh = MOTOR_POWER_THRESHOLD
    
     needle_active_score = 0
     needle_max_score = int(RATE / CHUNK * NEEDLE_HYSTERESIS_SEC)
@@ -1051,8 +1057,8 @@ def listen_and_identify():
                                 log(f"⚠️ Failed to save Ghost Catcher wav: {e}")
             else:
                 power_score = max(power_score - 1, 0)
-                if turntable_on and power_score <= (power_max_score - power_off_max_score):
-                    power_score = 0
+                # ⚡ NEW: Perfectly symmetrical and fast Turn-Off math!
+                if turntable_on and power_score <= 0:
                     turntable_on = False
                     has_played_music = False
                     rhythm_locked = False
