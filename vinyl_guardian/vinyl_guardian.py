@@ -1,5 +1,6 @@
 import sys
 import os
+import glob
 import json
 import time
 import threading
@@ -16,7 +17,7 @@ from shazamio import Shazam
 import pylast
 import signal
 
-VERSION = os.environ.get("VERSION", "Unknown")
+VERSION = os.environ.get("ADDON_VERSION", "Unknown")
 
 # --- LOAD CONFIGURATION ---
 try:
@@ -57,8 +58,8 @@ adv = config.get("advanced", {})
 MUSIC_THRESHOLD = 0.005
 RUMBLE_THRESHOLD = 0.015
 MOTOR_POWER_THRESHOLD = 0.0045
+MOTOR_POWER_CEILING = 0.0150
 MOTOR_HFER_THRESHOLD = 0.0
-MAX_ROOM_TRANSIENT = 0.008
 MIC_VOLUME = 8
 RECORD_SECONDS = config.get("recording_seconds", 10)
 
@@ -76,13 +77,13 @@ if os.path.exists(AUTO_CALIB_FILE):
         MUSIC_THRESHOLD = auto_cal.get("music_threshold", MUSIC_THRESHOLD)
         RUMBLE_THRESHOLD = auto_cal.get("rumble_threshold", RUMBLE_THRESHOLD)
         MOTOR_POWER_THRESHOLD = auto_cal.get("motor_power_threshold", MOTOR_POWER_THRESHOLD)
+        MOTOR_POWER_CEILING = auto_cal.get("motor_power_ceiling", MOTOR_POWER_CEILING)
         MIC_VOLUME = auto_cal.get("mic_volume", MIC_VOLUME)
         RUNOUT_CREST_THRESHOLD = auto_cal.get("runout_crest_threshold", RUNOUT_CREST_THRESHOLD)
         MOTOR_HYSTERESIS_SEC = auto_cal.get("motor_hysteresis_sec", MOTOR_HYSTERESIS_SEC)
         NEEDLE_HYSTERESIS_SEC = auto_cal.get("needle_hysteresis_sec", NEEDLE_HYSTERESIS_SEC)
         DYNAMIC_DEBOUNCE_CHUNKS = auto_cal.get("music_debounce_chunks", DYNAMIC_DEBOUNCE_CHUNKS)
         MOTOR_HFER_THRESHOLD = auto_cal.get("motor_hfer_threshold", MOTOR_HFER_THRESHOLD)
-        MAX_ROOM_TRANSIENT = auto_cal.get("max_room_transient", MAX_ROOM_TRANSIENT)
         IS_SILENT_HW = auto_cal.get("is_silent_hw", False)
        
         if not CALIBRATION_MODE:
@@ -451,7 +452,7 @@ def clean_stage_data(stage_metrics):
     return cleaned
 
 # --- STATE MACHINE SIMULATOR ---
-def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, h_nee, debounce_chunks, is_silent_hw=False, t_hfer=0.0, max_transient=0.008):
+def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, h_nee, debounce_chunks, is_silent_hw=False, t_hfer=0.0, t_ceil=0.015):
     power_max = int(RATE / CHUNK * h_mot)
     needle_max = int(RATE / CHUNK * h_nee)
     
@@ -496,16 +497,18 @@ def simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, 
             crest = chunks_crest[i]
             hfer = chunks_hfer[i]
            
-            # Apply dynamic transient blocker
-            upper_limit = max(t_mot * 4.5, max_transient * 1.2)
-            motor_on_cond = rms > t_mot
-            if t_hfer > 0.0 and rms < upper_limit:
-                if hfer > t_hfer:
-                    motor_on_cond = False 
-                    
-            if is_silent_hw and not turntable_on and not needle_down and not has_played_music:
-                if rms > upper_limit:
-                    motor_on_cond = False
+            motor_on_cond = False
+            
+            if rms > t_mot:
+                if rms < t_ceil:
+                    motor_on_cond = True
+                    if t_hfer > 0.0 and hfer > t_hfer:
+                        motor_on_cond = False
+                else:
+                    if turntable_on or power_score > 0:
+                        motor_on_cond = True
+                    else:
+                        motor_on_cond = False
             
             if motor_on_cond:
                 power_score = min(power_score + 1, power_max)
@@ -811,12 +814,9 @@ def run_calibration():
     hfer_off = min(s1["hfer"]["median"], s6["hfer"]["median"])
     hfer_on = max(s2["hfer"]["median"], s5["hfer"]["median"])
     
-    # 🆕 Room Transient Profiling
-    max_room_transient = max(s1["rms"]["max"], s6["rms"]["max"])
-    if max_room_transient < 0.005: max_room_transient = 0.008 
-    
-    # 🆕 Dynamic Crest Floor (Ensures random motor static never falsely triggers dust pops)
     idle_max_crest = max(s2["crest"]["max"], s5["crest"]["max"])
+    
+    idle_median = max(s2["rms"]["median"], s5["rms"]["median"])
     
     guess_motor_hfer = 0.0
     
@@ -827,21 +827,21 @@ def run_calibration():
 
     if is_silent_hw:
         log("\n👻 SILENT HARDWARE DETECTED: Utilizing Advanced Rhythm Tracker & Stability Buffers.")
-        log(f"   ┣ Room Transient Limit Locked: {max_room_transient:.4f}")
+        
+        guess_motor = calc_variance_boundary(off_val, off_std, on_val, on_std)
+        guess_ceiling = max(idle_median * 2.5, guess_motor * 1.5)
+        log(f"   ┣ Strict Motor Ceiling Locked: {guess_ceiling:.4f}")
         
         if hfer_off > (hfer_on * 1.5):
             guess_motor_hfer = (hfer_off + hfer_on) / 2.0
             log(f"   ┗ HFER Hiss Detection Armed (Threshold: {guess_motor_hfer:.4f})")
 
-        guess_motor = calc_variance_boundary(off_val, off_std, on_val, on_std)
         guess_rumble = max(0.025, play_val * 0.4) 
-        # Hard floor implemented: Pop threshold MUST be at least 0.5 above idle static
         guess_crest = max(idle_max_crest + 0.5, s4["crest"]["median"] + (runout_crest_std * 2.5))
-        
-        # ⚡ NEW: Ultra-fast UI response for Silent Hardware! We trust the data!
         guess_m_hyst = 1.0 
     else:
         guess_motor = calc_variance_boundary(off_val, off_std, on_val, on_std)
+        guess_ceiling = max(idle_median * 2.5, guess_motor * 1.5)
         guess_rumble = calc_variance_boundary(on_val, on_std, runout_val, runout_std)
         guess_crest = max(idle_max_crest + 0.5, s4["crest"]["median"] + (runout_crest_std * 2.5))
         guess_m_hyst = 1.5 
@@ -856,17 +856,18 @@ def run_calibration():
 
     t_mot, t_rum, t_cre, t_mus = guess_motor, guess_rumble, guess_crest, guess_music
     h_mot, h_nee = guess_m_hyst, guess_n_hyst
+    t_ceil = guess_ceiling
     d_chunk = guess_debounce
    
     success = False
     for hyst_loop in range(3):
         for attempt in range(50):
-            result = simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, h_nee, d_chunk, is_silent_hw, guess_motor_hfer, max_room_transient)
+            result = simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, h_nee, d_chunk, is_silent_hw, guess_motor_hfer, t_ceil)
            
             if result == "PASS":
                 # Ensure the parameters can survive slight real world fluctuations
-                p_high = simulate_state_machine(calibration_data, t_mot*1.1, t_rum*1.1, t_cre*1.1, t_mus*1.1, h_mot*1.1, h_nee*1.1, int(d_chunk*1.2), is_silent_hw, guess_motor_hfer, max_room_transient)
-                p_low = simulate_state_machine(calibration_data, t_mot*0.9, t_rum*0.9, t_cre*0.9, t_mus*0.9, h_mot*0.9, h_nee*0.9, int(d_chunk*0.8), is_silent_hw, guess_motor_hfer, max_room_transient)
+                p_high = simulate_state_machine(calibration_data, t_mot*1.1, t_rum*1.1, t_cre*1.1, t_mus*1.1, h_mot*1.1, h_nee*1.1, int(d_chunk*1.2), is_silent_hw, guess_motor_hfer, t_ceil)
+                p_low = simulate_state_machine(calibration_data, t_mot*0.9, t_rum*0.9, t_cre*0.9, t_mus*0.9, h_mot*0.9, h_nee*0.9, int(d_chunk*0.8), is_silent_hw, guess_motor_hfer, t_ceil)
                
                 if p_high == "PASS" and p_low == "PASS":
                     success = True
@@ -904,12 +905,12 @@ def run_calibration():
             "music_threshold": float(t_mus),
             "rumble_threshold": float(t_rum),
             "motor_power_threshold": float(t_mot),
+            "motor_power_ceiling": float(t_ceil),
             "runout_crest_threshold": float(t_cre),
             "motor_hysteresis_sec": float(h_mot),
             "needle_hysteresis_sec": float(h_nee),
             "music_debounce_chunks": int(d_chunk),
             "motor_hfer_threshold": float(guess_motor_hfer),
-            "max_room_transient": float(max_room_transient),
             "is_silent_hw": bool(is_silent_hw)
         }
         save_atomic_json(AUTO_CALIB_FILE, auto_cal_data)
@@ -924,10 +925,63 @@ def run_calibration():
     log("\n💤 Sleeping to prevent auto-restart. You can restart the Add-on now.")
     while True: time.sleep(3600)
 
+# --- THE GHOST AUDITOR ---
+def audit_ghost_files():
+    ghost_files = glob.glob(os.path.join(SHARE_DIR, "ghost_trigger_*.wav"))
+    if not ghost_files:
+        return
+        
+    log(f"🕵️ Automated Regression Test: Sweeping {len(ghost_files)} ghost files against the new Ceiling...")
+    
+    power_max_score = int(RATE / CHUNK * MOTOR_HYSTERESIS_SEC)
+    
+    for gf in ghost_files:
+        try:
+            with wave.open(gf, 'rb') as wf:
+                raw_bytes = wf.readframes(wf.getnframes())
+            
+            chunk_bytes = CHUNK * CHANNELS * 2
+            power_score = 0
+            triggered = False
+            
+            for i in range(0, len(raw_bytes), chunk_bytes):
+                data = raw_bytes[i:i+chunk_bytes]
+                if len(data) == chunk_bytes:
+                    raw_rms, _, _ = calculate_audio_levels(data)
+                    metrics = calculate_deep_metrics(data)
+                    hfer = metrics["hfer"] if metrics else 0.0
+                    
+                    motor_on_cond = False
+                    if raw_rms > MOTOR_POWER_THRESHOLD:
+                        if raw_rms < MOTOR_POWER_CEILING:
+                            motor_on_cond = True
+                            if MOTOR_HFER_THRESHOLD > 0.0 and hfer > MOTOR_HFER_THRESHOLD:
+                                motor_on_cond = False
+                                
+                    if motor_on_cond:
+                        power_score = min(power_score + 1, power_max_score)
+                        if power_score >= power_max_score:
+                            triggered = True
+                            break
+                    else:
+                        power_score = max(power_score - 1, 0)
+                        
+            if not triggered:
+                log(f"   ✅ New ceiling SUCCESS! Blocked {os.path.basename(gf)}. Deleting file.")
+                os.remove(gf)
+            else:
+                log(f"   ❌ New ceiling FAILED to block {os.path.basename(gf)}. Keeping file for review.")
+        except Exception as e:
+            log(f"   ⚠️ Error auditing {gf}: {e}")
+    log("🏁 Ghost sweep complete.")
+
 # --- MAIN LOOP ---
 def listen_and_identify():
     global app_state, current_attempt, wake_up_time, scrobble_fired, current_track, last_scrobbled_track, paused_track_memory, inp
    
+    # 🧹 Audit previous ghosts using the new math before we turn the mic on!
+    audit_ghost_files()
+    
     try:
         log(f"🔊 Applying tuned mic volume: {MIC_VOLUME}%")
         subprocess.run(["pactl", "set-source-volume", "@DEFAULT_SOURCE@", f"{MIC_VOLUME}%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -962,7 +1016,7 @@ def listen_and_identify():
     power_off_max_score = int(RATE / CHUNK * 1.5)
    
     motor_on_thresh = MOTOR_POWER_THRESHOLD
-    motor_off_thresh = MOTOR_POWER_THRESHOLD
+    motor_ceiling = MOTOR_POWER_CEILING
    
     needle_active_score = 0
     needle_max_score = int(RATE / CHUNK * NEEDLE_HYSTERESIS_SEC)
@@ -1023,15 +1077,24 @@ def listen_and_identify():
                 last_music_time = now
 
             # --- TIER 1: TURNTABLE POWER ---
-            upper_limit = max(motor_on_thresh * 4.5, MAX_ROOM_TRANSIENT * 1.2)
-            motor_on_cond = raw_rms > motor_on_thresh
-            if MOTOR_HFER_THRESHOLD > 0.0 and raw_rms < upper_limit:
-                if hfer > MOTOR_HFER_THRESHOLD:
-                    motor_on_cond = False 
-                    
-            if IS_SILENT_HW and not turntable_on and not needle_down and not has_played_music:
-                if raw_rms > upper_limit:
-                    motor_on_cond = False
+            motor_on_cond = False
+            
+            if raw_rms > motor_on_thresh:
+                if raw_rms < motor_ceiling:
+                    # Sound is inside the Goldilocks zone for the motor. Check Hiss.
+                    motor_on_cond = True
+                    if MOTOR_HFER_THRESHOLD > 0.0 and hfer > MOTOR_HFER_THRESHOLD:
+                        motor_on_cond = False
+                else:
+                    # Sound is LOUDER than the strict ceiling. 
+                    if turntable_on or power_score > 0:
+                        # ⚡ IN-PROGRESS VIP PASS: 
+                        # Turntable is already on, OR it started turning on a fraction of a second ago.
+                        # Allow the sudden loud music to finish waking it up!
+                        motor_on_cond = True
+                    else:
+                        # Bouncer activated: Turntable is OFF and power score is 0. Block the loud spike!
+                        motor_on_cond = False
             
             if motor_on_cond:
                 power_score = min(power_score + 1, power_max_score)
@@ -1046,7 +1109,7 @@ def listen_and_identify():
                             wav_name = os.path.join(SHARE_DIR, f"ghost_trigger_{ts}.wav")
                             log(f"👻 DEBUG GHOST CATCHER: False positive overnight trigger caught!")
                             log(f"   ┣ Saved 6-second memory to: {wav_name}")
-                            log(f"   ┣ Triggered at RMS: {raw_rms:.6f} (Threshold: {motor_on_thresh:.6f}, Block Limit: {upper_limit:.6f})")
+                            log(f"   ┣ Triggered at RMS: {raw_rms:.6f} (Threshold: {motor_on_thresh:.6f}, Ceiling: {motor_ceiling:.6f})")
                             log(f"   ┗ Triggered at HFER: {hfer:.4f} (Threshold: {MOTOR_HFER_THRESHOLD:.4f})")
                             try:
                                 with wave.open(wav_name, "wb") as wf:
@@ -1231,11 +1294,17 @@ def listen_and_identify():
                 else:
                     idle_silence_chunks = 0
 
-                if turntable_on and music_rms > MUSIC_THRESHOLD and not is_dust_pop:
+                if music_rms > MUSIC_THRESHOLD and not is_dust_pop:
                     trigger_chunks += 1
                     if trigger_chunks >= DYNAMIC_DEBOUNCE_CHUNKS:
                         log(f"🎵 AUDIO DETECTED (Music Spike: {music_rms:.4f})")
-                        # ⚡ NEW: "Searching..." instantly prevents "Unknown" ghosting
+                        
+                        # ⚡ VIP OVERRIDE: Music has been firmly detected! Ensure the turntable UI is ON!
+                        if not turntable_on:
+                            turntable_on = True
+                            power_score = power_max_score
+                            if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/power", "ON", retain=True)
+
                         if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/track", "Searching...", retain=True)
                         song_start, buffer, chunks, loud_chunks, silence_sleep = now, bytearray(data), 1, 1, 0
                         trigger_chunks = 0
