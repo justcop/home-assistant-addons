@@ -1,15 +1,14 @@
 #!/usr/bin/with-contenv bashio
 
-# Extract version from config.yaml and pass it to Python
-CONFIG_PATH="/config.yaml"
-[ ! -f "$CONFIG_PATH" ] && CONFIG_PATH="/usr/src/app/config.yaml"
+# Extract version using Home Assistant's native bashio API
+export ADDON_VERSION=$(bashio::addon.version 2>/dev/null)
 
-if [ -f "$CONFIG_PATH" ]; then
-    export ADDON_VERSION=$(grep '^version:' "$CONFIG_PATH" | awk '{print $2}' | tr -d '"' | tr -d "'")
-else
+# Fallback just in case the API is slow to respond
+if [ -z "$ADDON_VERSION" ] || [ "$ADDON_VERSION" == "null" ]; then
     export ADDON_VERSION="Unknown"
 fi
 
+echo "[$(date +"%Y-%m-%d %H:%M:%S")] ========================================================"
 echo "[$(date +"%Y-%m-%d %H:%M:%S")] 🔄 BOOTING VINYL GUARDIAN v${ADDON_VERSION} 🔄"
 echo "[$(date +"%Y-%m-%d %H:%M:%S")] ========================================================"
 
