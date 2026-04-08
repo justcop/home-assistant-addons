@@ -233,7 +233,6 @@ def gain_staging():
 
 # --- SIMULATION & TIMELINE ENGINE ---
 def simulate_timeline(data, thresholds, initial_state):
-    """Miniature State Machine to chronologically prove the threshold logic"""
     chunk_size = 8192
     chunks = len(data) // chunk_size
     
@@ -285,50 +284,89 @@ def analyze_and_simulate(files):
     combined_idle = np.concatenate((chunked_rms(spinup_data[20*RATE:]), chunked_rms(lift_data[15*RATE:])))
     motor_hum_median = np.median(reject_outliers_mad(combined_idle))
     
+    # ---------------------------------------------------------
+    # --- HEAVY DEBUGGING BLOCK FOR FILE 3 (MASTER TRANSITION) ---
+    # ---------------------------------------------------------
     trans_data = load_wav(files["transition"])
+    trans_duration = len(trans_data) / RATE
+    print(f"   [DEBUG] File 3 Total Duration: {trans_duration:.2f} seconds", flush=True)
     
-    # We MUST ignore the first 25 seconds (Action Window) when searching for the end of the song
     print("📉 Scanning transition file for drop-off (ignoring first 25s needle drop)...", flush=True)
     search_start = 25 * RATE
     search_data = trans_data[search_start:]
+    print(f"   [DEBUG] Search Window Size: {len(search_data) / RATE:.2f} seconds", flush=True)
     
     if len(search_data) > 8192:
         trans_rms = chunked_rms(search_data, chunk_size=8192)
         diffs = np.diff(trans_rms)
-        local_drop_idx = np.argmin(diffs)
-        drop_time_sec = 25.0 + ((local_drop_idx * 8192) / RATE)
-    else:
-        # Failsafe if file is somehow shorter than 25s
-        drop_time_sec = max(25.0, len(trans_data)/RATE - 40)
         
-    print(f"✅ True music end detected at {drop_time_sec:.1f}s.", flush=True)
+        if len(diffs) > 0:
+            local_drop_idx = np.argmin(diffs)
+            drop_time_sec = 25.0 + ((local_drop_idx * 8192) / RATE)
+        else:
+            print("   [DEBUG] ⚠️ Diff array empty! Hard fallback triggered.", flush=True)
+            drop_time_sec = 25.0
+    else:
+        print("   [DEBUG] ⚠️ Search data too small to analyze! Hard fallback triggered.", flush=True)
+        drop_time_sec = max(25.0, trans_duration - 40)
+        
+    print(f"   [DEBUG] Drop-time calculated at: {drop_time_sec:.2f}s", flush=True)
     
-    # Safely extract Runout Data (Wait 20s after drop)
+    # Runout Extraction Logic
     runout_start = int((drop_time_sec + 20) * RATE)
     runout_end = int((drop_time_sec + 40) * RATE)
     
-    if runout_start >= len(trans_data): runout_start = max(0, len(trans_data) - 20*RATE)
-    if runout_end > len(trans_data): runout_end = len(trans_data)
-    
+    if runout_start >= len(trans_data): 
+        print("   [DEBUG] ⚠️ Runout start exceeded file length! Adjusting...", flush=True)
+        runout_start = max(0, len(trans_data) - 20*RATE)
+        
+    if runout_end > len(trans_data): 
+        runout_end = len(trans_data)
+        
     runout_data = trans_data[runout_start:runout_end]
-    if len(runout_data) == 0: runout_data = trans_data[-8192:] # Ultimate failsafe
+    print(f"   [DEBUG] Extracted Runout Data from {runout_start/RATE:.1f}s to {runout_end/RATE:.1f}s", flush=True)
     
-    # Safely extract Music Data
+    if len(runout_data) == 0: 
+        print("   [DEBUG] ⚠️ Runout data empty! Using last chunk of file.", flush=True)
+        runout_data = trans_data[-8192:] 
+    
+    # Music Extraction Logic
     music_start = 25 * RATE
     music_end = int(drop_time_sec * RATE)
-    if music_end <= music_start: music_end = min(len(trans_data), music_start + 5*RATE)
+    
+    if music_end <= music_start: 
+        print("   [DEBUG] ⚠️ music_end was <= music_start. Forcing a 5-second slice...", flush=True)
+        music_end = min(len(trans_data), music_start + 5*RATE)
     
     music_data = trans_data[music_start:music_end]
+    print(f"   [DEBUG] Extracted Music Data from {music_start/RATE:.1f}s to {music_end/RATE:.1f}s", flush=True)
     
+    # Robust Math Execution
     music_rms_arr = chunked_music_rms(music_data)
-    music_min = np.percentile(music_rms_arr, 5) if len(music_rms_arr) > 0 else 0.005
+    print(f"   [DEBUG] Music array chunks mapped: {len(music_rms_arr)}", flush=True)
+    
+    if len(music_rms_arr) > 0:
+        music_min = float(np.percentile(music_rms_arr, 5))
+    else:
+        print("   [DEBUG] 🚨 FATAL: music_rms_arr is empty. Using hardcoded safe default (0.005).", flush=True)
+        music_min = 0.005
     
     runout_rms_arr = chunked_rms(runout_data)
-    runout_rumble_max = np.max(reject_outliers_mad(runout_rms_arr)) if len(runout_rms_arr) > 0 else 0.015
+    print(f"   [DEBUG] Runout array chunks mapped: {len(runout_rms_arr)}", flush=True)
+    
+    if len(runout_rms_arr) > 0:
+        runout_rumble_max = float(np.max(reject_outliers_mad(runout_rms_arr)))
+    else:
+        print("   [DEBUG] 🚨 FATAL: runout_rms_arr is empty. Using hardcoded safe default (0.015).", flush=True)
+        runout_rumble_max = 0.015
     
     disturb_data = load_wav(files["disturbance"])
     disturb_rms_arr = chunked_music_rms(disturb_data)
-    disturb_music_rms = np.max(disturb_rms_arr) if len(disturb_rms_arr) > 0 else 0.0
+    if len(disturb_rms_arr) > 0:
+        disturb_music_rms = float(np.max(disturb_rms_arr))
+    else:
+        disturb_music_rms = 0.0
+    # ---------------------------------------------------------
 
     # Initial Threshold Guesses
     thresholds = {
