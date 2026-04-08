@@ -17,17 +17,6 @@ from shazamio import Shazam
 import pylast
 import signal
 
-VERSION = os.environ.get("ADDON_VERSION", "Unknown")
-if VERSION == "Unknown":
-    try:
-        with open('/config.yaml', 'r') as f:
-            for line in f:
-                if line.startswith("version:"):
-                    VERSION = line.split(":", 1)[1].strip().strip('"').strip("'")
-                    break
-    except:
-        VERSION = "Unknown"
-
 # --- LOAD CONFIGURATION ---
 try:
     with open('/data/options.json') as f:
@@ -95,10 +84,11 @@ if os.path.exists(AUTO_CALIB_FILE):
         MOTOR_HFER_THRESHOLD = auto_cal.get("motor_hfer_threshold", MOTOR_HFER_THRESHOLD)
         IS_SILENT_HW = auto_cal.get("is_silent_hw", False)
        
-        if not CALIBRATION_MODE:
+        if not CALIBRATION_MODE and DEBUG:
             print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [Vinyl Guardian] 💡 Loaded dynamically tuned thresholds and state buffers from auto_calibration.json")
     except Exception as e:
-        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [Vinyl Guardian] ⚠️ Failed to read auto_calibration.json: {e}")
+        if DEBUG:
+            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [Vinyl Guardian] ⚠️ Failed to read auto_calibration.json: {e}")
 
 UI_MUSIC = adv.get("manual_override_music_threshold")
 if UI_MUSIC is not None and UI_MUSIC > 0: MUSIC_THRESHOLD = UI_MUSIC
@@ -826,7 +816,6 @@ def run_calibration():
     
     idle_max_crest = max(s2["crest"]["max"], s5["crest"]["max"])
     
-    # ⚡ NEW: Dynamic Ceiling calculation (Base it strictly on steady motor median, ensuring RFI spikes are cut off)
     idle_median = max(s2["rms"]["median"], s5["rms"]["median"])
     
     guess_motor_hfer = 0.0
@@ -997,7 +986,8 @@ def listen_and_identify():
     audit_ghost_files()
     
     try:
-        log(f"🔊 Applying tuned mic volume: {MIC_VOLUME}%")
+        if DEBUG:
+            log(f"🔊 Applying tuned mic volume: {MIC_VOLUME}%")
         subprocess.run(["pactl", "set-source-volume", "@DEFAULT_SOURCE@", f"{MIC_VOLUME}%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except OSError: pass
        
@@ -1413,11 +1403,6 @@ def listen_and_identify():
                 with state_lock: app_state = "IDLE"
 
 if __name__ == "__main__":
-    print("\033[2J\033[H", end="", flush=True)
-    print("========================================================")
-    log(f"🚀 BOOTING VINYL GUARDIAN (v{VERSION} Build)...")
-    print("========================================================")
-   
     if CALIBRATION_MODE:
         run_calibration()
     else:
