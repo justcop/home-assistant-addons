@@ -17,6 +17,17 @@ from shazamio import Shazam
 import pylast
 import signal
 
+VERSION = os.environ.get("ADDON_VERSION", "Unknown")
+if VERSION == "Unknown":
+    try:
+        with open('/config.yaml', 'r') as f:
+            for line in f:
+                if line.startswith("version:"):
+                    VERSION = line.split(":", 1)[1].strip().strip('"').strip("'")
+                    break
+    except:
+        VERSION = "Unknown"
+
 # --- LOAD CONFIGURATION ---
 try:
     with open('/data/options.json') as f:
@@ -68,6 +79,7 @@ NEEDLE_HYSTERESIS_SEC = 2.0
 DYNAMIC_DEBOUNCE_CHUNKS = adv.get("trigger_debounce_chunks", 3)
 IS_SILENT_HW = False
 
+# ⚡ STRICT CALIBRATION ENFORCEMENT
 if os.path.exists(AUTO_CALIB_FILE):
     try:
         with open(AUTO_CALIB_FILE, 'r') as f:
@@ -84,11 +96,17 @@ if os.path.exists(AUTO_CALIB_FILE):
         MOTOR_HFER_THRESHOLD = auto_cal.get("motor_hfer_threshold", MOTOR_HFER_THRESHOLD)
         IS_SILENT_HW = auto_cal.get("is_silent_hw", False)
        
-        if not CALIBRATION_MODE and DEBUG:
-            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [Vinyl Guardian] 💡 Loaded dynamically tuned thresholds and state buffers from auto_calibration.json")
+        if not CALIBRATION_MODE:
+            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [Vinyl Guardian] 💡 Successfully loaded hardware calibration profile.")
     except Exception as e:
-        if DEBUG:
-            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [Vinyl Guardian] ⚠️ Failed to read auto_calibration.json: {e}")
+        if not CALIBRATION_MODE:
+            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [Vinyl Guardian] 🚨 FATAL ERROR: Calibration file is corrupted or unreadable: {e}")
+            sys.exit(1)
+else:
+    if not CALIBRATION_MODE:
+        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [Vinyl Guardian] 🚨 FATAL ERROR: No calibration data found!")
+        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [Vinyl Guardian] 👉 Please enable 'calibration_mode' in the Add-on configuration, start the Add-on to run the wizard, and then turn it off.")
+        sys.exit(1)
 
 UI_MUSIC = adv.get("manual_override_music_threshold")
 if UI_MUSIC is not None and UI_MUSIC > 0: MUSIC_THRESHOLD = UI_MUSIC
@@ -816,6 +834,7 @@ def run_calibration():
     
     idle_max_crest = max(s2["crest"]["max"], s5["crest"]["max"])
     
+    # ⚡ NEW: Dynamic Ceiling calculation (Base it strictly on steady motor median, ensuring RFI spikes are cut off)
     idle_median = max(s2["rms"]["median"], s5["rms"]["median"])
     
     guess_motor_hfer = 0.0
