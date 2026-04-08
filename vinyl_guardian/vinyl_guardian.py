@@ -1379,7 +1379,7 @@ def listen_and_identify():
                     trigger_chunks += 1
                     if trigger_chunks >= DYNAMIC_DEBOUNCE_CHUNKS:
                         if not turntable_on:
-                            turntable_on, power_score = power_max_score
+                            turntable_on, power_score = true
                             if mqtt_client.is_connected():
                                 mqtt_client.publish("vinyl_guardian/power", "ON", retain=True)
                         if mqtt_client.is_connected():
