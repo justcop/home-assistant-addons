@@ -336,14 +336,15 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
            
             track_id = f"{match['title']} - {match['artist']}"
             raw_offset = match.get('offset_seconds', 0)
-            late_start_offset = min(raw_offset, 30)
-            if raw_offset > 2: scrobble_delay = max(2, scrobble_delay - late_start_offset)
-
+            
             previously_played = 0
             if paused_track_memory and paused_track_memory["id"] == track_id:
                 previously_played = paused_track_memory["accumulated_playtime"]
                 scrobble_delay = max(2, scrobble_delay - previously_played)
                 log(f"▶️ Resuming track! Recovered {int(previously_played)}s playtime.")
+            else:
+                if paused_track_memory:
+                    log(f"▶️ New track detected. Starting fresh scrobble timer.")
            
             paused_track_memory = None
            
@@ -354,7 +355,7 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
                 "title": match['title'], "artist": match['artist'], "album": match['album'],
                 "duration": total_duration, "start_timestamp": start_ts,
                 "session_start_time": song_start_timestamp, "scrobble_trigger_time": song_start_timestamp + scrobble_delay,
-                "duration_known": duration_known, "previously_played": previously_played + late_start_offset,
+                "duration_known": duration_known, "previously_played": previously_played,
                 "source": "Shazam"
             }
             scrobble_fired = False
@@ -596,6 +597,7 @@ def run_calibration():
         wav_path = os.path.join(SHARE_DIR, f"calib_{stage_id}.wav")
         stage_metrics = {"rms": [], "music_rms": [], "crest": [], "hfer": []}
         t_chunks = int(RATE / CHUNK * duration_secs)
+        shave_chunks = int(RATE / CHUNK * 10.0) # Shave the first 10 seconds of analysis
         
         reuse_audio_for_stage = False
         if reuse_audio and os.path.exists(wav_path):
@@ -605,12 +607,15 @@ def run_calibration():
                     raw_bytes = wf.readframes(wf.getnframes())
                 
                 chunk_bytes = CHUNK * CHANNELS * 2
+                chunks = 0
                 for i in range(0, len(raw_bytes), chunk_bytes):
                     chunk_data = raw_bytes[i:i + chunk_bytes]
                     if len(chunk_data) == chunk_bytes:
-                        metrics = calculate_deep_metrics(chunk_data)
-                        if metrics:
-                            for k in stage_metrics.keys(): stage_metrics[k].append(metrics[k])
+                        if chunks >= shave_chunks:
+                            metrics = calculate_deep_metrics(chunk_data)
+                            if metrics:
+                                for k in stage_metrics.keys(): stage_metrics[k].append(metrics[k])
+                        chunks += 1
                 log("✅ Local file processed.")
                 reuse_audio_for_stage = True
             except Exception as e:
@@ -625,15 +630,17 @@ def run_calibration():
                 length, data = inp.read()
                 if length > 0:
                     buffer.extend(data)
-                    metrics = calculate_deep_metrics(data)
-                    if metrics:
-                        for k in stage_metrics.keys(): stage_metrics[k].append(metrics[k])
+                    # ONLY add data to the math engine if we have passed the 10-second shave threshold
+                    if chunks >= shave_chunks:
+                        metrics = calculate_deep_metrics(data)
+                        if metrics:
+                            for k in stage_metrics.keys(): stage_metrics[k].append(metrics[k])
                     chunks += 1
             
             try:
                 with wave.open(wav_path, "wb") as wf:
                     wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(buffer)
-                log(f"💾 Saved raw audio to {wav_path}")
+                log(f"💾 Saved full raw audio to {wav_path} (First 10s shaved from internal math)")
             except Exception as e:
                 log(f"⚠️ Failed to save {stage_id} wav: {e}")
             log("✅ Capture complete.")
@@ -692,9 +699,9 @@ def run_calibration():
         log("\n" + "="*50)
         log("▶️ ACTION 2: 🛑 STOP the record and turn Turntable 🔌 OFF.")
         log("="*50)
-        log("⏳ Waiting 15 seconds for you to prepare...")
-        for _ in range(15): inp.read(); time.sleep(1)
-    record_stage("STAGE_1_OFF", 15)
+        log("⏳ Waiting 10 seconds for you to prepare...")
+        for _ in range(10): inp.read(); time.sleep(1)
+    record_stage("STAGE_1_OFF", 25)
 
     if not reuse_audio:
         log("\n" + "="*50)
@@ -702,7 +709,7 @@ def run_calibration():
         log("="*50)
         log("⏳ Waiting 10 seconds for you to prepare...")
         for _ in range(10): inp.read(); time.sleep(1)
-    record_stage("STAGE_2_ON_IDLE", 15)
+    record_stage("STAGE_2_ON_IDLE", 25)
 
     if not reuse_audio:
         log("\n" + "="*50)
@@ -752,7 +759,7 @@ def run_calibration():
         log("="*50)
         log("⏳ Waiting 10 seconds for you to prepare...")
         for _ in range(10): inp.read(); time.sleep(1)
-    record_stage("STAGE_5_LIFTED", 15)
+    record_stage("STAGE_5_LIFTED", 25)
 
     if not reuse_audio:
         log("\n" + "="*50)
@@ -760,7 +767,7 @@ def run_calibration():
         log("="*50)
         log("⏳ Waiting 10 seconds for you to prepare...")
         for _ in range(10): inp.read(); time.sleep(1)
-    record_stage("STAGE_6_OFF", 15)
+    record_stage("STAGE_6_OFF", 25)
 
     inp.close()
 
@@ -825,7 +832,6 @@ def run_calibration():
 
         guess_motor = calc_variance_boundary(off_val, off_std, on_val, on_std)
         guess_rumble = max(0.025, play_val * 0.4) 
-        # For Silent HW, lower the pop crest requirement to accurately lock the rhythm beat easily
         guess_crest = max(2.5, s4["crest"]["median"] + (runout_crest_std * 2.5))
     else:
         guess_motor = calc_variance_boundary(off_val, off_std, on_val, on_std)
@@ -966,7 +972,6 @@ def listen_and_identify():
     rhythm_locked = False
     last_rhythm_time = 0
     
-    # Tighter real-world RPM timing windows to prevent false locks on random static
     VALID_RPM_INTERVALS = [
         (1.20, 1.46),   # 45 RPM (~1.33s)
         (1.65, 1.95),   # 33⅓ RPM (~1.80s)
@@ -1051,10 +1056,31 @@ def listen_and_identify():
                     turntable_on = False
                     has_played_music = False
                     rhythm_locked = False
+                    
+                    # 💥 FORCE ENGINE RESET ON POWER CYCLE
+                    with state_lock:
+                        if app_state in ["RECORDING", "PROCESSING", "SLEEPING", "COOLDOWN"]:
+                            if app_state == "SLEEPING" and current_track and not scrobble_fired:
+                                current_silence_sec = silence_sleep * (CHUNK / RATE)
+                                time_played = (now - current_track['session_start_time']) - current_silence_sec + current_track.get('previously_played', 0)
+                                if time_played > 5:
+                                    track_id = f"{current_track['title']} - {current_track['artist']}"
+                                    paused_track_memory = {"id": track_id, "accumulated_playtime": time_played}
+                                    log(f"⏸️ Power cycled! Track aborted (Paused). Saved {int(time_played)}s playtime.")
+                                else:
+                                    log("🔇 Power cycled! Track aborted before scrobble threshold.")
+                                    
+                            app_state = "IDLE"
+                            current_track = None
+                            scrobble_fired = False
+                            current_attempt = 1
+                            consecutive_failures = 0
+
                     if mqtt_client.is_connected(): 
                         mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
                         mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
                         mqtt_client.publish("vinyl_guardian/progress", "[░░░░░░░░░░] 00:00 / 00:00", retain=True)
+                        mqtt_client.publish("vinyl_guardian/scrobble_status", "Off", retain=True)
 
             # Override Guardian State UI if Power is Off
             if not turntable_on:
