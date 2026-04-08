@@ -133,7 +133,6 @@ def record_dynamic_transition(filename):
     
     raw_bytes = bytearray()
     
-    # Increased Action Window to 25s for precise needle drops
     print(f"🎬 ACTION WINDOW (25s): Drop the needle NOW!", flush=True)
     chunk_b, _ = record_chunk(25.0)
     raw_bytes.extend(chunk_b)
@@ -235,11 +234,11 @@ def gain_staging():
 # --- SIMULATION & TIMELINE ENGINE ---
 def simulate_timeline(data, thresholds, initial_state):
     """Miniature State Machine to chronologically prove the threshold logic"""
-    chunk_size = 8192 # ~0.37s chunks
+    chunk_size = 8192
     chunks = len(data) // chunk_size
     
     current_state = initial_state
-    state_history = [initial_state] * 4 # Require 4 chunks to agree to switch state
+    state_history = [initial_state] * 4 
     transitions = [f"   -> 0.0s : Started {initial_state}"]
     
     for i in range(chunks):
@@ -263,7 +262,6 @@ def simulate_timeline(data, thresholds, initial_state):
         state_history.pop(0)
         
         latest = state_history[-1]
-        # Debounce: 3 out of 4 chunks must agree to transition
         if state_history.count(latest) >= 3:
             if latest != current_state:
                 time_sec = (i * chunk_size) / RATE
@@ -277,7 +275,6 @@ def analyze_and_simulate(files):
     print("🧠 CALCULATING HARDWARE THRESHOLDS", flush=True)
     print("="*50, flush=True)
     
-    # 1. Math Extraction
     floor_1_data = load_wav(files["floor"])
     powerdown_data = load_wav(files["powerdown"])
     combined_floor = np.concatenate((chunked_rms(floor_1_data), chunked_rms(powerdown_data[20*RATE:])))
@@ -289,30 +286,51 @@ def analyze_and_simulate(files):
     motor_hum_median = np.median(reject_outliers_mad(combined_idle))
     
     trans_data = load_wav(files["transition"])
-    trans_rms = chunked_rms(trans_data, chunk_size=8192)
-    diffs = np.diff(trans_rms)
-    drop_idx = np.argmin(diffs)
-    drop_time_sec = (drop_idx * 8192) / RATE
     
-    if drop_time_sec > (len(trans_data)/RATE - 45):
-         drop_time_sec = (len(trans_data)/RATE - 45) # Fallback slice
-         
+    # We MUST ignore the first 25 seconds (Action Window) when searching for the end of the song
+    print("📉 Scanning transition file for drop-off (ignoring first 25s needle drop)...", flush=True)
+    search_start = 25 * RATE
+    search_data = trans_data[search_start:]
+    
+    if len(search_data) > 8192:
+        trans_rms = chunked_rms(search_data, chunk_size=8192)
+        diffs = np.diff(trans_rms)
+        local_drop_idx = np.argmin(diffs)
+        drop_time_sec = 25.0 + ((local_drop_idx * 8192) / RATE)
+    else:
+        # Failsafe if file is somehow shorter than 25s
+        drop_time_sec = max(25.0, len(trans_data)/RATE - 40)
+        
+    print(f"✅ True music end detected at {drop_time_sec:.1f}s.", flush=True)
+    
+    # Safely extract Runout Data (Wait 20s after drop)
     runout_start = int((drop_time_sec + 20) * RATE)
     runout_end = int((drop_time_sec + 40) * RATE)
-    runout_data = trans_data[runout_start:runout_end]
     
-    # Ignore the first 25 seconds (the expanded action window) to ensure we only measure music
-    music_data = trans_data[25*RATE : int(drop_time_sec * RATE)]
+    if runout_start >= len(trans_data): runout_start = max(0, len(trans_data) - 20*RATE)
+    if runout_end > len(trans_data): runout_end = len(trans_data)
+    
+    runout_data = trans_data[runout_start:runout_end]
+    if len(runout_data) == 0: runout_data = trans_data[-8192:] # Ultimate failsafe
+    
+    # Safely extract Music Data
+    music_start = 25 * RATE
+    music_end = int(drop_time_sec * RATE)
+    if music_end <= music_start: music_end = min(len(trans_data), music_start + 5*RATE)
+    
+    music_data = trans_data[music_start:music_end]
+    
     music_rms_arr = chunked_music_rms(music_data)
-    music_min = np.percentile(music_rms_arr, 5) 
+    music_min = np.percentile(music_rms_arr, 5) if len(music_rms_arr) > 0 else 0.005
     
     runout_rms_arr = chunked_rms(runout_data)
-    runout_rumble_max = np.max(reject_outliers_mad(runout_rms_arr))
+    runout_rumble_max = np.max(reject_outliers_mad(runout_rms_arr)) if len(runout_rms_arr) > 0 else 0.015
     
     disturb_data = load_wav(files["disturbance"])
-    disturb_music_rms = np.max(chunked_music_rms(disturb_data))
+    disturb_rms_arr = chunked_music_rms(disturb_data)
+    disturb_music_rms = np.max(disturb_rms_arr) if len(disturb_rms_arr) > 0 else 0.0
 
-    # 2. Initial Threshold Guesses
+    # Initial Threshold Guesses
     thresholds = {
         "SILENCE_GATE_RMS": round(float(baseline_noise_max * 1.15), 5),
         "motor_power_threshold": round(float((baseline_noise_max * 1.15 + motor_hum_median) / 2.0), 5),
@@ -321,7 +339,7 @@ def analyze_and_simulate(files):
         "is_silent_hw": False
     }
 
-    # 3. The Perturbation Loop (Nudge until 100% Pass)
+    # Simulation & Nudging Loop
     print("\n🧪 STARTING SIMULATION & PERTURBATION ENGINE", flush=True)
     for attempt in range(5):
         print(f"\n--- Internal Simulation Pass {attempt + 1} ---", flush=True)
@@ -359,7 +377,7 @@ def analyze_and_simulate(files):
             print("   ✅ All logic verified. Locking Thresholds.", flush=True)
             break
 
-    # 4. Final Visual Report Card
+    # Visual Report Card
     print("\n" + "="*50, flush=True)
     print("📜 FINAL TIMELINE VERIFICATION (The Report Card)", flush=True)
     print("="*50, flush=True)
