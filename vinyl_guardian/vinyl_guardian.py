@@ -17,17 +17,6 @@ from shazamio import Shazam
 import pylast
 import signal
 
-VERSION = os.environ.get("ADDON_VERSION", "Unknown")
-if VERSION == "Unknown":
-    try:
-        with open('/config.yaml', 'r') as f:
-            for line in f:
-                if line.startswith("version:"):
-                    VERSION = line.split(":", 1)[1].strip().strip('"').strip("'")
-                    break
-    except:
-        VERSION = "Unknown"
-
 # --- LOAD CONFIGURATION ---
 try:
     with open('/data/options.json') as f:
@@ -288,6 +277,9 @@ def recognize_shazam(wav_path):
             title, artist = track.get('title', 'Unknown'), track.get('subtitle', 'Unknown')
             album, duration, release_year = "Unknown", 0, "Unknown"
             adamid = track.get('trackadamid')
+            
+            # 🖼️ GRAB ALBUM ART URL
+            image_url = track.get('images', {}).get('coverart', '')
            
             for section in track.get('sections', []):
                 if isinstance(section, dict) and section.get('type') == 'SONG':
@@ -299,7 +291,17 @@ def recognize_shazam(wav_path):
                                 if len(p) == 2: duration = int(p[0])*60 + int(p[1])
                                 elif len(p) == 3: duration = int(p[0])*3600 + int(p[1])*60 + int(p[2])
                             elif meta.get('title') == 'Released': release_year = meta.get('text')
-            return {"title": title, "artist": artist, "album": album, "release_year": release_year, "offset_seconds": res_json['matches'][0].get('offset', 0) if isinstance(res_json['matches'][0], dict) else 0, "duration": duration, "adamid": adamid}
+            
+            return {
+                "title": title, 
+                "artist": artist, 
+                "album": album, 
+                "release_year": release_year, 
+                "offset_seconds": res_json['matches'][0].get('offset', 0) if isinstance(res_json['matches'][0], dict) else 0, 
+                "duration": duration, 
+                "adamid": adamid,
+                "image": image_url
+            }
         return None
     except Exception as e:
         log(f"🚨 Shazam Error: {e}")
@@ -373,7 +375,8 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
                 "duration": total_duration, "start_timestamp": start_ts,
                 "session_start_time": song_start_timestamp, "scrobble_trigger_time": song_start_timestamp + scrobble_delay,
                 "duration_known": duration_known, "previously_played": previously_played,
-                "source": "Shazam"
+                "source": "Shazam",
+                "image": match.get('image', '')
             }
             scrobble_fired = False
 
@@ -834,7 +837,7 @@ def run_calibration():
     
     idle_max_crest = max(s2["crest"]["max"], s5["crest"]["max"])
     
-    # ⚡ NEW: Dynamic Ceiling calculation (Base it strictly on steady motor median, ensuring RFI spikes are cut off)
+    # ⚡ NEW: Dynamic Ceiling calculation
     idle_median = max(s2["rms"]["median"], s5["rms"]["median"])
     
     guess_motor_hfer = 0.0
@@ -856,10 +859,8 @@ def run_calibration():
             log(f"   ┗ HFER Hiss Detection Armed (Threshold: {guess_motor_hfer:.4f})")
 
         guess_rumble = max(0.025, play_val * 0.4) 
-        # Hard floor implemented: Pop threshold MUST be at least 0.5 above idle static
         guess_crest = max(idle_max_crest + 0.5, s4["crest"]["median"] + (runout_crest_std * 2.5))
         
-        # ⚡ NEW: Ultra-fast UI response for Silent Hardware! We trust the data!
         guess_m_hyst = 1.0 
     else:
         guess_motor = calc_variance_boundary(off_val, off_std, on_val, on_std)
@@ -887,7 +888,6 @@ def run_calibration():
             result = simulate_state_machine(calibration_data, t_mot, t_rum, t_cre, t_mus, h_mot, h_nee, d_chunk, is_silent_hw, guess_motor_hfer, t_ceil)
            
             if result == "PASS":
-                # Ensure the parameters can survive slight real world fluctuations
                 p_high = simulate_state_machine(calibration_data, t_mot*1.1, t_rum*1.1, t_cre*1.1, t_mus*1.1, h_mot*1.1, h_nee*1.1, int(d_chunk*1.2), is_silent_hw, guess_motor_hfer, t_ceil)
                 p_low = simulate_state_machine(calibration_data, t_mot*0.9, t_rum*0.9, t_cre*0.9, t_mus*0.9, h_mot*0.9, h_nee*0.9, int(d_chunk*0.8), is_silent_hw, guess_motor_hfer, t_ceil)
                
@@ -1001,7 +1001,6 @@ def audit_ghost_files():
 def listen_and_identify():
     global app_state, current_attempt, wake_up_time, scrobble_fired, current_track, last_scrobbled_track, paused_track_memory, inp
    
-    # 🧹 Audit previous ghosts using the new math before we turn the mic on!
     audit_ghost_files()
     
     try:
@@ -1025,7 +1024,6 @@ def listen_and_identify():
     target = int(RATE / CHUNK * RECORD_SECONDS)
     buffer = bytearray()
     
-    # 👻 Ghost Catcher Setup
     ghost_buffer = []
     ghost_max_chunks = int(RATE / CHUNK * 6.0) 
    
@@ -1036,8 +1034,6 @@ def listen_and_identify():
     power_score = 0
     power_max_score = int(RATE / CHUNK * MOTOR_HYSTERESIS_SEC)
     
-    power_off_max_score = int(RATE / CHUNK * 1.5)
-   
     motor_on_thresh = MOTOR_POWER_THRESHOLD
     motor_ceiling = MOTOR_POWER_CEILING
    
@@ -1051,26 +1047,13 @@ def listen_and_identify():
     needle_down = False
     last_music_time = 0
     
-    # --- ADVANCED RHYTHM TRACKER VARIABLES ---
     pop_history = []
     rhythm_locked = False
     last_rhythm_time = 0
     
-    VALID_RPM_INTERVALS = [
-        (1.20, 1.46),   # 45 RPM (~1.33s)
-        (1.65, 1.95),   # 33⅓ RPM (~1.80s)
-        (2.45, 2.85),   # 45 RPM 2x harmonic
-        (3.35, 3.85)    # 33⅓ RPM 2x harmonic
-    ]
+    VALID_RPM_INTERVALS = [(1.20, 1.46), (1.65, 1.95), (2.45, 2.85), (3.35, 3.85)]
     
-    # Guardian Engine States
-    engine_state_map = {
-        "IDLE": "Listening",
-        "RECORDING": "Recording",
-        "PROCESSING": "Processing",
-        "SLEEPING": "Tracking",
-        "COOLDOWN": "Cooldown"
-    }
+    engine_state_map = {"IDLE": "Listening", "RECORDING": "Recording", "PROCESSING": "Processing", "SLEEPING": "Tracking", "COOLDOWN": "Cooldown"}
 
     while True:
         length, data = inp.read()
@@ -1081,10 +1064,8 @@ def listen_and_identify():
                     ghost_buffer.pop(0)
 
             raw_rms, music_rms, crest = calculate_audio_levels(data)
-            
             metrics = calculate_deep_metrics(data)
             hfer = metrics["hfer"] if metrics else 0.0
-            
             now = time.time()
            
             with state_lock:
@@ -1095,27 +1076,18 @@ def listen_and_identify():
             if current_state in ["RECORDING", "PROCESSING", "SLEEPING"]:
                 has_played_music = True
 
-            # FIX: Only update the last music time if music is actively crossing the threshold
             if music_rms > MUSIC_THRESHOLD:
                 last_music_time = now
 
-            # --- TIER 1: TURNTABLE POWER ---
             motor_on_cond = False
-            
             if raw_rms > motor_on_thresh:
                 if raw_rms < motor_ceiling:
-                    # Sound is inside the Goldilocks zone for the motor. Check Hiss.
                     motor_on_cond = True
                     if MOTOR_HFER_THRESHOLD > 0.0 and hfer > MOTOR_HFER_THRESHOLD:
                         motor_on_cond = False
                 else:
-                    # Sound is LOUDER than the strict ceiling. 
-                    if turntable_on:
-                        # VIP Pass: Turntable is officially ON. Allow loud music/handling noise.
-                        motor_on_cond = True
-                    else:
-                        # Bouncer activated: Turntable is officially OFF. Block the loud spike!
-                        motor_on_cond = False
+                    if turntable_on: motor_on_cond = True
+                    else: motor_on_cond = False
             
             if motor_on_cond:
                 power_score = min(power_score + 1, power_max_score)
@@ -1123,31 +1095,17 @@ def listen_and_identify():
                     if not turntable_on:
                         turntable_on = True
                         if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/power", "ON", retain=True)
-                        
-                        # 👻 DUMP THE GHOST CATCHER TO FILE!
                         if DEBUG_GHOST_CATCHER:
                             ts = int(time.time())
                             wav_name = os.path.join(SHARE_DIR, f"ghost_trigger_{ts}.wav")
-                            log(f"👻 DEBUG GHOST CATCHER: False positive overnight trigger caught!")
-                            log(f"   ┣ Saved 6-second memory to: {wav_name}")
-                            log(f"   ┣ Triggered at RMS: {raw_rms:.6f} (Threshold: {motor_on_thresh:.6f}, Ceiling: {motor_ceiling:.6f})")
-                            log(f"   ┗ Triggered at HFER: {hfer:.4f} (Threshold: {MOTOR_HFER_THRESHOLD:.4f})")
                             try:
                                 with wave.open(wav_name, "wb") as wf:
-                                    wf.setnchannels(CHANNELS)
-                                    wf.setsampwidth(2)
-                                    wf.setframerate(RATE)
-                                    wf.writeframes(b"".join(ghost_buffer))
-                            except Exception as e:
-                                log(f"⚠️ Failed to save Ghost Catcher wav: {e}")
+                                    wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(b"".join(ghost_buffer))
+                            except Exception: pass
             else:
                 power_score = max(power_score - 1, 0)
                 if turntable_on and power_score <= 0:
-                    turntable_on = False
-                    has_played_music = False
-                    rhythm_locked = False
-                    
-                    # 💥 FORCE ENGINE RESET ON POWER CYCLE
+                    turntable_on, has_played_music, rhythm_locked = False, False, False
                     with state_lock:
                         if app_state in ["RECORDING", "PROCESSING", "SLEEPING", "COOLDOWN"]:
                             if app_state == "SLEEPING" and current_track and not scrobble_fired:
@@ -1156,282 +1114,174 @@ def listen_and_identify():
                                 if time_played > 5:
                                     track_id = f"{current_track['title']} - {current_track['artist']}"
                                     paused_track_memory = {"id": track_id, "accumulated_playtime": time_played}
-                                    log(f"⏸️ Power cycled! Track aborted (Paused). Saved {int(time_played)}s playtime.")
-                                else:
-                                    log("🔇 Power cycled! Track aborted before scrobble threshold.")
-                                    
-                            app_state = "IDLE"
-                            current_track = None
-                            scrobble_fired = False
-                            current_attempt = 1
-                            consecutive_failures = 0
-
+                            app_state, current_track, scrobble_fired, current_attempt, consecutive_failures = "IDLE", None, False, 1, 0
                     if mqtt_client.is_connected(): 
                         mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
                         mqtt_client.publish("vinyl_guardian/track", "Not Playing", retain=True)
                         mqtt_client.publish("vinyl_guardian/progress", "[░░░░░░░░░░] 00:00 / 00:00", retain=True)
                         mqtt_client.publish("vinyl_guardian/scrobble_status", "Off", retain=True)
 
-            # Override Guardian State UI if Power is Off
-            if not turntable_on:
-                current_guardian_state = "Off"
+            if not turntable_on: current_guardian_state = "Off"
 
-            # --- TIER 2: VINYL STATUS (Needle / Rhythm Logic) ---
             is_dust_pop = crest >= RUNOUT_CREST_THRESHOLD
-           
             if is_dust_pop:
                 needle_active_score = min(needle_active_score + pop_score_boost, needle_max_score)
-                
                 pop_history.append(now)
-                if len(pop_history) > 15:
-                    pop_history.pop(0)
-                    
+                if len(pop_history) > 15: pop_history.pop(0)
                 match_count = 0
                 for p in pop_history[:-1]:
                     delta = now - p
                     for lo, hi in VALID_RPM_INTERVALS:
-                        if lo <= delta <= hi:
-                            match_count += 1
-                            break
-                            
-                # Activating Rhythm Lock (Music requirement removed)
-                if match_count >= 2:
-                    rhythm_locked = True
-                    last_rhythm_time = now
-                        
-            elif raw_rms >= RUMBLE_THRESHOLD:
-                needle_active_score = min(needle_active_score + 1, needle_max_score)
-            else:
-                needle_active_score = max(needle_active_score - 1, 0)
-                
-            # Allow the rhythm lock to persist slightly longer between missing pops
-            if rhythm_locked and (now - last_rhythm_time > 6.0):
-                rhythm_locked = False
-           
+                        if lo <= delta <= hi: match_count += 1; break
+                if match_count >= 2: rhythm_locked, last_rhythm_time = True, now
+            elif raw_rms >= RUMBLE_THRESHOLD: needle_active_score = min(needle_active_score + 1, needle_max_score)
+            else: needle_active_score = max(needle_active_score - 1, 0)
+            if rhythm_locked and (now - last_rhythm_time > 6.0): rhythm_locked = False
             needle_down = needle_active_score > (needle_max_score * 0.5)
-
             continuous_silence = now - last_music_time
 
-            # ⚡ NEW: Hyper-Accurate UI State Mapping (Includes "Between Tracks")
             new_vinyl_status = "Motor Idle"
-            if not turntable_on:
-                new_vinyl_status = "Powered Off"
-                has_played_music = False
-                rhythm_locked = False
-            elif rhythm_locked:
-                new_vinyl_status = "Runout Groove"
-            elif current_state in ["RECORDING", "PROCESSING"]:
-                new_vinyl_status = "Playing"
+            if not turntable_on: new_vinyl_status = "Powered Off"
+            elif rhythm_locked: new_vinyl_status = "Runout Groove"
+            elif current_state in ["RECORDING", "PROCESSING"]: new_vinyl_status = "Playing"
             elif has_played_music:
-                if continuous_silence < 2.0:
-                    new_vinyl_status = "Playing"
-                else:
-                    new_vinyl_status = "Between Tracks"
-            else:
-                new_vinyl_status = "Motor Idle"
+                if continuous_silence < 2.0: new_vinyl_status = "Playing"
+                else: new_vinyl_status = "Between Tracks"
 
-            # Auto-wipe the played music flag if the standard 15s needle-lift timer expires
-            if continuous_silence >= int(RATE / CHUNK * NEEDLE_LIFT_SECONDS) * (CHUNK / RATE) and not rhythm_locked:
-                has_played_music = False
-                
+            if continuous_silence >= int(RATE / CHUNK * NEEDLE_LIFT_SECONDS) * (CHUNK / RATE) and not rhythm_locked: has_played_music = False
             change_3_tier_status(new_vinyl_status, current_guardian_state)
 
             if now - last_pub >= 1.0:
                 if mqtt_client.is_connected():
-                    # Calculate Scrobble Status Display
-                    if not turntable_on:
-                        scrob_str = "Off"
+                    if not turntable_on: scrob_str = "Off"
                     elif current_state == "SLEEPING" and current_track:
-                        if scrobble_fired:
-                            scrob_str = f"Scrobbled: {last_scrobbled_track.split(' - ')[0]} ✅"
+                        if scrobble_fired: scrob_str = f"Scrobbled: {last_scrobbled_track.split(' - ')[0]} ✅"
                         else:
                             current_silence_sec = silence_sleep * (CHUNK / RATE)
-                            physical_now = now - current_silence_sec
-                            time_left = max(0, int(current_track.get('scrobble_trigger_time', 0) - physical_now))
-                            if time_left > 0:
-                                m, s = divmod(time_left, 60)
-                                scrob_str = f"In {m:02d}:{s:02d} ⏳"
-                            else:
-                                scrob_str = "Scrobbling... 🚀"
-                    else:
-                        if last_scrobbled_track:
-                            scrob_str = f"Scrobbled: {last_scrobbled_track.split(' - ')[0]} ✅"
-                        else:
-                            scrob_str = "Waiting ⏸️"
-                        
+                            time_left = max(0, int(current_track.get('scrobble_trigger_time', 0) - (now - current_silence_sec)))
+                            m, s = divmod(time_left, 60); scrob_str = f"In {m:02d}:{s:02d} ⏳" if time_left > 0 else "Scrobbling... 🚀"
+                    else: scrob_str = f"Scrobbled: {last_scrobbled_track.split(' - ')[0]} ✅" if last_scrobbled_track else "Waiting ⏸️"
                     mqtt_client.publish("vinyl_guardian/scrobble_status", scrob_str, retain=True)
 
                     if current_state == "SLEEPING" and current_track:
                         pos_sec = max(0, int(now - current_track['start_timestamp']))
                         dur_sec = int(current_track['duration'])
                         if pos_sec > dur_sec > 0: pos_sec = dur_sec
-                        p_m, p_s = divmod(pos_sec, 60)
-                        d_m, d_s = divmod(dur_sec, 60)
-                       
+                        p_m, p_s = divmod(pos_sec, 60); d_m, d_s = divmod(dur_sec, 60)
                         if current_track.get('duration_known', True) and dur_sec > 0:
-                            percent = pos_sec / dur_sec
-                            filled = int(percent * 10)
-                            bar = '█' * filled + '░' * (10 - filled)
-                            prog_str = f"[{bar}] {p_m:02d}:{p_s:02d} / {d_m:02d}:{d_s:02d}"
-                        else:
-                            prog_str = f"▶️ {p_m:02d}:{p_s:02d} / ??:??"
-                           
+                            filled = int((pos_sec / dur_sec) * 10); prog_str = f"[{'█' * filled}{'░' * (10 - filled)}] {p_m:02d}:{p_s:02d} / {d_m:02d}:{d_s:02d}"
+                        else: prog_str = f"▶️ {p_m:02d}:{p_s:02d} / ??:??"
                         mqtt_client.publish("vinyl_guardian/progress", prog_str)
-
                     elif current_state in ["RECORDING", "PROCESSING"]:
-                        pos_sec = max(0, int(now - song_start))
-                        p_m, p_s = divmod(pos_sec, 60)
-                        mqtt_client.publish("vinyl_guardian/progress", f"▶️ {p_m:02d}:{p_s:02d} / ??:??")
-
+                        p_m, p_s = divmod(max(0, int(now - song_start)), 60); mqtt_client.publish("vinyl_guardian/progress", f"▶️ {p_m:02d}:{p_s:02d} / ??:??")
                     elif current_state in ["IDLE", "COOLDOWN"]:
-                        if turntable_on:
-                            mqtt_client.publish("vinyl_guardian/progress", "▶️ 00:00 / ??:??")
-                        else:
-                            mqtt_client.publish("vinyl_guardian/progress", "[░░░░░░░░░░] 00:00 / 00:00")
+                        mqtt_client.publish("vinyl_guardian/progress", "▶️ 00:00 / ??:??" if turntable_on else "[░░░░░░░░░░] 00:00 / 00:00")
                
                 if DEBUG:
-                    if current_state == "RECORDING":
-                        pct = int((chunks/target)*100) if target > 0 else 0
-                        status = f"🔴 REC {pct}%"
+                    if current_state == "RECORDING": pct = int((chunks/target)*100); status = f"🔴 REC {pct}%"
                     elif current_state == "SLEEPING": status = f"💤 SLEEP ({max(0, int(wake_up_time - now))}s)" if now - last_sleep_log >= 15.0 else None
                     elif current_state == "COOLDOWN": status = f"⏳ COOLDOWN ({max(0, int(cooldown_end - now))}s)"
                     elif current_state == "PROCESSING": status = "⚙️ PROC"
-                    else:
-                        status = f"🟢 {new_vinyl_status.upper()}"
-                       
+                    else: status = f"🟢 {new_vinyl_status.upper()}"
                     if status:
                         rhythm_flag = " | 🥁 RHYTHM LOCK" if rhythm_locked else ""
                         print(f"[{time.strftime('%H:%M:%S')}] {status} | RMS: {raw_rms:.4f} | Music: {music_rms:.4f} | Crest: {crest:.2f}{rhythm_flag}", flush=True)
                         if "SLEEP" in status: last_sleep_log = now
                 last_pub = now
 
-            # --- TIER 3: GUARDIAN ENGINE STATE MACHINE ---
             if current_state == "IDLE":
                 if not needle_down and not has_played_music and not rhythm_locked:
                     idle_silence_chunks += 1
                     if idle_silence_chunks == int(RATE / CHUNK * NEEDLE_LIFT_SECONDS):
                         if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/track", "Not Playing", retain=True)
                         idle_silence_chunks = 0
-                else:
-                    idle_silence_chunks = 0
-
+                else: idle_silence_chunks = 0
                 if music_rms > MUSIC_THRESHOLD and not is_dust_pop:
                     trigger_chunks += 1
                     if trigger_chunks >= DYNAMIC_DEBOUNCE_CHUNKS:
-                        log(f"🎵 AUDIO DETECTED (Music Spike: {music_rms:.4f})")
-                        
-                        # ⚡ VIP OVERRIDE: Music has been firmly detected! Ensure the turntable UI is ON!
                         if not turntable_on:
-                            turntable_on = True
-                            power_score = power_max_score
+                            turntable_on, power_score = True, power_max_score
                             if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/power", "ON", retain=True)
-
                         if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/track", "Searching...", retain=True)
-                        song_start, buffer, chunks, loud_chunks, silence_sleep = now, bytearray(data), 1, 1, 0
-                        trigger_chunks = 0
+                        song_start, buffer, chunks, loud_chunks, silence_sleep, trigger_chunks = now, bytearray(data), 1, 1, 0, 0
                         with state_lock: app_state = "RECORDING"
-                else:
-                    trigger_chunks = 0  
-
+                else: trigger_chunks = 0  
             elif current_state == "RECORDING":
-                buffer.extend(data)
-                chunks += 1
+                buffer.extend(data); chunks += 1
                 if raw_rms > RUMBLE_THRESHOLD: loud_chunks += 1
-               
                 if len(buffer) > MAX_BUFFER_SIZE:
-                    log(f"⚠️ Recording buffer overflowed. Discarding memory and returning to Listening.")
-                    buffer.clear()
+                    buffer.clear(); chunks, loud_chunks = 0, 0
                     if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/track", "Not Playing", retain=True)
                     with state_lock: app_state = "IDLE"
-                    chunks, loud_chunks = 0, 0
                     continue
-
                 if chunks >= target:
                     if loud_chunks >= (target / 2.0):
                         with state_lock: app_state = "PROCESSING"
                         threading.Thread(target=process_audio_background, args=(bytes(buffer), song_start)).start()
                     else:
-                        log(f"⚠️ Sample discarded (Too quiet).")
                         if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/track", "Not Playing", retain=True)
                         with state_lock: app_state = "IDLE"
                     buffer, chunks, loud_chunks = bytearray(), 0, 0
-           
             elif current_state == "SLEEPING":
-                # Dropout Timer logic
-                if music_rms > MUSIC_THRESHOLD:
-                    silence_sleep = 0
-                else:
-                    silence_sleep += 1
-                   
+                if music_rms > MUSIC_THRESHOLD: silence_sleep = 0
+                else: silence_sleep += 1
                 required_silence_chunks = int(RATE / CHUNK * NEEDLE_LIFT_SECONDS)
-
                 if silence_sleep >= required_silence_chunks:
-                    if rhythm_locked:
-                        pass
-                    else:
-                        log(f"🔇 {NEEDLE_LIFT_SECONDS}-second dropout timer expired. Needle lift detected.")
+                    if not rhythm_locked:
                         if current_track and not scrobble_fired:
-                            silence_duration = required_silence_chunks * (CHUNK / RATE)
-                            time_played = (now - current_track['session_start_time']) - silence_duration + current_track.get('previously_played', 0)
-                           
-                            if time_played > 5:  
+                            time_played = (now - current_track['session_start_time']) - (required_silence_chunks * (CHUNK / RATE)) + current_track.get('previously_played', 0)
+                            if time_played > 5:
                                 track_id = f"{current_track['title']} - {current_track['artist']}"
-                                with state_lock:
-                                    paused_track_memory = {"id": track_id, "accumulated_playtime": time_played}
-                                log(f"⏸️ Track aborted (Paused). Total saved playtime: {int(time_played)}s.")
-                            else:
-                                log("🔇 Track aborted before scrobble threshold.")
-                       
-                        if mqtt_client.is_connected():
-                            mqtt_client.publish("vinyl_guardian/track", "Not Playing", retain=True)
-
-                        with state_lock:
-                            app_state, current_track, current_attempt, consecutive_failures, has_played_music = "IDLE", None, 1, 0, False
+                                with state_lock: paused_track_memory = {"id": track_id, "accumulated_playtime": time_played}
+                        if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/track", "Not Playing", retain=True)
+                        with state_lock: app_state, current_track, current_attempt, consecutive_failures, has_played_music = "IDLE", None, 1, 0, False
                         continue
-
-                current_silence_sec = silence_sleep * (CHUNK / RATE)
-                physical_now = now - current_silence_sec
-
+                physical_now = now - (silence_sleep * (CHUNK / RATE))
                 if current_track and not scrobble_fired and physical_now >= current_track.get('scrobble_trigger_time', 0):
                     track_id = f"{current_track['title']} - {current_track['artist']}"
                     if track_id != last_scrobbled_track:
                         scrobble_to_lastfm(current_track['artist'], current_track['title'], current_track['start_timestamp'], current_track['album'])
                         if mqtt_client.is_connected():
                             mqtt_client.publish("vinyl_guardian/scrobble_state", track_id, retain=True)
-                            try:
-                                payload = json.dumps(current_track)
-                                mqtt_client.publish("vinyl_guardian/scrobble", payload, retain=True)
-                            except TypeError as e:
-                                log(f"⚠️ MQTT attribute serialization failed: {e}")
-                            except Exception:
-                                pass
+                            try: mqtt_client.publish("vinyl_guardian/scrobble", json.dumps(current_track), retain=True)
+                            except Exception: pass
                         with state_lock: scrobble_fired, last_scrobbled_track, paused_track_memory = True, track_id, None
                     else:
-                        if DEBUG: log(f"⏭️ Skipping scrobble: '{track_id}' was just scrobbled.")
                         with state_lock: scrobble_fired = True
-
                 if now >= wake_up_time:
                     cooldown_end = now + 4
                     if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/track", "Not Playing", retain=True)
-                    with state_lock:
-                        app_state = "COOLDOWN"
-                        current_track = None
-                   
+                    with state_lock: app_state, current_track = "COOLDOWN", None
             elif current_state == "COOLDOWN" and now >= cooldown_end:
-                log(f"🟢 Cooldown finished. Returning to Listening.")
                 with state_lock: app_state = "IDLE"
 
+def recognize_shazam(wav_path):
+    if DEBUG: log("Uploading to Shazam...")
+    try:
+        async def _recognize(): return await shazam_instance.recognize(wav_path)
+        res_json = asyncio.run(_recognize())
+        if isinstance(res_json, dict) and 'track' in res_json and len(res_json.get('matches', [])) > 0:
+            track = res_json['track']
+            title, artist = track.get('title', 'Unknown'), track.get('subtitle', 'Unknown')
+            album, duration, image_url = "Unknown", 0, track.get('images', {}).get('coverart', '')
+            for section in track.get('sections', []):
+                if section.get('type') == 'SONG':
+                    for meta in section.get('metadata', []):
+                        if meta.get('title') == 'Album': album = meta.get('text')
+                        elif meta.get('title') == 'Length':
+                            p = meta.get('text', '').split(':')
+                            duration = int(p[0])*60 + int(p[1]) if len(p)==2 else int(p[0])*3600 + int(p[1])*60 + int(p[2])
+            return {"title": title, "artist": artist, "album": album, "image": image_url, "offset_seconds": res_json['matches'][0].get('offset', 0), "duration": duration, "adamid": track.get('trackadamid')}
+        return None
+    except Exception as e:
+        log(f"🚨 Shazam Error: {e}"); return None
+
 if __name__ == "__main__":
-    if CALIBRATION_MODE:
-        run_calibration()
+    if CALIBRATION_MODE: run_calibration()
     else:
-        files_to_clean = [os.path.join(SHARE_DIR, "vinyl_debug.wav"), os.path.join(SHARE_DIR, "shazam_last_match.json"), "/tmp/process.wav"]
+        files_to_clean = [os.path.join(SHARE_DIR, "vinyl_debug.wav"), "/tmp/process.wav"]
         for f in files_to_clean:
             try:
-                if os.path.exists(f):
-                    os.remove(f)
-                    if DEBUG: log(f"🧹 Cleaned up: {f}")
-            except Exception as e:
-                if DEBUG: log(f"⚠️ Could not clear {f}: {e}")
-        connect_mqtt()
-        listen_and_identify()
+                if os.path.exists(f): os.remove(f)
+            except Exception: pass
+        connect_mqtt(); listen_and_identify()
