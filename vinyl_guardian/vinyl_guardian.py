@@ -18,6 +18,15 @@ import pylast
 import signal
 
 VERSION = os.environ.get("ADDON_VERSION", "Unknown")
+if VERSION == "Unknown":
+    try:
+        with open('/config.yaml', 'r') as f:
+            for line in f:
+                if line.startswith("version:"):
+                    VERSION = line.split(":", 1)[1].strip().strip('"').strip("'")
+                    break
+    except:
+        VERSION = "Unknown"
 
 # --- LOAD CONFIGURATION ---
 try:
@@ -87,9 +96,9 @@ if os.path.exists(AUTO_CALIB_FILE):
         IS_SILENT_HW = auto_cal.get("is_silent_hw", False)
        
         if not CALIBRATION_MODE:
-            print("💡 Loaded dynamically tuned thresholds and state buffers from auto_calibration.json")
+            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [Vinyl Guardian] 💡 Loaded dynamically tuned thresholds and state buffers from auto_calibration.json")
     except Exception as e:
-        print(f"⚠️ Failed to read auto_calibration.json: {e}")
+        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [Vinyl Guardian] ⚠️ Failed to read auto_calibration.json: {e}")
 
 UI_MUSIC = adv.get("manual_override_music_threshold")
 if UI_MUSIC is not None and UI_MUSIC > 0: MUSIC_THRESHOLD = UI_MUSIC
@@ -137,7 +146,8 @@ current_engine_status = "Off"
 shazam_instance = Shazam()
 
 def log(message):
-    print(f"[Vinyl Guardian] {message}", flush=True)
+    ts = time.strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{ts}] [Vinyl Guardian] {message}", flush=True)
 
 def signal_handler(sig, frame):
     log("🛑 Shutting down gracefully...")
@@ -215,11 +225,11 @@ def publish_discovery():
             payload["payload_off"] = "OFF"
         mqtt_client.publish(f"homeassistant/{c['domain']}/vinyl_guardian/{key}/config", json.dumps(payload), retain=True)
 
-    # 🧼 Explicitly force ALL states to boot defaults (None/Off)
+    # 🧼 Explicitly force ALL states to boot defaults (Not Playing/Off)
     mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
     mqtt_client.publish("vinyl_guardian/status", "Powered Off", retain=True)
     mqtt_client.publish("vinyl_guardian/engine_state", "Off", retain=True)
-    mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
+    mqtt_client.publish("vinyl_guardian/track", "Not Playing", retain=True)
     mqtt_client.publish("vinyl_guardian/scrobble_status", "Off", retain=True)
     mqtt_client.publish("vinyl_guardian/progress", "[░░░░░░░░░░] 00:00 / 00:00", retain=True)
 
@@ -379,7 +389,7 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
             else:
                 consecutive_failures += 1
                 log(f"❌ Max attempts reached. Fallback to gap detection.")
-                # Only use Unknown Track when it formally fails
+                # Only use Unknown Track when it formally fails all attempts
                 mqtt_client.publish("vinyl_guardian/track", "Unknown Track", retain=True)
                 current_attempt = 1
                 wake_up_time = time.time() + (CONSECUTIVE_FAILURE_TIMEOUT if consecutive_failures >= 10 else FALLBACK_SLEEP_SECS)
@@ -816,6 +826,7 @@ def run_calibration():
     
     idle_max_crest = max(s2["crest"]["max"], s5["crest"]["max"])
     
+    # ⚡ NEW: Dynamic Ceiling calculation (Base it strictly on steady motor median, ensuring RFI spikes are cut off)
     idle_median = max(s2["rms"]["median"], s5["rms"]["median"])
     
     guess_motor_hfer = 0.0
@@ -837,7 +848,10 @@ def run_calibration():
             log(f"   ┗ HFER Hiss Detection Armed (Threshold: {guess_motor_hfer:.4f})")
 
         guess_rumble = max(0.025, play_val * 0.4) 
+        # Hard floor implemented: Pop threshold MUST be at least 0.5 above idle static
         guess_crest = max(idle_max_crest + 0.5, s4["crest"]["median"] + (runout_crest_std * 2.5))
+        
+        # ⚡ NEW: Ultra-fast UI response for Silent Hardware! We trust the data!
         guess_m_hyst = 1.0 
     else:
         guess_motor = calc_variance_boundary(off_val, off_std, on_val, on_std)
@@ -1147,7 +1161,7 @@ def listen_and_identify():
 
                     if mqtt_client.is_connected(): 
                         mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
-                        mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
+                        mqtt_client.publish("vinyl_guardian/track", "Not Playing", retain=True)
                         mqtt_client.publish("vinyl_guardian/progress", "[░░░░░░░░░░] 00:00 / 00:00", retain=True)
                         mqtt_client.publish("vinyl_guardian/scrobble_status", "Off", retain=True)
 
@@ -1289,7 +1303,7 @@ def listen_and_identify():
                 if not needle_down and not has_played_music and not rhythm_locked:
                     idle_silence_chunks += 1
                     if idle_silence_chunks == int(RATE / CHUNK * NEEDLE_LIFT_SECONDS):
-                        if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
+                        if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/track", "Not Playing", retain=True)
                         idle_silence_chunks = 0
                 else:
                     idle_silence_chunks = 0
@@ -1320,7 +1334,7 @@ def listen_and_identify():
                 if len(buffer) > MAX_BUFFER_SIZE:
                     log(f"⚠️ Recording buffer overflowed. Discarding memory and returning to Listening.")
                     buffer.clear()
-                    if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
+                    if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/track", "Not Playing", retain=True)
                     with state_lock: app_state = "IDLE"
                     chunks, loud_chunks = 0, 0
                     continue
@@ -1331,7 +1345,7 @@ def listen_and_identify():
                         threading.Thread(target=process_audio_background, args=(bytes(buffer), song_start)).start()
                     else:
                         log(f"⚠️ Sample discarded (Too quiet).")
-                        if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
+                        if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/track", "Not Playing", retain=True)
                         with state_lock: app_state = "IDLE"
                     buffer, chunks, loud_chunks = bytearray(), 0, 0
            
@@ -1362,7 +1376,7 @@ def listen_and_identify():
                                 log("🔇 Track aborted before scrobble threshold.")
                        
                         if mqtt_client.is_connected():
-                            mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
+                            mqtt_client.publish("vinyl_guardian/track", "Not Playing", retain=True)
 
                         with state_lock:
                             app_state, current_track, current_attempt, consecutive_failures, has_played_music = "IDLE", None, 1, 0, False
@@ -1391,7 +1405,7 @@ def listen_and_identify():
 
                 if now >= wake_up_time:
                     cooldown_end = now + 4
-                    if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/track", "None", retain=True)
+                    if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/track", "Not Playing", retain=True)
                     with state_lock:
                         app_state = "COOLDOWN"
                         current_track = None
