@@ -16,18 +16,16 @@ warnings.filterwarnings('ignore')
 from config import SHARE_DIR, AUTO_CALIB_FILE, RATE, CHANNELS, CHUNK
 
 # --- HOME ASSISTANT OPTION LOADING ---
-# Safely read directly from HA's options file to handle nested 'advanced' variables
 REUSE_CALIB_OPT = False
 OPTIONS_FILE = "/data/options.json"
 if os.path.exists(OPTIONS_FILE):
     try:
         with open(OPTIONS_FILE, "r") as f:
             opts = json.load(f)
-            # Fetch from the 'advanced' dictionary defined in config.yaml
             advanced_opts = opts.get("advanced", {})
             REUSE_CALIB_OPT = advanced_opts.get("reuse_calibration_audio", False)
-    except Exception as e:
-        print(f"⚠️ Could not read /data/options.json: {e}", flush=True)
+    except Exception:
+        pass
 
 # --- CONFIGURATION ---
 FORMAT = alsaaudio.PCM_FORMAT_S16_LE
@@ -43,6 +41,7 @@ def reject_outliers_mad(data, threshold=3.5):
     return data[np.abs(modified_z_scores) <= threshold]
 
 def get_rms(audio_data):
+    if len(audio_data) == 0: return 0.0
     return float(np.sqrt(np.mean(np.square(audio_data))))
 
 def get_music_rms(audio_data):
@@ -95,28 +94,97 @@ def record_chunk(duration):
     audio_data = np.frombuffer(raw_audio, dtype=np.int16).astype(np.float32) / 32768.0
     return raw_audio, audio_data
 
-def record_segmented_file(filename, transition_duration, steady_duration, prompt):
+def record_segmented_file(filename, action_dur, settle_dur, steady_dur, prompt):
+    """3-Phase Recording: Action Window -> Mechanical Settle -> Steady State"""
     print(f"\n" + "-"*50, flush=True)
     print(f"{prompt}", flush=True)
-    print(f"🎬 ACTION WINDOW STARTED ({transition_duration}s): Perform action NOW!", flush=True)
     
-    trans_bytes, _ = record_chunk(transition_duration)
-    print(f"⏹️  STEADY STATE ({steady_duration}s): Capturing stable background...", flush=True)
+    raw_bytes = bytearray()
     
-    steady_bytes, _ = record_chunk(steady_duration)
-    full_bytes = trans_bytes + steady_bytes
+    if action_dur > 0:
+        print(f"🎬 ACTION WINDOW ({action_dur}s): Perform action NOW!", flush=True)
+        chunk_b, _ = record_chunk(action_dur)
+        raw_bytes.extend(chunk_b)
+        
+    if settle_dur > 0:
+        print(f"⏳ SETTLING ({settle_dur}s): Allowing motor/reverb to stabilize...", flush=True)
+        chunk_b, _ = record_chunk(settle_dur)
+        raw_bytes.extend(chunk_b)
+        
+    if steady_dur > 0:
+        print(f"⏹️  STEADY STATE ({steady_dur}s): Capturing stable background...", flush=True)
+        chunk_b, _ = record_chunk(steady_dur)
+        raw_bytes.extend(chunk_b)
     
     with wave.open(filename, 'wb') as wf:
-        wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(full_bytes)
+        wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(raw_bytes)
         
     print(f"✅ Saved to {os.path.basename(filename)}", flush=True)
     time.sleep(1)
 
+def record_dynamic_transition(filename):
+    """Special Live-Listening recorder for File 3"""
+    print(f"\n" + "-"*50, flush=True)
+    print("[FILE 3/6: THE MASTER TRANSITION]\n🎶 ACTION: Drop needle on the LAST TRACK now.")
+    print("〰️  The system will listen live for the track to end, automatically wait for the runout groove, and capture the rumble.", flush=True)
+    
+    raw_bytes = bytearray()
+    
+    # Phase 1: Action (10s)
+    print(f"🎬 ACTION WINDOW (10s): Drop the needle NOW!", flush=True)
+    chunk_b, _ = record_chunk(10.0)
+    raw_bytes.extend(chunk_b)
+    
+    # Phase 2: Live Music Monitoring
+    print("🎵 MUSIC PHASE: Listening for the track to naturally end...", flush=True)
+    max_music_rms = 0.0
+    consecutive_low = 0
+    music_ended = False
+    
+    for i in range(360): # Max 6 minutes fail-safe
+        chunk_b, audio = record_chunk(1.0)
+        raw_bytes.extend(chunk_b)
+        rms = get_rms(audio)
+        
+        if i < 15:
+            max_music_rms = max(max_music_rms, rms)
+            continue
+            
+        threshold = max(max_music_rms * 0.25, 0.005) 
+        if rms < threshold:
+            consecutive_low += 1
+        else:
+            consecutive_low = 0
+            max_music_rms = max(max_music_rms, rms) 
+            
+        if consecutive_low >= 5: 
+            print(f"📉 MUSIC DROP-OFF DETECTED! (Silence hit at {i+10}s)", flush=True)
+            music_ended = True
+            break
+            
+    if not music_ended:
+        print("⚠️ Fail-safe reached. Max 6 minutes recorded without detecting end of song.", flush=True)
+        
+    # Phase 3: Wait for needle to travel
+    print("⏳ TRANSIT PHASE (20s): Waiting for needle to firmly reach runout groove...", flush=True)
+    chunk_b, _ = record_chunk(20.0)
+    raw_bytes.extend(chunk_b)
+    
+    # Phase 4: Runout Capture
+    print("⏺️ STEADY STATE (20s): Capturing pure runout rumble and surface noise...", flush=True)
+    chunk_b, _ = record_chunk(20.0)
+    raw_bytes.extend(chunk_b)
+    
+    with wave.open(filename, 'wb') as wf:
+        wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(raw_bytes)
+        
+    print(f"✅ Saved dynamic transition to {os.path.basename(filename)}", flush=True)
+    time.sleep(1)
+
 # --- STEP 0: AUTOMATED GAIN STAGING ---
 def set_mic_volume(vol_pct):
-    try:
-        subprocess.run(["pactl", "set-source-volume", "@DEFAULT_SOURCE@", f"{vol_pct}%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception: pass
+    try: subprocess.run(["pactl", "set-source-volume", "@DEFAULT_SOURCE@", f"{vol_pct}%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except: pass
 
 def gain_staging():
     print("\n" + "="*50, flush=True)
@@ -130,7 +198,7 @@ def gain_staging():
     last_direction = 0 
     set_mic_volume(current_vol)
     
-    time.sleep(10)
+    time.sleep(10) # Wait for needle drop
     
     while True:
         _, audio_data = record_chunk(3.0)
@@ -170,46 +238,41 @@ def analyze_files(files):
     print("🧠 ANALYZING THE SEQUENTIAL CHAIN", flush=True)
     print("="*50, flush=True)
     
-    # 1. Floor analysis (10s to end)
-    floor_data = load_wav(files["floor"])
-    floor_rms = chunked_rms(floor_data[10*RATE:])
-    silence_gate = np.max(reject_outliers_mad(floor_rms)) * 1.10
+    # 1. Floor analysis: Cross-check File 1 and File 5
+    floor_1_data = load_wav(files["floor"])
+    floor_1_rms = chunked_rms(floor_1_data) # All 30s is steady floor
     
-    # 2. Motor Idle analysis (15s to end)
-    idle_data = load_wav(files["spinup"])
-    idle_rms = chunked_rms(idle_data[15*RATE:])
-    motor_hum_max = np.max(reject_outliers_mad(idle_rms))
+    powerdown_data = load_wav(files["powerdown"])
+    # Skip first 20s (10s action + 10s spindown settle)
+    floor_5_rms = chunked_rms(powerdown_data[20*RATE:]) 
+    
+    combined_floor = np.concatenate((floor_1_rms, floor_5_rms))
+    silence_gate = np.max(reject_outliers_mad(combined_floor)) * 1.10
+    
+    # 2. Motor Idle analysis: Cross-check File 2 and File 4
+    spinup_data = load_wav(files["spinup"])
+    # Skip first 20s (10s action + 10s spinup settle to reach full speed)
+    idle_2_rms = chunked_rms(spinup_data[20*RATE:])
+    
+    lift_data = load_wav(files["lift"])
+    # Skip first 15s (10s action + 5s tonearm mechanical settle)
+    idle_4_rms = chunked_rms(lift_data[15*RATE:])
+    
+    combined_idle = np.concatenate((idle_2_rms, idle_4_rms))
+    motor_hum_max = np.max(reject_outliers_mad(combined_idle))
+    
     motor_threshold = (silence_gate + motor_hum_max) / 2.0
     
-    # 3. Transition Analysis (THE SMART BIT)
-    print("📉 Scanning transition file for music-to-runout drop-off...", flush=True)
+    # 3. Transition Analysis: Because of dynamic recording, the LAST 20s is perfectly guaranteed to be runout groove.
     trans_data = load_wav(files["transition"])
-    trans_rms = chunked_rms(trans_data, chunk_size=8192) # Larger chunk for smoother diff
     
-    diffs = np.diff(trans_rms)
-    drop_idx = np.argmin(diffs)
-    drop_time_sec = (drop_idx * 8192) / RATE
+    runout_data = trans_data[-20*RATE:]
+    music_data = trans_data[10*RATE : -40*RATE] # Skip first 10s action window and skip 40s tail
     
-    # Sanity Check: If the drop is in the last 45 seconds or first 30, it's likely a bad capture
-    if drop_time_sec > (360 - 45):
-         print("⚠️ WARNING: No music end detected early enough! Did the track finish?", flush=True)
-         # Fallback to last 30 seconds
-         runout_window = trans_data[-30*RATE:]
-    else:
-        # We start the Runout Sample 20 seconds AFTER the detected drop (Definitively in the runout)
-        # We take a 20 second sample window
-        runout_start = int((drop_time_sec + 20) * RATE)
-        runout_end = int((drop_time_sec + 40) * RATE)
-        runout_window = trans_data[runout_start:runout_end]
-        print(f"✅ Music end detected at {drop_time_sec:.1f}s.")
-        print(f"   Waiting 20s for runout stabilization. Sampling from {drop_time_sec+20:.1f}s to {drop_time_sec+40:.1f}s.", flush=True)
-    
-    music_data = trans_data[:int(drop_time_sec * RATE)]
     music_rms_arr = chunked_music_rms(music_data)
     min_music_rms = np.percentile(music_rms_arr, 5) 
     
-    # Use the specific Runout Window to define Rumble/Pop ceilings
-    runout_rms_arr = chunked_rms(runout_window)
+    runout_rms_arr = chunked_rms(runout_data)
     runout_rumble_max = np.max(reject_outliers_mad(runout_rms_arr))
 
     return {
@@ -228,7 +291,7 @@ def run_calibration():
      \ \  / / _ _ __  _   _| | | |  | |_   _  __ _ _ __  | |_  __ _ _ __ 
       \ \/ / | | '_ \| | | | | | |  | | | | |/ _` | '_ \ | | |/ _` | '_ \
        \  /  | | | | | |_| | | | |__| | |_| | (_| | | | || | | (_| | | | |
-        \/   |_|_| |_|\__, |_|  \____/ \__,_|_| |_|__|_|\__,_|_| |_|__|_|
+        \/   |_|_| |_|\__, |_|  \____/ \__,_|\__,_|_| |_|__|_|\__,_|_| |_|
                        __/ |                                              
                       |___/   CALIBRATION SUITE v3.0                      
     """, flush=True)
@@ -259,22 +322,27 @@ def run_calibration():
     if not use_existing:
         final_mic_vol = gain_staging()
         
-        record_segmented_file(FILES["floor"], 0, 30, 
+        # File 1: Action (0s) -> Settle (0s) -> Steady (30s)
+        record_segmented_file(FILES["floor"], 0, 0, 30, 
             "[FILE 1/6: THE BASELINE]\n🔌 Turntable: OFF\n🤫 Action: Stay quiet.")
         
-        record_segmented_file(FILES["spinup"], 10, 20, 
-            "[FILE 2/6: THE MOTOR HUM]\n🟢 Action: Turn turntable power ON now.")
+        # File 2: Action (10s) -> Settle Spinup (10s) -> Steady Hum (15s)
+        record_segmented_file(FILES["spinup"], 10, 10, 15, 
+            "[FILE 2/6: THE MOTOR HUM]\n🟢 Action: Turn turntable power ON.")
         
-        record_segmented_file(FILES["transition"], 15, 345, 
-            "[FILE 3/6: THE MASTER TRANSITION]\n🎶 Action: Drop needle on the LAST TRACK now.\n〰️  Recording 6 mins to catch the music-to-runout fade.")
+        # File 3: Live Dynamic Recording
+        record_dynamic_transition(FILES["transition"])
         
-        record_segmented_file(FILES["lift"], 10, 20, 
-            "[FILE 4/6: THE PHYSICAL THUMP]\n⬆️  Action: LIFT the tonearm with the cue lever now.")
+        # File 4: Action (10s) -> Settle Thump (5s) -> Steady Hum (15s)
+        record_segmented_file(FILES["lift"], 10, 5, 15, 
+            "[FILE 4/6: THE PHYSICAL THUMP]\n⬆️  Action: LIFT the tonearm with the cue lever.")
         
-        record_segmented_file(FILES["powerdown"], 10, 20, 
-            "[FILE 5/6: THE ELECTRICAL POP]\n🔴 Action: Turn the turntable power OFF now.")
+        # File 5: Action (10s) -> Settle Spindown (10s) -> Steady Floor (15s)
+        record_segmented_file(FILES["powerdown"], 10, 10, 15, 
+            "[FILE 5/6: THE ELECTRICAL POP]\n🔴 Action: Turn the turntable power OFF.")
         
-        record_segmented_file(FILES["disturbance"], 30, 0, 
+        # File 6: Action (0s) -> Settle (0s) -> Steady Disturbance (30s)
+        record_segmented_file(FILES["disturbance"], 0, 0, 30, 
             "[FILE 6/6: ROOM NOISE]\n🗣️  Action: Talk and tap the cabinet for 30s.")
 
     thresholds = analyze_files(FILES)
@@ -289,7 +357,6 @@ def run_calibration():
     print("\n🔄 Please disable CALIBRATION_MODE in your config and RESTART the Add-on.", flush=True)
     print("💤 Calibration engine is now idling indefinitely to prevent restart loops...", flush=True)
     
-    # Indefinite sleep to wait for manual restart
     while True:
         time.sleep(3600)
 
