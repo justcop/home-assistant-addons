@@ -394,10 +394,8 @@ def calculate_hardware_thresholds(files):
     print_log(f"   [EXTRACTED] Pitch Window:  {hfer_min:.4f} to {hfer_max:.4f}")
     print_log(f"   [EXTRACTED] Crest Window:  {crest_min:.2f} to {crest_max:.2f}")
 
-    is_silent_hw = (np.median(m_rms) <= baseline_median * 1.3)
+    is_silent_hw = bool(np.median(m_rms) <= baseline_median * 1.3)
 
-    # --- 3. DISTURBANCE ---
-    print_log("\n[STAGE 3: ROOM NOISE & DISTURBANCE]")
     disturb_data = load_wav(files["disturbance"])
     d_rms, _, _ = chunked_metrics(disturb_data)
     max_room_transient = float(np.max(d_rms))
@@ -470,22 +468,77 @@ def calculate_hardware_thresholds(files):
         "runout_crest_threshold": round(pop_crest_threshold, 3),
         "pop_amplitude_threshold": round(pop_amplitude_threshold, 6),
         "max_room_transient": round(max_room_transient, 6),
-        "is_silent_hw": is_silent_hw
+        "is_silent_hw": bool(is_silent_hw)
     }
     
-    # Simulator Test Suite
+    # Simulator Test Suite Helper Functions
+    def states_in_order(trans, *expected_statuses):
+        last_idx = -1
+        for s in expected_statuses:
+            found = False
+            for i, t in enumerate(trans):
+                if i > last_idx and f"Status [{s}]" in t:
+                    last_idx = i
+                    found = True
+                    break
+            if not found:
+                return False
+        return True
+
+    def any_bad_status(trans, *bad_statuses):
+        return any(f"Status [{s}]" in t for t in trans for s in bad_statuses)
+
     print_log("\n" + "="*70)
     print_log("📜 THE DUAL-SENSOR ACID TEST (V6: STABILITY WINDOWS)")
+    print_log("   Running 6-stage physical recreation to verify logic locks...")
     print_log("="*70)
 
-    for label, audio, init_p, init_s in [
-        ("TEST 1: BASELINE NOISE", floor_data, "Off", "Powered Off"),
-        ("TEST 2: MOTOR HUM", spinup_data, "Off", "Powered Off"),
-        ("TEST 3: MASTER TRANSITION", trans_data, "On", "Motor Idle")
-    ]:
-        print_log(f"\n[{label}]")
-        trans, end_p, end_s = simulate_timeline(audio, thresholds, init_p, init_s)
-        for t in trans: print_log(t)
+    print_log("\n🔕 [TEST 1: BASELINE NOISE]")
+    print_log("   Expected Flow: Off -> Stays Off")
+    trans, end_p, end_s = simulate_timeline(floor_data, thresholds, "Off", "Powered Off")
+    for t in trans: print_log(t)
+    passed = (end_p == "Off" and end_s == "Powered Off" and len(trans) == 1)
+    print_log("   ✅ PASS" if passed else "   ❌ FAIL — The silence floor is too high.")
+
+    expected_p = "Off" if thresholds["is_silent_hw"] else "On"
+    expected_s = "Powered Off" if thresholds["is_silent_hw"] else "Motor Idle"
+    
+    print_log(f"\n⚙️  [TEST 2: MOTOR HUM]")
+    print_log(f"   Expected Flow: Off -> User turns motor ON -> {expected_p} / {expected_s}")
+    trans, end_p, end_s = simulate_timeline(spinup_data, thresholds, "Off", "Powered Off")
+    for t in trans: print_log(t)
+    passed = (end_p == expected_p and end_s == expected_s and not any_bad_status(trans, "Playing", "Runout Groove"))
+    print_log("   ✅ PASS" if passed else "   ❌ FAIL — Motor threshold misaligned or false trigger.")
+
+    print_log(f"\n🎵 [TEST 3: THE MASTER TRANSITION]")
+    print_log(f"   Expected Flow: Needle Drops -> Playing -> Between Tracks -> Runout Groove")
+    trans, end_p, end_s = simulate_timeline(trans_data, thresholds, expected_p, expected_s)
+    for t in trans: print_log(t)
+    passed = (end_p == "On" and end_s == "Runout Groove" and states_in_order(trans, "Playing", "Between Tracks", "Runout Groove"))
+    print_log("   ✅ PASS" if passed else "   ❌ FAIL — Engine lost track of music or failed rhythm lock.")
+
+    lift_data = load_wav(files["lift"])
+    print_log(f"\n⬆️  [TEST 4: NEEDLE LIFT]")
+    print_log(f"   Expected Flow: Runout Groove -> User lifts needle -> {expected_p} / {expected_s}")
+    trans, end_p, end_s = simulate_timeline(lift_data, thresholds, "On", "Runout Groove")
+    for t in trans: print_log(t)
+    passed = (end_p == expected_p and end_s == expected_s and not any_bad_status(trans, "Playing"))
+    print_log("   ✅ PASS" if passed else "   ❌ FAIL — Thump was falsely flagged as music.")
+
+    powerdown_data = load_wav(files["powerdown"])
+    print_log(f"\n🔌 [TEST 5: POWER DOWN]")
+    print_log(f"   Expected Flow: {expected_s} -> User turns power OFF -> Off / Powered Off")
+    trans, end_p, end_s = simulate_timeline(powerdown_data, thresholds, expected_p, expected_s)
+    for t in trans: print_log(t)
+    passed = (end_p == "Off" and end_s == "Powered Off" and not any_bad_status(trans, "Playing", "Runout Groove"))
+    print_log("   ✅ PASS" if passed else "   ❌ FAIL — Electrical pop triggered false states.")
+
+    print_log("\n🗣️  [TEST 6: ROOM NOISE]")
+    print_log("   Expected Flow: Off -> User talks/taps -> Stays Off")
+    trans, end_p, end_s = simulate_timeline(disturb_data, thresholds, "Off", "Powered Off")
+    for t in trans: print_log(t)
+    passed = (end_p == "Off" and end_s == "Powered Off" and not any_bad_status(trans, "Playing", "Runout Groove", "Motor Idle"))
+    print_log("   ✅ PASS" if passed else "   ❌ FAIL — Acoustic shield breached by transients.")
 
     return thresholds
 
