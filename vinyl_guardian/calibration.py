@@ -263,29 +263,36 @@ def find_rhythmic_pulse(data, start_sec, search_thresholds):
 
     return None
 
-def simulate_timeline(data, thresholds, initial_state):
+def simulate_timeline(data, thresholds, initial_power, initial_status):
     """
-    Chronological state engine that strictly mimics the vinyl_guardian.py daemon.
-    It requires sustained audio (hysteresis) to switch states, preventing transients
-    from failing the tests.
+    Chronological Dual-Sensor Engine.
+    Accurately mimics both the Power Binary Sensor and the Vinyl Status Select Sensor,
+    ensuring they stay linked according to the strict state hierarchy.
     """
     chunk_size = 4096 
     chunks = len(data) // chunk_size
     
-    current_state = initial_state
-    state_history = [initial_state] * 6 
-    transitions = [f"   -> 0.0s : Started {initial_state}"]
+    current_power = initial_power
+    current_status = initial_status
+    transitions = [f"   -> 0.0s : Power [{initial_power}] | Status [{initial_status}]"]
     
     pop_history = [] 
     rhythm_locked = False
     last_rhythm_time = -10.0
     last_print_rhythm = -10.0
     
-    # Mirror the power hysteresis variables from main loop
-    turntable_on = (initial_state != "Powered Off")
-    power_max_score = int(RATE / chunk_size * 1.0) # Approx 1 second to turn on/off
+    # Hysteresis mirroring
+    turntable_on = (initial_power == "On")
+    power_max_score = int(RATE / chunk_size * 6.0) # 6 seconds of silence to kill power
     power_score = power_max_score if turntable_on else 0
     consecutive_music = 0
+    
+    # Dead wax bridge
+    time_since_music = 999.0
+    
+    # Smoothing queues to prevent log spam
+    power_history = [initial_power] * 6
+    status_history = [initial_status] * 6
     
     for i in range(chunks):
         chunk = data[i*chunk_size : (i+1)*chunk_size]
@@ -295,88 +302,95 @@ def simulate_timeline(data, thresholds, initial_state):
         crest = max_val / raw_rms if raw_rms > 0 else 1.0
         time_sec = (i * chunk_size) / RATE
         
-        # 1. Silence Gate
+        # 1. GATE EVALUATION
         if raw_rms < thresholds["SILENCE_GATE_RMS"]:
             music_rms = 0.0
             crest = 0.0
             is_dust_pop = False
         else:
-            peak = raw_rms * crest
-            is_dust_pop = is_valid_pop(raw_rms, peak, thresholds)
+            is_dust_pop = is_valid_pop(raw_rms, max_val, thresholds)
             
-        # 2. Hysteresis Engine for Power state
-        motor_on_cond = False
+        # 2. MUSIC ENGINE & DEAD WAX TRACKER
         if music_rms > thresholds["music_threshold"] and not is_dust_pop:
+            consecutive_music += 1
+            time_since_music = 0.0
+        else:
+            consecutive_music = 0
+            time_since_music += (chunk_size / RATE)
+            
+        is_playing = (consecutive_music >= 3)
+
+        # 3. POP & RHYTHM TRACKING
+        if is_dust_pop:
+            pop_history, rhythm_locked, last_rhythm_time = update_rhythm_lock(
+                pop_history, time_sec, max_val, rhythm_locked, last_rhythm_time
+            )
+        else:
+            pop_history = [item for item in pop_history if time_sec - item[0] <= 4.0]
+
+        if is_playing:
+            pop_history.clear()
+            rhythm_locked = False
+            
+        if rhythm_locked and (time_sec - last_rhythm_time > 6.0):
+            rhythm_locked = False
+            
+        if len(pop_history) == 0:
+            rhythm_locked = False
+
+        # 4. POWER SENSOR HYSTERESIS
+        motor_on_cond = False
+        
+        if is_playing or rhythm_locked:
             motor_on_cond = True
-        elif raw_rms > thresholds["motor_power_threshold"] and raw_rms < thresholds["motor_power_ceiling"]:
-            motor_on_cond = True
-        elif turntable_on:
+        elif raw_rms > thresholds["motor_power_threshold"]:
             motor_on_cond = True
             
-        # Absolute silence physically breaks the motor power hold
-        if raw_rms < thresholds["SILENCE_GATE_RMS"]:
-             motor_on_cond = False
+        # Dead-wax bridge: Allow up to 15 seconds of silence immediately after a song
+        # before dropping the power state, ensuring the runout groove has time to catch.
+        if time_since_music < 15.0 and turntable_on:
+            motor_on_cond = True
+
+        # Absolute silence physically breaks the motor hold (if dead wax bridge has expired)
+        if raw_rms < thresholds["SILENCE_GATE_RMS"] and time_since_music >= 15.0:
+            motor_on_cond = False
 
         if motor_on_cond:
             power_score = min(power_score + 1, power_max_score)
             if power_score >= power_max_score:
                 turntable_on = True
         else:
-            if rhythm_locked or music_rms > thresholds["music_threshold"]:
-                power_score = power_max_score # Playback overrides silence drops
-            else:
-                power_score = max(power_score - 1, 0)
+            power_score = max(power_score - 1, 0)
+            if power_score <= 0:
+                turntable_on = False
 
-        if turntable_on and power_score <= 0:
-            turntable_on = False
-
-        # 3. Pop & Rhythm Tracking
-        if is_dust_pop:
-            peak = raw_rms * crest
-            pop_history, rhythm_locked, last_rhythm_time = update_rhythm_lock(
-                pop_history, time_sec, peak, rhythm_locked, last_rhythm_time
-            )
-            if rhythm_locked and time_sec - last_print_rhythm > 6.0:
-                transitions.append(f"   -> {time_sec:.1f}s : 🔄 33/45 RPM Rhythmic Pulse Locked")
-                last_print_rhythm = time_sec
-        elif music_rms > thresholds["music_threshold"]:
-            pop_history.clear()
-            rhythm_locked = False
-
-        if rhythm_locked and (time_sec - last_rhythm_time > 6.0):
-            rhythm_locked = False
-        if len(pop_history) == 0:
-            rhythm_locked = False
-
-        # 4. Music smoothing
-        if music_rms > thresholds["music_threshold"] and not is_dust_pop:
-            consecutive_music += 1
-        else:
-            consecutive_music = 0
-            
-        is_playing = (consecutive_music >= 3)
+        # 5. STRICT SENSOR RESOLUTION
+        p_state = "On" if turntable_on else "Off"
         
-        # 5. Strict Sensor Resolution
-        if not turntable_on:
-            s = "Powered Off"
+        if p_state == "Off":
+            s_state = "Powered Off"
         elif is_playing:
-            s = "Playing"
+            s_state = "Playing"
         elif rhythm_locked:
-            s = "Runout Groove"
+            s_state = "Runout Groove"
         else:
-            s = "Motor Idle"
+            s_state = "Motor Idle"
         
-        # Smooth output visually so tiny micro-drops aren't printed to logs
-        state_history.append(s)
-        state_history.pop(0)
+        # 6. SMOOTHED OUTPUT LOGGING
+        power_history.append(p_state)
+        power_history.pop(0)
+        status_history.append(s_state)
+        status_history.pop(0)
         
-        latest = state_history[-1]
-        if state_history.count(latest) >= 5:
-            if latest != current_state:
-                transitions.append(f"   -> {time_sec:.1f}s : Switched to {latest}")
-                current_state = latest
+        latest_p = max(set(power_history), key=power_history.count)
+        latest_s = max(set(status_history), key=status_history.count)
+        
+        if latest_p != current_power or latest_s != current_status:
+            transitions.append(f"   -> {time_sec:.1f}s : Power [{latest_p}] | Status [{latest_s}]")
+            current_power = latest_p
+            current_status = latest_s
                 
-    return transitions, current_state
+    return transitions, current_power, current_status
 
 def calculate_hardware_thresholds(files):
     print_log("\n" + "="*70)
@@ -393,7 +407,6 @@ def calculate_hardware_thresholds(files):
     
     print_log(f"   [EXTRACTED] Silence Gate: {silence_gate:.6f}")
     print_log(f"   [EXTRACTED] Max Static Amplitude: {floor_max_amp:.6f}")
-    print_log("   [APPLICATION] The engine will ignore all audio below the Silence Gate. Any runout pop must be strictly louder than the Max Static Amplitude to ensure the system isn't tracking random mic static.")
 
     # --- 2. FILE 2: MOTOR HUM (Idle Threshold) ---
     print_log("\n[STAGE 2: FILE 2 - MOTOR HUM]")
@@ -406,12 +419,10 @@ def calculate_hardware_thresholds(files):
         is_silent_hw = True
         motor_power_threshold = silence_gate * 1.5 
         print_log(f"   [INFO] Your turntable motor is remarkably quiet (Hum: {motor_hum_median:.6f} vs Silence: {silence_gate:.6f}).")
-        print_log("   [APPLICATION] Hardware flagged as 'Silent'. The Guardian will rely exclusively on the needle drop and runout groove to track power states, ignoring motor hum.")
     else:
         is_silent_hw = False
         motor_power_threshold = float((silence_gate + motor_hum_median) / 2.0)
         print_log(f"   [EXTRACTED] Motor Power Threshold: {motor_power_threshold:.6f}")
-        print_log("   [APPLICATION] When audio crosses this line, the Guardian knows the turntable is powered ON, even if music hasn't started playing yet.")
 
     # --- 3. FILE 6: DISTURBANCE (Maximum false-positive music floor) ---
     print_log("\n[STAGE 3: FILE 6 - ROOM NOISE & DISTURBANCE]")
@@ -419,9 +430,7 @@ def calculate_hardware_thresholds(files):
     disturb_data = load_wav(files["disturbance"])
     disturb_rms_arr = chunked_music_rms(disturb_data)
     disturb_music_max = float(np.max(disturb_rms_arr)) if len(disturb_rms_arr) > 0 else 0.0
-    
     print_log(f"   [EXTRACTED] Maximum ambient music-bleed: {disturb_music_max:.6f}")
-    print_log("   [APPLICATION] This creates an acoustic 'shield'. The music detection threshold will never be allowed to drop below this number, guaranteeing that coughing won't trigger a Shazam search.")
 
     # --- 4. FILE 3: MASTER TRANSITION (Music and Runout Profiling) ---
     print_log("\n[STAGE 4: FILE 3 - THE MASTER TRANSITION]")
@@ -429,7 +438,6 @@ def calculate_hardware_thresholds(files):
     trans_data = load_wav(files["transition"])
     trans_duration = len(trans_data) / RATE
     
-    # 4A. Find the Music Drop-off
     search_start_idx = int(25 * RATE / 8192) 
     trans_m_rms = chunked_music_rms(trans_data, chunk_size=8192)
     
@@ -448,7 +456,6 @@ def calculate_hardware_thresholds(files):
         
     print_log(f"   [STEP A] Detected the exact moment the music ended: {drop_time_sec:.2f}s mark.")
     
-    # 4B. Extract Music Threshold
     raw_music_chunk = trans_data[int(25*RATE) : int(drop_time_sec * RATE)]
     raw_music_rms_arr = chunked_music_rms(raw_music_chunk)
     valid_music_rms_arr = raw_music_rms_arr[raw_music_rms_arr > (silence_gate * 2.0)]
@@ -457,9 +464,7 @@ def calculate_hardware_thresholds(files):
     music_threshold = max(raw_music_min * 0.85, disturb_music_max * 1.15)
     music_threshold = max(music_threshold, silence_gate * 1.5)
     print_log(f"   [EXTRACTED] Music Threshold: {music_threshold:.6f}")
-    print_log("   [APPLICATION] The exact volume at which the engine wakes up to record for Shazam. (Safely above the room noise shield).")
     
-    # 4C. Extract Runout Pops
     runout_chunks_data = trans_data[int(drop_time_sec * RATE):]
     if len(runout_chunks_data) == 0:
         runout_chunks_data = trans_data[-8192:]
@@ -484,7 +489,6 @@ def calculate_hardware_thresholds(files):
         pop_amplitude_threshold = max(floor_max_amp * 1.25, base_amp * 0.70)
         print_log(f"   [EXTRACTED] Runout Pop Sharpness (Crest): {pop_crest_threshold:.2f}")
         print_log(f"   [EXTRACTED] Runout Pop Minimum Amplitude: {pop_amplitude_threshold:.6f}")
-        print_log("   [APPLICATION] We isolated the physical 'shape' of your pops. The math will instantly reject static, dust clicks, or physical thumps that don't match this exact acoustic profile.")
     else:
         print_log("   [DEBUG] Warning: Runout extraction failed. Falling back to default tolerances.")
         pop_crest_threshold = 4.0
@@ -493,7 +497,7 @@ def calculate_hardware_thresholds(files):
     provisional_thresholds = {
         "runout_crest_threshold": pop_crest_threshold,
         "pop_amplitude_threshold": pop_amplitude_threshold,
-        "motor_power_ceiling": motor_hum_median * 3.0,
+        "motor_power_ceiling": 1.0, 
     }
     pulse_start_time = find_rhythmic_pulse(
         trans_data[int(drop_time_sec * RATE):], drop_time_sec, provisional_thresholds
@@ -506,7 +510,6 @@ def calculate_hardware_thresholds(files):
         print_log(f"   [STEP D] Warning: Could not find rhythmic lock. Using a default 5-second buffer.")
         runout_start = int((drop_time_sec + 5) * RATE)
 
-    # 4E. Extract Motor Power Ceiling
     runout_data = trans_data[runout_start:]
     if len(runout_data) == 0:
         runout_data = trans_data[-8192:]
@@ -516,7 +519,6 @@ def calculate_hardware_thresholds(files):
 
     motor_power_ceiling = max(runout_rumble_max_raw * 1.25, motor_power_threshold * 2.0)
     print_log(f"   [EXTRACTED] Motor Power Ceiling: {motor_power_ceiling:.6f}")
-    print_log("   [APPLICATION] Defines the maximum allowed volume for a runout pop. If an audio spike is louder than this ceiling, the engine assumes it's music or a heavy bump, explicitly rejecting it.")
 
     rumble_threshold = round(float((silence_gate + motor_power_threshold) / 2.0), 5)
 
@@ -533,17 +535,17 @@ def calculate_hardware_thresholds(files):
     
     # Visual Report Card
     print_log("\n" + "="*70)
-    print_log("📜 THE ACID TEST (Timeline Simulation Report Card)")
-    print_log("   The simulator will now chain the 6 files together to emulate a full")
-    print_log("   chronological playback session, applying your new thresholds.")
+    print_log("📜 THE DUAL-SENSOR ACID TEST (Timeline Simulation)")
+    print_log("   The simulator will now run all files to ensure both the Power")
+    print_log("   and Vinyl Status sensors resolve to the correct state simultaneously.")
     print_log("="*70)
 
-    def states_in_order(trans, *expected_states):
+    def states_in_order(trans, *expected_statuses):
         last_idx = -1
-        for s in expected_states:
+        for s in expected_statuses:
             found = False
             for i, t in enumerate(trans):
-                if i > last_idx and f"Switched to {s}" in t:
+                if i > last_idx and f"Status [{s}]" in t:
                     last_idx = i
                     found = True
                     break
@@ -551,58 +553,54 @@ def calculate_hardware_thresholds(files):
                 return False
         return True
 
-    def any_bad_state(trans, *bad_states):
-        return any(f"Switched to {s}" in t for t in trans for s in bad_states)
+    def any_bad_status(trans, *bad_statuses):
+        return any(f"Status [{s}]" in t for t in trans for s in bad_statuses)
 
     print_log("\n[TEST 1: FILE 1 - BASELINE NOISE]")
-    print_log("   State Flow: Turntable OFF -> Stays OFF")
-    print_log("   Goal: Prove absolute silence keeps the system asleep.")
-    trans, end = simulate_timeline(floor_1_data, thresholds, "Powered Off")
+    print_log("   State Flow: Off -> Stays Off")
+    trans, end_p, end_s = simulate_timeline(floor_1_data, thresholds, "Off", "Powered Off")
     for t in trans: print_log(t)
-    passed = (end == "Powered Off" and len(trans) == 1)
+    passed = (end_p == "Off" and end_s == "Powered Off" and len(trans) == 1)
     print_log("   ✅ PASS" if passed else "   ❌ FAIL — The silence floor is too high.")
 
-    expected_idle = "Powered Off" if thresholds["is_silent_hw"] else "Motor Idle"
+    expected_p = "Off" if thresholds["is_silent_hw"] else "On"
+    expected_s = "Powered Off" if thresholds["is_silent_hw"] else "Motor Idle"
     
     print_log(f"\n[TEST 2: FILE 2 - MOTOR HUM]")
-    print_log(f"   State Flow: Powered Off -> User turns motor ON -> {expected_idle}")
-    print_log("   Goal: Prove motor rumble wakes the system but isn't mistaken for music.")
-    trans, end = simulate_timeline(spinup_data, thresholds, "Powered Off")
+    print_log(f"   State Flow: Off -> User turns motor ON -> {expected_p} / {expected_s}")
+    trans, end_p, end_s = simulate_timeline(spinup_data, thresholds, "Off", "Powered Off")
     for t in trans: print_log(t)
-    passed = (end == expected_idle and not any_bad_state(trans, "Playing", "Runout Groove"))
+    passed = (end_p == expected_p and end_s == expected_s and not any_bad_status(trans, "Playing", "Runout Groove"))
     print_log("   ✅ PASS" if passed else "   ❌ FAIL — Motor threshold misaligned or false trigger.")
 
     print_log(f"\n[TEST 3: FILE 3 - THE MASTER TRANSITION]")
-    print_log(f"   State Flow: {expected_idle} -> Needle Drops -> Playing -> Song Ends -> Runout Groove")
-    print_log("   Goal: Prove the system seamlessly tracks a full playback cycle into the locked groove.")
-    trans, end = simulate_timeline(trans_data, thresholds, expected_idle)
+    print_log(f"   State Flow: Needle Drops -> Playing -> Dead Wax Bridge -> Runout Groove")
+    trans, end_p, end_s = simulate_timeline(trans_data, thresholds, expected_p, expected_s)
     for t in trans: print_log(t)
-    passed = (end == "Runout Groove" and states_in_order(trans, "Playing", "Runout Groove"))
+    passed = (end_p == "On" and end_s == "Runout Groove" and states_in_order(trans, "Playing", "Runout Groove"))
     print_log("   ✅ PASS" if passed else "   ❌ FAIL — Engine lost track of music or failed rhythm lock.")
 
+    lift_data = load_wav(files["lift"])
     print_log(f"\n[TEST 4: FILE 4 - NEEDLE LIFT]")
-    print_log(f"   State Flow: Runout Groove -> User lifts needle -> {expected_idle}")
-    print_log("   Goal: Prove the physical thump of the cue lever doesn't trigger a false 'Playing' state.")
-    # Initialize from Runout Groove, because that's where File 3 left us!
-    trans, end = simulate_timeline(lift_data, thresholds, "Runout Groove")
+    print_log(f"   State Flow: Runout Groove -> User lifts needle -> {expected_p} / {expected_s}")
+    trans, end_p, end_s = simulate_timeline(lift_data, thresholds, "On", "Runout Groove")
     for t in trans: print_log(t)
-    passed = (end == expected_idle and not any_bad_state(trans, "Playing"))
+    passed = (end_p == expected_p and end_s == expected_s and not any_bad_status(trans, "Playing"))
     print_log("   ✅ PASS" if passed else "   ❌ FAIL — Thump was falsely flagged as music.")
 
+    powerdown_data = load_wav(files["powerdown"])
     print_log(f"\n[TEST 5: FILE 5 - POWER DOWN]")
-    print_log(f"   State Flow: {expected_idle} -> User turns power OFF -> Powered Off")
-    print_log("   Goal: Prove the electrical pop of the power switch resolves peacefully to sleep.")
-    trans, end = simulate_timeline(powerdown_data, thresholds, expected_idle)
+    print_log(f"   State Flow: {expected_s} -> User turns power OFF -> Off / Powered Off")
+    trans, end_p, end_s = simulate_timeline(powerdown_data, thresholds, expected_p, expected_s)
     for t in trans: print_log(t)
-    passed = (end == "Powered Off" and not any_bad_state(trans, "Playing", "Runout Groove"))
+    passed = (end_p == "Off" and end_s == "Powered Off" and not any_bad_status(trans, "Playing", "Runout Groove"))
     print_log("   ✅ PASS" if passed else "   ❌ FAIL — Electrical pop triggered false states.")
 
     print_log("\n[TEST 6: FILE 6 - ROOM NOISE]")
-    print_log("   State Flow: Powered Off -> User talks/taps -> Stays OFF")
-    print_log("   Goal: Prove the acoustic hysteresis shield rejects transient room noise.")
-    trans, end = simulate_timeline(disturb_data, thresholds, "Powered Off")
+    print_log("   State Flow: Off -> User talks/taps -> Stays Off")
+    trans, end_p, end_s = simulate_timeline(disturb_data, thresholds, "Off", "Powered Off")
     for t in trans: print_log(t)
-    passed = (end == "Powered Off" and not any_bad_state(trans, "Playing", "Runout Groove", "Motor Idle"))
+    passed = (end_p == "Off" and end_s == "Powered Off" and not any_bad_status(trans, "Playing", "Runout Groove", "Motor Idle"))
     print_log("   ✅ PASS" if passed else "   ❌ FAIL — Acoustic shield breached by transients.")
 
     return thresholds
