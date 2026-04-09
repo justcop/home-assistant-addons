@@ -289,7 +289,10 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
         is_dust_pop = False
         if raw_rms > 0:
             crest = max_val / raw_rms
-            if crest >= thresholds["runout_crest_threshold"]:
+            # Restored Amplitude and Ceiling Checks for the Simulator
+            if (crest >= thresholds["runout_crest_threshold"] and 
+                max_val >= thresholds["pop_amplitude_threshold"] and 
+                raw_rms <= thresholds["motor_power_ceiling"]):
                 is_dust_pop = True
                 
         if music_rms > thresholds["music_threshold"] and not is_dust_pop:
@@ -357,14 +360,13 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
         # --- VINYL STATUS RESOLUTION ---
         if not turntable_on:
             s_state = "Powered Off"
+        elif is_playing or (has_played_music and continuous_silence < 2.0):
+            # Music has absolute priority! Stays Playing for 2s after last confirmed music chunk
+            s_state = "Playing"
         elif rhythm_locked:
             s_state = "Runout Groove"
-        elif is_playing:
-            s_state = "Playing"
         elif has_played_music:
-            if continuous_silence < 2.0:
-                s_state = "Playing"
-            elif continuous_silence < 15.0:  # Dead Wax Bridge
+            if continuous_silence < 15.0:  # Dead Wax Bridge
                 s_state = "Between Tracks"
             else:
                 s_state = "Motor Idle"
@@ -510,11 +512,57 @@ def calculate_hardware_thresholds(files):
         pop_crest_threshold = 4.0
         pop_amplitude_threshold = floor_max_amp * 1.5
 
+    # Use a dummy ceiling to find the rhythm lock during calibration
+    def find_rhythmic_pulse_temp(data, start_sec, crest_th, amp_th):
+        pop_hist = []
+        rhythm = False
+        last_t = -10.0
+        for idx in range(len(data) // 4096):
+            c = data[idx*4096 : (idx+1)*4096]
+            r = get_rms(c)
+            m = np.max(np.abs(c))
+            t_s = (idx * 4096) / RATE
+            if r > 0 and (m / r) >= crest_th and m >= amp_th:
+                pop_hist.append(t_s)
+                if len(pop_hist) > 15: pop_hist.pop(0)
+                mc = 0
+                for p in pop_hist[:-1]:
+                    for lo, hi in [(1.20, 1.46), (1.65, 1.95), (2.45, 2.85), (3.35, 3.85)]:
+                        if lo <= (t_s - p) <= hi:
+                            mc += 1
+                            break
+                if mc >= 1: return start_sec + t_s
+            else:
+                pop_hist = [p for p in pop_hist if t_s - p <= 4.0]
+        return None
+
+    pulse_start_time = find_rhythmic_pulse_temp(
+        trans_data[int(drop_time_sec * RATE):], drop_time_sec, pop_crest_threshold, pop_amplitude_threshold
+    )
+
+    if pulse_start_time:
+        print_log(f"   [STEP D] Success! Found a verified 33/45 RPM rhythmic lock beginning at {pulse_start_time:.2f}s.")
+        runout_start = int(pulse_start_time * RATE)
+    else:
+        print_log(f"   [STEP D] Warning: Could not find rhythmic lock. Using a default 5-second buffer.")
+        runout_start = int((drop_time_sec + 5) * RATE)
+
+    runout_data = trans_data[runout_start:]
+    if len(runout_data) == 0:
+        runout_data = trans_data[-8192:]
+
+    runout_rms_arr_raw = chunked_rms(runout_data)
+    runout_rumble_max_raw = float(np.max(runout_rms_arr_raw)) if len(runout_rms_arr_raw) > 0 else 0.015
+
+    motor_power_ceiling = max(runout_rumble_max_raw * 1.5, motor_power_threshold * 2.0)
+    print_log(f"   [EXTRACTED] Motor Power Ceiling: {motor_power_ceiling:.6f}")
+
     rumble_threshold = round(float((baseline_median + motor_power_threshold) / 2.0), 5)
 
     thresholds = {
         "rumble_threshold": rumble_threshold,
         "motor_power_threshold": round(motor_power_threshold, 5),
+        "motor_power_ceiling": round(motor_power_ceiling, 5),
         "music_threshold": round(music_threshold, 5),
         "runout_crest_threshold": round(pop_crest_threshold, 3),
         "pop_amplitude_threshold": round(pop_amplitude_threshold, 6),
