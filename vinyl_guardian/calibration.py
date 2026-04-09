@@ -14,7 +14,7 @@ warnings.filterwarnings('ignore')
 
 # Import standard settings from your existing config
 from config import SHARE_DIR, AUTO_CALIB_FILE, RATE, CHANNELS, CHUNK
-from audio_math import is_valid_pop, update_rhythm_lock, RUNOUT_RPM_INTERVALS
+from audio_math import RUNOUT_RPM_INTERVALS
 
 # --- HOME ASSISTANT OPTION LOADING ---
 REUSE_CALIB_OPT = False
@@ -60,7 +60,6 @@ def get_music_rms(audio_data):
     return float(np.sqrt(np.mean(np.square(filtered_data))))
 
 def get_hfer(audio_data):
-    """Extract High Frequency Energy Ratio directly from numpy array"""
     if len(audio_data) <= 1: return 0.0
     rms = get_rms(audio_data)
     if rms < 0.0001: return 0.0
@@ -198,7 +197,6 @@ def record_dynamic_transition(filename):
     print_log(f"✅ Saved dynamic transition to {os.path.basename(filename)}")
     time.sleep(1)
 
-# --- STEP 0: AUTOMATED GAIN STAGING ---
 def set_mic_volume(vol_pct):
     try: subprocess.run(["pactl", "set-source-volume", "@DEFAULT_SOURCE@", f"{vol_pct}%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except: pass
@@ -250,35 +248,11 @@ def gain_staging():
     return current_vol
 
 # --- SIMULATION & TIMELINE ENGINE ---
-def find_rhythmic_pulse(data, start_sec, search_thresholds):
-    chunk_size = 4096
-    chunks = len(data) // chunk_size
-    pop_history = []
-    rhythm_locked = False
-    last_rhythm_time = -10.0
-
-    for i in range(chunks):
-        chunk = data[i*chunk_size : (i+1)*chunk_size]
-        r = get_rms(chunk)
-        max_val = np.max(np.abs(chunk))
-        time_sec = (i * chunk_size) / RATE
-
-        if is_valid_pop(r, max_val, search_thresholds):
-            pop_history, rhythm_locked, last_rhythm_time = update_rhythm_lock(
-                pop_history, time_sec, max_val, rhythm_locked, last_rhythm_time
-            )
-            if rhythm_locked:
-                return start_sec + time_sec
-        else:
-            pop_history = [item for item in pop_history if time_sec - item[0] <= 4.0]
-
-    return None
-
 def simulate_timeline(data, thresholds, initial_power, initial_status):
     """
     Chronological Dual-Sensor Engine.
-    Restores yesterday's logic using HFER and Upper Transient Limits 
-    instead of a blunt silence gate.
+    Perfectly unified with vinyl_guardian.py: Includes 15s Dead Wax Bridge, 
+    strict HFER median processing, and universal room transient rejection.
     """
     chunk_size = 4096 
     chunks = len(data) // chunk_size
@@ -288,16 +262,21 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
     transitions = [f"   -> 0.0s : Power [{initial_power}] | Status [{initial_status}]"]
     
     pop_history = [] 
-    rhythm_locked = False
+    rhythm_locked = (initial_status == "Runout Groove")
     last_rhythm_time = -10.0
     
     turntable_on = (initial_power == "On")
-    power_max_score = int(RATE / chunk_size * 6.0) 
+    power_max_score = int(RATE / chunk_size * 1.0) # 1.0s MOTOR HYSTERESIS
     power_score = power_max_score if turntable_on else 0
+    
     consecutive_music = 0
+    has_played_music = (initial_status in ["Playing", "Between Tracks", "Runout Groove"])
+    last_music_time = -10.0
     
     power_history = [initial_power] * 6
     status_history = [initial_status] * 6
+    
+    VALID_RPM_INTERVALS = [(1.20, 1.46), (1.65, 1.95), (2.45, 2.85), (3.35, 3.85)]
     
     for i in range(chunks):
         chunk = data[i*chunk_size : (i+1)*chunk_size]
@@ -307,51 +286,61 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
         max_val = np.max(np.abs(chunk))
         time_sec = (i * chunk_size) / RATE
         
-        # 1. Pop Detection
-        is_dust_pop = is_valid_pop(raw_rms, max_val, thresholds)
-            
-        # 2. Music tracker
+        is_dust_pop = False
+        if raw_rms > 0:
+            crest = max_val / raw_rms
+            if crest >= thresholds["runout_crest_threshold"]:
+                is_dust_pop = True
+                
         if music_rms > thresholds["music_threshold"] and not is_dust_pop:
+            last_music_time = time_sec
             consecutive_music += 1
         else:
             consecutive_music = 0
             
         is_playing = (consecutive_music >= 3)
-
-        # 3. Rhythm Tracking
-        if is_dust_pop:
-            pop_history, rhythm_locked, last_rhythm_time = update_rhythm_lock(
-                pop_history, time_sec, max_val, rhythm_locked, last_rhythm_time
-            )
-        else:
-            pop_history = [item for item in pop_history if time_sec - item[0] <= 4.0]
-
         if is_playing:
-            pop_history.clear()
+            has_played_music = True
             rhythm_locked = False
+
+        # Rhythm Tracking
+        if is_dust_pop:
+            pop_history.append(time_sec)
+            if len(pop_history) > 15:
+                pop_history.pop(0)
             
+            match_count = 0
+            for p in pop_history[:-1]:
+                delta = time_sec - p
+                for lo, hi in VALID_RPM_INTERVALS:
+                    if lo <= delta <= hi:
+                        match_count += 1
+                        break
+                        
+            if match_count >= 1 and has_played_music:
+                rhythm_locked = True
+                last_rhythm_time = time_sec
+
         if rhythm_locked and (time_sec - last_rhythm_time > 6.0):
             rhythm_locked = False
             
-        if len(pop_history) == 0:
-            rhythm_locked = False
+        continuous_silence = time_sec - last_music_time
 
-        # 4. POWER HYSTERESIS (Yesterday's logic restored!)
-        upper_limit = max(thresholds["motor_power_threshold"] * 4.5, thresholds["max_room_transient"] * 1.2)
+        # --- POWER HYSTERESIS ---
         motor_on_cond = raw_rms > thresholds["motor_power_threshold"]
+        upper_limit = max(thresholds["motor_power_threshold"] * 4.5, thresholds["max_room_transient"] * 1.2)
         
-        # HFER Rejection: If it's a high-frequency sound (talking), kill the motor flag
         if thresholds["motor_hfer_threshold"] > 0.0 and raw_rms < upper_limit:
             if hfer > thresholds["motor_hfer_threshold"]:
                 motor_on_cond = False
 
-        # Transient Rejection: If the system is currently asleep, ignore sudden loud thumps
-        if not turntable_on and not is_playing and not rhythm_locked:
+        # UNIVERSAL Transient Shield: If the system is asleep, ignore sudden loud sounds
+        if not turntable_on and not has_played_music:
             if raw_rms > upper_limit:
                 motor_on_cond = False
 
-        # Physical Vinyl Drag naturally keeps the motor on (Dead wax bridge)
-        if is_playing or rhythm_locked:
+        # Silent Hardware Override
+        if thresholds["is_silent_hw"] and (has_played_music or rhythm_locked):
             motor_on_cond = True
 
         if motor_on_cond:
@@ -362,20 +351,29 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
             power_score = max(power_score - 1, 0)
             if power_score <= 0:
                 turntable_on = False
+                has_played_music = False
+                rhythm_locked = False
 
-        # 5. STRICT SENSOR RESOLUTION
-        p_state = "On" if turntable_on else "Off"
-        
-        if p_state == "Off":
+        # --- VINYL STATUS RESOLUTION ---
+        if not turntable_on:
             s_state = "Powered Off"
-        elif is_playing:
-            s_state = "Playing"
         elif rhythm_locked:
             s_state = "Runout Groove"
+        elif is_playing:
+            s_state = "Playing"
+        elif has_played_music:
+            if continuous_silence < 2.0:
+                s_state = "Playing"
+            elif continuous_silence < 15.0:  # Dead Wax Bridge
+                s_state = "Between Tracks"
+            else:
+                s_state = "Motor Idle"
+                has_played_music = False
         else:
             s_state = "Motor Idle"
+            
+        p_state = "On" if turntable_on else "Off"
         
-        # 6. SMOOTHED OUTPUT LOGGING
         power_history.append(p_state)
         power_history.pop(0)
         status_history.append(s_state)
@@ -388,7 +386,7 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
             transitions.append(f"   -> {time_sec:.1f}s : Power [{latest_p}] | Status [{latest_s}]")
             current_power = latest_p
             current_status = latest_s
-                
+            
     return transitions, current_power, current_status
 
 def calculate_hardware_thresholds(files):
@@ -396,7 +394,7 @@ def calculate_hardware_thresholds(files):
     print_log("🧠 THE GUARDIAN ENGINE CALIBRATION (RESTORING ORIGINAL LOGIC)")
     print_log("="*70)
     
-    # --- 1. FILE 1: BASELINE NOISE (Silence Gate) ---
+    # --- 1. FILE 1: BASELINE NOISE ---
     print_log("\n[STAGE 1: FILE 1 - BASELINE NOISE]")
     print_log("   Goal: Measure absolute room and microphone silence (Turntable OFF).")
     floor_1_data = load_wav(files["floor"])
@@ -407,7 +405,7 @@ def calculate_hardware_thresholds(files):
     print_log(f"   [EXTRACTED] Baseline Silence Median: {baseline_median:.6f}")
     print_log(f"   [EXTRACTED] Max Static Amplitude: {floor_max_amp:.6f}")
 
-    # --- 2. FILE 2: MOTOR HUM (Idle Threshold) ---
+    # --- 2. FILE 2: MOTOR HUM ---
     print_log("\n[STAGE 2: FILE 2 - MOTOR HUM]")
     print_log("   Goal: Identify the vibration signature of your platter spinning (Turntable ON, Needle UP).")
     spinup_data = load_wav(files["spinup"])
@@ -418,31 +416,28 @@ def calculate_hardware_thresholds(files):
         is_silent_hw = True
         motor_power_threshold = baseline_median * 1.5 
         print_log(f"   [INFO] Turntable motor is extremely quiet. (Hum: {motor_median:.6f})")
-        print_log("          System will remain 'Off' until needle drop.")
+        print_log("          System will mathematically lock Power 'On' during playback.")
     else:
         is_silent_hw = False
-        # Calculate exactly in the middle of silence and motor hum
         motor_power_threshold = float((baseline_median + motor_median) / 2.0)
         print_log(f"   [EXTRACTED] Motor Power Threshold: {motor_power_threshold:.6f}")
 
-    # --- 3. FILE 6: DISTURBANCE (Maximum false-positive music floor) ---
+    # --- 3. FILE 6: DISTURBANCE ---
     print_log("\n[STAGE 3: FILE 6 - ROOM NOISE & DISTURBANCE]")
     print_log("   Goal: Measure how much acoustic room noise (talking, tapping) bleeds into the needle.")
     disturb_data = load_wav(files["disturbance"])
     
-    # Extract Max Transient
     disturb_rms_arr = chunked_rms(disturb_data)
     max_room_transient = float(np.max(disturb_rms_arr)) if len(disturb_rms_arr) > 0 else 0.01
     
-    # Extract HFER Signature
     motor_hfer_arr = chunked_hfer(spinup_data[20*RATE:])
     disturb_hfer_arr = chunked_hfer(disturb_data)
     
-    motor_hfer_95 = float(np.percentile(motor_hfer_arr, 95)) if len(motor_hfer_arr) > 0 else 0.0
-    noise_hfer_05 = float(np.percentile(disturb_hfer_arr, 5)) if len(disturb_hfer_arr) > 0 else 0.0
+    motor_hfer_median = float(np.median(motor_hfer_arr)) if len(motor_hfer_arr) > 0 else 0.0
+    noise_hfer_median = float(np.median(disturb_hfer_arr)) if len(disturb_hfer_arr) > 0 else 0.0
     
-    if motor_hfer_95 < noise_hfer_05 and motor_hfer_95 > 0:
-        motor_hfer_threshold = float((motor_hfer_95 + noise_hfer_05) / 2.0)
+    if motor_hfer_median < noise_hfer_median * 0.8 and motor_hfer_median > 0:
+        motor_hfer_threshold = float((motor_hfer_median + noise_hfer_median) / 2.0)
         print_log(f"   [EXTRACTED] HFER Acoustic Signature: {motor_hfer_threshold:.4f} (Separates motor hum from talking)")
     else:
         motor_hfer_threshold = 0.0
@@ -454,7 +449,7 @@ def calculate_hardware_thresholds(files):
     print_log(f"   [EXTRACTED] Max Ambient Transient: {max_room_transient:.6f}")
     print_log(f"   [EXTRACTED] Max Ambient Music-Bleed: {disturb_music_max:.6f}")
 
-    # --- 4. FILE 3: MASTER TRANSITION (Music and Runout Profiling) ---
+    # --- 4. FILE 3: MASTER TRANSITION ---
     print_log("\n[STAGE 4: FILE 3 - THE MASTER TRANSITION]")
     print_log("   Goal: Map the complex transition from the end of a song into the rhythmic runout groove.")
     trans_data = load_wav(files["transition"])
@@ -510,46 +505,16 @@ def calculate_hardware_thresholds(files):
         base_amp = np.percentile(runout_amps, 75)
         pop_amplitude_threshold = max(floor_max_amp * 1.25, base_amp * 0.70)
         print_log(f"   [EXTRACTED] Runout Pop Sharpness (Crest): {pop_crest_threshold:.2f}")
-        print_log(f"   [EXTRACTED] Runout Pop Minimum Amplitude: {pop_amplitude_threshold:.6f}")
     else:
         print_log("   [DEBUG] Warning: Runout extraction failed. Falling back to default tolerances.")
         pop_crest_threshold = 4.0
         pop_amplitude_threshold = floor_max_amp * 1.5
 
-    provisional_thresholds = {
-        "runout_crest_threshold": pop_crest_threshold,
-        "pop_amplitude_threshold": pop_amplitude_threshold,
-        "motor_power_ceiling": 1.0, 
-    }
-    pulse_start_time = find_rhythmic_pulse(
-        trans_data[int(drop_time_sec * RATE):], drop_time_sec, provisional_thresholds
-    )
-
-    if pulse_start_time:
-        print_log(f"   [STEP D] Success! Found a verified 33/45 RPM rhythmic lock beginning at {pulse_start_time:.2f}s.")
-        runout_start = int(pulse_start_time * RATE)
-    else:
-        print_log(f"   [STEP D] Warning: Could not find rhythmic lock. Using a default 5-second buffer.")
-        runout_start = int((drop_time_sec + 5) * RATE)
-
-    runout_data = trans_data[runout_start:]
-    if len(runout_data) == 0:
-        runout_data = trans_data[-8192:]
-
-    runout_rms_arr_raw = chunked_rms(runout_data)
-    runout_rumble_max_raw = float(np.max(runout_rms_arr_raw)) if len(runout_rms_arr_raw) > 0 else 0.015
-
-    motor_power_ceiling = max(runout_rumble_max_raw * 1.5, motor_power_threshold * 2.0)
-    print_log(f"   [EXTRACTED] Motor Power Ceiling: {motor_power_ceiling:.6f}")
-
-    # Set rumble threshold properly for vinyl_guardian.py
     rumble_threshold = round(float((baseline_median + motor_power_threshold) / 2.0), 5)
 
     thresholds = {
-        "SILENCE_GATE_RMS": round(baseline_median * 1.5, 5), # Kept purely for the JSON config so vinyl_guardian old.py doesn't crash, but completely removed from Power logic.
         "rumble_threshold": rumble_threshold,
         "motor_power_threshold": round(motor_power_threshold, 5),
-        "motor_power_ceiling": round(motor_power_ceiling, 5),
         "music_threshold": round(music_threshold, 5),
         "runout_crest_threshold": round(pop_crest_threshold, 3),
         "pop_amplitude_threshold": round(pop_amplitude_threshold, 6),
@@ -599,10 +564,10 @@ def calculate_hardware_thresholds(files):
     print_log("   ✅ PASS" if passed else "   ❌ FAIL — Motor threshold misaligned or false trigger.")
 
     print_log(f"\n[TEST 3: FILE 3 - THE MASTER TRANSITION]")
-    print_log(f"   Expected Flow: Needle Drops -> Playing -> Dead Wax Bridge -> Runout Groove")
+    print_log(f"   Expected Flow: Needle Drops -> Playing -> Between Tracks -> Runout Groove")
     trans, end_p, end_s = simulate_timeline(trans_data, thresholds, expected_p, expected_s)
     for t in trans: print_log(t)
-    passed = (end_p == "On" and end_s == "Runout Groove" and states_in_order(trans, "Playing", "Runout Groove"))
+    passed = (end_p == "On" and end_s == "Runout Groove" and states_in_order(trans, "Playing", "Between Tracks", "Runout Groove"))
     print_log("   ✅ PASS" if passed else "   ❌ FAIL — Engine lost track of music or failed rhythm lock.")
 
     lift_data = load_wav(files["lift"])
