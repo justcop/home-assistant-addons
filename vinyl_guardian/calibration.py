@@ -13,7 +13,6 @@ import glob
 # Suppress numpy warnings for clean output
 warnings.filterwarnings('ignore')
 
-# Import standard settings from your existing config
 from config import SHARE_DIR, AUTO_CALIB_FILE, RATE, CHANNELS, CHUNK
 from audio_math import RUNOUT_RPM_INTERVALS
 
@@ -38,7 +37,6 @@ REPORT_FILE = os.path.join(SHARE_DIR, "calibration_report.txt")
 report_log = []
 
 def print_log(msg):
-    """Prints to console and saves to the report log"""
     print(msg, flush=True)
     report_log.append(msg)
 
@@ -362,7 +360,7 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
 
 def calculate_hardware_thresholds(files):
     print_log("\n" + "="*70)
-    print_log("🧠 THE GUARDIAN ENGINE CALIBRATION (V6: TITANIUM SHIELD)")
+    print_log("🧠 THE GUARDIAN ENGINE CALIBRATION (V6.1: PERCENTILE SHIELD)")
     print_log("="*70)
     
     # --- 1. BASELINE ---
@@ -382,20 +380,32 @@ def calculate_hardware_thresholds(files):
     m_hfer = reject_outliers_mad(m_hfer_raw)
     m_crest = reject_outliers_mad(m_crest_raw)
     
-    def get_window(arr, buffer=0.05):
-        v_min, v_max = np.min(arr), np.max(arr)
+    motor_median_rms = float(np.median(m_rms))
+    
+    # PERCENTILE WINDOWING: Ignores extreme momentary dips/spikes
+    def get_window_percentile(arr, buffer=0.10):
+        if len(arr) == 0: return 0.0, 1.0
+        v_min, v_max = np.percentile(arr, 5), np.percentile(arr, 95)
         return float(v_min * (1.0 - buffer)), float(v_max * (1.0 + buffer))
 
-    rms_min, rms_max = get_window(m_rms)
-    hfer_min, hfer_max = get_window(m_hfer)
-    crest_min, crest_max = get_window(m_crest)
+    rms_min, rms_max = get_window_percentile(m_rms)
+    hfer_min, hfer_max = get_window_percentile(m_hfer)
+    crest_min, crest_max = get_window_percentile(m_crest)
+
+    # THE HARD FLOOR GUARD: Never let the volume window touch the baseline ambiance
+    safe_floor = float((baseline_median + motor_median_rms) / 2.0)
+    if rms_min < safe_floor:
+        print_log(f"   [INFO] Floor Guard Activated: Raised volume floor from {rms_min:.6f} to {safe_floor:.6f}")
+        rms_min = safe_floor
 
     print_log(f"   [EXTRACTED] Volume Window: {rms_min:.6f} to {rms_max:.6f}")
     print_log(f"   [EXTRACTED] Pitch Window:  {hfer_min:.4f} to {hfer_max:.4f}")
     print_log(f"   [EXTRACTED] Crest Window:  {crest_min:.2f} to {crest_max:.2f}")
 
-    is_silent_hw = bool(np.median(m_rms) <= baseline_median * 1.3)
+    is_silent_hw = (motor_median_rms <= baseline_median * 1.3)
 
+    # --- 3. DISTURBANCE ---
+    print_log("\n[STAGE 3: ROOM NOISE & DISTURBANCE]")
     disturb_data = load_wav(files["disturbance"])
     d_rms, _, _ = chunked_metrics(disturb_data)
     max_room_transient = float(np.max(d_rms))
@@ -454,7 +464,7 @@ def calculate_hardware_thresholds(files):
         print_log("   [DEBUG] Runout extraction failed. Falling back to default tolerances.")
         pop_crest_threshold, pop_amplitude_threshold = 4.0, floor_max_amp * 1.5
 
-    motor_power_ceiling = np.median(m_rms) * 3.0 
+    motor_power_ceiling = motor_median_rms * 3.0 
 
     thresholds = {
         "rms_min": round(rms_min, 6), "rms_max": round(rms_max, 6),
@@ -489,7 +499,7 @@ def calculate_hardware_thresholds(files):
         return any(f"Status [{s}]" in t for t in trans for s in bad_statuses)
 
     print_log("\n" + "="*70)
-    print_log("📜 THE DUAL-SENSOR ACID TEST (V6: STABILITY WINDOWS)")
+    print_log("📜 THE DUAL-SENSOR ACID TEST (V6.1: STABILITY WINDOWS)")
     print_log("   Running 6-stage physical recreation to verify logic locks...")
     print_log("="*70)
 
@@ -596,7 +606,7 @@ def run_calibration():
        \  /  | | | | | |_| | | | |__| | |_| | (_| | | | || | | (_| | | | |
         \/   |_|_| |_|\__, |_|  \____/ \__,_|\__,_|_| |_|__|_|\__,_|_| |_|
                        __/ |                                              
-                      |___/   CALIBRATION SUITE v6.0 (Titanium Shield)                      
+                      |___/   CALIBRATION SUITE v6.1 (Percentile Guard)                      
     """, flush=True)
     
     FILES = {
