@@ -42,28 +42,14 @@ def calculate_deep_metrics(data):
 
 # ---------------------------------------------------------------------------
 # SHARED POP & RHYTHM-LOCK LOGIC
-#
-# These functions encode the single authoritative definition of what counts
-# as a runout-groove pop and what constitutes a confirmed rhythm lock.
-# Both calibration (simulate_timeline) and the main loop must use these so
-# that the thresholds measured during calibration are validated and applied
-# with identical rules.
 # ---------------------------------------------------------------------------
 
 # Only the two physical turntable speeds (33⅓ and 45 RPM).
-# Calibration only validates against these intervals, so the main loop must
-# match — accepting 16⅔ or 8⅓ RPM would allow false locks that calibration
-# never tested for.
 RUNOUT_RPM_INTERVALS = [(1.20, 1.46), (1.65, 1.95)]
 
 def is_valid_pop(raw_rms, peak, thresholds):
     """
     Return True if the current chunk contains a genuine runout-groove pop.
-
-    Mirrors the is_pop calculation in calibration's simulate_timeline exactly:
-      - crest (peak/rms) must meet the calibrated sharpness threshold
-      - peak amplitude must meet the calibrated floor (rules out room static)
-      - rms must be BELOW motor_power_ceiling (rules out pops buried in music)
     """
     if raw_rms <= 0:
         return False
@@ -77,35 +63,40 @@ def is_valid_pop(raw_rms, peak, thresholds):
 def update_rhythm_lock(pop_history, now, peak, rhythm_locked, last_rhythm_time):
     """
     Update pop_history with a new confirmed pop and re-evaluate rhythm lock.
-
-    pop_history is a list of (timestamp, peak_amplitude) tuples — matching
-    calibration's format so the amplitude-consistency check (±50%) is possible.
-
-    Returns (pop_history, rhythm_locked, last_rhythm_time).
-
-    Rules (identical to calibration's simulate_timeline):
-      - Entries older than 4 s are discarded (covers 2 missed rotations at 33 RPM)
-      - A rhythm lock requires a prior pop within a valid RPM interval AND whose
-        peak amplitude is within ±50% of the current pop (same physical event)
-      - Only 33⅓ and 45 RPM intervals are accepted (RUNOUT_RPM_INTERVALS)
+    Requires a chain of at least 3 pops (2 consecutive intervals) to lock, 
+    virtually eliminating false positives from room noise or random tapping.
     """
-    # Expire stale entries
-    pop_history = [(t, v) for t, v in pop_history if now - t <= 4.0]
+    # Expire stale entries and gracefully handle tuple length upgrades
+    clean_history = []
+    for item in pop_history:
+        if len(item) == 2:
+            t, v = item
+            c = 1
+        else:
+            t, v, c = item
+            
+        if now - t <= 4.0:
+            clean_history.append((t, v, c))
+            
+    pop_history = clean_history
+    current_chain = 1
 
     # Check for a rhythmic match against history
-    for pt_time, pt_val in reversed(pop_history):
+    for pt_time, pt_val, pt_chain in reversed(pop_history):
         diff = now - pt_time
         for lo, hi in RUNOUT_RPM_INTERVALS:
             if lo <= diff <= hi:
                 # Amplitude consistency: must be within ±50% of the prior pop
                 if pt_val * 0.5 <= peak <= pt_val * 2.0:
-                    rhythm_locked = True
-                    last_rhythm_time = now
+                    current_chain = max(current_chain, pt_chain + 1)
+                    # We require 3 sequential pops to trigger a confirmed runout lock
+                    if current_chain >= 3:
+                        rhythm_locked = True
+                        last_rhythm_time = now
                 break
 
-    pop_history.append((now, peak))
+    pop_history.append((now, peak, current_chain))
     return pop_history, rhythm_locked, last_rhythm_time
-
 
 def calc_variance_boundary(low_val, low_std, high_val, high_std):
     gap = high_val - low_val
