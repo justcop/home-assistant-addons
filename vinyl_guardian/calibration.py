@@ -250,10 +250,6 @@ def gain_staging():
 
 # --- SIMULATION & TIMELINE ENGINE ---
 def simulate_timeline(data, thresholds, initial_power, initial_status):
-    """
-    Chronological Dual-Sensor Engine.
-    Implements Safe Frequency Window (HFER Floor & Ceiling) and Priority Override.
-    """
     chunk_size = 4096 
     chunks = len(data) // chunk_size
     
@@ -331,8 +327,6 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
         motor_on_cond = raw_rms > thresholds["motor_power_threshold"]
         upper_limit = max(thresholds["motor_power_threshold"] * 4.5, thresholds["max_room_transient"] * 1.2)
         
-        # 1. Gatekeeper Shields (Active only when idle)
-        # Check both Floor and Ceiling
         hfer_ceil = thresholds.get("motor_hfer_threshold", 9.0)
         hfer_floor = thresholds.get("motor_hfer_floor", 0.0)
         
@@ -344,7 +338,6 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
             if raw_rms > upper_limit:
                 motor_on_cond = False
 
-        # 2. Absolute Override
         if has_played_music or rhythm_locked:
             motor_on_cond = True
 
@@ -425,25 +418,20 @@ def calculate_hardware_thresholds(files):
     disturb_data = load_wav(files["disturbance"])
     max_room_transient = float(np.max(chunked_rms(disturb_data))) if len(disturb_data) > 0 else 0.01
     
-    # SAFE FREQUENCY WINDOW EXTRACTION
     motor_hfer_arr = chunked_hfer(spinup_data[20*RATE:])
     clean_motor_hfer = reject_outliers_mad(motor_hfer_arr)
     
     if len(clean_motor_hfer) > 0:
         peak_motor_hfer = float(np.max(clean_motor_hfer))
         min_motor_hfer = float(np.min(clean_motor_hfer))
-        
         motor_hfer_threshold = peak_motor_hfer * 1.05
         motor_hfer_floor = min_motor_hfer * 0.95
-        
         print_log(f"   [EXTRACTED] Safe Frequency Window: {motor_hfer_floor:.4f} to {motor_hfer_threshold:.4f}")
-        print_log(f"               (Based on physical motor range {min_motor_hfer:.4f} - {peak_motor_hfer:.4f})")
     else:
         motor_hfer_threshold = 0.0
         motor_hfer_floor = 0.0
-        print_log("   [INFO] Frequency extraction failed. Reverting to RMS only.")
+        print_log("   [INFO] Frequency extraction failed.")
         
-    disturb_music_max = float(np.max(chunked_music_rms(disturb_data)))
     print_log(f"   [EXTRACTED] Max Ambient Transient: {max_room_transient:.6f}")
 
     # --- 4. FILE 3: MASTER TRANSITION ---
@@ -454,11 +442,9 @@ def calculate_hardware_thresholds(files):
     music_threshold = max(peak_music * 0.15, baseline_median * 1.5)
     print_log(f"   [EXTRACTED] Music Threshold: {music_threshold:.6f}")
     
-    # ... (Pop Extraction remains the same)
     pop_crest_threshold = 3.5 
     pop_amplitude_threshold = floor_max_amp * 1.25
-
-    motor_power_ceiling = motor_median * 3.0 # Simplified for logic lock
+    motor_power_ceiling = motor_median * 3.0 
 
     thresholds = {
         "rumble_threshold": round(float((baseline_median + motor_power_threshold) / 2.0), 5),
@@ -494,29 +480,54 @@ def calculate_hardware_thresholds(files):
 
 def analyze_ghost_triggers(thresholds):
     print_log("\n" + "="*70)
-    print_log("👻 GHOST TRIGGER POST-MORTEM ANALYSIS")
+    print_log("👻 SURGICAL GHOST ANALYSIS (HFER-Only Diagnosis)")
+    print_log("   Scanning chunks that passed the volume filters...")
     print_log("="*70)
 
     ghost_files = glob.glob(os.path.join(SHARE_DIR, "ghost_trigger_*.wav"))
-    if not ghost_files: return
+    if not ghost_files:
+        print_log("   [INFO] No ghost trigger files found.")
+        return
 
-    h_ceil = thresholds.get("motor_hfer_threshold", 9.0)
-    h_floor = thresholds.get("motor_hfer_floor", 0.0)
+    m_floor = thresholds["motor_power_threshold"]
+    m_ceil = max(m_floor * 4.5, thresholds["max_room_transient"] * 1.2)
+    h_ceil = thresholds["motor_hfer_threshold"]
+    h_floor = thresholds["motor_hfer_floor"]
 
     for gf in sorted(ghost_files)[-5:]: 
         filename = os.path.basename(gf)
         try:
             data = load_wav(gf)
-            rms = float(np.max(chunked_rms(data)))
-            hfer = float(np.median(chunked_hfer(data)))
-            print_log(f"\n🔍 {filename} -> RMS: {rms:.6f}, HFER: {hfer:.4f}")
+            rms_arr = chunked_rms(data)
+            hfer_arr = chunked_hfer(data)
             
-            if hfer < h_floor:
-                print_log("   [VERDICT] 🐋 DEEP-DIVING GHOST: Sound is lower-pitched than motor.")
-            elif hfer > h_ceil:
-                print_log("   [VERDICT] 🗣️ SHARP GHOST: Sound is higher-pitched than motor.")
+            # --- STEP 1: STRIP EVERYTHING OUTSIDE MOTOR VOLUME ---
+            prime_suspect_indices = np.where((rms_arr > m_floor) & (rms_arr < m_ceil))[0]
+            
+            if len(prime_suspect_indices) == 0:
+                print_log(f"\n🔍 {filename} -> [VERDICT] 🟢 SAFE (Legacy Ghost)")
+                print_log("   None of the audio in this file fits your current volume motor-profile.")
+                continue
+
+            # --- STEP 2: ANALYZE HFER OF PRIME SUSPECTS ONLY ---
+            suspect_hfers = hfer_arr[prime_suspect_indices]
+            med_hfer = float(np.median(suspect_hfers))
+            max_hfer = float(np.max(suspect_hfers))
+            min_hfer = float(np.min(suspect_hfers))
+
+            print_log(f"\n🔍 {filename} -> Analyzing {len(suspect_hfers)} suspect chunks...")
+            print_log(f"   -> Pitch Signature (HFER) Range: {min_hfer:.4f} to {max_hfer:.4f}")
+            print_log(f"   -> Median Pitch of suspects: {med_hfer:.4f}")
+            
+            if med_hfer > h_ceil:
+                print_log("   [VERDICT] 🛑 SHARP GHOST (HFER Ceiling Breach)")
+                print_log(f"   This noise is higher-pitched than your motor ({med_hfer:.4f} vs {h_ceil:.4f}).")
+            elif med_hfer < h_floor:
+                print_log("   [VERDICT] 🛑 DEEP GHOST (HFER Floor Breach)")
+                print_log(f"   This noise is more muffled than your motor ({med_hfer:.4f} vs {h_floor:.4f}).")
             else:
-                print_log("   [VERDICT] 👻 PERFECT CLONE: Sits inside your Safe Window.")
+                print_log("   [VERDICT] 👻 PERFECT CLONE")
+                print_log("   This sound successfully mimics your motor's volume AND pitch.")
         except: pass
 
 # --- MAIN EXECUTION ---
