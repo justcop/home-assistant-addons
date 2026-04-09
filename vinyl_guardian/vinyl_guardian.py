@@ -34,6 +34,10 @@ last_scrobbled_track = None
 paused_track_memory = None
 inp = None
 
+# Debug Dumper State
+debug_countdown = 0
+debug_metrics_buffer = {'rms': [], 'hfer': [], 'crest': []}
+
 # 3-Tier State Tracking Variables
 current_display_status = "Powered Off"
 current_engine_status = "Off"
@@ -52,18 +56,25 @@ def signal_handler(sig, frame):
 signal.signal(signal.SIGTERM, signal_handler)
 signal.signal(signal.SIGINT, signal_handler)
 
-# --- MQTT SETUP ---
+# --- MQTT SETUP & CALLBACKS ---
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 if MQTT_USER and MQTT_PASS:
     mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
 
+def on_message(client, userdata, msg):
+    global debug_countdown, debug_metrics_buffer
+    if msg.topic == "vinyl_guardian/debug/trigger":
+        # 10-second capture based on chunk size
+        target_chunks = int(RATE / CHUNK * 10.0) 
+        log(f"🐞 Live Debug Triggered! Capturing 10 seconds ({target_chunks} chunks) of motor profile...")
+        debug_metrics_buffer = {'rms': [], 'hfer': [], 'crest': []}
+        debug_countdown = target_chunks
+
 def publish_discovery():
     log("Publishing MQTT Auto-Discovery payloads...")
     device_info = {"identifiers": ["vinyl_guardian_01"], "name": "Vinyl Guardian", "manufacturer": "Custom Add-on"}
-    deprecated_sensors = ["music_rms", "rumble_rms", "scrobble", "scrobble_countdown", "scrobble_state"]
-    for old_sensor in deprecated_sensors:
-        mqtt_client.publish(f"homeassistant/sensor/vinyl_guardian/{old_sensor}/config", "", retain=True)
     
+    # Sensors
     configs = {
         "power": {"name": "Turntable Power", "topic": "power", "icon": "mdi:power", "domain": "binary_sensor"},
         "status": {"name": "Vinyl Status", "topic": "status", "icon": "mdi:record-player", "domain": "sensor"},
@@ -81,6 +92,17 @@ def publish_discovery():
             payload["payload_off"] = "OFF"
         mqtt_client.publish(f"homeassistant/{c['domain']}/vinyl_guardian/{key}/config", json.dumps(payload), retain=True)
         
+    # Debug Button
+    btn_payload = {
+        "name": "Live Debug Dump",
+        "command_topic": "vinyl_guardian/debug/trigger",
+        "unique_id": "vinyl_guardian_debug_btn",
+        "device": device_info,
+        "icon": "mdi:bug"
+    }
+    mqtt_client.publish("homeassistant/button/vinyl_guardian/debug/config", json.dumps(btn_payload), retain=True)
+
+    # Init defaults
     mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
     mqtt_client.publish("vinyl_guardian/status", "Powered Off", retain=True)
     mqtt_client.publish("vinyl_guardian/engine_state", "Off", retain=True)
@@ -92,7 +114,9 @@ def publish_discovery():
 def connect_mqtt():
     if CALIBRATION_MODE: return
     try:
+        mqtt_client.on_message = on_message
         mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
+        mqtt_client.subscribe("vinyl_guardian/debug/trigger")
         mqtt_client.loop_start()
         publish_discovery()
     except Exception as e: log(f"🚨 MQTT Failed: {e}")
@@ -203,6 +227,7 @@ def get_crest(audio_data):
 # --- MAIN LOOP ---
 def listen_and_identify():
     global app_state, current_attempt, wake_up_time, scrobble_fired, current_track, last_scrobbled_track, paused_track_memory, inp
+    global debug_countdown, debug_metrics_buffer
     
     try:
         if DEBUG: log(f"🔊 Applying tuned mic volume: {MIC_VOLUME}%")
@@ -231,7 +256,7 @@ def listen_and_identify():
     engine_state_map = {"IDLE": "Listening", "RECORDING": "Recording", "PROCESSING": "Processing", "SLEEPING": "Tracking", "COOLDOWN": "Cooldown"}
     last_logged_status, last_logged_rhythm = "Unknown", False
 
-    # FIX: Parse the dynamic V6 windows directly from AUTO_CALIB_FILE
+    # FIX: Parse the dynamic V6 windows directly from config.json to bypass config.py defaults
     try:
         with open(AUTO_CALIB_FILE, "r") as f:
             v6_cfg = json.load(f)
@@ -263,6 +288,53 @@ def listen_and_identify():
             crest = get_crest(np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768.0)
             now = time.time()
             max_val = np.max(np.abs(np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768.0))
+
+            # --- LIVE 10-SECOND DEBUG DUMPER ---
+            if debug_countdown > 0:
+                debug_metrics_buffer['rms'].append(raw_rms)
+                debug_metrics_buffer['hfer'].append(hfer)
+                debug_metrics_buffer['crest'].append(crest)
+                debug_countdown -= 1
+                
+                if debug_countdown == 0:
+                    avg_r = float(np.median(debug_metrics_buffer['rms']))
+                    min_r = float(np.min(debug_metrics_buffer['rms']))
+                    max_r = float(np.max(debug_metrics_buffer['rms']))
+
+                    avg_h = float(np.median(debug_metrics_buffer['hfer']))
+                    min_h = float(np.min(debug_metrics_buffer['hfer']))
+                    max_h = float(np.max(debug_metrics_buffer['hfer']))
+
+                    avg_c = float(np.median(debug_metrics_buffer['crest']))
+                    min_c = float(np.min(debug_metrics_buffer['crest']))
+                    max_c = float(np.max(debug_metrics_buffer['crest']))
+                    
+                    rep = [
+                        "\n=========================================",
+                        "🐞 LIVE MOTOR DIAGNOSTIC REPORT (10s CAPTURE)",
+                        "=========================================",
+                        "VOLUME (RMS):",
+                        f"   ↳ Captured Avg: {avg_r:.6f} (Min: {min_r:.6f}, Max: {max_r:.6f})",
+                        f"   ↳ Required Win: {r_min:.6f} to {r_max:.6f}",
+                        f"   ↳ Status:       {'✅ PASS' if r_min <= avg_r <= r_max else '❌ TOO QUIET' if avg_r < r_min else '❌ TOO LOUD'}",
+                        "-----------------------------------------",
+                        "PITCH (HFER):",
+                        f"   ↳ Captured Avg: {avg_h:.4f} (Min: {min_h:.4f}, Max: {max_h:.4f})",
+                        f"   ↳ Required Win: {h_min:.4f} to {h_max:.4f}",
+                        f"   ↳ Status:       {'✅ PASS' if h_min <= avg_h <= h_max else '❌ TOO DEEP' if avg_h < h_min else '❌ TOO SHARP'}",
+                        "-----------------------------------------",
+                        "TEXTURE (CREST):",
+                        f"   ↳ Captured Avg: {avg_c:.2f} (Min: {min_c:.2f}, Max: {max_c:.2f})",
+                        f"   ↳ Required Win: {c_min:.2f} to {c_max:.2f}",
+                        f"   ↳ Status:       {'✅ PASS' if c_min <= avg_c <= c_max else '❌ TOO FLAT' if avg_c < c_min else '❌ TOO SPIKY'}",
+                        "=========================================\n"
+                    ]
+                    out_text = "\n".join(rep)
+                    print(out_text, flush=True)
+                    try:
+                        with open(os.path.join(SHARE_DIR, "live_debug_dump.txt"), "w") as df:
+                            df.write(out_text)
+                    except: pass
             
             with state_lock: current_state = app_state
             current_guardian_state = engine_state_map.get(current_state, "Listening")
