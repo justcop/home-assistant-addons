@@ -231,17 +231,24 @@ def listen_and_identify():
     engine_state_map = {"IDLE": "Listening", "RECORDING": "Recording", "PROCESSING": "Processing", "SLEEPING": "Tracking", "COOLDOWN": "Cooldown"}
     last_logged_status, last_logged_rhythm = "Unknown", False
 
-    # LOAD V6 MECHANICAL STABILITY WINDOWS
-    r_min = globals().get('RMS_MIN', 0.0)
-    r_max = globals().get('RMS_MAX', 1.0)
-    h_min = globals().get('HFER_MIN', 0.0)
-    h_max = globals().get('HFER_MAX', 1.0)
-    c_min = globals().get('CREST_MIN', 0.0)
-    c_max = globals().get('CREST_MAX', 20.0)
+    # FIX: Parse the dynamic V6 windows directly from config.json to bypass config.py defaults
+    try:
+        with open("config.json", "r") as f:
+            v6_cfg = json.load(f)
+    except Exception:
+        log("⚠️ WARNING: Could not parse config.json. Using incredibly wide fallback limits.")
+        v6_cfg = {}
+
+    r_min = v6_cfg.get('rms_min', globals().get('MOTOR_POWER_THRESHOLD', 0.0001))
+    r_max = v6_cfg.get('rms_max', globals().get('MOTOR_POWER_CEILING', 999.0))
+    h_min = v6_cfg.get('hfer_min', 0.0)
+    h_max = v6_cfg.get('hfer_max', globals().get('MOTOR_HFER_THRESHOLD', 1.0))
+    c_min = v6_cfg.get('crest_min', 0.0)
+    c_max = v6_cfg.get('crest_max', 20.0)
     
-    pop_amp = globals().get('POP_AMPLITUDE_THRESHOLD', 0.0)
-    motor_ceil = globals().get('MOTOR_POWER_CEILING', 999.0)
-    needle_lift_sec = globals().get('NEEDLE_LIFT_SECONDS', 15.0)
+    pop_amp = v6_cfg.get('pop_amplitude_threshold', globals().get('POP_AMPLITUDE_THRESHOLD', 0.0))
+    motor_ceil = v6_cfg.get('motor_power_ceiling', globals().get('MOTOR_POWER_CEILING', 999.0))
+    needle_lift_sec = v6_cfg.get('needle_lift_sec', globals().get('NEEDLE_LIFT_SECONDS', 15.0))
 
     while True:
         length, data = inp.read()
