@@ -308,13 +308,7 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
         time_sec = (i * chunk_size) / RATE
         
         # 1. Pop Detection
-        is_dust_pop = False
-        if raw_rms > 0:
-            crest = max_val / raw_rms
-            if (crest >= thresholds["runout_crest_threshold"] and 
-                max_val >= thresholds["pop_amplitude_threshold"] and 
-                raw_rms <= thresholds["motor_power_ceiling"]):
-                is_dust_pop = True
+        is_dust_pop = is_valid_pop(raw_rms, max_val, thresholds)
             
         # 2. Music tracker
         if music_rms > thresholds["music_threshold"] and not is_dust_pop:
@@ -330,7 +324,7 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
                 pop_history, time_sec, max_val, rhythm_locked, last_rhythm_time
             )
         else:
-            pop_history = [(t, v) for t, v in pop_history if time_sec - t <= 4.0]
+            pop_history = [item for item in pop_history if time_sec - item[0] <= 4.0]
 
         if is_playing:
             pop_history.clear()
