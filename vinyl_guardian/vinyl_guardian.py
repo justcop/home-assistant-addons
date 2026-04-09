@@ -236,8 +236,7 @@ def listen_and_identify():
         
     log("Listening for needle drop...")
     if DEBUG:
-        log(f"[DEBUG] Settings: Mus: {MUSIC_THRESHOLD:.4f} | Mot: {MOTOR_POWER_THRESHOLD:.4f} | HFER: {MOTOR_HFER_THRESHOLD:.4f}")
-        log(f"[DEBUG] Buffers: Mot: 1.0s | Nee: {NEEDLE_HYSTERESIS_SEC}s | Crest: {RUNOUT_CREST_THRESHOLD} | Deb: {DYNAMIC_DEBOUNCE_CHUNKS}")
+        log(f"[DEBUG] Settings: Mus: {MUSIC_THRESHOLD:.4f} | Mot: {MOTOR_POWER_THRESHOLD:.4f}")
         log(f"[DEBUG] Hardware Profile: {'Silent (Math Locked)' if IS_SILENT_HW else 'Standard (Rumble Detection)'}")
 
     last_pub, last_sleep_log, cooldown_end, chunks, loud_chunks, silence_sleep, song_start = time.time(), 0, 0, 0, 0, 0, 0
@@ -273,6 +272,7 @@ def listen_and_identify():
             metrics = calculate_deep_metrics(data)
             hfer = metrics["hfer"] if metrics else 0.0
             now = time.time()
+            max_val = np.max(np.abs(np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768.0))
             
             with state_lock:
                 current_state = app_state
@@ -281,9 +281,17 @@ def listen_and_identify():
             if current_state in ["RECORDING", "PROCESSING", "SLEEPING"]:
                 has_played_music = True
                 
+            # Fetch globally injected config boundaries directly
+            pop_amp = globals().get('POP_AMPLITUDE_THRESHOLD', 0.0)
+            motor_ceil = globals().get('MOTOR_POWER_CEILING', 999.0)
+            max_room_transient = globals().get('MAX_ROOM_TRANSIENT', 0.008)
+            motor_hfer = globals().get('MOTOR_HFER_THRESHOLD', 0.0)
+            needle_lift_sec = globals().get('NEEDLE_LIFT_SECONDS', 15.0)
+
+            # Restored full boundary checks: Loud music hits ceiling and is rejected as pops!
             is_dust_pop = False
             if raw_rms > 0:
-                if crest >= RUNOUT_CREST_THRESHOLD:
+                if crest >= RUNOUT_CREST_THRESHOLD and max_val >= pop_amp and raw_rms <= motor_ceil:
                     is_dust_pop = True
 
             if music_rms > MUSIC_THRESHOLD and not is_dust_pop:
@@ -319,11 +327,11 @@ def listen_and_identify():
 
             # --- TIER 1: TURNTABLE POWER HYSTERESIS ---
             motor_on_cond = raw_rms > MOTOR_POWER_THRESHOLD
-            upper_limit = max(MOTOR_POWER_THRESHOLD * 4.5, adv.get("max_room_transient", 0.008) * 1.2)
+            upper_limit = max(MOTOR_POWER_THRESHOLD * 4.5, max_room_transient * 1.2)
             
             # HFER Acoustic Shield
-            if MOTOR_HFER_THRESHOLD > 0.0 and raw_rms < upper_limit:
-                if hfer > MOTOR_HFER_THRESHOLD:
+            if motor_hfer > 0.0 and raw_rms < upper_limit:
+                if hfer > motor_hfer:
                     motor_on_cond = False
                     
             # Universal Transient Shield (When asleep, ignore sudden loud sounds)
@@ -377,14 +385,15 @@ def listen_and_identify():
                 new_vinyl_status = "Powered Off"
                 has_played_music = False
                 rhythm_locked = False
-            elif rhythm_locked:
-                new_vinyl_status = "Runout Groove"
             elif current_state in ["RECORDING", "PROCESSING"]:
                 new_vinyl_status = "Playing"
+            elif has_played_music and continuous_silence < 2.0:
+                # Flipped Hierarchy: Playing overrides Runout Groove for 2 seconds after drum hits!
+                new_vinyl_status = "Playing"
+            elif rhythm_locked:
+                new_vinyl_status = "Runout Groove"
             elif has_played_music:
-                if continuous_silence < 2.0:
-                    new_vinyl_status = "Playing"
-                elif continuous_silence < int(RATE / CHUNK * NEEDLE_LIFT_SECONDS) * (CHUNK / RATE):
+                if continuous_silence < needle_lift_sec:
                     new_vinyl_status = "Between Tracks"
                 else:
                     new_vinyl_status = "Motor Idle"
