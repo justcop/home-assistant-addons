@@ -8,6 +8,7 @@ import numpy as np
 import alsaaudio
 import warnings
 import sys
+import glob
 
 # Suppress numpy warnings for clean output
 warnings.filterwarnings('ignore')
@@ -249,11 +250,6 @@ def gain_staging():
 
 # --- SIMULATION & TIMELINE ENGINE ---
 def simulate_timeline(data, thresholds, initial_power, initial_status):
-    """
-    Chronological Dual-Sensor Engine.
-    Perfectly unified with vinyl_guardian.py: Includes 15s Dead Wax Bridge, 
-    strict HFER median processing, and universal room transient rejection.
-    """
     chunk_size = 4096 
     chunks = len(data) // chunk_size
     
@@ -289,7 +285,6 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
         is_dust_pop = False
         if raw_rms > 0:
             crest = max_val / raw_rms
-            # Restored Amplitude and Ceiling Checks for the Simulator
             if (crest >= thresholds["runout_crest_threshold"] and 
                 max_val >= thresholds["pop_amplitude_threshold"] and 
                 raw_rms <= thresholds["motor_power_ceiling"]):
@@ -306,7 +301,6 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
             has_played_music = True
             rhythm_locked = False
 
-        # Rhythm Tracking
         if is_dust_pop:
             pop_history.append(time_sec)
             if len(pop_history) > 15:
@@ -337,12 +331,10 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
             if hfer > thresholds["motor_hfer_threshold"]:
                 motor_on_cond = False
 
-        # UNIVERSAL Transient Shield: If the system is asleep, ignore sudden loud sounds
         if not turntable_on and not has_played_music:
             if raw_rms > upper_limit:
                 motor_on_cond = False
 
-        # Silent Hardware Override
         if thresholds["is_silent_hw"] and (has_played_music or rhythm_locked):
             motor_on_cond = True
 
@@ -361,12 +353,11 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
         if not turntable_on:
             s_state = "Powered Off"
         elif is_playing or (has_played_music and continuous_silence < 2.0):
-            # Music has absolute priority! Stays Playing for 2s after last confirmed music chunk
             s_state = "Playing"
         elif rhythm_locked:
             s_state = "Runout Groove"
         elif has_played_music:
-            if continuous_silence < 15.0:  # Dead Wax Bridge
+            if continuous_silence < 15.0:  
                 s_state = "Between Tracks"
             else:
                 s_state = "Motor Idle"
@@ -512,11 +503,8 @@ def calculate_hardware_thresholds(files):
         pop_crest_threshold = 4.0
         pop_amplitude_threshold = floor_max_amp * 1.5
 
-    # Use a dummy ceiling to find the rhythm lock during calibration
     def find_rhythmic_pulse_temp(data, start_sec, crest_th, amp_th):
         pop_hist = []
-        rhythm = False
-        last_t = -10.0
         for idx in range(len(data) // 4096):
             c = data[idx*4096 : (idx+1)*4096]
             r = get_rms(c)
@@ -643,6 +631,55 @@ def calculate_hardware_thresholds(files):
 
     return thresholds
 
+def analyze_ghost_triggers(thresholds):
+    print_log("\n" + "="*70)
+    print_log("👻 GHOST TRIGGER POST-MORTEM ANALYSIS")
+    print_log("   Analyzing false-positive audio captured by the live daemon...")
+    print_log("="*70)
+
+    ghost_files = glob.glob(os.path.join(SHARE_DIR, "ghost_trigger_*.wav"))
+    
+    if not ghost_files:
+        print_log("\n   [INFO] No ghost trigger files found in /share/vinyl_guardian/.")
+        return
+
+    upper_limit = max(thresholds["motor_power_threshold"] * 4.5, thresholds["max_room_transient"] * 1.2)
+    
+    print_log(f"   [SHIELDS ACTIVE]")
+    print_log(f"   - Volume Floor: Must be louder than {thresholds['motor_power_threshold']:.6f}")
+    print_log(f"   - Transient Ceiling: Must be quieter than {upper_limit:.6f}")
+    if thresholds["motor_hfer_threshold"] > 0:
+        print_log(f"   - HFER Filter: Must be lower-pitched than {thresholds['motor_hfer_threshold']:.4f}")
+    else:
+        print_log(f"   - HFER Filter: OFFLINE (Acoustic overlap detected)")
+
+    for gf in sorted(ghost_files)[-5:]: 
+        filename = os.path.basename(gf)
+        print_log(f"\n🔍 Analyzing: {filename}")
+        
+        try:
+            data = load_wav(gf)
+            rms_arr = chunked_rms(data)
+            hfer_arr = chunked_hfer(data)
+            
+            max_rms = float(np.max(rms_arr))
+            median_hfer = float(np.median(hfer_arr))
+            
+            print_log(f"   -> Peak Volume (RMS): {max_rms:.6f}")
+            print_log(f"   -> Pitch Signature (HFER): {median_hfer:.4f}")
+            
+            if max_rms < thresholds["motor_power_threshold"]:
+                print_log("   [VERDICT] 🟢 SAFE: This file is currently quieter than your threshold. It was likely a ghost from an older, more sensitive config.")
+            elif max_rms > upper_limit:
+                print_log("   [VERDICT] 🛑 TRANSIENT BREACH: This was a sudden loud noise (door slam, table bump). The system *should* have blocked it. The 1-second power hysteresis timer may be too forgiving.")
+            elif thresholds["motor_hfer_threshold"] > 0 and median_hfer > thresholds["motor_hfer_threshold"]:
+                print_log("   [VERDICT] 🗣️ HFER BREACH: This is high-frequency noise (talking, breathing, wind). The system *should* have blocked it. The HFER threshold might be set too high.")
+            else:
+                print_log("   [VERDICT] 👻 ACOUSTIC CLONE: This sound perfectly mimics your turntable motor. It is low-frequency (bass/rumble) and sits perfectly between your volume floor and ceiling. (e.g., Heavy footsteps, HVAC kicking on, truck driving by).")
+                
+        except Exception as e:
+            print_log(f"   [ERROR] Could not analyze file: {e}")
+
 # --- MAIN EXECUTION ---
 def run_calibration():
     print(r"""
@@ -700,6 +737,9 @@ def run_calibration():
             "[FILE 6/6: ROOM NOISE]\n🗣️  Action: Talk and tap the cabinet for 30s.")
 
     thresholds = calculate_hardware_thresholds(FILES)
+    
+    analyze_ghost_triggers(thresholds)
+    
     if not use_existing:
         thresholds["mic_volume"] = final_mic_vol
     else:
