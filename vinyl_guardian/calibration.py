@@ -424,17 +424,20 @@ def calculate_hardware_thresholds(files):
     max_room_transient = float(np.max(disturb_rms_arr)) if len(disturb_rms_arr) > 0 else 0.01
     
     motor_hfer_arr = chunked_hfer(spinup_data[20*RATE:])
-    disturb_hfer_arr = chunked_hfer(disturb_data)
     
-    motor_hfer_median = float(np.median(motor_hfer_arr)) if len(motor_hfer_arr) > 0 else 0.0
-    noise_hfer_median = float(np.median(disturb_hfer_arr)) if len(disturb_hfer_arr) > 0 else 0.0
-    
-    if motor_hfer_median < noise_hfer_median * 0.8 and motor_hfer_median > 0:
-        motor_hfer_threshold = float((motor_hfer_median + noise_hfer_median) / 2.0)
-        print_log(f"   [EXTRACTED] HFER Acoustic Signature: {motor_hfer_threshold:.4f} (Separates motor hum from talking)")
+    # NEW 10% PEAK MOLD LOGIC
+    clean_motor_hfer = reject_outliers_mad(motor_hfer_arr)
+    if len(clean_motor_hfer) > 0:
+        peak_motor_hfer = float(np.max(clean_motor_hfer))
+        if peak_motor_hfer > 0:
+            motor_hfer_threshold = peak_motor_hfer * 1.10
+            print_log(f"   [EXTRACTED] Strict HFER Signature: {motor_hfer_threshold:.4f} (10% buffer above {peak_motor_hfer:.4f} motor peak)")
+        else:
+            motor_hfer_threshold = 0.0
+            print_log("   [INFO] HFER Acoustic signature is zero. Relying strictly on RMS transients.")
     else:
         motor_hfer_threshold = 0.0
-        print_log("   [INFO] HFER Acoustic overlap detected. Relying strictly on RMS transients.")
+        print_log("   [INFO] HFER Extraction failed. Relying strictly on RMS transients.")
         
     disturb_music_arr = chunked_music_rms(disturb_data)
     disturb_music_max = float(np.max(disturb_music_arr)) if len(disturb_music_arr) > 0 else 0.0
