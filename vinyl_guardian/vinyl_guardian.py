@@ -231,12 +231,12 @@ def listen_and_identify():
     engine_state_map = {"IDLE": "Listening", "RECORDING": "Recording", "PROCESSING": "Processing", "SLEEPING": "Tracking", "COOLDOWN": "Cooldown"}
     last_logged_status, last_logged_rhythm = "Unknown", False
 
-    # FIX: Parse the dynamic V6 windows directly from config.json to bypass config.py defaults
+    # FIX: Parse the dynamic V6 windows directly from AUTO_CALIB_FILE
     try:
-        with open("config.json", "r") as f:
+        with open(AUTO_CALIB_FILE, "r") as f:
             v6_cfg = json.load(f)
-    except Exception:
-        log("⚠️ WARNING: Could not parse config.json. Using incredibly wide fallback limits.")
+    except Exception as e:
+        log(f"⚠️ WARNING: Could not parse {AUTO_CALIB_FILE} ({e}). Using incredibly wide fallback limits.")
         v6_cfg = {}
 
     r_min = v6_cfg.get('rms_min', globals().get('MOTOR_POWER_THRESHOLD', 0.0001))
