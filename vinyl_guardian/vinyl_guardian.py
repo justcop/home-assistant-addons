@@ -72,6 +72,9 @@ def on_message(client, userdata, msg):
 def publish_discovery():
     log("Publishing MQTT Auto-Discovery payloads...")
     device_info = {"identifiers": ["vinyl_guardian_01"], "name": "Vinyl Guardian", "manufacturer": "Custom Add-on"}
+    deprecated_sensors = ["music_rms", "rumble_rms", "scrobble", "scrobble_countdown", "scrobble_state"]
+    for old_sensor in deprecated_sensors:
+        mqtt_client.publish(f"homeassistant/sensor/vinyl_guardian/{old_sensor}/config", "", retain=True)
     
     # Sensors
     configs = {
@@ -81,16 +84,17 @@ def publish_discovery():
         "track": {"name": "Vinyl Current Track", "topic": "track", "icon": "mdi:music-circle", "attr": True, "domain": "sensor"},
         "scrobble_status": {"name": "Scrobble Status", "topic": "scrobble_status", "icon": "mdi:lastpass", "domain": "sensor"},
         "progress": {"name": "Vinyl Track Progress", "topic": "progress", "icon": "mdi:clock-outline", "domain": "sensor"},
-        # New Telemetry Sensors for Graphing
-        "raw_volume": {"name": "Guardian Raw Volume", "topic": "raw_volume", "icon": "mdi:volume-high", "domain": "sensor"},
-        "raw_pitch": {"name": "Guardian Raw Pitch", "topic": "raw_pitch", "icon": "mdi:sine-wave", "domain": "sensor"},
-        "raw_texture": {"name": "Guardian Raw Texture", "topic": "raw_texture", "icon": "mdi:chart-timeline-variant", "domain": "sensor"},
-        "power_score": {"name": "Guardian Power Score", "topic": "power_score", "icon": "mdi:counter", "domain": "sensor"}
+        # New Telemetry Sensors with state_class added for line graphing
+        "raw_volume": {"name": "Guardian Raw Volume", "topic": "raw_volume", "icon": "mdi:volume-high", "domain": "sensor", "state_class": "measurement"},
+        "raw_pitch": {"name": "Guardian Raw Pitch", "topic": "raw_pitch", "icon": "mdi:sine-wave", "domain": "sensor", "state_class": "measurement"},
+        "raw_texture": {"name": "Guardian Raw Texture", "topic": "raw_texture", "icon": "mdi:chart-timeline-variant", "domain": "sensor", "state_class": "measurement"},
+        "power_score": {"name": "Guardian Power Score", "topic": "power_score", "icon": "mdi:counter", "domain": "sensor", "state_class": "measurement"}
     }
     
     for key, c in configs.items():
         payload = {"name": c["name"], "state_topic": f"vinyl_guardian/{c['topic']}", "unique_id": f"vinyl_guardian_{key}", "device": device_info, "icon": c["icon"]}
         if c.get("attr"): payload["json_attributes_topic"] = "vinyl_guardian/attributes"
+        if c.get("state_class"): payload["state_class"] = c["state_class"] # Injects the graphing class
         if c["domain"] == "binary_sensor":
             payload["payload_on"] = "ON"
             payload["payload_off"] = "OFF"
