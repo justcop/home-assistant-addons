@@ -64,7 +64,6 @@ if MQTT_USER and MQTT_PASS:
 def on_message(client, userdata, msg):
     global debug_countdown, debug_metrics_buffer
     if msg.topic == "vinyl_guardian/debug/trigger":
-        # 10-second capture based on chunk size
         target_chunks = int(RATE / CHUNK * 10.0) 
         log(f"🐞 Live Debug Triggered! Capturing 10 seconds ({target_chunks} chunks) of motor profile...")
         debug_metrics_buffer = {'rms': [], 'hfer': [], 'crest': []}
@@ -81,7 +80,12 @@ def publish_discovery():
         "engine": {"name": "Guardian Engine State", "topic": "engine_state", "icon": "mdi:cpu-64-bit", "domain": "sensor"},
         "track": {"name": "Vinyl Current Track", "topic": "track", "icon": "mdi:music-circle", "attr": True, "domain": "sensor"},
         "scrobble_status": {"name": "Scrobble Status", "topic": "scrobble_status", "icon": "mdi:lastpass", "domain": "sensor"},
-        "progress": {"name": "Vinyl Track Progress", "topic": "progress", "icon": "mdi:clock-outline", "domain": "sensor"}
+        "progress": {"name": "Vinyl Track Progress", "topic": "progress", "icon": "mdi:clock-outline", "domain": "sensor"},
+        # New Telemetry Sensors for Graphing
+        "raw_volume": {"name": "Guardian Raw Volume", "topic": "raw_volume", "icon": "mdi:volume-high", "domain": "sensor"},
+        "raw_pitch": {"name": "Guardian Raw Pitch", "topic": "raw_pitch", "icon": "mdi:sine-wave", "domain": "sensor"},
+        "raw_texture": {"name": "Guardian Raw Texture", "topic": "raw_texture", "icon": "mdi:chart-timeline-variant", "domain": "sensor"},
+        "power_score": {"name": "Guardian Power Score", "topic": "power_score", "icon": "mdi:counter", "domain": "sensor"}
     }
     
     for key, c in configs.items():
@@ -110,6 +114,10 @@ def publish_discovery():
     mqtt_client.publish("vinyl_guardian/attributes", "{}", retain=True)
     mqtt_client.publish("vinyl_guardian/scrobble_status", "Off", retain=True)
     mqtt_client.publish("vinyl_guardian/progress", "[░░░░░░░░░░] 00:00 / 00:00", retain=True)
+    mqtt_client.publish("vinyl_guardian/raw_volume", "0.0", retain=True)
+    mqtt_client.publish("vinyl_guardian/raw_pitch", "0.0", retain=True)
+    mqtt_client.publish("vinyl_guardian/raw_texture", "0.0", retain=True)
+    mqtt_client.publish("vinyl_guardian/power_score", "0", retain=True)
 
 def connect_mqtt():
     if CALIBRATION_MODE: return
@@ -256,7 +264,7 @@ def listen_and_identify():
     engine_state_map = {"IDLE": "Listening", "RECORDING": "Recording", "PROCESSING": "Processing", "SLEEPING": "Tracking", "COOLDOWN": "Cooldown"}
     last_logged_status, last_logged_rhythm = "Unknown", False
 
-    # FIX: Parse the dynamic V6 windows directly from config.json to bypass config.py defaults
+    # LOAD V6 MECHANICAL STABILITY WINDOWS
     try:
         with open(AUTO_CALIB_FILE, "r") as f:
             v6_cfg = json.load(f)
@@ -367,13 +375,12 @@ def listen_and_identify():
             continuous_silence = now - last_music_time
 
             # --- TIER 1: TURNTABLE POWER HYSTERESIS ---
-            # Gatekeeper: Sound must fit into all 3 mechanical stability windows
             in_rms = (r_min <= raw_rms <= r_max)
             in_hfer = (h_min <= hfer <= h_max)
             in_crest = (c_min <= crest <= c_max)
             motor_on_cond = (in_rms and in_hfer and in_crest)
 
-            # Priority Override: Music or rhythm lock completely bypasses the shields
+            # Priority Override
             if has_played_music or rhythm_locked: motor_on_cond = True
             if IS_SILENT_HW and (has_played_music or rhythm_locked): motor_on_cond = True
                 
@@ -382,12 +389,6 @@ def listen_and_identify():
                 if power_score >= power_max_score and not turntable_on:
                     turntable_on = True
                     if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/power", "ON", retain=True)
-                    if DEBUG_GHOST_CATCHER:
-                        ts = int(time.time()); wav_name = os.path.join(SHARE_DIR, f"ghost_trigger_{ts}.wav")
-                        try:
-                            with wave.open(wav_name, "wb") as wf:
-                                wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(b"".join(ghost_buffer))
-                        except: pass
             else:
                 power_score = max(power_score - 1, 0)
                 if turntable_on and power_score <= 0:
@@ -426,6 +427,12 @@ def listen_and_identify():
             # --- MQTT LOGGING & UI DISPATCH ---
             if now - last_pub >= 1.0:
                 if mqtt_client.is_connected():
+                    # Stream Telemetry Sensors
+                    mqtt_client.publish("vinyl_guardian/raw_volume", f"{raw_rms:.6f}", retain=False)
+                    mqtt_client.publish("vinyl_guardian/raw_pitch", f"{hfer:.4f}", retain=False)
+                    mqtt_client.publish("vinyl_guardian/raw_texture", f"{crest:.2f}", retain=False)
+                    mqtt_client.publish("vinyl_guardian/power_score", str(power_score), retain=False)
+
                     if not turntable_on: scrob_str = "Off"
                     elif current_state == "SLEEPING" and current_track:
                         if scrobble_fired: scrob_str = f"Scrobbled: {last_scrobbled_track.split(' - ')[0]} ✅"
