@@ -47,6 +47,22 @@ def signal_handler(sig, frame):
     try:
         global inp
         if inp is not None: inp.close()
+        
+        # Blast "Offline" states to HA before cutting the connection
+        if mqtt_client.is_connected():
+            mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
+            mqtt_client.publish("vinyl_guardian/status", "Offline", retain=True)
+            mqtt_client.publish("vinyl_guardian/engine_state", "Shut Down", retain=True)
+            mqtt_client.publish("vinyl_guardian/track", "Offline", retain=True)
+            mqtt_client.publish("vinyl_guardian/scrobble_status", "Offline", retain=True)
+            mqtt_client.publish("vinyl_guardian/progress", "Offline", retain=True)
+            
+            # Zero out the live telemetry graphs
+            mqtt_client.publish("vinyl_guardian/raw_volume", "0.0", retain=True)
+            mqtt_client.publish("vinyl_guardian/raw_pitch", "0.0", retain=True)
+            mqtt_client.publish("vinyl_guardian/raw_texture", "0.0", retain=True)
+            mqtt_client.publish("vinyl_guardian/power_score", "0", retain=True)
+            
         mqtt_client.loop_stop()
         mqtt_client.disconnect()
     except Exception as e:
@@ -84,7 +100,6 @@ def publish_discovery():
         "track": {"name": "Vinyl Current Track", "topic": "track", "icon": "mdi:music-circle", "attr": True, "domain": "sensor"},
         "scrobble_status": {"name": "Scrobble Status", "topic": "scrobble_status", "icon": "mdi:lastpass", "domain": "sensor"},
         "progress": {"name": "Vinyl Track Progress", "topic": "progress", "icon": "mdi:clock-outline", "domain": "sensor"},
-        # New Telemetry Sensors with state_class added for line graphing
         "raw_volume": {"name": "Guardian Raw Volume", "topic": "raw_volume", "icon": "mdi:volume-high", "domain": "sensor", "state_class": "measurement"},
         "raw_pitch": {"name": "Guardian Raw Pitch", "topic": "raw_pitch", "icon": "mdi:sine-wave", "domain": "sensor", "state_class": "measurement"},
         "raw_texture": {"name": "Guardian Raw Texture", "topic": "raw_texture", "icon": "mdi:chart-timeline-variant", "domain": "sensor", "state_class": "measurement"},
@@ -94,7 +109,7 @@ def publish_discovery():
     for key, c in configs.items():
         payload = {"name": c["name"], "state_topic": f"vinyl_guardian/{c['topic']}", "unique_id": f"vinyl_guardian_{key}", "device": device_info, "icon": c["icon"]}
         if c.get("attr"): payload["json_attributes_topic"] = "vinyl_guardian/attributes"
-        if c.get("state_class"): payload["state_class"] = c["state_class"] # Injects the graphing class
+        if c.get("state_class"): payload["state_class"] = c["state_class"]
         if c["domain"] == "binary_sensor":
             payload["payload_on"] = "ON"
             payload["payload_off"] = "OFF"
@@ -110,21 +125,33 @@ def publish_discovery():
     }
     mqtt_client.publish("homeassistant/button/vinyl_guardian/debug/config", json.dumps(btn_payload), retain=True)
 
-    # Init defaults
-    mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
-    mqtt_client.publish("vinyl_guardian/status", "Powered Off", retain=True)
-    mqtt_client.publish("vinyl_guardian/engine_state", "Off", retain=True)
-    mqtt_client.publish("vinyl_guardian/track", "Not Playing", retain=True)
-    mqtt_client.publish("vinyl_guardian/attributes", "{}", retain=True)
-    mqtt_client.publish("vinyl_guardian/scrobble_status", "Off", retain=True)
-    mqtt_client.publish("vinyl_guardian/progress", "[░░░░░░░░░░] 00:00 / 00:00", retain=True)
-    mqtt_client.publish("vinyl_guardian/raw_volume", "0.0", retain=True)
-    mqtt_client.publish("vinyl_guardian/raw_pitch", "0.0", retain=True)
-    mqtt_client.publish("vinyl_guardian/raw_texture", "0.0", retain=True)
-    mqtt_client.publish("vinyl_guardian/power_score", "0", retain=True)
+    # Output states based on whether we are in calibration mode or live mode
+    if CALIBRATION_MODE:
+        mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
+        mqtt_client.publish("vinyl_guardian/status", "Calibrating", retain=True)
+        mqtt_client.publish("vinyl_guardian/engine_state", "Calibration Mode", retain=True)
+        mqtt_client.publish("vinyl_guardian/track", "Calibration Mode", retain=True)
+        mqtt_client.publish("vinyl_guardian/attributes", "{}", retain=True)
+        mqtt_client.publish("vinyl_guardian/scrobble_status", "Calibration Mode", retain=True)
+        mqtt_client.publish("vinyl_guardian/progress", "Calibration Mode", retain=True)
+        mqtt_client.publish("vinyl_guardian/raw_volume", "0.0", retain=True)
+        mqtt_client.publish("vinyl_guardian/raw_pitch", "0.0", retain=True)
+        mqtt_client.publish("vinyl_guardian/raw_texture", "0.0", retain=True)
+        mqtt_client.publish("vinyl_guardian/power_score", "0", retain=True)
+    else:
+        mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
+        mqtt_client.publish("vinyl_guardian/status", "Powered Off", retain=True)
+        mqtt_client.publish("vinyl_guardian/engine_state", "Off", retain=True)
+        mqtt_client.publish("vinyl_guardian/track", "Not Playing", retain=True)
+        mqtt_client.publish("vinyl_guardian/attributes", "{}", retain=True)
+        mqtt_client.publish("vinyl_guardian/scrobble_status", "Off", retain=True)
+        mqtt_client.publish("vinyl_guardian/progress", "[░░░░░░░░░░] 00:00 / 00:00", retain=True)
+        mqtt_client.publish("vinyl_guardian/raw_volume", "0.0", retain=True)
+        mqtt_client.publish("vinyl_guardian/raw_pitch", "0.0", retain=True)
+        mqtt_client.publish("vinyl_guardian/raw_texture", "0.0", retain=True)
+        mqtt_client.publish("vinyl_guardian/power_score", "0", retain=True)
 
 def connect_mqtt():
-    if CALIBRATION_MODE: return
     try:
         mqtt_client.on_message = on_message
         mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
@@ -268,7 +295,6 @@ def listen_and_identify():
     engine_state_map = {"IDLE": "Listening", "RECORDING": "Recording", "PROCESSING": "Processing", "SLEEPING": "Tracking", "COOLDOWN": "Cooldown"}
     last_logged_status, last_logged_rhythm = "Unknown", False
 
-    # LOAD V6 MECHANICAL STABILITY WINDOWS
     try:
         with open(AUTO_CALIB_FILE, "r") as f:
             v6_cfg = json.load(f)
@@ -301,7 +327,6 @@ def listen_and_identify():
             now = time.time()
             max_val = np.max(np.abs(np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768.0))
 
-            # --- LIVE 10-SECOND DEBUG DUMPER ---
             if debug_countdown > 0:
                 debug_metrics_buffer['rms'].append(raw_rms)
                 debug_metrics_buffer['hfer'].append(hfer)
@@ -361,7 +386,6 @@ def listen_and_identify():
             if music_rms > MUSIC_THRESHOLD and not is_dust_pop:
                 last_music_time = now
                 
-            # Rhythm Tracker
             if is_dust_pop:
                 pop_history.append(now)
                 if len(pop_history) > 15: pop_history.pop(0)
@@ -384,7 +408,6 @@ def listen_and_identify():
             in_crest = (c_min <= crest <= c_max)
             motor_on_cond = (in_rms and in_hfer and in_crest)
 
-            # Priority Override
             if has_played_music or rhythm_locked: motor_on_cond = True
             if IS_SILENT_HW and (has_played_music or rhythm_locked): motor_on_cond = True
                 
@@ -431,7 +454,6 @@ def listen_and_identify():
             # --- MQTT LOGGING & UI DISPATCH ---
             if now - last_pub >= 1.0:
                 if mqtt_client.is_connected():
-                    # Stream Telemetry Sensors
                     mqtt_client.publish("vinyl_guardian/raw_volume", f"{raw_rms:.6f}", retain=False)
                     mqtt_client.publish("vinyl_guardian/raw_pitch", f"{hfer:.4f}", retain=False)
                     mqtt_client.publish("vinyl_guardian/raw_texture", f"{crest:.2f}", retain=False)
@@ -548,6 +570,7 @@ def listen_and_identify():
                 with state_lock: app_state = "IDLE"
 
 if __name__ == "__main__":
+    connect_mqtt()
     if CALIBRATION_MODE: run_calibration()
     else:
         files_to_clean = [os.path.join(SHARE_DIR, "vinyl_debug.wav"), "/tmp/process.wav"]
@@ -555,4 +578,4 @@ if __name__ == "__main__":
             try:
                 if os.path.exists(f): os.remove(f)
             except: pass
-        connect_mqtt(); listen_and_identify()
+        listen_and_identify()
