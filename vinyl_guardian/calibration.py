@@ -370,7 +370,7 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
 
 def calculate_hardware_thresholds(files):
     print_log("\n" + "="*70)
-    print_log("🧠 THE GUARDIAN ENGINE CALIBRATION (V6.7: RUNOUT DEEP DIVE)")
+    print_log("🧠 THE GUARDIAN ENGINE CALIBRATION (V6.8: DEADWAX TOLERANCE)")
     print_log("="*70)
     
     print_log("\n[STAGE 1: BASELINE NOISE]")
@@ -401,11 +401,12 @@ def calculate_hardware_thresholds(files):
     rms_min = p_rms_min * 0.90
     rms_max = p_rms_max * 4.0
     
+    # Widened ceilings to accommodate deadwax crackle and maintain platter detection
     hfer_min = p_hfer_min * 0.85
-    hfer_max = p_hfer_max * 1.25
+    hfer_max = p_hfer_max * 1.60
     
     crest_min = p_crest_min * 0.85
-    crest_max = p_crest_max * 1.50
+    crest_max = p_crest_max * 2.00
 
     safe_floor = float(baseline_median * 1.5)
     if rms_min < safe_floor:
@@ -473,7 +474,7 @@ def calculate_hardware_thresholds(files):
 
     if len(runout_crests) > 2:
         pop_crest_threshold = max(3.0, float(np.percentile(runout_crests, 50)) * 0.85)
-        pop_amplitude_threshold = max(floor_max_amp * 1.1, float(np.percentile(runout_amps, 25)) * 0.80)
+        pop_amplitude_threshold = max(floor_max_amp * 1.1, float(np.percentile(runout_amps, 25)) * 0.70)
         print_log(f"   [EXTRACTED] Runout Pop Sharpness (Crest): {pop_crest_threshold:.2f}")
         print_log(f"   [EXTRACTED] Runout Pop Amplitude: {pop_amplitude_threshold:.6f}")
     else:
@@ -514,7 +515,7 @@ def calculate_hardware_thresholds(files):
         return any(f"Status [{s}]" in t for t in trans for s in bad_statuses)
 
     print_log("\n" + "="*70)
-    print_log("📜 THE DUAL-SENSOR ACID TEST (V6.7: RUNOUT DEEP DIVE)")
+    print_log("📜 THE DUAL-SENSOR ACID TEST (V6.8: DEADWAX TOLERANCE)")
     print_log("   Running 6-stage physical recreation to verify logic locks...")
     print_log("="*70)
 
@@ -619,7 +620,7 @@ def run_calibration():
        \  /  | | | | | |_| | | | |__| | |_| | (_| | | | || | | (_| | | | |
         \/   |_|_| |_|\__, |_|  \____/ \__,_|\__,_|_| |_|__|_|\__,_|_| |_|
                        __/ |                                              
-                      |___/   CALIBRATION SUITE v6.7 (Runout Deep Dive)                      
+                      |___/   CALIBRATION SUITE v6.8 (Deadwax Tolerance)                      
     """, flush=True)
     
     FILES = {
