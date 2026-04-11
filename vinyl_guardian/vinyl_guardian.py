@@ -293,6 +293,7 @@ def listen_and_identify():
 
     last_pub, last_sleep_log, cooldown_end, chunks, loud_chunks, silence_sleep, song_start = time.time(), 0, 0, 0, 0, 0, 0
     idle_silence_chunks, target = 0, int(RATE / CHUNK * RECORD_SECONDS)
+    trigger_chunks = 0  # <--- FIXED INITIALIZATION HERE
     buffer = bytearray()
     ghost_buffer, ghost_max_chunks = [], int(RATE / CHUNK * 6.0)
     
