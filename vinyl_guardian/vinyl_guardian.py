@@ -297,7 +297,8 @@ def listen_and_identify():
     ghost_buffer, ghost_max_chunks = [], int(RATE / CHUNK * 6.0)
     
     turntable_on, has_played_music, rhythm_locked = False, False, False
-    trigger_chunks, power_score, power_max_score = 0, 0, int(RATE / CHUNK * 3.0) 
+    power_max_score = int(RATE / CHUNK * 3.0) 
+    power_score = 0
     
     consecutive_music = 0
     last_music_time, last_rhythm_time = -10.0, -10.0
@@ -407,6 +408,7 @@ def listen_and_identify():
             if is_playing:
                 last_music_time = now
                 has_played_music = True
+                rhythm_locked = False
                 
             if is_dust_pop:
                 pop_history.append(now)
@@ -424,10 +426,11 @@ def listen_and_identify():
             if rhythm_locked and (now - last_rhythm_time > 6.0): rhythm_locked = False
             continuous_silence = now - last_music_time
 
-            in_rms_win = (r_min <= raw_rms <= r_max)
-            in_hfer_win = (h_min <= hfer <= h_max)
-            in_crest_win = (c_min <= crest <= c_max)
-            motor_on_cond = (in_rms_win and in_hfer_win and in_crest_win)
+            # --- TIER 1: TURNTABLE POWER HYSTERESIS ---
+            in_rms = (r_min <= raw_rms <= r_max)
+            in_hfer = (h_min <= hfer <= h_max)
+            in_crest = (c_min <= crest <= c_max)
+            motor_on_cond = (in_rms and in_hfer and in_crest)
 
             if has_played_music or rhythm_locked: motor_on_cond = True
                 
@@ -458,6 +461,7 @@ def listen_and_identify():
                     
             if not turntable_on: current_guardian_state = "Off"
                 
+            # --- TIER 2: STRICT STATE MACHINE ---
             new_vinyl_status = "Motor Idle"
             
             if not turntable_on: 
@@ -473,7 +477,6 @@ def listen_and_identify():
                 if current_track:
                     track_dur = current_track.get('duration', 0)
                     pos_sec = max(0, int(now - current_track['start_timestamp']))
-                    
                     if current_track.get('duration_known', True) and track_dur > 0:
                         if pos_sec >= track_dur - 15:
                             is_track_ending = True
@@ -491,6 +494,7 @@ def listen_and_identify():
                         
             change_3_tier_status(new_vinyl_status, current_guardian_state)
             
+            # --- MQTT LOGGING & UI DISPATCH ---
             if now - last_pub >= 1.0:
                 if mqtt_client.is_connected():
                     norm_v = normalize_metric(raw_rms, r_min, r_max)
@@ -553,6 +557,7 @@ def listen_and_identify():
                     
                 last_pub = now
 
+            # --- TIER 3: GUARDIAN RECORDING MACHINE ---
             if current_state == "IDLE":
                 if music_rms > m_thresh and not is_dust_pop:
                     trigger_chunks += 1
