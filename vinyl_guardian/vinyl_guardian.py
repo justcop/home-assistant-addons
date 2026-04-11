@@ -403,6 +403,8 @@ def listen_and_identify():
                 consecutive_music = 0
                 
             is_playing = (consecutive_music >= 3)
+            
+            # THE STRICT ENCLOSURE: Transient thumps cannot reset this timer!
             if is_playing:
                 last_music_time = now
                 has_played_music = True
@@ -458,21 +460,39 @@ def listen_and_identify():
                     
             if not turntable_on: current_guardian_state = "Off"
                 
-            # --- TIER 2: VINYL STATUS RESOLUTION ---
+            # --- TIER 2: STRICT STATE MACHINE ---
             new_vinyl_status = "Motor Idle"
+            
             if not turntable_on: 
                 new_vinyl_status = "Powered Off"
             elif current_state in ["RECORDING", "PROCESSING"]: 
                 new_vinyl_status = "Playing"
-            elif is_playing or (has_played_music and continuous_silence < 2.0): 
+            elif is_playing: 
                 new_vinyl_status = "Playing"
             elif rhythm_locked: 
                 new_vinyl_status = "Runout Groove"
             elif has_played_music:
+                # Progress Bar Awareness Engine
+                is_track_ending = False
+                if current_track:
+                    track_dur = current_track.get('duration', 0)
+                    pos_sec = max(0, int(now - current_track['start_timestamp']))
+                    
+                    if current_track.get('duration_known', True) and track_dur > 0:
+                        # Give a 15-second "grace window" for early fadeouts vs the official duration
+                        if pos_sec >= track_dur - 15:
+                            is_track_ending = True
+                            
+                # The 5-Second Silence Lock
                 if continuous_silence <= 5.0: 
-                    new_vinyl_status = "Between Tracks"
+                    # If song is confirmed over, OR we already locked into Between Tracks, stay there
+                    if is_track_ending or current_display_status == "Between Tracks":
+                        new_vinyl_status = "Between Tracks"
+                    else: 
+                        new_vinyl_status = "Playing" # Treat as a quiet bridge mid-song
                 else: 
-                    new_vinyl_status = "Motor Idle"; has_played_music = False
+                    new_vinyl_status = "Motor Idle"
+                    has_played_music = False
             else: 
                 new_vinyl_status = "Motor Idle"
                         
