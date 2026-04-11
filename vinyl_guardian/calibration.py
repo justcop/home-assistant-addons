@@ -275,7 +275,8 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
     turntable_on = (initial_power == "On")
     power_max_score = int(RATE / chunk_size * 3.0)
     power_score = power_max_score if turntable_on else 0
-    consecutive_music, has_played_music = 0, (initial_status != "Powered Off")
+    consecutive_music = 0
+    has_played_music = False 
     
     VALID_RPM_INTERVALS = [(1.20, 1.46), (1.65, 1.95), (2.45, 2.85), (3.35, 3.85)]
     
@@ -296,13 +297,15 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
                 is_dust_pop = True
                 
         if music_rms > thresholds["music_threshold"] and not is_dust_pop:
-            last_music_time = time_sec
             consecutive_music += 1
         else:
             consecutive_music = 0
             
         is_playing = (consecutive_music >= 3)
-        if is_playing: has_played_music, rhythm_locked = True, False
+        if is_playing: 
+            has_played_music = True
+            rhythm_locked = False
+            last_music_time = time_sec
 
         if is_dust_pop:
             pop_history.append(time_sec)
@@ -315,7 +318,7 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
                         match_count += 1
                         break
             
-            if match_count >= 2 and has_played_music:
+            if match_count >= 2 and turntable_on:
                 rhythm_locked = True
                 last_rhythm_time = time_sec
 
@@ -340,13 +343,20 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
                 turntable_on, has_played_music, rhythm_locked = False, False, False
 
         p_state = "On" if turntable_on else "Off"
-        if not turntable_on: s_state = "Powered Off"
-        elif is_playing or (has_played_music and continuous_silence < 2.0): s_state = "Playing"
-        elif rhythm_locked: s_state = "Runout Groove"
+        if not turntable_on: 
+            s_state = "Powered Off"
+        elif is_playing or (has_played_music and continuous_silence < 2.0): 
+            s_state = "Playing"
+        elif rhythm_locked: 
+            s_state = "Runout Groove"
         elif has_played_music:
-            if continuous_silence < 60.0: s_state = "Between Tracks"
-            else: s_state = "Motor Idle"; has_played_music = False
-        else: s_state = "Motor Idle"
+            if continuous_silence <= 5.0: 
+                s_state = "Between Tracks"
+            else: 
+                s_state = "Motor Idle"
+                has_played_music = False
+        else: 
+            s_state = "Motor Idle"
         
         if p_state != current_power or s_state != current_status:
             transitions.append(f"   -> {time_sec:.1f}s : Power [{p_state}] | Status [{s_state}]")
@@ -356,7 +366,7 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
 
 def calculate_hardware_thresholds(files):
     print_log("\n" + "="*70)
-    print_log("🧠 THE GUARDIAN ENGINE CALIBRATION (V6.4: LEAN & CLEAN)")
+    print_log("🧠 THE GUARDIAN ENGINE CALIBRATION (V6.5: STRICT TIMELINE)")
     print_log("="*70)
     
     print_log("\n[STAGE 1: BASELINE NOISE]")
@@ -479,7 +489,7 @@ def calculate_hardware_thresholds(files):
         return any(f"Status [{s}]" in t for t in trans for s in bad_statuses)
 
     print_log("\n" + "="*70)
-    print_log("📜 THE DUAL-SENSOR ACID TEST (V6.4: LEAN & CLEAN)")
+    print_log("📜 THE DUAL-SENSOR ACID TEST (V6.5: STRICT TIMELINE)")
     print_log("   Running 6-stage physical recreation to verify logic locks...")
     print_log("="*70)
 
@@ -584,7 +594,7 @@ def run_calibration():
        \  /  | | | | | |_| | | | |__| | |_| | (_| | | | || | | (_| | | | |
         \/   |_|_| |_|\__, |_|  \____/ \__,_|\__,_|_| |_|__|_|\__,_|_| |_|
                        __/ |                                              
-                      |___/   CALIBRATION SUITE v6.4 (Lean & Clean)                      
+                      |___/   CALIBRATION SUITE v6.5 (Strict Timeline)                      
     """, flush=True)
     
     FILES = {
