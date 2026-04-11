@@ -72,6 +72,21 @@ def get_crest(audio_data):
     if rms <= 0: return 1.0
     return float(np.max(np.abs(audio_data)) / rms)
 
+def get_zcr(audio_data):
+    if len(audio_data) <= 1: return 0.0
+    # Counts the number of times the signal crosses zero
+    zero_crossings = np.nonzero(np.diff(audio_data > 0))[0].size
+    return float(zero_crossings / len(audio_data))
+
+def get_lfer(audio_data):
+    if len(audio_data) <= 1: return 0.0
+    rms = get_rms(audio_data)
+    if rms < 0.0001: return 0.0
+    # Simple low-pass filter by averaging adjacent samples
+    lf_data = (audio_data[:-1] + audio_data[1:]) / 2.0
+    lf_rms = float(np.sqrt(np.mean(np.square(lf_data))))
+    return lf_rms / rms
+
 def load_wav(filename):
     with wave.open(filename, 'rb') as wf:
         n_frames = wf.getnframes()
@@ -83,20 +98,15 @@ def load_wav(filename):
 
 def chunked_metrics(data, chunk_size=4096):
     chunks = len(data) // chunk_size
-    rms_v, hfer_v, crest_v = [], [], []
+    rms_v, hfer_v, crest_v, zcr_v, lfer_v = [], [], [], [], []
     for i in range(chunks):
         c = data[i*chunk_size:(i+1)*chunk_size]
         rms_v.append(get_rms(c))
         hfer_v.append(get_hfer(c))
         crest_v.append(get_crest(c))
-    return np.array(rms_v), np.array(hfer_v), np.array(crest_v)
-
-def chunked_rms(data, chunk_size=4096):
-    chunks = len(data) // chunk_size
-    rms_arr = np.zeros(chunks)
-    for i in range(chunks):
-        rms_arr[i] = get_rms(data[i*chunk_size:(i+1)*chunk_size])
-    return rms_arr
+        zcr_v.append(get_zcr(c))
+        lfer_v.append(get_lfer(c))
+    return np.array(rms_v), np.array(hfer_v), np.array(crest_v), np.array(zcr_v), np.array(lfer_v)
 
 def chunked_music_rms(data, chunk_size=4096):
     chunks = len(data) // chunk_size
@@ -104,13 +114,6 @@ def chunked_music_rms(data, chunk_size=4096):
     for i in range(chunks):
         rms_arr[i] = get_music_rms(data[i*chunk_size:(i+1)*chunk_size])
     return rms_arr
-
-def chunked_hfer(data, chunk_size=4096):
-    chunks = len(data) // chunk_size
-    hfer_arr = np.zeros(chunks)
-    for i in range(chunks):
-        hfer_arr[i] = get_hfer(data[i*chunk_size:(i+1)*chunk_size])
-    return hfer_arr
 
 # --- ALSA RECORDING ENGINE ---
 def record_chunk(duration):
@@ -388,19 +391,19 @@ def simulate_timeline(data, thresholds, state):
 
 def calculate_hardware_thresholds(files):
     print_log("\n" + "="*70)
-    print_log("🧠 THE GUARDIAN ENGINE CALIBRATION (V7.2: GRANULAR DEEP DIVE)")
+    print_log("🧠 THE GUARDIAN ENGINE CALIBRATION (V7.3: DSP EXPERIMENT)")
     print_log("="*70)
     
     print_log("\n[STAGE 1: BASELINE NOISE]")
     floor_data = load_wav(files["floor"])
-    baseline_rms, _, _ = chunked_metrics(floor_data)
+    baseline_rms, _, _, _, _ = chunked_metrics(floor_data)
     baseline_median = float(np.median(baseline_rms))
     floor_max_amp = float(np.max(np.abs(floor_data)))
     print_log(f"   [EXTRACTED] Baseline Silence Median: {baseline_median:.6f}")
 
     print_log("\n[STAGE 2: MECHANICAL STABILITY PROFILING]")
     spinup_data = load_wav(files["spinup"])
-    m_rms_raw, m_hfer_raw, m_crest_raw = chunked_metrics(spinup_data[20*RATE:])
+    m_rms_raw, m_hfer_raw, m_crest_raw, _, _ = chunked_metrics(spinup_data[20*RATE:])
     
     m_rms = reject_outliers_mad(m_rms_raw)
     m_hfer = reject_outliers_mad(m_hfer_raw)
@@ -436,7 +439,7 @@ def calculate_hardware_thresholds(files):
 
     print_log("\n[STAGE 3: ROOM NOISE & DISTURBANCE]")
     disturb_data = load_wav(files["disturbance"])
-    d_rms, _, _ = chunked_metrics(disturb_data)
+    d_rms, _, _, _, _ = chunked_metrics(disturb_data)
     max_room_transient = float(np.max(d_rms))
     print_log(f"   [EXTRACTED] Max Ambient Transient: {max_room_transient:.6f}")
 
@@ -511,7 +514,7 @@ def calculate_hardware_thresholds(files):
         return any(t['status'] in bad_statuses for t in transitions)
 
     print_log("\n" + "="*70)
-    print_log("📜 THE DUAL-SENSOR ACID TEST (V7.2: CONTINUOUS SIMULATION)")
+    print_log("📜 THE DUAL-SENSOR ACID TEST (V7.3: CONTINUOUS SIMULATION)")
     print_log("   Running sequential physical recreation to verify logic locks...")
     print_log("="*70)
 
@@ -573,7 +576,7 @@ def calculate_hardware_thresholds(files):
 
 def deep_dive_needle_states(files, thresholds, trans_data, lift_data, spinup_data):
     print_log("\n" + "="*70)
-    print_log("🔬 [STAGE 5] TEMPORARY DEEP DIVE: GRANULAR 1-SECOND ANALYSIS")
+    print_log("🔬 [STAGE 5] TEMPORARY DEEP DIVE: ADVANCED DSP ANALYSIS")
     print_log("="*70)
 
     # 1. Needle Up 1 (Spinup file - Motor Idle before music)
@@ -627,16 +630,15 @@ def deep_dive_needle_states(files, thresholds, trans_data, lift_data, spinup_dat
             return
             
         print_log(f"\n   [{label}]")
-        # Break into 1-second blocks
         blocks = len(data_chunk) // int(RATE)
         for i in range(blocks):
             sec_data = data_chunk[i*int(RATE) : (i+1)*int(RATE)]
-            _, h_arr, c_arr = chunked_metrics(sec_data)
+            _, _, _, zcr_arr, lfer_arr = chunked_metrics(sec_data)
             
-            if len(h_arr) > 0 and len(c_arr) > 0:
-                max_h = float(np.max(h_arr))
-                max_c = float(np.max(c_arr))
-                print_log(f"      ↳ Sec {i:02d}-{i+1:02d} | Max Pitch (HFER): {max_h:.4f} | Max Texture (Crest): {max_c:.2f}")
+            if len(zcr_arr) > 0 and len(lfer_arr) > 0:
+                mean_zcr = float(np.mean(zcr_arr))
+                mean_lfer = float(np.mean(lfer_arr))
+                print_log(f"      ↳ Sec {i:02d}-{i+1:02d} | Avg ZCR: {mean_zcr:.5f} | Avg LFER: {mean_lfer:.4f}")
 
     print_granular_stats(up1_chunk, "NEEDLE UP 1 (Stable motor before drop)")
     print_granular_stats(down_chunk, "NEEDLE DOWN (Deadwax continuous drone)")
@@ -658,7 +660,7 @@ def analyze_ghost_triggers(thresholds):
         filename = os.path.basename(gf)
         try:
             data = load_wav(gf)
-            rms_arr, hfer_arr, crest_arr = chunked_metrics(data)
+            rms_arr, hfer_arr, crest_arr, _, _ = chunked_metrics(data)
             
             prime_suspects = np.where((rms_arr >= thresholds["rms_min"]) & (rms_arr <= thresholds["rms_max"]))[0]
             
@@ -695,7 +697,7 @@ def run_calibration():
        \  /  | | | | | |_| | | | |__| | |_| | (_| | | | || | | (_| | | | |
         \/   |_|_| |_|\__, |_|  \____/ \__,_|\__,_|_| |_|__|_|\__,_|_| |_|
                        __/ |                                              
-                      |___/   CALIBRATION SUITE v7.2 (Granular Deep Dive)                      
+                      |___/   CALIBRATION SUITE v7.3 (DSP Experiment)                      
     """, flush=True)
     
     FILES = {
