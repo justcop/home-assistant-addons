@@ -48,7 +48,6 @@ def signal_handler(sig, frame):
         global inp
         if inp is not None: inp.close()
         
-        # Blast "Offline" states to HA before cutting the connection
         if mqtt_client.is_connected():
             mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
             mqtt_client.publish("vinyl_guardian/status", "Offline", retain=True)
@@ -56,8 +55,6 @@ def signal_handler(sig, frame):
             mqtt_client.publish("vinyl_guardian/track", "Offline", retain=True)
             mqtt_client.publish("vinyl_guardian/scrobble_status", "Offline", retain=True)
             mqtt_client.publish("vinyl_guardian/progress", "Offline", retain=True)
-            
-            # Zero out the live telemetry graphs
             mqtt_client.publish("vinyl_guardian/raw_volume", "0.0", retain=True)
             mqtt_client.publish("vinyl_guardian/raw_pitch", "0.0", retain=True)
             mqtt_client.publish("vinyl_guardian/raw_texture", "0.0", retain=True)
@@ -92,7 +89,6 @@ def publish_discovery():
     for old_sensor in deprecated_sensors:
         mqtt_client.publish(f"homeassistant/sensor/vinyl_guardian/{old_sensor}/config", "", retain=True)
     
-    # Sensors
     configs = {
         "power": {"name": "Turntable Power", "topic": "power", "icon": "mdi:power", "domain": "binary_sensor"},
         "status": {"name": "Vinyl Status", "topic": "status", "icon": "mdi:record-player", "domain": "sensor"},
@@ -100,9 +96,10 @@ def publish_discovery():
         "track": {"name": "Vinyl Current Track", "topic": "track", "icon": "mdi:music-circle", "attr": True, "domain": "sensor"},
         "scrobble_status": {"name": "Scrobble Status", "topic": "scrobble_status", "icon": "mdi:lastpass", "domain": "sensor"},
         "progress": {"name": "Vinyl Track Progress", "topic": "progress", "icon": "mdi:clock-outline", "domain": "sensor"},
-        "raw_volume": {"name": "Guardian Raw Volume", "topic": "raw_volume", "icon": "mdi:volume-high", "domain": "sensor", "state_class": "measurement"},
-        "raw_pitch": {"name": "Guardian Raw Pitch", "topic": "raw_pitch", "icon": "mdi:sine-wave", "domain": "sensor", "state_class": "measurement"},
-        "raw_texture": {"name": "Guardian Raw Texture", "topic": "raw_texture", "icon": "mdi:chart-timeline-variant", "domain": "sensor", "state_class": "measurement"},
+        # Renamed to clarify the 0-100 Target Zone logic
+        "raw_volume": {"name": "Guardian Vol (Target 0-100)", "topic": "raw_volume", "icon": "mdi:volume-high", "domain": "sensor", "state_class": "measurement"},
+        "raw_pitch": {"name": "Guardian Pitch (Target 0-100)", "topic": "raw_pitch", "icon": "mdi:sine-wave", "domain": "sensor", "state_class": "measurement"},
+        "raw_texture": {"name": "Guardian Texture (Target 0-100)", "topic": "raw_texture", "icon": "mdi:chart-timeline-variant", "domain": "sensor", "state_class": "measurement"},
         "power_score": {"name": "Guardian Power Score", "topic": "power_score", "icon": "mdi:counter", "domain": "sensor", "state_class": "measurement"}
     }
     
@@ -115,7 +112,6 @@ def publish_discovery():
             payload["payload_off"] = "OFF"
         mqtt_client.publish(f"homeassistant/{c['domain']}/vinyl_guardian/{key}/config", json.dumps(payload), retain=True)
         
-    # Debug Button
     btn_payload = {
         "name": "Live Debug Dump",
         "command_topic": "vinyl_guardian/debug/trigger",
@@ -125,7 +121,6 @@ def publish_discovery():
     }
     mqtt_client.publish("homeassistant/button/vinyl_guardian/debug/config", json.dumps(btn_payload), retain=True)
 
-    # Output states based on whether we are in calibration mode or live mode
     if CALIBRATION_MODE:
         mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
         mqtt_client.publish("vinyl_guardian/status", "Calibrating", retain=True)
@@ -263,6 +258,13 @@ def get_crest(audio_data):
     if rms <= 0: return 1.0
     return float(np.max(np.abs(audio_data)) / rms)
 
+# Helper function to map metrics to a 0-100 percentage range for unified graphing
+def normalize_metric(val, t_min, t_max):
+    if t_max - t_min == 0: return 0.0
+    norm = ((val - t_min) / (t_max - t_min)) * 100.0
+    # Clamp visual outliers so they don't break the graph scale
+    return max(-50.0, min(150.0, norm)) 
+
 # --- MAIN LOOP ---
 def listen_and_identify():
     global app_state, current_attempt, wake_up_time, scrobble_fired, current_track, last_scrobbled_track, paused_track_memory, inp
@@ -286,7 +288,7 @@ def listen_and_identify():
     ghost_buffer, ghost_max_chunks = [], int(RATE / CHUNK * 6.0)
     
     turntable_on, has_played_music, rhythm_locked = False, False, False
-    trigger_chunks, power_score, power_max_score = 0, 0, int(RATE / CHUNK * 1.0) 
+    trigger_chunks, power_score, power_max_score = 0, 0, int(RATE / CHUNK * 3.0) 
     
     last_music_time, last_rhythm_time = 0.0, 0.0
     pop_history = []
@@ -454,9 +456,14 @@ def listen_and_identify():
             # --- MQTT LOGGING & UI DISPATCH ---
             if now - last_pub >= 1.0:
                 if mqtt_client.is_connected():
-                    mqtt_client.publish("vinyl_guardian/raw_volume", f"{raw_rms:.6f}", retain=False)
-                    mqtt_client.publish("vinyl_guardian/raw_pitch", f"{hfer:.4f}", retain=False)
-                    mqtt_client.publish("vinyl_guardian/raw_texture", f"{crest:.2f}", retain=False)
+                    # Map properties to the visual 0-100 "Target Zone" scale
+                    norm_v = normalize_metric(raw_rms, r_min, r_max)
+                    norm_h = normalize_metric(hfer, h_min, h_max)
+                    norm_c = normalize_metric(crest, c_min, c_max)
+
+                    mqtt_client.publish("vinyl_guardian/raw_volume", f"{norm_v:.1f}", retain=False)
+                    mqtt_client.publish("vinyl_guardian/raw_pitch", f"{norm_h:.1f}", retain=False)
+                    mqtt_client.publish("vinyl_guardian/raw_texture", f"{norm_c:.1f}", retain=False)
                     mqtt_client.publish("vinyl_guardian/power_score", str(power_score), retain=False)
 
                     if not turntable_on: scrob_str = "Off"
