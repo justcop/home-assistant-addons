@@ -273,13 +273,8 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
     rhythm_locked = (initial_status == "Runout Groove")
     last_rhythm_time, last_music_time = -10.0, -10.0
     turntable_on = (initial_power == "On")
-    
-    # ---------------------------------------------------------
-    # THE ETERNAL FILTER: Increased from 1.0s to 3.0s
-    # ---------------------------------------------------------
     power_max_score = int(RATE / chunk_size * 3.0)
     power_score = power_max_score if turntable_on else 0
-    
     consecutive_music, has_played_music = 0, (initial_status != "Powered Off")
     
     VALID_RPM_INTERVALS = [(1.20, 1.46), (1.65, 1.95), (2.45, 2.85), (3.35, 3.85)]
@@ -319,7 +314,8 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
                     if lo <= delta <= hi:
                         match_count += 1
                         break
-            if match_count >= 1 and has_played_music:
+            
+            if match_count >= 2 and has_played_music:
                 rhythm_locked = True
                 last_rhythm_time = time_sec
 
@@ -334,7 +330,6 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
         motor_on_cond = (in_rms_win and in_hfer_win and in_crest_win)
 
         if has_played_music or rhythm_locked: motor_on_cond = True
-        if thresholds["is_silent_hw"] and (has_played_music or rhythm_locked): motor_on_cond = True
 
         if motor_on_cond:
             power_score = min(power_score + 1, power_max_score)
@@ -349,7 +344,7 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
         elif is_playing or (has_played_music and continuous_silence < 2.0): s_state = "Playing"
         elif rhythm_locked: s_state = "Runout Groove"
         elif has_played_music:
-            if continuous_silence < 15.0: s_state = "Between Tracks"
+            if continuous_silence < 60.0: s_state = "Between Tracks"
             else: s_state = "Motor Idle"; has_played_music = False
         else: s_state = "Motor Idle"
         
@@ -361,7 +356,7 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
 
 def calculate_hardware_thresholds(files):
     print_log("\n" + "="*70)
-    print_log("🧠 THE GUARDIAN ENGINE CALIBRATION (V6.2: ETERNAL FILTER)")
+    print_log("🧠 THE GUARDIAN ENGINE CALIBRATION (V6.4: LEAN & CLEAN)")
     print_log("="*70)
     
     print_log("\n[STAGE 1: BASELINE NOISE]")
@@ -407,8 +402,6 @@ def calculate_hardware_thresholds(files):
     print_log(f"   [EXTRACTED] Pitch Window:  {hfer_min:.4f} to {hfer_max:.4f}")
     print_log(f"   [EXTRACTED] Crest Window:  {crest_min:.2f} to {crest_max:.2f}")
 
-    is_silent_hw = (motor_median_rms <= baseline_median * 1.3)
-
     print_log("\n[STAGE 3: ROOM NOISE & DISTURBANCE]")
     disturb_data = load_wav(files["disturbance"])
     d_rms, _, _ = chunked_metrics(disturb_data)
@@ -419,53 +412,39 @@ def calculate_hardware_thresholds(files):
     trans_data = load_wav(files["transition"])
     trans_duration = len(trans_data) / RATE
     
-    search_start_idx = int(25 * RATE / 8192) 
-    trans_m_rms = chunked_music_rms(trans_data, chunk_size=8192)
+    music_chunk = trans_data[int(25 * RATE) : int(35 * RATE)]
+    m_rms_arr = chunked_music_rms(music_chunk)
+    valid_m_rms = m_rms_arr[m_rms_arr > (baseline_median * 2.0)]
     
-    if len(trans_m_rms) > search_start_idx:
-        search_arr = trans_m_rms[search_start_idx:]
-        peak_music = np.max(search_arr)
-        threshold = max(peak_music * 0.15, 0.002)
-        active_indices = np.where(search_arr > threshold)[0]
-        if len(active_indices) > 0:
-            last_active = active_indices[-1]
-            drop_time_sec = 25.0 + ((last_active + 1) * 8192 / RATE)
-        else: drop_time_sec = 25.0
-    else: drop_time_sec = trans_duration - 15.0
-        
-    print_log(f"   [STEP A] Detected music end: {drop_time_sec:.2f}s mark.")
-    
-    raw_music_chunk = trans_data[int(25*RATE) : int(drop_time_sec * RATE)]
-    raw_music_rms_arr = chunked_music_rms(raw_music_chunk)
-    valid_music_rms_arr = raw_music_rms_arr[raw_music_rms_arr > (baseline_median * 2.0)]
-    
-    raw_music_min = float(np.percentile(valid_music_rms_arr, 5)) if len(valid_music_rms_arr) > 0 else 0.005
-    music_threshold = max(raw_music_min * 0.85, baseline_median * 1.5)
+    if len(valid_m_rms) > 0:
+        raw_music_min = float(np.percentile(valid_m_rms, 5))
+        music_threshold = max(raw_music_min * 0.80, baseline_median * 1.5)
+    else:
+        music_threshold = baseline_median * 2.0
     print_log(f"   [EXTRACTED] Music Threshold: {music_threshold:.6f}")
     
-    runout_chunks_data = trans_data[int(drop_time_sec * RATE):]
-    if len(runout_chunks_data) == 0: runout_chunks_data = trans_data[-8192:]
-
-    runout_chunks_n = len(runout_chunks_data) // 4096
+    runout_chunk = trans_data[-int(10 * RATE):]
+    runout_chunks_n = len(runout_chunk) // 4096
     runout_crests, runout_amps = [], []
 
     for i in range(runout_chunks_n):
-        chunk = runout_chunks_data[i*4096:(i+1)*4096]
+        chunk = runout_chunk[i*4096:(i+1)*4096]
         r = get_rms(chunk)
         if r > 0:
             m_val = np.max(np.abs(chunk))
             if m_val / r > 2.5:
-                runout_crests.append(m_val / r); runout_amps.append(m_val)
+                runout_crests.append(m_val / r)
+                runout_amps.append(m_val)
 
-    if len(runout_crests) > 0:
-        base_crest = np.percentile(runout_crests, 75)
-        pop_crest_threshold = max(3.5, base_crest * 0.80)
-        base_amp = np.percentile(runout_amps, 75)
-        pop_amplitude_threshold = max(floor_max_amp * 1.25, base_amp * 0.70)
+    if len(runout_crests) > 2:
+        pop_crest_threshold = max(3.0, float(np.percentile(runout_crests, 50)) * 0.85)
+        pop_amplitude_threshold = max(floor_max_amp * 1.1, float(np.percentile(runout_amps, 25)) * 0.80)
         print_log(f"   [EXTRACTED] Runout Pop Sharpness (Crest): {pop_crest_threshold:.2f}")
+        print_log(f"   [EXTRACTED] Runout Pop Amplitude: {pop_amplitude_threshold:.6f}")
     else:
-        print_log("   [DEBUG] Runout extraction failed. Falling back to default tolerances.")
-        pop_crest_threshold, pop_amplitude_threshold = 4.0, floor_max_amp * 1.5
+        print_log("   [DEBUG] Runout extraction lacked clear pops. Using safe defaults.")
+        pop_crest_threshold = 3.5
+        pop_amplitude_threshold = floor_max_amp * 1.5
 
     motor_power_ceiling = motor_median_rms * 4.0 
 
@@ -480,8 +459,7 @@ def calculate_hardware_thresholds(files):
         "music_threshold": round(music_threshold, 6),
         "runout_crest_threshold": round(pop_crest_threshold, 3),
         "pop_amplitude_threshold": round(pop_amplitude_threshold, 6),
-        "max_room_transient": round(max_room_transient, 6),
-        "is_silent_hw": bool(is_silent_hw)
+        "max_room_transient": round(max_room_transient, 6)
     }
     
     def states_in_order(trans, *expected_statuses):
@@ -501,7 +479,7 @@ def calculate_hardware_thresholds(files):
         return any(f"Status [{s}]" in t for t in trans for s in bad_statuses)
 
     print_log("\n" + "="*70)
-    print_log("📜 THE DUAL-SENSOR ACID TEST (V6.2: ASYMMETRIC WINDOWS)")
+    print_log("📜 THE DUAL-SENSOR ACID TEST (V6.4: LEAN & CLEAN)")
     print_log("   Running 6-stage physical recreation to verify logic locks...")
     print_log("="*70)
 
@@ -512,8 +490,8 @@ def calculate_hardware_thresholds(files):
     passed = (end_p == "Off" and end_s == "Powered Off" and len(trans) == 1)
     print_log("   ✅ PASS" if passed else "   ❌ FAIL — The silence floor is too high.")
 
-    expected_p = "Off" if thresholds["is_silent_hw"] else "On"
-    expected_s = "Powered Off" if thresholds["is_silent_hw"] else "Motor Idle"
+    expected_p = "On"
+    expected_s = "Motor Idle"
     
     print_log(f"\n⚙️  [TEST 2: MOTOR HUM]")
     print_log(f"   Expected Flow: Off -> User turns motor ON -> {expected_p} / {expected_s}")
@@ -606,7 +584,7 @@ def run_calibration():
        \  /  | | | | | |_| | | | |__| | |_| | (_| | | | || | | (_| | | | |
         \/   |_|_| |_|\__, |_|  \____/ \__,_|\__,_|_| |_|__|_|\__,_|_| |_|
                        __/ |                                              
-                      |___/   CALIBRATION SUITE v6.2 (Asymmetric Breathing Room)                      
+                      |___/   CALIBRATION SUITE v6.4 (Lean & Clean)                      
     """, flush=True)
     
     FILES = {
@@ -667,12 +645,4 @@ def run_calibration():
     while True: time.sleep(3600)
 
 if __name__ == "__main__":
-    connect_mqtt()
-    if CALIBRATION_MODE: run_calibration()
-    else:
-        files_to_clean = [os.path.join(SHARE_DIR, "vinyl_debug.wav"), "/tmp/process.wav"]
-        for f in files_to_clean:
-            try:
-                if os.path.exists(f): os.remove(f)
-            except: pass
-        listen_and_identify()
+    run_calibration()
