@@ -72,21 +72,6 @@ def get_crest(audio_data):
     if rms <= 0: return 1.0
     return float(np.max(np.abs(audio_data)) / rms)
 
-def get_zcr(audio_data):
-    if len(audio_data) <= 1: return 0.0
-    # Counts the number of times the signal crosses zero
-    zero_crossings = np.nonzero(np.diff(audio_data > 0))[0].size
-    return float(zero_crossings / len(audio_data))
-
-def get_lfer(audio_data):
-    if len(audio_data) <= 1: return 0.0
-    rms = get_rms(audio_data)
-    if rms < 0.0001: return 0.0
-    # Simple low-pass filter by averaging adjacent samples
-    lf_data = (audio_data[:-1] + audio_data[1:]) / 2.0
-    lf_rms = float(np.sqrt(np.mean(np.square(lf_data))))
-    return lf_rms / rms
-
 def load_wav(filename):
     with wave.open(filename, 'rb') as wf:
         n_frames = wf.getnframes()
@@ -98,15 +83,20 @@ def load_wav(filename):
 
 def chunked_metrics(data, chunk_size=4096):
     chunks = len(data) // chunk_size
-    rms_v, hfer_v, crest_v, zcr_v, lfer_v = [], [], [], [], []
+    rms_v, hfer_v, crest_v = [], [], []
     for i in range(chunks):
         c = data[i*chunk_size:(i+1)*chunk_size]
         rms_v.append(get_rms(c))
         hfer_v.append(get_hfer(c))
         crest_v.append(get_crest(c))
-        zcr_v.append(get_zcr(c))
-        lfer_v.append(get_lfer(c))
-    return np.array(rms_v), np.array(hfer_v), np.array(crest_v), np.array(zcr_v), np.array(lfer_v)
+    return np.array(rms_v), np.array(hfer_v), np.array(crest_v)
+
+def chunked_rms(data, chunk_size=4096):
+    chunks = len(data) // chunk_size
+    rms_arr = np.zeros(chunks)
+    for i in range(chunks):
+        rms_arr[i] = get_rms(data[i*chunk_size:(i+1)*chunk_size])
+    return rms_arr
 
 def chunked_music_rms(data, chunk_size=4096):
     chunks = len(data) // chunk_size
@@ -114,6 +104,13 @@ def chunked_music_rms(data, chunk_size=4096):
     for i in range(chunks):
         rms_arr[i] = get_music_rms(data[i*chunk_size:(i+1)*chunk_size])
     return rms_arr
+
+def chunked_hfer(data, chunk_size=4096):
+    chunks = len(data) // chunk_size
+    hfer_arr = np.zeros(chunks)
+    for i in range(chunks):
+        hfer_arr[i] = get_hfer(data[i*chunk_size:(i+1)*chunk_size])
+    return hfer_arr
 
 # --- ALSA RECORDING ENGINE ---
 def record_chunk(duration):
@@ -205,7 +202,7 @@ def record_dynamic_transition(filename):
     if not music_ended:
         print_log("⚠️ Fail-safe reached. Max 6 minutes recorded without detecting end of song.")
         
-    print_log("⏺️ STEADY STATE (25s): Capturing extended runout for deep dive analysis...")
+    print_log("⏺️ STEADY STATE (25s): Capturing extended runout analysis...")
     chunk_b, _ = record_chunk(25.0)
     raw_bytes.extend(chunk_b)
     
@@ -391,19 +388,19 @@ def simulate_timeline(data, thresholds, state):
 
 def calculate_hardware_thresholds(files):
     print_log("\n" + "="*70)
-    print_log("🧠 THE GUARDIAN ENGINE CALIBRATION (V7.3: DSP EXPERIMENT)")
+    print_log("🧠 THE GUARDIAN ENGINE CALIBRATION (V7.4: PRODUCTION CORE)")
     print_log("="*70)
     
     print_log("\n[STAGE 1: BASELINE NOISE]")
     floor_data = load_wav(files["floor"])
-    baseline_rms, _, _, _, _ = chunked_metrics(floor_data)
+    baseline_rms, _, _ = chunked_metrics(floor_data)
     baseline_median = float(np.median(baseline_rms))
     floor_max_amp = float(np.max(np.abs(floor_data)))
     print_log(f"   [EXTRACTED] Baseline Silence Median: {baseline_median:.6f}")
 
     print_log("\n[STAGE 2: MECHANICAL STABILITY PROFILING]")
     spinup_data = load_wav(files["spinup"])
-    m_rms_raw, m_hfer_raw, m_crest_raw, _, _ = chunked_metrics(spinup_data[20*RATE:])
+    m_rms_raw, m_hfer_raw, m_crest_raw = chunked_metrics(spinup_data[20*RATE:])
     
     m_rms = reject_outliers_mad(m_rms_raw)
     m_hfer = reject_outliers_mad(m_hfer_raw)
@@ -439,13 +436,12 @@ def calculate_hardware_thresholds(files):
 
     print_log("\n[STAGE 3: ROOM NOISE & DISTURBANCE]")
     disturb_data = load_wav(files["disturbance"])
-    d_rms, _, _, _, _ = chunked_metrics(disturb_data)
+    d_rms, _, _ = chunked_metrics(disturb_data)
     max_room_transient = float(np.max(d_rms))
     print_log(f"   [EXTRACTED] Max Ambient Transient: {max_room_transient:.6f}")
 
     print_log("\n[STAGE 4: THE MASTER TRANSITION]")
     trans_data = load_wav(files["transition"])
-    trans_duration = len(trans_data) / RATE
     
     music_chunk = trans_data[int(25 * RATE) : int(35 * RATE)]
     m_rms_arr = chunked_music_rms(music_chunk)
@@ -514,7 +510,7 @@ def calculate_hardware_thresholds(files):
         return any(t['status'] in bad_statuses for t in transitions)
 
     print_log("\n" + "="*70)
-    print_log("📜 THE DUAL-SENSOR ACID TEST (V7.3: CONTINUOUS SIMULATION)")
+    print_log("📜 THE DUAL-SENSOR ACID TEST (V7.4: PRODUCTION CORE)")
     print_log("   Running sequential physical recreation to verify logic locks...")
     print_log("="*70)
 
@@ -568,82 +564,8 @@ def calculate_hardware_thresholds(files):
     for t in trans: print_log(t['log'])
     passed = (end_p == "Off" and end_s == "Powered Off" and len(trans) == 1)
     print_log("   ✅ PASS" if passed else "   ❌ FAIL — Acoustic shield breached by transients.")
-    
-    # --- DEEP DIVE: NEEDLE UP VS NEEDLE DOWN ---
-    deep_dive_needle_states(files, thresholds, trans_data, lift_data, spinup_data)
 
     return thresholds
-
-def deep_dive_needle_states(files, thresholds, trans_data, lift_data, spinup_data):
-    print_log("\n" + "="*70)
-    print_log("🔬 [STAGE 5] TEMPORARY DEEP DIVE: ADVANCED DSP ANALYSIS")
-    print_log("="*70)
-
-    # 1. Needle Up 1 (Spinup file - Motor Idle before music)
-    up1_chunk = spinup_data[-int(10 * RATE):]
-
-    # 2. Needle Down (Transition file - Deadwax)
-    sim_state = {
-        "current_power": "On", "current_status": "Motor Idle", "turntable_on": True,
-        "power_score": int(RATE / 4096 * 3.0), "consecutive_music": 0, "has_played_music": False,
-        "last_music_time": -10.0, "last_rhythm_time": -10.0, "pop_history": [], "rhythm_locked": False
-    }
-    trans_log, _, _, _ = simulate_timeline(trans_data, thresholds, sim_state)
-
-    idle_time = None
-    runout_time = None
-    for t in trans_log:
-        if t['status'] == 'Motor Idle' and t['time'] > 5.0:
-            idle_time = t['time']
-        if t['status'] == 'Runout Groove':
-            runout_time = t['time']
-
-    down_chunk = []
-    if idle_time and runout_time and (runout_time - 7.0) > (idle_time + 3.0):
-        start_idx = int((idle_time + 3.0) * RATE)
-        end_idx = int((runout_time - 7.0) * RATE)
-        down_chunk = trans_data[start_idx:end_idx]
-
-    # 3. Needle Up 2 (Lift file - Motor Idle after runout)
-    sim_state = {
-        "current_power": "On", "current_status": "Runout Groove", "turntable_on": True,
-        "power_score": int(RATE / 4096 * 3.0), "consecutive_music": 0, "has_played_music": False,
-        "last_music_time": -10.0, "last_rhythm_time": 0.0, "pop_history": [0.0], "rhythm_locked": True
-    }
-    lift_log, _, _, _ = simulate_timeline(lift_data, thresholds, sim_state)
-
-    lift_idle_time = None
-    for t in lift_log:
-        if t['status'] == 'Motor Idle':
-            lift_idle_time = t['time']
-            break
-
-    up2_chunk = []
-    if lift_idle_time and (lift_idle_time + 1.0) < (len(lift_data) / RATE):
-        start_idx = int((lift_idle_time + 1.0) * RATE)
-        end_idx = min(start_idx + int(10 * RATE), len(lift_data)) # Cap at 10s for clean reading
-        up2_chunk = lift_data[start_idx:end_idx]
-
-    def print_granular_stats(data_chunk, label):
-        if len(data_chunk) == 0:
-            print_log(f"   [{label}] Not enough data.")
-            return
-            
-        print_log(f"\n   [{label}]")
-        blocks = len(data_chunk) // int(RATE)
-        for i in range(blocks):
-            sec_data = data_chunk[i*int(RATE) : (i+1)*int(RATE)]
-            _, _, _, zcr_arr, lfer_arr = chunked_metrics(sec_data)
-            
-            if len(zcr_arr) > 0 and len(lfer_arr) > 0:
-                mean_zcr = float(np.mean(zcr_arr))
-                mean_lfer = float(np.mean(lfer_arr))
-                print_log(f"      ↳ Sec {i:02d}-{i+1:02d} | Avg ZCR: {mean_zcr:.5f} | Avg LFER: {mean_lfer:.4f}")
-
-    print_granular_stats(up1_chunk, "NEEDLE UP 1 (Stable motor before drop)")
-    print_granular_stats(down_chunk, "NEEDLE DOWN (Deadwax continuous drone)")
-    print_granular_stats(up2_chunk, "NEEDLE UP 2 (Post-lift stable motor)")
-    print_log("\n" + "-"*70)
 
 def analyze_ghost_triggers(thresholds):
     print_log("\n" + "="*70)
@@ -660,7 +582,7 @@ def analyze_ghost_triggers(thresholds):
         filename = os.path.basename(gf)
         try:
             data = load_wav(gf)
-            rms_arr, hfer_arr, crest_arr, _, _ = chunked_metrics(data)
+            rms_arr, hfer_arr, crest_arr = chunked_metrics(data)
             
             prime_suspects = np.where((rms_arr >= thresholds["rms_min"]) & (rms_arr <= thresholds["rms_max"]))[0]
             
@@ -697,7 +619,7 @@ def run_calibration():
        \  /  | | | | | |_| | | | |__| | |_| | (_| | | | || | | (_| | | | |
         \/   |_|_| |_|\__, |_|  \____/ \__,_|\__,_|_| |_|__|_|\__,_|_| |_|
                        __/ |                                              
-                      |___/   CALIBRATION SUITE v7.3 (DSP Experiment)                      
+                      |___/   CALIBRATION SUITE v7.4 (Production Core)                      
     """, flush=True)
     
     FILES = {
