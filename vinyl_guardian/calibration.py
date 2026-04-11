@@ -388,7 +388,7 @@ def simulate_timeline(data, thresholds, state):
 
 def calculate_hardware_thresholds(files):
     print_log("\n" + "="*70)
-    print_log("🧠 THE GUARDIAN ENGINE CALIBRATION (V7.1: STATE ANALYSIS)")
+    print_log("🧠 THE GUARDIAN ENGINE CALIBRATION (V7.2: GRANULAR DEEP DIVE)")
     print_log("="*70)
     
     print_log("\n[STAGE 1: BASELINE NOISE]")
@@ -511,7 +511,7 @@ def calculate_hardware_thresholds(files):
         return any(t['status'] in bad_statuses for t in transitions)
 
     print_log("\n" + "="*70)
-    print_log("📜 THE DUAL-SENSOR ACID TEST (V7.1: CONTINUOUS SIMULATION)")
+    print_log("📜 THE DUAL-SENSOR ACID TEST (V7.2: CONTINUOUS SIMULATION)")
     print_log("   Running sequential physical recreation to verify logic locks...")
     print_log("="*70)
 
@@ -525,7 +525,7 @@ def calculate_hardware_thresholds(files):
     print_log("   Expected Flow: Off -> Stays Off")
     trans, end_p, end_s, sim_state = simulate_timeline(floor_data, thresholds, sim_state)
     for t in trans: print_log(t['log'])
-    passed = (end_p == "Off" and end_s == "Powered Off" and len(trans) == 1) # Just initial log
+    passed = (end_p == "Off" and end_s == "Powered Off" and len(trans) == 1)
     print_log("   ✅ PASS" if passed else "   ❌ FAIL — The silence floor is too high.")
 
     print_log(f"\n⚙️  [TEST 2: MOTOR HUM]")
@@ -573,7 +573,7 @@ def calculate_hardware_thresholds(files):
 
 def deep_dive_needle_states(files, thresholds, trans_data, lift_data, spinup_data):
     print_log("\n" + "="*70)
-    print_log("🔬 [STAGE 5] TEMPORARY DEEP DIVE: NEEDLE UP VS. NEEDLE DOWN")
+    print_log("🔬 [STAGE 5] TEMPORARY DEEP DIVE: GRANULAR 1-SECOND ANALYSIS")
     print_log("="*70)
 
     # 1. Needle Up 1 (Spinup file - Motor Idle before music)
@@ -618,42 +618,30 @@ def deep_dive_needle_states(files, thresholds, trans_data, lift_data, spinup_dat
     up2_chunk = []
     if lift_idle_time and (lift_idle_time + 1.0) < (len(lift_data) / RATE):
         start_idx = int((lift_idle_time + 1.0) * RATE)
-        up2_chunk = lift_data[start_idx:]
+        end_idx = min(start_idx + int(10 * RATE), len(lift_data)) # Cap at 10s for clean reading
+        up2_chunk = lift_data[start_idx:end_idx]
 
-    def get_stats(data_chunk):
-        if len(data_chunk) == 0: return "N/A", "N/A", "N/A"
-        r_arr, h_arr, c_arr = chunked_metrics(data_chunk)
-        return (
-            f"Median: {float(np.median(r_arr)):.6f}  |  Max: {float(np.max(r_arr)):.6f}",
-            f"Median: {float(np.median(h_arr)):.4f}  |  Max: {float(np.max(h_arr)):.4f}",
-            f"Median: {float(np.median(c_arr)):.2f}  |  Max: {float(np.max(c_arr)):.2f}"
-        )
+    def print_granular_stats(data_chunk, label):
+        if len(data_chunk) == 0:
+            print_log(f"   [{label}] Not enough data.")
+            return
+            
+        print_log(f"\n   [{label}]")
+        # Break into 1-second blocks
+        blocks = len(data_chunk) // int(RATE)
+        for i in range(blocks):
+            sec_data = data_chunk[i*int(RATE) : (i+1)*int(RATE)]
+            _, h_arr, c_arr = chunked_metrics(sec_data)
+            
+            if len(h_arr) > 0 and len(c_arr) > 0:
+                max_h = float(np.max(h_arr))
+                max_c = float(np.max(c_arr))
+                print_log(f"      ↳ Sec {i:02d}-{i+1:02d} | Max Pitch (HFER): {max_h:.4f} | Max Texture (Crest): {max_c:.2f}")
 
-    u1_r, u1_h, u1_c = get_stats(up1_chunk)
-    d_r, d_h, d_c = get_stats(down_chunk)
-    u2_r, u2_h, u2_c = get_stats(up2_chunk)
-
-    print_log(f"   [NEEDLE UP 1]   (Spin-up stable motor before drop)")
-    print_log(f"      ↳ RMS:     {u1_r}")
-    print_log(f"      ↳ Pitch:   {u1_h}")
-    print_log(f"      ↳ Texture: {u1_c}\n")
-
-    if len(down_chunk):
-        print_log(f"   [NEEDLE DOWN]   (Deadwax between {idle_time+3:.1f}s and {runout_time-7:.1f}s)")
-    else:
-        print_log("   [NEEDLE DOWN]   (Not enough data extracted)")
-    print_log(f"      ↳ RMS:     {d_r}")
-    print_log(f"      ↳ Pitch:   {d_h}")
-    print_log(f"      ↳ Texture: {d_c}\n")
-
-    if len(up2_chunk):
-        print_log(f"   [NEEDLE UP 2]   (Post-lift motor idle from {lift_idle_time+1:.1f}s to end)")
-    else:
-        print_log("   [NEEDLE UP 2]   (Not enough data extracted)")
-    print_log(f"      ↳ RMS:     {u2_r}")
-    print_log(f"      ↳ Pitch:   {u2_h}")
-    print_log(f"      ↳ Texture: {u2_c}")
-
+    print_granular_stats(up1_chunk, "NEEDLE UP 1 (Stable motor before drop)")
+    print_granular_stats(down_chunk, "NEEDLE DOWN (Deadwax continuous drone)")
+    print_granular_stats(up2_chunk, "NEEDLE UP 2 (Post-lift stable motor)")
+    print_log("\n" + "-"*70)
 
 def analyze_ghost_triggers(thresholds):
     print_log("\n" + "="*70)
@@ -707,7 +695,7 @@ def run_calibration():
        \  /  | | | | | |_| | | | |__| | |_| | (_| | | | || | | (_| | | | |
         \/   |_|_| |_|\__, |_|  \____/ \__,_|\__,_|_| |_|__|_|\__,_|_| |_|
                        __/ |                                              
-                      |___/   CALIBRATION SUITE v7.1 (State Analysis)                      
+                      |___/   CALIBRATION SUITE v7.2 (Granular Deep Dive)                      
     """, flush=True)
     
     FILES = {
