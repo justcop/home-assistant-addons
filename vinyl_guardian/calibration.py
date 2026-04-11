@@ -271,7 +271,7 @@ def simulate_timeline(data, thresholds, state):
     current_power = state.get("current_power", "Off")
     current_status = state.get("current_status", "Powered Off")
     
-    transitions = []
+    transitions = [{'time': 0.0, 'power': current_power, 'status': current_status, 'log': f"   -> 0.0s : [INITIAL] Power [{current_power}] | Status [{current_status}]"}]
     
     turntable_on = state.get("turntable_on", False)
     power_max_score = int(RATE / chunk_size * 3.0)
@@ -371,7 +371,6 @@ def simulate_timeline(data, thresholds, state):
             transitions.append({'time': time_sec, 'power': p_state, 'status': s_state, 'log': f"   -> {time_sec:.1f}s : Power [{p_state}] | Status [{s_state}]"})
             current_power, current_status = p_state, s_state
             
-    # Package up the internal state, shifting historical clocks seamlessly for the next file
     next_state = {
         "current_power": current_power,
         "current_status": current_status,
@@ -389,7 +388,7 @@ def simulate_timeline(data, thresholds, state):
 
 def calculate_hardware_thresholds(files):
     print_log("\n" + "="*70)
-    print_log("🧠 THE GUARDIAN ENGINE CALIBRATION (V7.0: CONTINUOUS SIMULATION)")
+    print_log("🧠 THE GUARDIAN ENGINE CALIBRATION (V7.1: STATE ANALYSIS)")
     print_log("="*70)
     
     print_log("\n[STAGE 1: BASELINE NOISE]")
@@ -456,14 +455,9 @@ def calculate_hardware_thresholds(files):
         music_threshold = baseline_median * 2.0
     print_log(f"   [EXTRACTED] Music Threshold: {music_threshold:.6f}")
     
-    # --- DEEP DIVE: RUNOUT LOCK GROOVE THUDS ---
-    print_log("\n   [DEBUG] --- DEEP DIVE: LAST 20 SECONDS (LOCK GROOVE THUDS) ---")
     runout_chunk = trans_data[-int(20 * RATE):]
     runout_chunks_n = len(runout_chunk) // 4096
-    
-    thud_candidates = []
-    runout_crests = []
-    runout_amps = []
+    runout_crests, runout_amps = [], []
 
     for i in range(runout_chunks_n):
         chunk = runout_chunk[i*4096:(i+1)*4096]
@@ -471,23 +465,9 @@ def calculate_hardware_thresholds(files):
         if r > 0:
             m_val = np.max(np.abs(chunk))
             c = m_val / r
-            h = get_hfer(chunk)
-            time_offset = trans_duration - 20.0 + (i * 4096 / RATE)
-            
-            if c > 2.0: # Filter out smooth drone to isolate impacts
-                thud_candidates.append({'time': time_offset, 'rms': r, 'max': m_val, 'crest': c, 'hfer': h})
-            
             if c > 2.5:
                 runout_crests.append(c)
                 runout_amps.append(m_val)
-
-    thud_candidates.sort(key=lambda x: x['max'], reverse=True)
-    top_thuds = sorted(thud_candidates[:25], key=lambda x: x['time'])
-    
-    for t in top_thuds:
-        print_log(f"      ↳ Timestamp: {t['time']:.2f}s | Max Amp: {t['max']:.6f} | Crest: {t['crest']:.2f} | RMS: {t['rms']:.6f} | Pitch: {t['hfer']:.4f}")
-        
-    print_log("   --------------------------------------------------------------")
 
     if len(runout_crests) > 2:
         pop_crest_threshold = max(3.0, float(np.percentile(runout_crests, 50)) * 0.85)
@@ -515,7 +495,6 @@ def calculate_hardware_thresholds(files):
         "max_room_transient": round(max_room_transient, 6)
     }
     
-    # --- STRICT TEST GRADING UTILITIES ---
     def states_in_order(transitions, *expected_statuses):
         last_idx = -1
         for s in expected_statuses:
@@ -532,11 +511,10 @@ def calculate_hardware_thresholds(files):
         return any(t['status'] in bad_statuses for t in transitions)
 
     print_log("\n" + "="*70)
-    print_log("📜 THE DUAL-SENSOR ACID TEST (V7.0: CONTINUOUS SIMULATION)")
+    print_log("📜 THE DUAL-SENSOR ACID TEST (V7.1: CONTINUOUS SIMULATION)")
     print_log("   Running sequential physical recreation to verify logic locks...")
     print_log("="*70)
 
-    # Initialize the core engine memory from a completely cold boot
     sim_state = {
         "current_power": "Off", "current_status": "Powered Off", "turntable_on": False,
         "power_score": 0, "consecutive_music": 0, "has_played_music": False,
@@ -547,7 +525,7 @@ def calculate_hardware_thresholds(files):
     print_log("   Expected Flow: Off -> Stays Off")
     trans, end_p, end_s, sim_state = simulate_timeline(floor_data, thresholds, sim_state)
     for t in trans: print_log(t['log'])
-    passed = (end_p == "Off" and end_s == "Powered Off" and len(trans) == 0)
+    passed = (end_p == "Off" and end_s == "Powered Off" and len(trans) == 1) # Just initial log
     print_log("   ✅ PASS" if passed else "   ❌ FAIL — The silence floor is too high.")
 
     print_log(f"\n⚙️  [TEST 2: MOTOR HUM]")
@@ -558,7 +536,7 @@ def calculate_hardware_thresholds(files):
     print_log("   ✅ PASS" if passed else "   ❌ FAIL — Motor threshold misaligned or false trigger.")
 
     print_log(f"\n🎵 [TEST 3: THE MASTER TRANSITION]")
-    print_log(f"   Expected Flow: Needle Drops -> Playing -> Between Tracks -> Motor Idle -> Runout Groove")
+    print_log(f"   Expected Flow: Motor Idle -> Playing -> Between Tracks -> Motor Idle -> Runout Groove")
     trans, end_p, end_s, sim_state = simulate_timeline(trans_data, thresholds, sim_state)
     for t in trans: print_log(t['log'])
     passed = (end_p == "On" and end_s == "Runout Groove" and states_in_order(trans, "Playing", "Between Tracks", "Motor Idle", "Runout Groove"))
@@ -566,24 +544,6 @@ def calculate_hardware_thresholds(files):
 
     lift_data = load_wav(files["lift"])
     
-    # --- DEEP DIVE: NEEDLE LIFT DYNAMICS ---
-    print_log(f"\n   [DEBUG] --- DEEP DIVE: TEST 4 (NEEDLE LIFT RAW AUDIO) ---")
-    print_log(f"   Scanning the first 12 seconds for thuds and the lift impact...")
-    lift_chunk = lift_data[:int(12 * RATE)]
-    lift_chunks_n = len(lift_chunk) // 4096
-    for i in range(lift_chunks_n):
-        chunk = lift_chunk[i*4096:(i+1)*4096]
-        r = get_rms(chunk)
-        if r > 0:
-            m_val = np.max(np.abs(chunk))
-            c = m_val / r
-            h = get_hfer(chunk)
-            time_offset = (i * 4096 / RATE)
-            if c > 2.5 or m_val > 0.01:
-                tag = "⚠️ MASSIVE THUMP" if m_val > 0.01 else "↳ Lock Thud"
-                print_log(f"      {tag}: {time_offset:.2f}s | Max Amp: {m_val:.6f} | Crest: {c:.2f} | RMS: {r:.6f}")
-    print_log("   --------------------------------------------------------------")
-
     print_log(f"\n⬆️  [TEST 4: NEEDLE LIFT]")
     print_log(f"   Expected Flow: Runout Groove -> User lifts needle -> On / Motor Idle")
     trans, end_p, end_s, sim_state = simulate_timeline(lift_data, thresholds, sim_state)
@@ -603,10 +563,97 @@ def calculate_hardware_thresholds(files):
     print_log("   Expected Flow: Off -> User talks/taps -> Stays Off")
     trans, end_p, end_s, sim_state = simulate_timeline(disturb_data, thresholds, sim_state)
     for t in trans: print_log(t['log'])
-    passed = (end_p == "Off" and end_s == "Powered Off" and len(trans) == 0)
+    passed = (end_p == "Off" and end_s == "Powered Off" and len(trans) == 1)
     print_log("   ✅ PASS" if passed else "   ❌ FAIL — Acoustic shield breached by transients.")
+    
+    # --- DEEP DIVE: NEEDLE UP VS NEEDLE DOWN ---
+    deep_dive_needle_states(files, thresholds, trans_data, lift_data, spinup_data)
 
     return thresholds
+
+def deep_dive_needle_states(files, thresholds, trans_data, lift_data, spinup_data):
+    print_log("\n" + "="*70)
+    print_log("🔬 [STAGE 5] TEMPORARY DEEP DIVE: NEEDLE UP VS. NEEDLE DOWN")
+    print_log("="*70)
+
+    # 1. Needle Up 1 (Spinup file - Motor Idle before music)
+    up1_chunk = spinup_data[-int(10 * RATE):]
+
+    # 2. Needle Down (Transition file - Deadwax)
+    sim_state = {
+        "current_power": "On", "current_status": "Motor Idle", "turntable_on": True,
+        "power_score": int(RATE / 4096 * 3.0), "consecutive_music": 0, "has_played_music": False,
+        "last_music_time": -10.0, "last_rhythm_time": -10.0, "pop_history": [], "rhythm_locked": False
+    }
+    trans_log, _, _, _ = simulate_timeline(trans_data, thresholds, sim_state)
+
+    idle_time = None
+    runout_time = None
+    for t in trans_log:
+        if t['status'] == 'Motor Idle' and t['time'] > 5.0:
+            idle_time = t['time']
+        if t['status'] == 'Runout Groove':
+            runout_time = t['time']
+
+    down_chunk = []
+    if idle_time and runout_time and (runout_time - 7.0) > (idle_time + 3.0):
+        start_idx = int((idle_time + 3.0) * RATE)
+        end_idx = int((runout_time - 7.0) * RATE)
+        down_chunk = trans_data[start_idx:end_idx]
+
+    # 3. Needle Up 2 (Lift file - Motor Idle after runout)
+    sim_state = {
+        "current_power": "On", "current_status": "Runout Groove", "turntable_on": True,
+        "power_score": int(RATE / 4096 * 3.0), "consecutive_music": 0, "has_played_music": False,
+        "last_music_time": -10.0, "last_rhythm_time": 0.0, "pop_history": [0.0], "rhythm_locked": True
+    }
+    lift_log, _, _, _ = simulate_timeline(lift_data, thresholds, sim_state)
+
+    lift_idle_time = None
+    for t in lift_log:
+        if t['status'] == 'Motor Idle':
+            lift_idle_time = t['time']
+            break
+
+    up2_chunk = []
+    if lift_idle_time and (lift_idle_time + 1.0) < (len(lift_data) / RATE):
+        start_idx = int((lift_idle_time + 1.0) * RATE)
+        up2_chunk = lift_data[start_idx:]
+
+    def get_stats(data_chunk):
+        if len(data_chunk) == 0: return "N/A", "N/A", "N/A"
+        r_arr, h_arr, c_arr = chunked_metrics(data_chunk)
+        return (
+            f"Median: {float(np.median(r_arr)):.6f}  |  Max: {float(np.max(r_arr)):.6f}",
+            f"Median: {float(np.median(h_arr)):.4f}  |  Max: {float(np.max(h_arr)):.4f}",
+            f"Median: {float(np.median(c_arr)):.2f}  |  Max: {float(np.max(c_arr)):.2f}"
+        )
+
+    u1_r, u1_h, u1_c = get_stats(up1_chunk)
+    d_r, d_h, d_c = get_stats(down_chunk)
+    u2_r, u2_h, u2_c = get_stats(up2_chunk)
+
+    print_log(f"   [NEEDLE UP 1]   (Spin-up stable motor before drop)")
+    print_log(f"      ↳ RMS:     {u1_r}")
+    print_log(f"      ↳ Pitch:   {u1_h}")
+    print_log(f"      ↳ Texture: {u1_c}\n")
+
+    if len(down_chunk):
+        print_log(f"   [NEEDLE DOWN]   (Deadwax between {idle_time+3:.1f}s and {runout_time-7:.1f}s)")
+    else:
+        print_log("   [NEEDLE DOWN]   (Not enough data extracted)")
+    print_log(f"      ↳ RMS:     {d_r}")
+    print_log(f"      ↳ Pitch:   {d_h}")
+    print_log(f"      ↳ Texture: {d_c}\n")
+
+    if len(up2_chunk):
+        print_log(f"   [NEEDLE UP 2]   (Post-lift motor idle from {lift_idle_time+1:.1f}s to end)")
+    else:
+        print_log("   [NEEDLE UP 2]   (Not enough data extracted)")
+    print_log(f"      ↳ RMS:     {u2_r}")
+    print_log(f"      ↳ Pitch:   {u2_h}")
+    print_log(f"      ↳ Texture: {u2_c}")
+
 
 def analyze_ghost_triggers(thresholds):
     print_log("\n" + "="*70)
@@ -660,7 +707,7 @@ def run_calibration():
        \  /  | | | | | |_| | | | |__| | |_| | (_| | | | || | | (_| | | | |
         \/   |_|_| |_|\__, |_|  \____/ \__,_|\__,_|_| |_|__|_|\__,_|_| |_|
                        __/ |                                              
-                      |___/   CALIBRATION SUITE v7.0 (Continuous Simulation)                      
+                      |___/   CALIBRATION SUITE v7.1 (State Analysis)                      
     """, flush=True)
     
     FILES = {
