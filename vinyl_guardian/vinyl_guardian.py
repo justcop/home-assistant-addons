@@ -404,7 +404,6 @@ def listen_and_identify():
                 
             is_playing = (consecutive_music >= 3)
             
-            # THE STRICT ENCLOSURE: Transient thumps cannot reset this timer!
             if is_playing:
                 last_music_time = now
                 has_played_music = True
@@ -425,11 +424,10 @@ def listen_and_identify():
             if rhythm_locked and (now - last_rhythm_time > 6.0): rhythm_locked = False
             continuous_silence = now - last_music_time
 
-            # --- TIER 1: TURNTABLE POWER HYSTERESIS ---
-            in_rms = (r_min <= raw_rms <= r_max)
-            in_hfer = (h_min <= hfer <= h_max)
-            in_crest = (c_min <= crest <= c_max)
-            motor_on_cond = (in_rms and in_hfer and in_crest)
+            in_rms_win = (r_min <= raw_rms <= r_max)
+            in_hfer_win = (h_min <= hfer <= h_max)
+            in_crest_win = (c_min <= crest <= c_max)
+            motor_on_cond = (in_rms_win and in_hfer_win and in_crest_win)
 
             if has_played_music or rhythm_locked: motor_on_cond = True
                 
@@ -460,7 +458,6 @@ def listen_and_identify():
                     
             if not turntable_on: current_guardian_state = "Off"
                 
-            # --- TIER 2: STRICT STATE MACHINE ---
             new_vinyl_status = "Motor Idle"
             
             if not turntable_on: 
@@ -472,24 +469,20 @@ def listen_and_identify():
             elif rhythm_locked: 
                 new_vinyl_status = "Runout Groove"
             elif has_played_music:
-                # Progress Bar Awareness Engine
                 is_track_ending = False
                 if current_track:
                     track_dur = current_track.get('duration', 0)
                     pos_sec = max(0, int(now - current_track['start_timestamp']))
                     
                     if current_track.get('duration_known', True) and track_dur > 0:
-                        # Give a 15-second "grace window" for early fadeouts vs the official duration
                         if pos_sec >= track_dur - 15:
                             is_track_ending = True
                             
-                # The 5-Second Silence Lock
                 if continuous_silence <= 5.0: 
-                    # If song is confirmed over, OR we already locked into Between Tracks, stay there
                     if is_track_ending or current_display_status == "Between Tracks":
                         new_vinyl_status = "Between Tracks"
                     else: 
-                        new_vinyl_status = "Playing" # Treat as a quiet bridge mid-song
+                        new_vinyl_status = "Playing"
                 else: 
                     new_vinyl_status = "Motor Idle"
                     has_played_music = False
@@ -498,7 +491,6 @@ def listen_and_identify():
                         
             change_3_tier_status(new_vinyl_status, current_guardian_state)
             
-            # --- MQTT LOGGING & UI DISPATCH ---
             if now - last_pub >= 1.0:
                 if mqtt_client.is_connected():
                     norm_v = normalize_metric(raw_rms, r_min, r_max)
@@ -561,7 +553,6 @@ def listen_and_identify():
                     
                 last_pub = now
 
-            # --- TIER 3: GUARDIAN RECORDING MACHINE ---
             if current_state == "IDLE":
                 if music_rms > m_thresh and not is_dust_pop:
                     trigger_chunks += 1
