@@ -270,13 +270,14 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
     transitions = [f"   -> 0.0s : Power [{initial_power}] | Status [{initial_status}]"]
     
     pop_history = [] 
-    rhythm_locked = (initial_status == "Runout Groove")
-    last_rhythm_time, last_music_time = -10.0, -10.0
+    rhythm_locked = False
     turntable_on = (initial_power == "On")
     power_max_score = int(RATE / chunk_size * 3.0)
     power_score = power_max_score if turntable_on else 0
+    
     consecutive_music = 0
-    has_played_music = False 
+    has_played_music = False
+    last_music_time, last_rhythm_time = -10.0, -10.0
     
     VALID_RPM_INTERVALS = [(1.20, 1.46), (1.65, 1.95), (2.45, 2.85), (3.35, 3.85)]
     
@@ -303,9 +304,10 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
             
         is_playing = (consecutive_music >= 3)
         if is_playing: 
+            # Strict Enclosure: Timer only resets if it passed the debounce
+            last_music_time = time_sec
             has_played_music = True
             rhythm_locked = False
-            last_music_time = time_sec
 
         if is_dust_pop:
             pop_history.append(time_sec)
@@ -345,13 +347,17 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
         p_state = "On" if turntable_on else "Off"
         if not turntable_on: 
             s_state = "Powered Off"
-        elif is_playing or (has_played_music and continuous_silence < 2.0): 
+        elif is_playing: 
             s_state = "Playing"
         elif rhythm_locked: 
             s_state = "Runout Groove"
         elif has_played_music:
             if continuous_silence <= 5.0: 
-                s_state = "Between Tracks"
+                # Simulator Assumption: The song ended, we are entering the 5-second grace window
+                if current_status in ["Playing", "Between Tracks"]:
+                    s_state = "Between Tracks"
+                else:
+                    s_state = "Motor Idle"
             else: 
                 s_state = "Motor Idle"
                 has_played_music = False
@@ -366,7 +372,7 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
 
 def calculate_hardware_thresholds(files):
     print_log("\n" + "="*70)
-    print_log("🧠 THE GUARDIAN ENGINE CALIBRATION (V6.5: STRICT TIMELINE)")
+    print_log("🧠 THE GUARDIAN ENGINE CALIBRATION (V6.6: STRICT STATE MACHINE)")
     print_log("="*70)
     
     print_log("\n[STAGE 1: BASELINE NOISE]")
@@ -420,7 +426,6 @@ def calculate_hardware_thresholds(files):
 
     print_log("\n[STAGE 4: THE MASTER TRANSITION]")
     trans_data = load_wav(files["transition"])
-    trans_duration = len(trans_data) / RATE
     
     music_chunk = trans_data[int(25 * RATE) : int(35 * RATE)]
     m_rms_arr = chunked_music_rms(music_chunk)
@@ -489,7 +494,7 @@ def calculate_hardware_thresholds(files):
         return any(f"Status [{s}]" in t for t in trans for s in bad_statuses)
 
     print_log("\n" + "="*70)
-    print_log("📜 THE DUAL-SENSOR ACID TEST (V6.5: STRICT TIMELINE)")
+    print_log("📜 THE DUAL-SENSOR ACID TEST (V6.6: STRICT STATE MACHINE)")
     print_log("   Running 6-stage physical recreation to verify logic locks...")
     print_log("="*70)
 
@@ -507,14 +512,14 @@ def calculate_hardware_thresholds(files):
     print_log(f"   Expected Flow: Off -> User turns motor ON -> {expected_p} / {expected_s}")
     trans, end_p, end_s = simulate_timeline(spinup_data, thresholds, "Off", "Powered Off")
     for t in trans: print_log(t)
-    passed = (end_p == expected_p and end_s == expected_s and not any_bad_status(trans, "Playing", "Runout Groove"))
+    passed = (end_p == expected_p and end_s == expected_s and not any_bad_status(trans, "Playing", "Runout Groove", "Between Tracks"))
     print_log("   ✅ PASS" if passed else "   ❌ FAIL — Motor threshold misaligned or false trigger.")
 
     print_log(f"\n🎵 [TEST 3: THE MASTER TRANSITION]")
-    print_log(f"   Expected Flow: Needle Drops -> Playing -> Between Tracks -> Runout Groove")
+    print_log(f"   Expected Flow: Needle Drops -> Playing -> Between Tracks -> Motor Idle -> Runout Groove")
     trans, end_p, end_s = simulate_timeline(trans_data, thresholds, expected_p, expected_s)
     for t in trans: print_log(t)
-    passed = (end_p == "On" and end_s == "Runout Groove" and states_in_order(trans, "Playing", "Between Tracks", "Runout Groove"))
+    passed = (end_p == "On" and end_s == "Runout Groove" and states_in_order(trans, "Playing", "Between Tracks", "Motor Idle", "Runout Groove"))
     print_log("   ✅ PASS" if passed else "   ❌ FAIL — Engine lost track of music or failed rhythm lock.")
 
     lift_data = load_wav(files["lift"])
@@ -522,7 +527,7 @@ def calculate_hardware_thresholds(files):
     print_log(f"   Expected Flow: Runout Groove -> User lifts needle -> {expected_p} / {expected_s}")
     trans, end_p, end_s = simulate_timeline(lift_data, thresholds, "On", "Runout Groove")
     for t in trans: print_log(t)
-    passed = (end_p == expected_p and end_s == expected_s and not any_bad_status(trans, "Playing"))
+    passed = (end_p == expected_p and end_s == expected_s and not any_bad_status(trans, "Playing", "Between Tracks"))
     print_log("   ✅ PASS" if passed else "   ❌ FAIL — Thump was falsely flagged as music.")
 
     powerdown_data = load_wav(files["powerdown"])
@@ -530,14 +535,14 @@ def calculate_hardware_thresholds(files):
     print_log(f"   Expected Flow: {expected_s} -> User turns power OFF -> Off / Powered Off")
     trans, end_p, end_s = simulate_timeline(powerdown_data, thresholds, expected_p, expected_s)
     for t in trans: print_log(t)
-    passed = (end_p == "Off" and end_s == "Powered Off" and not any_bad_status(trans, "Playing", "Runout Groove"))
+    passed = (end_p == "Off" and end_s == "Powered Off" and not any_bad_status(trans, "Playing", "Runout Groove", "Between Tracks"))
     print_log("   ✅ PASS" if passed else "   ❌ FAIL — Electrical pop triggered false states.")
 
     print_log("\n🗣️  [TEST 6: ROOM NOISE]")
     print_log("   Expected Flow: Off -> User talks/taps -> Stays Off")
     trans, end_p, end_s = simulate_timeline(disturb_data, thresholds, "Off", "Powered Off")
     for t in trans: print_log(t)
-    passed = (end_p == "Off" and end_s == "Powered Off" and not any_bad_status(trans, "Playing", "Runout Groove", "Motor Idle"))
+    passed = (end_p == "Off" and end_s == "Powered Off" and not any_bad_status(trans, "Playing", "Runout Groove", "Motor Idle", "Between Tracks"))
     print_log("   ✅ PASS" if passed else "   ❌ FAIL — Acoustic shield breached by transients.")
 
     return thresholds
@@ -594,7 +599,7 @@ def run_calibration():
        \  /  | | | | | |_| | | | |__| | |_| | (_| | | | || | | (_| | | | |
         \/   |_|_| |_|\__, |_|  \____/ \__,_|\__,_|_| |_|__|_|\__,_|_| |_|
                        __/ |                                              
-                      |___/   CALIBRATION SUITE v6.5 (Strict Timeline)                      
+                      |___/   CALIBRATION SUITE v6.6 (Strict State Machine)                      
     """, flush=True)
     
     FILES = {
