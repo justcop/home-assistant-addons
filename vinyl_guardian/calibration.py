@@ -273,8 +273,13 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
     rhythm_locked = (initial_status == "Runout Groove")
     last_rhythm_time, last_music_time = -10.0, -10.0
     turntable_on = (initial_power == "On")
-    power_max_score = int(RATE / chunk_size * 1.0)
+    
+    # ---------------------------------------------------------
+    # THE ETERNAL FILTER: Increased from 1.0s to 3.0s
+    # ---------------------------------------------------------
+    power_max_score = int(RATE / chunk_size * 3.0)
     power_score = power_max_score if turntable_on else 0
+    
     consecutive_music, has_played_music = 0, (initial_status != "Powered Off")
     
     VALID_RPM_INTERVALS = [(1.20, 1.46), (1.65, 1.95), (2.45, 2.85), (3.35, 3.85)]
@@ -322,7 +327,6 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
         
         continuous_silence = time_sec - last_music_time
 
-        # --- POWER HYSTERESIS WITH STABILITY WINDOWS ---
         in_rms_win = thresholds["rms_min"] <= raw_rms <= thresholds["rms_max"]
         in_hfer_win = thresholds["hfer_min"] <= hfer <= thresholds["hfer_max"]
         in_crest_win = thresholds["crest_min"] <= crest <= thresholds["crest_max"]
@@ -340,7 +344,6 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
             if power_score <= 0:
                 turntable_on, has_played_music, rhythm_locked = False, False, False
 
-        # --- STATUS RESOLUTION ---
         p_state = "On" if turntable_on else "Off"
         if not turntable_on: s_state = "Powered Off"
         elif is_playing or (has_played_music and continuous_silence < 2.0): s_state = "Playing"
@@ -358,7 +361,7 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
 
 def calculate_hardware_thresholds(files):
     print_log("\n" + "="*70)
-    print_log("🧠 THE GUARDIAN ENGINE CALIBRATION (V6.2: ASYMMETRIC BREATHING ROOM)")
+    print_log("🧠 THE GUARDIAN ENGINE CALIBRATION (V6.2: ETERNAL FILTER)")
     print_log("="*70)
     
     print_log("\n[STAGE 1: BASELINE NOISE]")
@@ -378,7 +381,6 @@ def calculate_hardware_thresholds(files):
     
     motor_median_rms = float(np.median(m_rms))
     
-    # CALCULATING ASYMMETRIC WINDOWS
     def get_percentile_bounds(arr):
         if len(arr) == 0: return 0.0, 1.0
         return float(np.percentile(arr, 5)), float(np.percentile(arr, 95))
@@ -387,17 +389,15 @@ def calculate_hardware_thresholds(files):
     p_hfer_min, p_hfer_max = get_percentile_bounds(m_hfer)
     p_crest_min, p_crest_max = get_percentile_bounds(m_crest)
 
-    # Apply generous asymmetric multipliers
-    rms_min = p_rms_min * 0.90         # Tight floor to block room noise
-    rms_max = p_rms_max * 4.0          # Massive ceiling to allow motor fluctuations
+    rms_min = p_rms_min * 0.90
+    rms_max = p_rms_max * 4.0
     
-    hfer_min = p_hfer_min * 0.85       # Modest buffer for pitch drop
-    hfer_max = p_hfer_max * 1.25       # Wider buffer for pitch rise (motor surging)
+    hfer_min = p_hfer_min * 0.85
+    hfer_max = p_hfer_max * 1.25
     
-    crest_min = p_crest_min * 0.85     # Modest buffer for texture smoothing
-    crest_max = p_crest_max * 1.50     # Wider buffer for texture spikes (dust/platter clicks)
+    crest_min = p_crest_min * 0.85
+    crest_max = p_crest_max * 1.50
 
-    # THE HARD FLOOR GUARD (Raises the floor explicitly above ambient room noise)
     safe_floor = float(baseline_median * 1.5)
     if rms_min < safe_floor:
         print_log(f"   [INFO] Floor Guard Activated: Raised volume floor from {rms_min:.6f} to {safe_floor:.6f}")
@@ -667,4 +667,12 @@ def run_calibration():
     while True: time.sleep(3600)
 
 if __name__ == "__main__":
-    run_calibration()
+    connect_mqtt()
+    if CALIBRATION_MODE: run_calibration()
+    else:
+        files_to_clean = [os.path.join(SHARE_DIR, "vinyl_debug.wav"), "/tmp/process.wav"]
+        for f in files_to_clean:
+            try:
+                if os.path.exists(f): os.remove(f)
+            except: pass
+        listen_and_identify()
