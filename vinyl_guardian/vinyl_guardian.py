@@ -299,7 +299,8 @@ def listen_and_identify():
     turntable_on, has_played_music, rhythm_locked = False, False, False
     trigger_chunks, power_score, power_max_score = 0, 0, int(RATE / CHUNK * 3.0) 
     
-    last_music_time, last_rhythm_time = 0.0, 0.0
+    consecutive_music = 0
+    last_music_time, last_rhythm_time = -10.0, -10.0
     pop_history = []
     
     VALID_RPM_INTERVALS = [(1.20, 1.46), (1.65, 1.95), (2.45, 2.85), (3.35, 3.85)]
@@ -397,7 +398,14 @@ def listen_and_identify():
                     is_dust_pop = True
 
             if music_rms > m_thresh and not is_dust_pop:
+                consecutive_music += 1
+            else:
+                consecutive_music = 0
+                
+            is_playing = (consecutive_music >= 3)
+            if is_playing:
                 last_music_time = now
+                has_played_music = True
                 
             if is_dust_pop:
                 pop_history.append(now)
@@ -406,7 +414,7 @@ def listen_and_identify():
                 for p in pop_history[:-1]:
                     if any(lo <= (now - p) <= hi for lo, hi in VALID_RPM_INTERVALS):
                         match_count += 1; break
-                if match_count >= 2 and has_played_music:
+                if match_count >= 2 and turntable_on:
                     rhythm_locked = True; last_rhythm_time = now
                         
             if current_state in ["RECORDING", "PROCESSING", "SLEEPING"]:
@@ -421,7 +429,6 @@ def listen_and_identify():
             in_crest = (c_min <= crest <= c_max)
             motor_on_cond = (in_rms and in_hfer and in_crest)
 
-            # Overrides now act alone with no silent HW check
             if has_played_music or rhythm_locked: motor_on_cond = True
                 
             if motor_on_cond:
@@ -453,14 +460,21 @@ def listen_and_identify():
                 
             # --- TIER 2: VINYL STATUS RESOLUTION ---
             new_vinyl_status = "Motor Idle"
-            if not turntable_on: new_vinyl_status = "Powered Off"
-            elif current_state in ["RECORDING", "PROCESSING"]: new_vinyl_status = "Playing"
-            elif has_played_music and continuous_silence < 2.0: new_vinyl_status = "Playing"
-            elif rhythm_locked: new_vinyl_status = "Runout Groove"
+            if not turntable_on: 
+                new_vinyl_status = "Powered Off"
+            elif current_state in ["RECORDING", "PROCESSING"]: 
+                new_vinyl_status = "Playing"
+            elif is_playing or (has_played_music and continuous_silence < 2.0): 
+                new_vinyl_status = "Playing"
+            elif rhythm_locked: 
+                new_vinyl_status = "Runout Groove"
             elif has_played_music:
-                if continuous_silence < 60.0: new_vinyl_status = "Between Tracks"
-                else: new_vinyl_status = "Motor Idle"; has_played_music = False
-            else: new_vinyl_status = "Motor Idle"
+                if continuous_silence <= 5.0: 
+                    new_vinyl_status = "Between Tracks"
+                else: 
+                    new_vinyl_status = "Motor Idle"; has_played_music = False
+            else: 
+                new_vinyl_status = "Motor Idle"
                         
             change_3_tier_status(new_vinyl_status, current_guardian_state)
             
