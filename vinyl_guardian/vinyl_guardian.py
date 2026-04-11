@@ -59,6 +59,9 @@ def signal_handler(sig, frame):
             mqtt_client.publish("vinyl_guardian/raw_pitch", "0.0", retain=True)
             mqtt_client.publish("vinyl_guardian/raw_texture", "0.0", retain=True)
             mqtt_client.publish("vinyl_guardian/power_score", "0", retain=True)
+            mqtt_client.publish("vinyl_guardian/music_energy", "0.0", retain=True)
+            mqtt_client.publish("vinyl_guardian/pop_texture", "0.0", retain=True)
+            mqtt_client.publish("vinyl_guardian/pop_volume", "0.0", retain=True)
             
         mqtt_client.loop_stop()
         mqtt_client.disconnect()
@@ -96,11 +99,13 @@ def publish_discovery():
         "track": {"name": "Vinyl Current Track", "topic": "track", "icon": "mdi:music-circle", "attr": True, "domain": "sensor"},
         "scrobble_status": {"name": "Scrobble Status", "topic": "scrobble_status", "icon": "mdi:lastpass", "domain": "sensor"},
         "progress": {"name": "Vinyl Track Progress", "topic": "progress", "icon": "mdi:clock-outline", "domain": "sensor"},
-        # Renamed to clarify the 0-100 Target Zone logic
         "raw_volume": {"name": "Guardian Vol (Target 0-100)", "topic": "raw_volume", "icon": "mdi:volume-high", "domain": "sensor", "state_class": "measurement"},
         "raw_pitch": {"name": "Guardian Pitch (Target 0-100)", "topic": "raw_pitch", "icon": "mdi:sine-wave", "domain": "sensor", "state_class": "measurement"},
         "raw_texture": {"name": "Guardian Texture (Target 0-100)", "topic": "raw_texture", "icon": "mdi:chart-timeline-variant", "domain": "sensor", "state_class": "measurement"},
-        "power_score": {"name": "Guardian Power Score", "topic": "power_score", "icon": "mdi:counter", "domain": "sensor", "state_class": "measurement"}
+        "power_score": {"name": "Guardian Power Score", "topic": "power_score", "icon": "mdi:counter", "domain": "sensor", "state_class": "measurement"},
+        "music_energy": {"name": "Guardian Music Energy (Target 100+)", "topic": "music_energy", "icon": "mdi:music-note", "domain": "sensor", "state_class": "measurement"},
+        "pop_texture": {"name": "Guardian Pop Texture (Target 100+)", "topic": "pop_texture", "icon": "mdi:waveform", "domain": "sensor", "state_class": "measurement"},
+        "pop_volume": {"name": "Guardian Pop Volume (Target 100+)", "topic": "pop_volume", "icon": "mdi:volume-source", "domain": "sensor", "state_class": "measurement"}
     }
     
     for key, c in configs.items():
@@ -133,6 +138,9 @@ def publish_discovery():
         mqtt_client.publish("vinyl_guardian/raw_pitch", "0.0", retain=True)
         mqtt_client.publish("vinyl_guardian/raw_texture", "0.0", retain=True)
         mqtt_client.publish("vinyl_guardian/power_score", "0", retain=True)
+        mqtt_client.publish("vinyl_guardian/music_energy", "0.0", retain=True)
+        mqtt_client.publish("vinyl_guardian/pop_texture", "0.0", retain=True)
+        mqtt_client.publish("vinyl_guardian/pop_volume", "0.0", retain=True)
     else:
         mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
         mqtt_client.publish("vinyl_guardian/status", "Powered Off", retain=True)
@@ -145,6 +153,9 @@ def publish_discovery():
         mqtt_client.publish("vinyl_guardian/raw_pitch", "0.0", retain=True)
         mqtt_client.publish("vinyl_guardian/raw_texture", "0.0", retain=True)
         mqtt_client.publish("vinyl_guardian/power_score", "0", retain=True)
+        mqtt_client.publish("vinyl_guardian/music_energy", "0.0", retain=True)
+        mqtt_client.publish("vinyl_guardian/pop_texture", "0.0", retain=True)
+        mqtt_client.publish("vinyl_guardian/pop_volume", "0.0", retain=True)
 
 def connect_mqtt():
     try:
@@ -258,11 +269,9 @@ def get_crest(audio_data):
     if rms <= 0: return 1.0
     return float(np.max(np.abs(audio_data)) / rms)
 
-# Helper function to map metrics to a 0-100 percentage range for unified graphing
 def normalize_metric(val, t_min, t_max):
     if t_max - t_min == 0: return 0.0
     norm = ((val - t_min) / (t_max - t_min)) * 100.0
-    # Clamp visual outliers so they don't break the graph scale
     return max(-50.0, min(150.0, norm)) 
 
 # --- MAIN LOOP ---
@@ -311,6 +320,8 @@ def listen_and_identify():
     c_min = v6_cfg.get('crest_min', 0.0)
     c_max = v6_cfg.get('crest_max', 20.0)
     
+    m_thresh = v6_cfg.get('music_threshold', globals().get('MUSIC_THRESHOLD', 0.002))
+    runout_crest_thresh = v6_cfg.get('runout_crest_threshold', globals().get('RUNOUT_CREST_THRESHOLD', 3.5))
     pop_amp = v6_cfg.get('pop_amplitude_threshold', globals().get('POP_AMPLITUDE_THRESHOLD', 0.0))
     motor_ceil = v6_cfg.get('motor_power_ceiling', globals().get('MOTOR_POWER_CEILING', 999.0))
     needle_lift_sec = v6_cfg.get('needle_lift_sec', globals().get('NEEDLE_LIFT_SECONDS', 15.0))
@@ -382,10 +393,10 @@ def listen_and_identify():
                 
             is_dust_pop = False
             if raw_rms > 0:
-                if crest >= RUNOUT_CREST_THRESHOLD and max_val >= pop_amp and raw_rms <= motor_ceil:
+                if crest >= runout_crest_thresh and max_val >= pop_amp and raw_rms <= motor_ceil:
                     is_dust_pop = True
 
-            if music_rms > MUSIC_THRESHOLD and not is_dust_pop:
+            if music_rms > m_thresh and not is_dust_pop:
                 last_music_time = now
                 
             if is_dust_pop:
@@ -395,7 +406,7 @@ def listen_and_identify():
                 for p in pop_history[:-1]:
                     if any(lo <= (now - p) <= hi for lo, hi in VALID_RPM_INTERVALS):
                         match_count += 1; break
-                if match_count >= 1 and has_played_music:
+                if match_count >= 2 and has_played_music:
                     rhythm_locked = True; last_rhythm_time = now
                         
             if current_state in ["RECORDING", "PROCESSING", "SLEEPING"]:
@@ -410,8 +421,8 @@ def listen_and_identify():
             in_crest = (c_min <= crest <= c_max)
             motor_on_cond = (in_rms and in_hfer and in_crest)
 
+            # Overrides now act alone with no silent HW check
             if has_played_music or rhythm_locked: motor_on_cond = True
-            if IS_SILENT_HW and (has_played_music or rhythm_locked): motor_on_cond = True
                 
             if motor_on_cond:
                 power_score = min(power_score + 1, power_max_score)
@@ -447,7 +458,7 @@ def listen_and_identify():
             elif has_played_music and continuous_silence < 2.0: new_vinyl_status = "Playing"
             elif rhythm_locked: new_vinyl_status = "Runout Groove"
             elif has_played_music:
-                if continuous_silence < needle_lift_sec: new_vinyl_status = "Between Tracks"
+                if continuous_silence < 60.0: new_vinyl_status = "Between Tracks"
                 else: new_vinyl_status = "Motor Idle"; has_played_music = False
             else: new_vinyl_status = "Motor Idle"
                         
@@ -456,15 +467,22 @@ def listen_and_identify():
             # --- MQTT LOGGING & UI DISPATCH ---
             if now - last_pub >= 1.0:
                 if mqtt_client.is_connected():
-                    # Map properties to the visual 0-100 "Target Zone" scale
                     norm_v = normalize_metric(raw_rms, r_min, r_max)
                     norm_h = normalize_metric(hfer, h_min, h_max)
                     norm_c = normalize_metric(crest, c_min, c_max)
+
+                    norm_music_energy = (music_rms / m_thresh) * 100.0 if m_thresh > 0 else 0
+                    norm_pop_texture = (crest / runout_crest_thresh) * 100.0 if runout_crest_thresh > 0 else 0
+                    norm_pop_volume = (max_val / pop_amp) * 100.0 if pop_amp > 0 else 0
 
                     mqtt_client.publish("vinyl_guardian/raw_volume", f"{norm_v:.1f}", retain=False)
                     mqtt_client.publish("vinyl_guardian/raw_pitch", f"{norm_h:.1f}", retain=False)
                     mqtt_client.publish("vinyl_guardian/raw_texture", f"{norm_c:.1f}", retain=False)
                     mqtt_client.publish("vinyl_guardian/power_score", str(power_score), retain=False)
+                    
+                    mqtt_client.publish("vinyl_guardian/music_energy", f"{min(250.0, norm_music_energy):.1f}", retain=False)
+                    mqtt_client.publish("vinyl_guardian/pop_texture", f"{min(250.0, norm_pop_texture):.1f}", retain=False)
+                    mqtt_client.publish("vinyl_guardian/pop_volume", f"{min(250.0, norm_pop_volume):.1f}", retain=False)
 
                     if not turntable_on: scrob_str = "Off"
                     elif current_state == "SLEEPING" and current_track:
@@ -511,7 +529,7 @@ def listen_and_identify():
 
             # --- TIER 3: GUARDIAN RECORDING MACHINE ---
             if current_state == "IDLE":
-                if music_rms > MUSIC_THRESHOLD and not is_dust_pop:
+                if music_rms > m_thresh and not is_dust_pop:
                     trigger_chunks += 1
                     if trigger_chunks >= DYNAMIC_DEBOUNCE_CHUNKS:
                         if not turntable_on:
@@ -542,7 +560,7 @@ def listen_and_identify():
                         buffer, chunks, loud_chunks = bytearray(), 0, 0
                         
             elif current_state == "SLEEPING":
-                if music_rms > MUSIC_THRESHOLD: silence_sleep = 0
+                if music_rms > m_thresh: silence_sleep = 0
                 else: silence_sleep += 1
                 
                 required_silence_chunks = int(RATE / CHUNK * needle_lift_sec)
