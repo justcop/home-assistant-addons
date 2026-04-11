@@ -202,8 +202,8 @@ def record_dynamic_transition(filename):
     if not music_ended:
         print_log("⚠️ Fail-safe reached. Max 6 minutes recorded without detecting end of song.")
         
-    print_log("⏺️ STEADY STATE (15s): Capturing remaining pure runout rumble...")
-    chunk_b, _ = record_chunk(15.0)
+    print_log("⏺️ STEADY STATE (25s): Capturing extended runout for deep dive analysis...")
+    chunk_b, _ = record_chunk(25.0)
     raw_bytes.extend(chunk_b)
     
     with wave.open(filename, 'wb') as wf:
@@ -304,7 +304,6 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
             
         is_playing = (consecutive_music >= 3)
         if is_playing: 
-            # Strict Enclosure: Timer only resets if it passed the debounce
             last_music_time = time_sec
             has_played_music = True
             rhythm_locked = False
@@ -353,7 +352,6 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
             s_state = "Runout Groove"
         elif has_played_music:
             if continuous_silence <= 5.0: 
-                # Simulator Assumption: The song ended, we are entering the 5-second grace window
                 if current_status in ["Playing", "Between Tracks"]:
                     s_state = "Between Tracks"
                 else:
@@ -372,7 +370,7 @@ def simulate_timeline(data, thresholds, initial_power, initial_status):
 
 def calculate_hardware_thresholds(files):
     print_log("\n" + "="*70)
-    print_log("🧠 THE GUARDIAN ENGINE CALIBRATION (V6.6: STRICT STATE MACHINE)")
+    print_log("🧠 THE GUARDIAN ENGINE CALIBRATION (V6.7: RUNOUT DEEP DIVE)")
     print_log("="*70)
     
     print_log("\n[STAGE 1: BASELINE NOISE]")
@@ -426,6 +424,7 @@ def calculate_hardware_thresholds(files):
 
     print_log("\n[STAGE 4: THE MASTER TRANSITION]")
     trans_data = load_wav(files["transition"])
+    trans_duration = len(trans_data) / RATE
     
     music_chunk = trans_data[int(25 * RATE) : int(35 * RATE)]
     m_rms_arr = chunked_music_rms(music_chunk)
@@ -438,18 +437,39 @@ def calculate_hardware_thresholds(files):
         music_threshold = baseline_median * 2.0
     print_log(f"   [EXTRACTED] Music Threshold: {music_threshold:.6f}")
     
-    runout_chunk = trans_data[-int(10 * RATE):]
+    # --- DEEP DIVE: RUNOUT LOCK GROOVE THUDS ---
+    print_log("\n   [DEBUG] --- DEEP DIVE: LAST 20 SECONDS (LOCK GROOVE THUDS) ---")
+    runout_chunk = trans_data[-int(20 * RATE):]
     runout_chunks_n = len(runout_chunk) // 4096
-    runout_crests, runout_amps = [], []
+    
+    thud_candidates = []
+    runout_crests = []
+    runout_amps = []
 
     for i in range(runout_chunks_n):
         chunk = runout_chunk[i*4096:(i+1)*4096]
         r = get_rms(chunk)
         if r > 0:
             m_val = np.max(np.abs(chunk))
-            if m_val / r > 2.5:
-                runout_crests.append(m_val / r)
+            c = m_val / r
+            h = get_hfer(chunk)
+            time_offset = trans_duration - 20.0 + (i * 4096 / RATE)
+            
+            if c > 2.0: # Filter out smooth drone to isolate impacts
+                thud_candidates.append({'time': time_offset, 'rms': r, 'max': m_val, 'crest': c, 'hfer': h})
+            
+            if c > 2.5:
+                runout_crests.append(c)
                 runout_amps.append(m_val)
+
+    # Sort by max amplitude to find the most prominent thuds, then take top 25 and sort chronologically
+    thud_candidates.sort(key=lambda x: x['max'], reverse=True)
+    top_thuds = sorted(thud_candidates[:25], key=lambda x: x['time'])
+    
+    for t in top_thuds:
+        print_log(f"      ↳ Timestamp: {t['time']:.2f}s | Max Amp: {t['max']:.6f} | Crest: {t['crest']:.2f} | RMS: {t['rms']:.6f} | Pitch: {t['hfer']:.4f}")
+        
+    print_log("   --------------------------------------------------------------")
 
     if len(runout_crests) > 2:
         pop_crest_threshold = max(3.0, float(np.percentile(runout_crests, 50)) * 0.85)
@@ -494,7 +514,7 @@ def calculate_hardware_thresholds(files):
         return any(f"Status [{s}]" in t for t in trans for s in bad_statuses)
 
     print_log("\n" + "="*70)
-    print_log("📜 THE DUAL-SENSOR ACID TEST (V6.6: STRICT STATE MACHINE)")
+    print_log("📜 THE DUAL-SENSOR ACID TEST (V6.7: RUNOUT DEEP DIVE)")
     print_log("   Running 6-stage physical recreation to verify logic locks...")
     print_log("="*70)
 
@@ -599,7 +619,7 @@ def run_calibration():
        \  /  | | | | | |_| | | | |__| | |_| | (_| | | | || | | (_| | | | |
         \/   |_|_| |_|\__, |_|  \____/ \__,_|\__,_|_| |_|__|_|\__,_|_| |_|
                        __/ |                                              
-                      |___/   CALIBRATION SUITE v6.6 (Strict State Machine)                      
+                      |___/   CALIBRATION SUITE v6.7 (Runout Deep Dive)                      
     """, flush=True)
     
     FILES = {
