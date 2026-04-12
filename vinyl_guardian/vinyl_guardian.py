@@ -400,7 +400,7 @@ def listen_and_identify():
                 if crest >= runout_crest_thresh and max_val >= pop_amp and raw_rms <= motor_ceil:
                     is_dust_pop = True
 
-            # --- NEW HYSTERESIS LOGIC ---
+            # --- HYSTERESIS LOGIC ---
             if has_played_music and (now - last_music_time <= 5.0):
                 active_m_thresh = m_hold_thresh
             else:
@@ -524,7 +524,7 @@ def listen_and_identify():
 
                     if not turntable_on: scrob_str = "Off"
                     elif current_state == "SLEEPING" and current_track:
-                        if scrobble_fired: scrob_str = f"Scrobbled: {last_scrobbled_track.split(' - ')[0]} ✅"
+                        if scrobble_fired: scrob_str = f"Scrobbled: {last_scrobbled_track.split(' - ')[0]} ✅" if last_scrobbled_track else "Scrobbled ✅"
                         else:
                             current_silence_sec = silence_sleep * (CHUNK / RATE)
                             time_left = max(0, int(current_track.get('scrobble_trigger_time', 0) - (now - current_silence_sec)))
@@ -621,8 +621,6 @@ def listen_and_identify():
                     try: mqtt_client.publish("vinyl_guardian/scrobble", json.dumps(current_track), retain=True)
                     except: pass
                     with state_lock: scrobble_fired, last_scrobbled_track, paused_track_memory = True, track_id, None
-                else:
-                    with state_lock: scrobble_fired = True
                         
                 if now >= wake_up_time:
                     cooldown_end = now + 4
