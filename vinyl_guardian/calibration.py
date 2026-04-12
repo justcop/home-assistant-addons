@@ -274,7 +274,7 @@ def simulate_timeline(data, thresholds, state):
     transitions = [{'time': 0.0, 'power': current_power, 'status': current_status, 'log': f"   -> 0.0s : [INITIAL] Power [{current_power}] | Status [{current_status}]"}]
     
     turntable_on = state.get("turntable_on", False)
-    power_max_score = int(RATE / chunk_size * 3.0)
+    power_max_score = int(RATE / chunk_size * 2.0)
     power_score = state.get("power_score", 0)
     
     consecutive_music = state.get("consecutive_music", 0)
@@ -350,7 +350,7 @@ def simulate_timeline(data, thresholds, state):
             power_score = min(power_score + 1, power_max_score)
             if power_score >= power_max_score: turntable_on = True
         else:
-            power_score = max(power_score - 1, 0)
+            power_score = max(power_score - 2, 0)
             if power_score <= 0:
                 turntable_on, has_played_music, rhythm_locked = False, False, False
 
