@@ -293,7 +293,7 @@ def listen_and_identify():
 
     last_pub, last_sleep_log, cooldown_end, chunks, loud_chunks, silence_sleep, song_start = time.time(), 0, 0, 0, 0, 0, 0
     idle_silence_chunks, target = 0, int(RATE / CHUNK * RECORD_SECONDS)
-    trigger_chunks = 0
+    trigger_chunks = 0  
     buffer = bytearray()
     ghost_buffer, ghost_max_chunks = [], int(RATE / CHUNK * 6.0)
     
@@ -324,7 +324,7 @@ def listen_and_identify():
     c_max = v6_cfg.get('crest_max', 20.0)
     
     m_thresh = v6_cfg.get('music_threshold', globals().get('MUSIC_THRESHOLD', 0.002))
-    m_sustain = v6_cfg.get('music_sustain_threshold', m_thresh * 0.8) # New Hysteresis Variable
+    m_hold_thresh = v6_cfg.get('music_hold_threshold', m_thresh * 0.6)
     runout_crest_thresh = v6_cfg.get('runout_crest_threshold', globals().get('RUNOUT_CREST_THRESHOLD', 3.5))
     pop_amp = v6_cfg.get('pop_amplitude_threshold', globals().get('POP_AMPLITUDE_THRESHOLD', 0.0))
     motor_ceil = v6_cfg.get('motor_power_ceiling', globals().get('MOTOR_POWER_CEILING', 999.0))
@@ -400,8 +400,12 @@ def listen_and_identify():
                 if crest >= runout_crest_thresh and max_val >= pop_amp and raw_rms <= motor_ceil:
                     is_dust_pop = True
 
-            # 🌟 USE HYSTERESIS TO SUSTAIN MUSIC 🌟
-            active_m_thresh = m_sustain if has_played_music else m_thresh
+            # --- NEW HYSTERESIS LOGIC ---
+            if has_played_music and (now - last_music_time <= 5.0):
+                active_m_thresh = m_hold_thresh
+            else:
+                active_m_thresh = m_thresh
+
             if music_rms > active_m_thresh and not is_dust_pop:
                 consecutive_music += 1
             else:
@@ -485,7 +489,6 @@ def listen_and_identify():
                         if pos_sec >= track_dur - 15:
                             is_track_ending = True
                             
-                # Reverted back to your original 5-second silence block
                 if continuous_silence <= 5.0: 
                     if is_track_ending or current_display_status == "Between Tracks":
                         new_vinyl_status = "Between Tracks"
@@ -506,7 +509,6 @@ def listen_and_identify():
                     norm_h = normalize_metric(hfer, h_min, h_max)
                     norm_c = normalize_metric(crest, c_min, c_max)
 
-                    # Keep UI energy targeted to the standard m_thresh for visual consistency
                     norm_music_energy = (music_rms / m_thresh) * 100.0 if m_thresh > 0 else 0
                     norm_pop_texture = (crest / runout_crest_thresh) * 100.0 if runout_crest_thresh > 0 else 0
                     norm_pop_volume = (max_val / pop_amp) * 100.0 if pop_amp > 0 else 0
@@ -522,8 +524,7 @@ def listen_and_identify():
 
                     if not turntable_on: scrob_str = "Off"
                     elif current_state == "SLEEPING" and current_track:
-                        if scrobble_fired: 
-                            scrob_str = f"Scrobbled: {last_scrobbled_track.split(' - ')[0]} ✅" if last_scrobbled_track else "Scrobbled ✅"
+                        if scrobble_fired: scrob_str = f"Scrobbled: {last_scrobbled_track.split(' - ')[0]} ✅"
                         else:
                             current_silence_sec = silence_sleep * (CHUNK / RATE)
                             time_left = max(0, int(current_track.get('scrobble_trigger_time', 0) - (now - current_silence_sec)))
@@ -597,7 +598,7 @@ def listen_and_identify():
                         buffer, chunks, loud_chunks = bytearray(), 0, 0
                         
             elif current_state == "SLEEPING":
-                if music_rms > m_sustain: silence_sleep = 0
+                if music_rms > m_thresh: silence_sleep = 0
                 else: silence_sleep += 1
                 
                 required_silence_chunks = int(RATE / CHUNK * needle_lift_sec)
