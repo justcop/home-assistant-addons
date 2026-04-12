@@ -298,7 +298,7 @@ def listen_and_identify():
     ghost_buffer, ghost_max_chunks = [], int(RATE / CHUNK * 6.0)
     
     turntable_on, has_played_music, rhythm_locked = False, False, False
-    power_max_score = int(RATE / CHUNK * 3.0) 
+    power_max_score = int(RATE / CHUNK * 2.0) 
     power_score = 0
     
     consecutive_music = 0
@@ -448,7 +448,7 @@ def listen_and_identify():
                     turntable_on = True
                     if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/power", "ON", retain=True)
             else:
-                power_score = max(power_score - 1, 0)
+                power_score = max(power_score - 2, 0)
                 if turntable_on and power_score <= 0:
                     turntable_on, has_played_music, rhythm_locked = False, False, False
                     with state_lock:
