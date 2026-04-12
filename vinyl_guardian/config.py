@@ -38,22 +38,24 @@ LFM_SECRET = config.get("lastfm_api_secret", "")
 
 adv = config.get("advanced", {})
 
-# --- Dynamic Calibration Variables (Initialized Empty) ---
-MUSIC_THRESHOLD = None
-MUSIC_HOLD_THRESHOLD = None
-MOTOR_POWER_THRESHOLD = None
-MOTOR_POWER_CEILING = None
-MOTOR_HFER_THRESHOLD = None
-POP_AMPLITUDE_THRESHOLD = None
-RUNOUT_CREST_THRESHOLD = None
-MIC_VOLUME = None
+# --- Default Fallback Thresholds (Overwritten by Auto-Calibration) ---
+MUSIC_THRESHOLD = 0.005
+MUSIC_HOLD_THRESHOLD = 0.003
+RUMBLE_THRESHOLD = 0.015
+MOTOR_POWER_THRESHOLD = 0.0045
+MOTOR_POWER_CEILING = 0.0150
+MOTOR_HFER_THRESHOLD = 0.0
+SILENCE_GATE_RMS = 0.003
+POP_AMPLITUDE_THRESHOLD = 0.0
+MIC_VOLUME = 8
+RECORD_SECONDS = config.get("recording_seconds", 10)
 
-# Default logic variables
+# --- Dynamic Calibration State Variables ---
+RUNOUT_CREST_THRESHOLD = 4.5
 MOTOR_HYSTERESIS_SEC = 1.0 
 NEEDLE_HYSTERESIS_SEC = 2.0 
 DYNAMIC_DEBOUNCE_CHUNKS = adv.get("trigger_debounce_chunks", 3)
 IS_SILENT_HW = False
-RECORD_SECONDS = config.get("recording_seconds", 10)
 
 def log(message):
     ts = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -75,40 +77,41 @@ def save_atomic_json(filepath, data):
             pass
 
 # --- STRICT CALIBRATION ENFORCEMENT ---
-if not os.path.exists(AUTO_CALIB_FILE):
-    if not CALIBRATION_MODE:
-        log("⚠️ No calibration data found! Auto-starting Calibration Mode.")
-        CALIBRATION_MODE = True
-else:
+if os.path.exists(AUTO_CALIB_FILE):
     try:
         with open(AUTO_CALIB_FILE, 'r') as f:
             auto_cal = json.load(f)
-            
-        MUSIC_THRESHOLD = auto_cal.get("music_threshold")
-        MUSIC_HOLD_THRESHOLD = auto_cal.get("music_hold_threshold")
-        MOTOR_POWER_THRESHOLD = auto_cal.get("motor_power_threshold")
-        MOTOR_POWER_CEILING = auto_cal.get("motor_power_ceiling")
-        MIC_VOLUME = auto_cal.get("mic_volume", 50)
-        RUNOUT_CREST_THRESHOLD = auto_cal.get("runout_crest_threshold")
+        MUSIC_THRESHOLD = auto_cal.get("music_threshold", MUSIC_THRESHOLD)
+        MUSIC_HOLD_THRESHOLD = auto_cal.get("music_hold_threshold", MUSIC_HOLD_THRESHOLD)
+        RUMBLE_THRESHOLD = auto_cal.get("rumble_threshold", RUMBLE_THRESHOLD)
+        MOTOR_POWER_THRESHOLD = auto_cal.get("motor_power_threshold", MOTOR_POWER_THRESHOLD)
+        MOTOR_POWER_CEILING = auto_cal.get("motor_power_ceiling", MOTOR_POWER_CEILING)
+        MIC_VOLUME = auto_cal.get("mic_volume", MIC_VOLUME)
+        RUNOUT_CREST_THRESHOLD = auto_cal.get("runout_crest_threshold", RUNOUT_CREST_THRESHOLD)
         MOTOR_HYSTERESIS_SEC = auto_cal.get("motor_hysteresis_sec", MOTOR_HYSTERESIS_SEC)
         NEEDLE_HYSTERESIS_SEC = auto_cal.get("needle_hysteresis_sec", NEEDLE_HYSTERESIS_SEC)
         DYNAMIC_DEBOUNCE_CHUNKS = auto_cal.get("music_debounce_chunks", DYNAMIC_DEBOUNCE_CHUNKS)
-        MOTOR_HFER_THRESHOLD = auto_cal.get("motor_hfer_threshold")
+        MOTOR_HFER_THRESHOLD = auto_cal.get("motor_hfer_threshold", MOTOR_HFER_THRESHOLD)
         IS_SILENT_HW = auto_cal.get("is_silent_hw", False)
-        POP_AMPLITUDE_THRESHOLD = auto_cal.get("pop_amplitude_threshold")
+        SILENCE_GATE_RMS = auto_cal.get("SILENCE_GATE_RMS", SILENCE_GATE_RMS)
+        POP_AMPLITUDE_THRESHOLD = auto_cal.get("pop_amplitude_threshold", POP_AMPLITUDE_THRESHOLD)
        
         if not CALIBRATION_MODE:
-            log("💡 Successfully loaded hardware calibration profile.")
-            
+            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [Vinyl Guardian] 💡 Successfully loaded hardware calibration profile.")
     except Exception as e:
-        if not CALIBRATION_MODE:
-            log(f"🚨 FATAL ERROR: Calibration file is corrupted or unreadable: {e}")
-            log("⚠️ Auto-starting Calibration Mode to repair configuration.")
-            CALIBRATION_MODE = True
+        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [Vinyl Guardian] 🚨 Calibration file corrupted. Forcing Calibration Mode. Error: {e}")
+        CALIBRATION_MODE = True
+else:
+    if not CALIBRATION_MODE:
+        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [Vinyl Guardian] ⚠️ No calibration data found. Automatically forcing Calibration Mode.")
+        CALIBRATION_MODE = True
 
 # Manual UI Overrides
 UI_MUSIC = adv.get("manual_override_music_threshold")
 if UI_MUSIC is not None and UI_MUSIC > 0: MUSIC_THRESHOLD = UI_MUSIC
+
+UI_RUMBLE = adv.get("manual_override_rumble_threshold")
+if UI_RUMBLE is not None and UI_RUMBLE > 0: RUMBLE_THRESHOLD = UI_RUMBLE
 
 UI_MOTOR = adv.get("manual_override_motor_threshold")
 if UI_MOTOR is not None and UI_MOTOR > 0: MOTOR_POWER_THRESHOLD = UI_MOTOR
