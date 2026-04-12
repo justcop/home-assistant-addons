@@ -394,13 +394,30 @@ def listen_and_identify():
             current_guardian_state = engine_state_map.get(current_state, "Listening")
             
             if current_state in ["RECORDING", "PROCESSING", "SLEEPING"]: has_played_music = True
+            
+            continuous_silence = now - last_music_time
+            
+            # --- THE LEAD-OUT BRIDGE ---
+            # If the needle is down but music stopped (Silent Spiral / Lead Out)
+            recently_played = (0 <= continuous_silence <= 25.0) and (last_music_time > 0)
+            
+            if recently_played:
+                active_pop_amp = pop_amp * 0.4  # Boost sensitivity for damped runout clicks
+                active_r_min = r_min / 1.4      # Lower floor for damped volume
+                active_h_max = 999.0            # Ignore pitch ceiling (needle hiss)
+                active_c_max = 999.0            # Ignore crest ceiling (crackle)
+            else:
+                active_pop_amp = pop_amp
+                active_r_min = r_min
+                active_h_max = h_max
+                active_c_max = c_max
                 
             is_dust_pop = False
             if raw_rms > 0:
-                if crest >= runout_crest_thresh and max_val >= pop_amp and raw_rms <= motor_ceil:
+                if crest >= runout_crest_thresh and max_val >= active_pop_amp and raw_rms <= motor_ceil:
                     is_dust_pop = True
 
-            # --- HYSTERESIS LOGIC ---
+            # --- HYSTERESIS LOGIC FOR MUSIC ---
             if has_played_music and (now - last_music_time <= 5.0):
                 active_m_thresh = m_hold_thresh
             else:
@@ -417,6 +434,7 @@ def listen_and_identify():
                 last_music_time = now
                 has_played_music = True
                 rhythm_locked = False
+                continuous_silence = 0.0 
                 
             if is_dust_pop:
                 pop_history.append(now)
@@ -432,12 +450,11 @@ def listen_and_identify():
                 pop_history.clear(); rhythm_locked = False
                 
             if rhythm_locked and (now - last_rhythm_time > 6.0): rhythm_locked = False
-            continuous_silence = now - last_music_time
 
             # --- TIER 1: TURNTABLE POWER HYSTERESIS ---
-            in_rms = (r_min <= raw_rms <= r_max)
-            in_hfer = (h_min <= hfer <= h_max)
-            in_crest = (c_min <= crest <= c_max)
+            in_rms = (active_r_min <= raw_rms <= r_max)
+            in_hfer = (h_min <= hfer <= active_h_max)
+            in_crest = (c_min <= crest <= active_c_max)
             motor_on_cond = (in_rms and in_hfer and in_crest)
 
             if has_played_music or rhythm_locked: motor_on_cond = True
