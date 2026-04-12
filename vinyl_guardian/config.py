@@ -38,10 +38,9 @@ LFM_SECRET = config.get("lastfm_api_secret", "")
 
 adv = config.get("advanced", {})
 
-# --- Default Fallback Thresholds (Overwritten by Auto-Calibration) ---
+# --- Default Fallback Thresholds ---
 MUSIC_THRESHOLD = 0.005
 MUSIC_HOLD_THRESHOLD = 0.003
-RUMBLE_THRESHOLD = 0.015
 MOTOR_POWER_THRESHOLD = 0.0045
 MOTOR_POWER_CEILING = 0.0150
 MOTOR_HFER_THRESHOLD = 0.0
@@ -83,7 +82,6 @@ if os.path.exists(AUTO_CALIB_FILE):
             auto_cal = json.load(f)
         MUSIC_THRESHOLD = auto_cal.get("music_threshold", MUSIC_THRESHOLD)
         MUSIC_HOLD_THRESHOLD = auto_cal.get("music_hold_threshold", MUSIC_HOLD_THRESHOLD)
-        RUMBLE_THRESHOLD = auto_cal.get("rumble_threshold", RUMBLE_THRESHOLD)
         MOTOR_POWER_THRESHOLD = auto_cal.get("motor_power_threshold", MOTOR_POWER_THRESHOLD)
         MOTOR_POWER_CEILING = auto_cal.get("motor_power_ceiling", MOTOR_POWER_CEILING)
         MIC_VOLUME = auto_cal.get("mic_volume", MIC_VOLUME)
@@ -99,19 +97,18 @@ if os.path.exists(AUTO_CALIB_FILE):
         if not CALIBRATION_MODE:
             print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [Vinyl Guardian] 💡 Successfully loaded hardware calibration profile.")
     except Exception as e:
-        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [Vinyl Guardian] 🚨 Calibration file corrupted. Forcing Calibration Mode. Error: {e}")
-        CALIBRATION_MODE = True
+        if not CALIBRATION_MODE:
+            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [Vinyl Guardian] 🚨 FATAL ERROR: Calibration file is corrupted or unreadable: {e}")
+            sys.exit(1)
 else:
     if not CALIBRATION_MODE:
-        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [Vinyl Guardian] ⚠️ No calibration data found. Automatically forcing Calibration Mode.")
-        CALIBRATION_MODE = True
+        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [Vinyl Guardian] 🚨 FATAL ERROR: No calibration data found!")
+        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [Vinyl Guardian] 👉 Please enable 'calibration_mode' in the Add-on configuration, start the Add-on to run the wizard, and then turn it off.")
+        sys.exit(1)
 
 # Manual UI Overrides
 UI_MUSIC = adv.get("manual_override_music_threshold")
 if UI_MUSIC is not None and UI_MUSIC > 0: MUSIC_THRESHOLD = UI_MUSIC
-
-UI_RUMBLE = adv.get("manual_override_rumble_threshold")
-if UI_RUMBLE is not None and UI_RUMBLE > 0: RUMBLE_THRESHOLD = UI_RUMBLE
 
 UI_MOTOR = adv.get("manual_override_motor_threshold")
 if UI_MOTOR is not None and UI_MOTOR > 0: MOTOR_POWER_THRESHOLD = UI_MOTOR
