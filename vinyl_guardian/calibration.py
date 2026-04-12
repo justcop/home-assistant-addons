@@ -295,14 +295,27 @@ def simulate_timeline(data, thresholds, state):
         max_val = np.max(np.abs(chunk))
         time_sec = (i * chunk_size) / RATE
         
+        continuous_silence = time_sec - last_music_time
+        recently_played = (0 <= continuous_silence <= 25.0) and (last_music_time > 0)
+        
+        if recently_played:
+            active_pop_amp = thresholds["pop_amplitude_threshold"] * 0.4
+            active_r_min = thresholds["rms_min"] / 1.4
+            active_h_max = 999.0
+            active_c_max = 999.0
+        else:
+            active_pop_amp = thresholds["pop_amplitude_threshold"]
+            active_r_min = thresholds["rms_min"]
+            active_h_max = thresholds["hfer_max"]
+            active_c_max = thresholds["crest_max"]
+            
         is_dust_pop = False
         if raw_rms > 0:
             if (crest >= thresholds["runout_crest_threshold"] and 
-                max_val >= thresholds["pop_amplitude_threshold"] and 
+                max_val >= active_pop_amp and 
                 raw_rms <= thresholds["motor_power_ceiling"]):
                 is_dust_pop = True
                 
-        # --- NEW HYSTERESIS LOGIC ---
         if has_played_music and (time_sec - last_music_time <= 5.0):
             active_m_thresh = thresholds.get("music_hold_threshold", thresholds["music_threshold"] * 0.6)
         else:
@@ -318,6 +331,7 @@ def simulate_timeline(data, thresholds, state):
             last_music_time = time_sec
             has_played_music = True
             rhythm_locked = False
+            continuous_silence = 0.0
 
         if is_dust_pop:
             pop_history.append(time_sec)
@@ -335,12 +349,10 @@ def simulate_timeline(data, thresholds, state):
                 last_rhythm_time = time_sec
 
         if rhythm_locked and (time_sec - last_rhythm_time > 6.0): rhythm_locked = False
-        
-        continuous_silence = time_sec - last_music_time
 
-        in_rms_win = thresholds["rms_min"] <= raw_rms <= thresholds["rms_max"]
-        in_hfer_win = thresholds["hfer_min"] <= hfer <= thresholds["hfer_max"]
-        in_crest_win = thresholds["crest_min"] <= crest <= thresholds["crest_max"]
+        in_rms_win = active_r_min <= raw_rms <= thresholds["rms_max"]
+        in_hfer_win = thresholds["hfer_min"] <= hfer <= active_h_max
+        in_crest_win = thresholds["crest_min"] <= crest <= active_c_max
         
         motor_on_cond = (in_rms_win and in_hfer_win and in_crest_win)
 
