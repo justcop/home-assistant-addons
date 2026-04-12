@@ -582,7 +582,7 @@ def listen_and_identify():
                     
             elif current_state == "RECORDING":
                 buffer.extend(data); chunks += 1
-                if raw_rms > RUMBLE_THRESHOLD: loud_chunks += 1
+                if music_rms > m_hold_thresh: loud_chunks += 1
                 if len(buffer) > MAX_BUFFER_SIZE:
                     buffer.clear(); chunks, loud_chunks = 0, 0
                     if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/track", "Not Playing", retain=True)
@@ -598,7 +598,7 @@ def listen_and_identify():
                         buffer, chunks, loud_chunks = bytearray(), 0, 0
                         
             elif current_state == "SLEEPING":
-                if music_rms > m_thresh: silence_sleep = 0
+                if music_rms > active_m_thresh: silence_sleep = 0
                 else: silence_sleep += 1
                 
                 required_silence_chunks = int(RATE / CHUNK * needle_lift_sec)
