@@ -3,8 +3,7 @@ FROM python:3.11-slim
 # Install SSH server + basics
 RUN apt-get update && apt-get install -y \
     openssh-server \
-    bash \
-    && mkdir /var/run/sshd
+    bash
 
 # Create working dir
 WORKDIR /workspace
