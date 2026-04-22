@@ -1,4 +1,4 @@
-#!/usr/bin/with-contenv bash
+#!/bin/bash
 
 USER=$(jq -r .ssh_user /data/options.json)
 PASS=$(jq -r .ssh_password /data/options.json)
