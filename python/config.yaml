@@ -1,0 +1,18 @@
+name: Python Venv SSH
+version: "1.0.0"
+slug: python_venv_ssh
+description: SSH into a container with a fresh Python virtual environment each session
+startup: services
+boot: auto
+host_network: true
+ports:
+  2222/tcp: 2222
+map:
+  - config:rw
+  - share:rw
+options:
+  ssh_user: dev
+  ssh_password: dev
+schema:
+  ssh_user: str
+  ssh_password: str
