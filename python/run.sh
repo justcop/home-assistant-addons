@@ -21,5 +21,12 @@ python3 -m venv /workspace/venv
 # Auto-activate venv on login
 echo "source /workspace/venv/bin/activate" >> /home/$USER/.bashrc
 
-# Start SSH
+# 🟢 Print Startup Banner to Home Assistant Logs
+echo "========================================================"
+echo "✅ Python Venv SSH Add-on is up and running!"
+echo "👤 Authenticated User: $USER"
+echo "🐍 Virtual Environment: /workspace/venv (Ready)"
+echo "========================================================"
+
+# Start SSH daemon in the foreground
 /usr/sbin/sshd -D
