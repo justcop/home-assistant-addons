@@ -1,5 +1,5 @@
 name: Python Venv SSH
-version: "1.0.0"
+version: "1.0.1"
 slug: python_venv_ssh
 description: SSH into a container with a fresh Python virtual environment each session
 arch:
