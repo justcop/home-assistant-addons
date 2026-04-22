@@ -2,6 +2,12 @@ name: Python Venv SSH
 version: "1.0.0"
 slug: python_venv_ssh
 description: SSH into a container with a fresh Python virtual environment each session
+arch:
+  - aarch64
+  - amd64
+  - armhf
+  - armv7
+  - i386
 startup: services
 boot: auto
 host_network: true
