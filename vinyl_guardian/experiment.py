@@ -705,6 +705,19 @@ class ExperimentHarness:
                     }
                     self.timeline.record("production_transition", now=now, **details)
 
+        if frame.get("runout_candidate_accepted"):
+            self.timeline.record(
+                "runout_candidate",
+                now=now,
+                interval_sec=frame.get("runout_last_interval_sec"),
+                recent_intervals_sec=frame.get("runout_candidate_intervals_sec") or [],
+                support=frame.get("runout_support"),
+                confidence=frame.get("runout_confidence"),
+                rpm_label=frame.get("runout_rpm"),
+                estimated_rpm=frame.get("runout_estimated_rpm"),
+                phase_jitter_ms=frame.get("runout_phase_jitter_ms"),
+            )
+
         for name, shadow in shadows.items():
             prior = self.previous_shadow.get(name)
             if prior is None:
