@@ -23,5 +23,7 @@ jobs:
           python-version: "3.12"
       - name: Install test dependency
         run: python -m pip install --disable-pip-version-check numpy
+      - name: Compile all Python sources
+        run: python -m compileall -q vinyl_guardian
       - name: Run detector and experiment tests
         run: python -m unittest discover -s vinyl_guardian/tests -p "test_*.py" -v
