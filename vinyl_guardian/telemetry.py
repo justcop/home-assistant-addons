@@ -373,7 +373,21 @@ class DatasetCollector:
             "stereo_correlation", "stereo_difference_rms",
             "stereo_mid_rms", "stereo_side_rms",
             "stereo_side_mid_ratio", "stereo_identical_fraction",
+            "trusted_label", "hardware_channel_mode",
         ]
+        for shadow_name in (
+            "music_sensitive",
+            "profile_heavy",
+            "power_conservative",
+        ):
+            fields += [
+                f"shadow_{shadow_name}_status",
+                f"shadow_{shadow_name}_turntable_on",
+                f"shadow_{shadow_name}_music_active",
+                f"shadow_{shadow_name}_runout_locked",
+                f"shadow_{shadow_name}_motor_confidence",
+                f"shadow_{shadow_name}_music_confidence",
+            ]
         for window_name in ("1s", "3s", "5s"):
             for name in ROLLING_FIELDS:
                 fields.append(f"{name}_mean_{window_name}")
@@ -420,7 +434,15 @@ class DatasetCollector:
                     output[f"{name}_std_{suffix}"] = 0.0
         return output
 
-    def observe(self, data, now, detector_frame, engine_state, current_track=None):
+    def observe(
+        self,
+        data,
+        now,
+        detector_frame,
+        engine_state,
+        current_track=None,
+        experiment_snapshot=None,
+    ):
         if not self.enabled:
             return
 
@@ -475,6 +497,26 @@ class DatasetCollector:
         }
         row.update(combined)
         row.update(rolling)
+
+        experiment_snapshot = experiment_snapshot or {}
+        row["trusted_label"] = str(experiment_snapshot.get("trusted_label") or "")
+        hardware = experiment_snapshot.get("hardware") or {}
+        row["hardware_channel_mode"] = str(hardware.get("channel_mode") or "")
+        shadows = experiment_snapshot.get("shadows") or {}
+        for shadow_name in (
+            "music_sensitive",
+            "profile_heavy",
+            "power_conservative",
+        ):
+            shadow = shadows.get(shadow_name) or {}
+            prefix = f"shadow_{shadow_name}"
+            row[f"{prefix}_status"] = str(shadow.get("status") or "")
+            row[f"{prefix}_turntable_on"] = int(bool(shadow.get("turntable_on", False)))
+            row[f"{prefix}_music_active"] = int(bool(shadow.get("music_active", False)))
+            row[f"{prefix}_runout_locked"] = int(bool(shadow.get("runout_locked", False)))
+            row[f"{prefix}_motor_confidence"] = _safe_float(shadow.get("motor_confidence"))
+            row[f"{prefix}_music_confidence"] = _safe_float(shadow.get("music_confidence"))
+
         self.writer.writerow(row)
         self.rows_written += 1
 
