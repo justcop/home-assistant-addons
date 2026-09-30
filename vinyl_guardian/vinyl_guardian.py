@@ -19,6 +19,7 @@ from audio_math import calculate_audio_levels, calculate_deep_metrics
 from integrations import recognize_shazam, get_track_duration, scrobble_to_lastfm, log
 from calibration import run_calibration
 from detector import GuardianDetector
+from telemetry import DatasetCollector
 
 VERSION = os.environ.get("ADDON_VERSION", "Unknown")
 FORMAT = alsaaudio.PCM_FORMAT_S16_LE
@@ -34,6 +35,7 @@ scrobble_fired = False
 last_scrobbled_track = None
 paused_track_memory = None
 inp = None
+dataset_collector = None
 
 # Debug Dumper State
 debug_countdown = 0
@@ -48,8 +50,10 @@ current_engine_status = "Off"
 def signal_handler(sig, frame):
     log("🛑 Shutting down gracefully...")
     try:
-        global inp
+        global inp, dataset_collector
         if inp is not None: inp.close()
+        if dataset_collector is not None:
+            dataset_collector.close()
         
         if mqtt_client.is_connected():
             mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
@@ -323,7 +327,7 @@ def normalize_metric(val, t_min, t_max):
 
 # --- MAIN LOOP ---
 def listen_and_identify():
-    global app_state, current_attempt, wake_up_time, scrobble_fired, current_track, last_scrobbled_track, paused_track_memory, inp
+    global app_state, current_attempt, wake_up_time, scrobble_fired, current_track, last_scrobbled_track, paused_track_memory, inp, dataset_collector
     global debug_countdown, debug_metrics_buffer
     global capture_false_positive_requested, capture_missed_music_requested
     
@@ -338,6 +342,25 @@ def listen_and_identify():
         log(f"🚨 ALSA Error: {e}"); sys.exit(1)
         
     log("Guardian Engine Online. Shields Armed.")
+
+    dataset_collector = DatasetCollector(
+        SHARE_DIR,
+        rate=RATE,
+        channels=CHANNELS,
+        chunk=CHUNK,
+        enabled=DATA_COLLECTION_ENABLED,
+        label=DATA_COLLECTION_LABEL,
+        raw_audio=DATA_COLLECTION_RAW_AUDIO,
+        feature_interval_sec=DATA_COLLECTION_FEATURE_INTERVAL,
+        raw_segment_minutes=DATA_COLLECTION_RAW_SEGMENT_MINUTES,
+    )
+    if DATA_COLLECTION_ENABLED:
+        raw_text = " + raw WAV" if DATA_COLLECTION_RAW_AUDIO else ""
+        log(
+            f"📊 Dataset collection enabled: label='{DATA_COLLECTION_LABEL}', "
+            f"interval={DATA_COLLECTION_FEATURE_INTERVAL:.2f}s{raw_text}. "
+            f"Path: {dataset_collector.session_dir}"
+        )
 
     last_pub, last_sleep_log, cooldown_end, chunks, loud_chunks, silence_sleep, song_start = time.time(), 0, 0, 0, 0, 0, 0
     idle_silence_chunks, target = 0, int(RATE / CHUNK * RECORD_SECONDS)
@@ -442,6 +465,20 @@ def listen_and_identify():
             continuous_silence = frame["seconds_since_music"]
             power_score = int(round(frame["motor_confidence"] * 100.0))
             active_m_thresh = m_hold_thresh if has_played_music and continuous_silence <= 6.0 else m_thresh
+
+            if dataset_collector is not None:
+                try:
+                    dataset_collector.observe(
+                        data,
+                        now,
+                        frame,
+                        current_state,
+                        current_track=current_track,
+                    )
+                except Exception as e:
+                    log(f"⚠️ Dataset collector error: {e}")
+                    dataset_collector.close()
+                    dataset_collector = None
 
             if debug_countdown > 0:
                 debug_metrics_buffer['rms'].append(raw_rms)
