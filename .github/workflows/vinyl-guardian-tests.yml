@@ -3,14 +3,17 @@ name: Vinyl Guardian tests
 on:
   push:
     branches:
+      - main
       - vinyl-guardian-detection-v2
     paths:
-      - "vinyl_guardian/**"
-      - ".github/workflows/vinyl-guardian-tests.yml"
+      - 'vinyl_guardian/**'
+      - '.github/scripts/test_calibration_screen.cjs'
+      - '.github/workflows/vinyl-guardian-tests.yml'
   pull_request:
     paths:
-      - "vinyl_guardian/**"
-      - ".github/workflows/vinyl-guardian-tests.yml"
+      - 'vinyl_guardian/**'
+      - '.github/scripts/test_calibration_screen.cjs'
+      - '.github/workflows/vinyl-guardian-tests.yml'
   workflow_dispatch:
 
 jobs:
@@ -20,12 +23,21 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-      - name: Install test dependency
+          python-version: '3.12'
+      - name: Install test dependencies
         run: python -m pip install --disable-pip-version-check numpy PyYAML
-      - name: Check run.sh syntax
-        run: bash -n vinyl_guardian/run.sh
-      - name: Compile all Python sources
-        run: python -m compileall -q vinyl_guardian
-      - name: Run detector and experiment tests
-        run: python -m unittest discover -s vinyl_guardian/tests -p "test_*.py" -v
+      - name: Check launcher syntax and Python compilation
+        run: |
+          bash -n vinyl_guardian/run.sh
+          python -m compileall -q vinyl_guardian
+      - name: Run runtime tests
+        run: python -m unittest discover -s vinyl_guardian/tests -p 'test_*.py' -v
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install browser test dependencies
+        run: |
+          npm install --no-save playwright@1.62.1
+          npx playwright install --with-deps chromium
+      - name: Check desktop and mobile calibration screen through an ingress path
+        run: node .github/scripts/test_calibration_screen.cjs

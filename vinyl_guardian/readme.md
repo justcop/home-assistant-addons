@@ -346,3 +346,15 @@ The configuration form labels show ✅ for both `main` and
 by either active version. The native Home Assistant form keeps these fields
 visible when the runtime branch changes; experimental-only values are ignored on
 main. Settings and profiles are retained when switching branches.
+
+
+## Calibration screen
+
+After updating the installed app, enable `calibration_mode`, restart and select
+**Open Web UI** on the app's Info page. This Home Assistant ingress screen shows
+the full current instruction, the seven recording stages and live calibration
+logs alongside **Continue**. It works on phones and computers without opening
+a second tab. Continue is enabled only while a step is waiting; old screens and
+double clicks cannot advance a later step. The existing MQTT button still works.
+The screen reconnects automatically and preserves the running calibration when
+you close or reopen it. After completion, disable calibration mode and restart.

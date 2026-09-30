@@ -38,9 +38,9 @@ configuration:
     description: Capture a diagnostic sample instead of normal recognition.
   calibration_mode:
     name: ✅ Guided calibration
-    description: 'Enable and restart. Open the Vinyl Guardian MQTT device: read Calibration Instructions,
-      prepare each step, then press Continue Calibration. Disable and restart when complete. Fresh
-      capture requires Reuse calibration audio to be off.'
+    description: Enable and restart. Select Open Web UI on the app Info page for instructions, progress,
+      live logs and Continue together. The MQTT Continue Calibration button also works. Disable and
+      restart when complete. Fresh capture requires Reuse calibration audio to be off.
   recording_seconds:
     name: ✅ Recognition recording length
     description: Seconds of audio recorded for each recognition attempt.
