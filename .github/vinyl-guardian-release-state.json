@@ -1,0 +1,46 @@
+{
+  "codex/fix-docker-build-failure-for-vinyl_guardian": {
+    "fingerprint": "f10970ef60c69b17c576fb8c221db03f099a2a3dfc9469b4ee4420e3a0081efd",
+    "sha": "bdcc6fa1925f72a1453b117eb29e8f61ff5979da"
+  },
+  "codex/fix-dockerfile-package-installation-error": {
+    "fingerprint": "f10970ef60c69b17c576fb8c221db03f099a2a3dfc9469b4ee4420e3a0081efd",
+    "sha": "38016662b34001407201da324a4895fa0b272849"
+  },
+  "codex/fix-dockerfile-package-installation-error-oj0rjv": {
+    "fingerprint": "b76219d9977c18a5092656847c79872e6ae6c54e068b217de9c8b4e91f518b8a",
+    "sha": "38f8104a1022eddd9488e0911b1bbadb0b5a49a1"
+  },
+  "codex/fix-dockerfile-package-installation-error-rl9vwb": {
+    "fingerprint": "b76219d9977c18a5092656847c79872e6ae6c54e068b217de9c8b4e91f518b8a",
+    "sha": "2dda016c886ccf7bd21d32d6e9dd01b6bd26f139"
+  },
+  "codex/fix-issues-in-vinyl_guardian-add-on": {
+    "fingerprint": "a1e4c319d58027929b440153b84e0595150ed489aee0863fad8e98d075ba69e0",
+    "sha": "c0921d6226db327bc57b046ad362d831edacf257"
+  },
+  "codex/fix-issues-in-vinyl_guardian-add-on-luf2ij": {
+    "fingerprint": "a1e4c319d58027929b440153b84e0595150ed489aee0863fad8e98d075ba69e0",
+    "sha": "a4858f02a1764eb05c269190eef11cd61d10e0a4"
+  },
+  "justcop-patch-1": {
+    "fingerprint": "e1a6acc724e9fcb42e9db0f5059268434fb1696be6a916b577d95001ee643baa",
+    "sha": "b077241e0612557900088131bbdc5090fa5d10ee"
+  },
+  "justcop-patch-2": {
+    "fingerprint": "71507b5e231356ebfbc941543cf88cc4bf1d84b1d2fcf3edccf07e5a08c708dc",
+    "sha": "37a3171e126e72f8301b92d2dd3a5ac35d678e03"
+  },
+  "justcop-patch-3": {
+    "fingerprint": "e1a6acc724e9fcb42e9db0f5059268434fb1696be6a916b577d95001ee643baa",
+    "sha": "9b33c480b0aa2ffa56d6dfe82b719dd9cff4c5eb"
+  },
+  "main": {
+    "fingerprint": "0a0db7d8c57055a5b45ef20c881f25b0acd08a6350d40f24bb975ac22219a8ec",
+    "sha": "72fb788ce6298bde204e04a331100d8165ea151b"
+  },
+  "vinyl-guardian-detection-v2": {
+    "fingerprint": "a53b5428eb98d23e1644046f5d5c1143685f5429c9b160ea8b2424e563990b00",
+    "sha": "1c00b5e2068576bbdac5ec71cbeb100bd2adcaf0"
+  }
+}
