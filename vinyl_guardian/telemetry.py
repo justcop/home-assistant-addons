@@ -36,6 +36,9 @@ BASE_FIELDS = (
     "spectral_flux", "dominant_frequency_hz",
     "dominant_frequency_share", "low_frequency_peak_hz",
     "low_frequency_peak_share",
+    "autocorr_periodicity", "autocorr_frequency_hz",
+    "subframe_rms_mean", "subframe_rms_std", "subframe_rms_cv",
+    "subframe_rms_range", "clipping_fraction",
     "band_low_ratio", "band_mid_ratio", "band_high_ratio",
     "high_low_ratio_db", "mid_low_ratio_db",
 ) + tuple(name for name, _, _ in BANDS)
@@ -137,6 +140,45 @@ class FeatureExtractor:
         dominant_frequency = float(freqs[dominant_idx]) if freqs.size else 0.0
         dominant_share = float(power[dominant_idx] / total_power) if power.size else 0.0
 
+        # FFT autocorrelation gives us a cheap periodicity candidate without
+        # assuming that a dominant spectral peak necessarily means a periodic
+        # waveform. Search roughly 40-1000 Hz; slower rotational phenomena are
+        # better analysed later from the multi-second feature stream.
+        centred = x - dc_offset
+        fft_size = 1 << int(math.ceil(math.log2(max(16, centred.size * 2))))
+        ac = np.fft.irfft(
+            np.abs(np.fft.rfft(centred, n=fft_size)) ** 2,
+            n=fft_size,
+        )[:centred.size]
+        if ac.size and ac[0] > 1e-20:
+            ac = ac / ac[0]
+            min_lag = max(1, int(self.rate / 1000.0))
+            max_lag = min(ac.size - 1, int(self.rate / 40.0))
+            if max_lag > min_lag:
+                lag_slice = ac[min_lag:max_lag + 1]
+                best_rel = int(np.argmax(lag_slice))
+                best_lag = min_lag + best_rel
+                autocorr_periodicity = float(max(0.0, lag_slice[best_rel]))
+                autocorr_frequency = float(self.rate / best_lag)
+            else:
+                autocorr_periodicity = 0.0
+                autocorr_frequency = 0.0
+        else:
+            autocorr_periodicity = 0.0
+            autocorr_frequency = 0.0
+
+        subframes = np.array_split(x, min(8, max(1, x.size // 64)))
+        sub_rms = np.asarray([_rms(part) for part in subframes if part.size], dtype=np.float64)
+        if sub_rms.size:
+            sub_mean = float(np.mean(sub_rms))
+            sub_std = float(np.std(sub_rms))
+            sub_cv = float(sub_std / max(sub_mean, 1e-12))
+            sub_range = float(np.max(sub_rms) - np.min(sub_rms))
+        else:
+            sub_mean = sub_std = sub_cv = sub_range = 0.0
+
+        clipping_fraction = float(np.mean(np.abs(x) >= 0.999))
+
         low_mask = (freqs >= 20.0) & (freqs <= 250.0)
         if np.any(low_mask):
             low_indices = np.flatnonzero(low_mask)
@@ -174,6 +216,13 @@ class FeatureExtractor:
             "dominant_frequency_share": dominant_share,
             "low_frequency_peak_hz": low_peak_hz,
             "low_frequency_peak_share": low_peak_share,
+            "autocorr_periodicity": autocorr_periodicity,
+            "autocorr_frequency_hz": autocorr_frequency,
+            "subframe_rms_mean": sub_mean,
+            "subframe_rms_std": sub_std,
+            "subframe_rms_cv": sub_cv,
+            "subframe_rms_range": sub_range,
+            "clipping_fraction": clipping_fraction,
             "band_low_ratio": low,
             "band_mid_ratio": mid,
             "band_high_ratio": high,
