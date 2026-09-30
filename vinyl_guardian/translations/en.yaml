@@ -75,6 +75,13 @@ configuration:
   data_collection_raw_segment_minutes:
     name: Dataset audio segment length
     description: Minutes per raw audio file.
+  diagnostic_capture_mode:
+    name: Automatic diagnostic capture mode
+    description: Known off captures false power, music and runout activations. Listening
+      session saves unexpected state changes for later review using confirmed track
+      timings as hints. Select the mode on the Home Assistant device to change it live.
+      Audio clips include 20 seconds before and 5 seconds after the event. Download
+      diagnostic reports from Open Web UI. Live selections persist across restarts.
   experiment_harness_enabled:
     name: Experiment lab
     description: Enable experiment sessions, timelines and profile analysis.

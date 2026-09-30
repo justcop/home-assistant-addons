@@ -568,7 +568,7 @@ def calculate_hardware_thresholds(files):
         return any(t['status'] in bad_statuses for t in transitions)
 
     print_log("\n" + "="*70)
-    print_log("📜 THE DUAL-SENSOR ACID TEST (V7.4: PRODUCTION CORE)")
+    print_log("📜 CALIBRATION BASELINE REPLAY (before feature-model fitting)")
     print_log("   Running sequential physical recreation to verify logic locks...")
     print_log("="*70)
 
@@ -761,6 +761,7 @@ def _run_calibration(session):
     sequence = quality.get("sequential_replay", {})
     if sequence:
         passed_checks = sum(sequence["checks"].values())
+        print_log(f"   Production replay: detector v{thresholds.get('detector_version')}, motor features: {', '.join(thresholds.get('motor_combination_model', {}).get('features', []))}.")
         print_log(f"   Whole-sequence checks: {passed_checks}/{len(sequence['checks'])} passed.")
 
     sep = quality.get("motor_off_separability_robust_z", {})

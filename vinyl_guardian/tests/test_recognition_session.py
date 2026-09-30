@@ -61,6 +61,45 @@ class StagedRecognitionTests(unittest.TestCase):
                 recognize_fragment(b'\0\0'*8,directory,4,1,1000,1,fail)
             self.assertFalse(list(Path(directory).glob('*.wav')))
 
+    def test_failed_confirmation_collects_fresh_audio_before_retry(self):
+        from types import SimpleNamespace
+        tree=ast.parse((Path(__file__).resolve().parents[1]/'vinyl_guardian.py').read_text())
+        branch=next(node for node in ast.walk(tree) if isinstance(node,ast.If)
+            and isinstance(node.test,ast.Compare) and isinstance(node.test.left,ast.Name)
+            and node.test.left.id=='current_state' and isinstance(node.test.comparators[0],ast.Constant)
+            and node.test.comparators[0].value=='RECORDING')
+        wrapped=ast.For(target=ast.Name(id='unused',ctx=ast.Store()),
+                        iter=ast.List(elts=[ast.Constant(0)],ctx=ast.Load()),body=[branch],orelse=[])
+        code=compile(ast.fix_missing_locations(ast.Module(body=[wrapped],type_ignores=[])),'capture','exec')
+        calls=[]
+        class Worker:
+            def __init__(self,**kwargs): calls.append(kwargs['args'])
+            def start(self): pass
+        session=RecognitionSession();token=session.begin()
+        env=dict(current_state='RECORDING',app_state='RECORDING',buffer=bytearray(),chunks=0,
+                 loud_chunks=0,data=b'\x01\0'*4,now=200,song_start=0,music_rms=1,m_hold_thresh=.1,
+                 MAX_BUFFER_SIZE=10000,RATE=4,CHUNK=4,RECORD_SECONDS=3,target=3,token=token,
+                 recognition_session=session,state_lock=threading.Lock(),threading=SimpleNamespace(Thread=Worker),
+                 process_audio_background=lambda *args:None,mqtt_client=SimpleNamespace(is_connected=lambda:False))
+        for i in range(3):
+            env['now']=200+i
+            exec(code,env)
+        self.assertEqual(len(calls),1)
+        self.assertEqual(env['chunks'],0)
+        self.assertFalse(env['buffer'])
+        self.assertEqual(calls[0][1],200)
+        env['app_state']='RECORDING'  # failed worker requests the next capture
+        env['data']=b'\x02\0'*4
+        for i in range(2):
+            env['now']=205+i
+            exec(code,env)
+        self.assertEqual(len(calls),1)
+        env['now']=207
+        exec(code,env)
+        self.assertEqual(len(calls),2)
+        self.assertEqual(calls[1][1],205)
+        self.assertEqual(calls[1][0],b'\x02\0'*12)
+
     def runtime(self, result):
         # Exercise the actual worker without importing hardware/startup services.
         tree = ast.parse((Path(__file__).resolve().parents[1]/'vinyl_guardian.py').read_text())

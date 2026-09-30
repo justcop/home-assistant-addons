@@ -33,6 +33,7 @@ options:
   data_collection_raw_audio: false
   data_collection_feature_interval: 0.25
   data_collection_raw_segment_minutes: 30
+  diagnostic_capture_mode: normal
   experiment_harness_enabled: true
   auto_capture_interesting_events: true
   advanced:
@@ -70,6 +71,7 @@ schema:
   data_collection_raw_audio: bool
   data_collection_feature_interval: float
   data_collection_raw_segment_minutes: int
+  diagnostic_capture_mode: list(normal|known_off|listening_session)
   experiment_harness_enabled: bool
   auto_capture_interesting_events: bool
   advanced:

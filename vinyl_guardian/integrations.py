@@ -1,5 +1,6 @@
 import time
 import asyncio
+import inspect
 import requests
 import urllib.parse
 import pylast
@@ -56,8 +57,20 @@ def recognize_shazam(wav_path):
     try:
         async def _recognize():
             # Each concurrent request owns its connection pool and event loop.
-            async with Shazam() as recognizer:
+            recognizer = Shazam()
+            try:
                 return await asyncio.wait_for(recognizer.recognize(wav_path), timeout=45)
+            finally:
+                # Older deployed ShazamIO releases have no async context manager
+                # or close method. Newer clients expose explicit pool cleanup.
+                close = getattr(recognizer, 'close', None)
+                if callable(close):
+                    try:
+                        result = close()
+                        if inspect.isawaitable(result):
+                            await result
+                    except Exception as error:
+                        log(f"⚠️ Shazam connection cleanup failed: {error}")
         res_json = asyncio.run(_recognize())
        
         if isinstance(res_json, dict) and 'track' in res_json and isinstance(res_json.get('matches'), list) and len(res_json['matches']) > 0:

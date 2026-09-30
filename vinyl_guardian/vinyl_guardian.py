@@ -25,6 +25,7 @@ from detector import GuardianDetector
 from recognition_session import RecognitionSession, recognize_fragment
 from telemetry import DatasetCollector
 from experiment import ExperimentHarness, TRUSTED_LABELS
+from diagnostic_monitor import MODES, MODE_NAMES
 from profile_manager import ProfileManager
 from replay_lab import replay_latest_dataset
 from audio_source import AudioSourceManager, AUTO_OPTION, SYSTEM_DEFAULT_OPTION
@@ -65,6 +66,8 @@ debug_countdown = 0
 debug_metrics_buffer = {'rms': [], 'hfer': [], 'crest': []}
 capture_false_positive_requested = False
 capture_missed_music_requested = False
+requested_diagnostic_mode = None
+requested_diagnostic_action = None
 
 # 3-Tier State Tracking Variables
 current_display_status = "Powered Off"
@@ -77,6 +80,8 @@ def signal_handler(sig, frame):
         if inp is not None: inp.close()
         if dataset_collector is not None:
             dataset_collector.close()
+        if experiment_harness is not None:
+            experiment_harness.audio.flush()
         
         if mqtt_client.is_connected():
             mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
@@ -111,11 +116,21 @@ if MQTT_USER and MQTT_PASS:
 
 def on_message(client, userdata, msg):
     global debug_countdown, debug_metrics_buffer
+    global requested_diagnostic_mode, requested_diagnostic_action
     global capture_false_positive_requested, capture_missed_music_requested
     global manual_label_requested, selected_ground_truth_label
     global replay_latest_requested, rollback_profile_requested
     global audio_scan_requested, requested_audio_source_option
 
+    if msg.topic == 'vinyl_guardian/diagnostics/mode/set':
+        if not msg.retain:
+            selected = msg.payload.decode('utf-8', errors='ignore').strip()
+            requested_diagnostic_mode = next((mode for mode,name in MODE_NAMES.items() if name == selected), None)
+        return
+    if msg.topic in ('vinyl_guardian/diagnostics/intentional', 'vinyl_guardian/diagnostics/finish'):
+        if not msg.retain:
+            requested_diagnostic_action = 'intentional_action' if msg.topic.endswith('/intentional') else 'finish_session'
+        return
     if msg.topic == "vinyl_guardian/calibration/continue":
         if not msg.retain:
             calibration_control.confirm()
@@ -272,7 +287,15 @@ def publish_discovery():
             retain=True,
         )
 
+    mqtt_client.publish('homeassistant/select/vinyl_guardian/diagnostic_mode/config', json.dumps({
+        'name': 'Automatic Diagnostic Capture Mode', 'unique_id': 'vinyl_guardian_diagnostic_mode',
+        'device': device_info, 'icon': 'mdi:record-rec',
+        'command_topic': 'vinyl_guardian/diagnostics/mode/set',
+        'state_topic': 'vinyl_guardian/diagnostics/mode', 'options': list(MODE_NAMES.values()),
+    }), retain=True)
     experiment_buttons = {
+        'intentional_action': {'name': 'Mark Intentional Flip or Pause', 'topic': 'vinyl_guardian/diagnostics/intentional', 'icon': 'mdi:album'},
+        'finish_listening_report': {'name': 'Finish Listening Session Report', 'topic': 'vinyl_guardian/diagnostics/finish', 'icon': 'mdi:check-circle-outline'},
         "find_audio_input": {
             "name": "Find Audio Input — Play Music",
             "topic": "vinyl_guardian/audio/scan",
@@ -358,6 +381,9 @@ def connect_mqtt():
         mqtt_client.subscribe("vinyl_guardian/label/set")
         mqtt_client.subscribe("vinyl_guardian/label/mark")
         mqtt_client.subscribe("vinyl_guardian/experiment/replay_latest")
+        mqtt_client.subscribe("vinyl_guardian/diagnostics/mode/set")
+        mqtt_client.subscribe("vinyl_guardian/diagnostics/intentional")
+        mqtt_client.subscribe("vinyl_guardian/diagnostics/finish")
         mqtt_client.subscribe("vinyl_guardian/profile/rollback")
         mqtt_client.subscribe("vinyl_guardian/audio/scan")
         mqtt_client.subscribe("vinyl_guardian/audio/source/set")
@@ -711,6 +737,7 @@ def replay_latest_background():
 def listen_and_identify():
     global app_state, current_attempt, wake_up_time, scrobble_fired, current_track, last_scrobbled_track, paused_track_memory, inp, dataset_collector
     global experiment_harness, profile_manager, manual_label_requested
+    global requested_diagnostic_mode, requested_diagnostic_action
     global replay_latest_requested, rollback_profile_requested, replay_status, profile_status_text
     global audio_scan_requested, audio_scan_running, audio_source_change_requested
     global requested_audio_source_option, audio_scan_status
@@ -808,7 +835,7 @@ def listen_and_identify():
         profile_status_text = f"Profile error: {e}"
         log(f"⚠️ Profile manager initialisation failed: {e}")
 
-    if EXPERIMENT_HARNESS_ENABLED:
+    if EXPERIMENT_HARNESS_ENABLED or DIAGNOSTIC_CAPTURE_MODE != "normal":
         try:
             experiment_harness = ExperimentHarness(
                 RECORDING_DIR,
@@ -819,6 +846,9 @@ def listen_and_identify():
                 enabled=True,
                 auto_capture=AUTO_CAPTURE_INTERESTING_EVENTS,
                 session_label=DATA_COLLECTION_LABEL if DATA_COLLECTION_ENABLED else "unlabelled",
+                diagnostic_mode=DIAGNOSTIC_CAPTURE_MODE,
+                addon_version=VERSION,
+                audio_source=str(os.environ.get('PULSE_SOURCE') or AUDIO_SOURCE),
             )
             log(
                 "🧪 Experimental harness active: shadow detectors, event "
@@ -1047,7 +1077,30 @@ def listen_and_identify():
                 ).start()
 
             experiment_snapshot = {}
+            if experiment_harness is None and requested_diagnostic_mode not in (None, 'normal'):
+                try:
+                    experiment_harness = ExperimentHarness(RECORDING_DIR, v6_cfg, RATE, CHANNELS, CHUNK,
+                        auto_capture=AUTO_CAPTURE_INTERESTING_EVENTS, addon_version=VERSION,
+                        audio_source=str(os.environ.get('PULSE_SOURCE') or AUDIO_SOURCE))
+                except Exception as error:
+                    log(f"🚨 Diagnostic capture could not start: {error}")
+                    requested_diagnostic_mode = None
             if experiment_harness is not None:
+                if requested_diagnostic_mode is not None:
+                    mode, requested_diagnostic_mode = requested_diagnostic_mode, None
+                    if mode != experiment_harness.monitor.mode:
+                        experiment_harness.set_diagnostic_mode(mode, now)
+                    log('📁 Diagnostic capture mode: ' + MODE_NAMES[mode])
+                if audio_source_manager is not None:
+                    experiment_harness.monitor.source = audio_source_manager.selected_source
+                if requested_diagnostic_action is not None:
+                    action, requested_diagnostic_action = requested_diagnostic_action, None
+                    # Flush before ending a ground-truth interval so later audio
+                    # cannot leak into a known-off regression fixture.
+                    if action == 'finish_session':
+                        experiment_harness.audio.flush()
+                    experiment_harness.monitor.notify(action, now=now)
+
                 try:
                     experiment_snapshot = experiment_harness.observe(
                         data,
@@ -1242,6 +1295,9 @@ def listen_and_identify():
                         retain=False,
                     )
 
+                    diagnostics = experiment_snapshot.get('diagnostics') or {}
+                    mqtt_client.publish('vinyl_guardian/diagnostics/mode', MODE_NAMES.get(diagnostics.get('mode'), 'Unavailable'), retain=True)
+                    mqtt_client.publish('vinyl_guardian/diagnostics/attributes', json.dumps(diagnostics), retain=True)
                     hardware = experiment_snapshot.get("hardware") or {}
                     side_summary = experiment_snapshot.get("side") or {}
                     shadows = experiment_snapshot.get("shadows") or {}
@@ -1379,6 +1435,8 @@ def listen_and_identify():
                 else: trigger_chunks = 0
                     
             elif current_state == "RECORDING":
+                if chunks == 0:
+                    song_start = now
                 buffer.extend(data); chunks += 1
                 if music_rms > m_hold_thresh: loud_chunks += 1
                 if len(buffer) > MAX_BUFFER_SIZE:
@@ -1397,6 +1455,9 @@ def listen_and_identify():
                                 continue
                             app_state = "PROCESSING"
                         threading.Thread(target=process_audio_background, args=(bytes(buffer), song_start, token), daemon=True).start()
+                        # A failed request must gather a fresh recording. Keep
+                        # discontinuous audio out of uploads and preserve offsets.
+                        buffer, chunks, loud_chunks = bytearray(), 0, 0
                     else:
                         if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/track", "Not Playing", retain=True)
                         with state_lock: app_state = "IDLE"
@@ -1422,6 +1483,8 @@ def listen_and_identify():
                         
                 physical_now = now - (silence_sleep * (CHUNK / RATE))
                 if current_track and not scrobble_fired and physical_now >= current_track.get('scrobble_trigger_time', 0):
+                    if experiment_harness is not None:
+                        experiment_harness.monitor.notify('scrobble_requested', current_track, now)
                     track_id = f"{current_track['title']} - {current_track['artist']}"
                     if track_id != last_scrobbled_track: scrobble_to_lastfm(current_track['artist'], current_track['title'], current_track['start_timestamp'], current_track['album'])
                     if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/scrobble_state", track_id, retain=True)

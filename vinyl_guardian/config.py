@@ -49,6 +49,7 @@ AUDIO_SCAN_ON_START = config.get("audio_scan_on_start", False)
 AUDIO_SCAN_SECONDS = config.get("audio_scan_seconds", 2.5)
 
 # --- Experimental Harness ---
+DIAGNOSTIC_CAPTURE_MODE = config.get("diagnostic_capture_mode", "normal")
 EXPERIMENT_HARNESS_ENABLED = config.get("experiment_harness_enabled", True)
 AUTO_CAPTURE_INTERESTING_EVENTS = config.get("auto_capture_interesting_events", True)
 

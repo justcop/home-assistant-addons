@@ -15,13 +15,19 @@ class CalibrationWebTests(unittest.TestCase):
     def setUp(self):
         control.begin(True)
         control.configure(lambda message: None)
-        self.server = make_server('127.0.0.1', 0, allowed_peer='127.0.0.1', exporter=lambda: b'zip-data')
+        self.server = make_server('127.0.0.1', 0, allowed_peer='127.0.0.1', exporter=lambda: b'zip-data', diagnostic_exporter=lambda: b'diagnostic-zip')
         self.worker = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.worker.start()
         self.base = f'http://127.0.0.1:{self.server.server_port}'
         with urlopen(self.base + '/') as response:
             self.page = response.read().decode()
         self.token = re.search(r"screen_token\|\|'([^']+)", self.page).group(1)
+
+    def test_diagnostic_reports_download_uses_ingress_and_attachment(self):
+        with urlopen(self.base + '/api/diagnostics') as response:
+            self.assertEqual(response.read(), b'diagnostic-zip')
+            self.assertEqual(response.headers['Content-Type'], 'application/zip')
+            self.assertIn('vinyl-guardian-diagnostics.zip', response.headers['Content-Disposition'])
 
     def tearDown(self):
         control.confirm()

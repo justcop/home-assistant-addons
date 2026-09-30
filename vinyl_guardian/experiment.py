@@ -18,6 +18,7 @@ from collections import deque
 import numpy as np
 
 from detector import GuardianDetector
+from diagnostic_monitor import DiagnosticMonitor
 from telemetry import FeatureExtractor, pcm16_channels, stereo_features
 
 
@@ -150,13 +151,15 @@ class EventAudioRecorder:
         self.pre_chunks = max(1, int(self.rate / self.chunk * pre_roll_sec))
         self.post_chunks = max(1, int(self.rate / self.chunk * post_roll_sec))
         self.ring = deque(maxlen=self.pre_chunks)
+        self.context_ring = deque(maxlen=self.pre_chunks)
         self.pending = []
         self.root = os.path.join(share_dir, "experiments", "event_audio")
         self.max_files = max(10, int(max_files))
         self.last_trigger = {}
 
-    def feed(self, data):
+    def feed(self, data, context=None):
         self.ring.append(bytes(data))
+        self.context_ring.append(dict(context or {}))
         if not self.enabled:
             return []
 
@@ -164,6 +167,7 @@ class EventAudioRecorder:
         still_pending = []
         for capture in self.pending:
             capture["chunks"].append(bytes(data))
+            capture["contexts"].append(dict(context or {}))
             capture["remaining"] -= 1
             if capture["remaining"] <= 0:
                 path = self._write_capture(capture)
@@ -174,6 +178,15 @@ class EventAudioRecorder:
         self.pending = still_pending
         return completed
 
+    def flush(self):
+        completed = []
+        for capture in self.pending:
+            path = self._write_capture(capture)
+            if path:
+                completed.append((capture, path))
+        self.pending.clear()
+        return completed
+
     def trigger(self, kind, now, label=None, details=None, min_gap_sec=30.0, force=False):
         if not self.enabled:
             return False
@@ -182,6 +195,10 @@ class EventAudioRecorder:
         if not force and float(now) - last < float(min_gap_sec):
             return False
 
+        # One growing clip can contain multiple related transitions. Bound memory
+        # when noise causes many simultaneous observations.
+        if len(self.pending) >= 8:
+            return False
         self.last_trigger[kind] = float(now)
         self.pending.append({
             "kind": kind,
@@ -189,7 +206,9 @@ class EventAudioRecorder:
             "details": details or {},
             "trigger_time": float(now),
             "chunks": list(self.ring),
+            "contexts": list(self.context_ring),
             "remaining": self.post_chunks,
+            "initial_pre_chunks": len(self.ring),
         })
         return True
 
@@ -218,19 +237,25 @@ class EventAudioRecorder:
                 wf.setframerate(self.rate)
                 wf.writeframes(b"".join(capture["chunks"]))
 
+            trace_path = os.path.splitext(path)[0] + '.frames.jsonl'
+            with open(trace_path, 'w') as trace:
+                for context in capture['contexts']:
+                    trace.write(json.dumps(context) + '\n')
             sidecar = os.path.splitext(path)[0] + ".json"
             _atomic_json(sidecar, {
                 "event": capture["kind"],
                 "label": capture.get("label"),
                 "trigger_time": capture["trigger_time"],
                 "details": capture.get("details") or {},
-                "pre_roll_sec": self.pre_chunks * self.chunk / self.rate,
-                "post_roll_sec": self.post_chunks * self.chunk / self.rate,
+                "pre_roll_sec": capture['initial_pre_chunks'] * self.chunk / self.rate,
+                "trace": os.path.basename(trace_path),
+                "post_roll_sec": (len(capture['chunks'])-capture['initial_pre_chunks']) * self.chunk / self.rate,
                 "wav": os.path.basename(path),
             })
             self._prune()
             return path
-        except Exception:
+        except Exception as error:
+            print(f"🚨 Diagnostic audio save failed in {self.root}: {error}", flush=True)
             return None
 
     def _prune(self):
@@ -249,6 +274,9 @@ class EventAudioRecorder:
                     sidecar = os.path.splitext(path)[0] + ".json"
                     if os.path.exists(sidecar):
                         os.remove(sidecar)
+                    trace = os.path.splitext(path)[0] + '.frames.jsonl'
+                    if os.path.exists(trace):
+                        os.remove(trace)
                 except Exception:
                     pass
         except Exception:
@@ -538,6 +566,9 @@ class ExperimentHarness:
         enabled=True,
         auto_capture=True,
         session_label="unlabelled",
+        diagnostic_mode='normal',
+        addon_version='',
+        audio_source='',
     ):
         self.enabled = bool(enabled)
         self.share_dir = share_dir
@@ -554,6 +585,11 @@ class ExperimentHarness:
             chunk,
             enabled=bool(auto_capture),
         )
+        self.auto_capture = bool(auto_capture)
+        self.monitor = DiagnosticMonitor(share_dir, thresholds, self.audio.trigger,
+                                         diagnostic_mode, addon_version, audio_source)
+        if self.monitor.mode != 'normal':
+            self.audio.enabled = True
         self.health = HardwareHealthMonitor(share_dir, rate, channels)
         self.side = SideSessionTracker(share_dir, self.timeline)
         self.baselines = TrustedBaselineLearner(share_dir)
@@ -576,9 +612,21 @@ class ExperimentHarness:
             shadows=list(self.shadows.detectors.keys()),
         )
 
+    def set_diagnostic_mode(self, mode, now=None):
+        self.audio.flush()
+        self.audio.ring.clear()
+        self.audio.context_ring.clear()
+        accepted = self.monitor.set_mode(mode, time.time() if now is None else now)
+        self.audio.enabled = self.auto_capture or self.monitor.mode != 'normal'
+        if accepted:
+            self.timeline.record('diagnostic_mode_changed', mode=mode)
+        return accepted
+
     def trusted_label(self, now):
         if float(now) <= self.manual_label_until and self.current_manual_label:
             return self.current_manual_label
+        if self.monitor.mode == "known_off":
+            return "actually_off"
         if self.session_label in {"known_off", "off", "turntable_off", "known-off"}:
             return "actually_off"
         # Broad album sessions contain track gaps, runout and needle lifts, so
@@ -612,6 +660,7 @@ class ExperimentHarness:
 
     def track_identified(self, track, now=None):
         self.side.track_identified(track, now=now)
+        self.monitor.notify("confirmed_track", track, now)
         if isinstance(track, dict):
             self.timeline.record(
                 "track_identified",
@@ -626,7 +675,13 @@ class ExperimentHarness:
             return {}
 
         now = float(now)
-        completed = self.audio.feed(data)
+        context = {'unix_time': now, 'production': dict(production_frame),
+                   'engine_state': engine_state, 'extended_features': self.last_feature_snapshot,
+                   'diagnostic_mode': self.monitor.mode, 'audio_source': self.monitor.source,
+                   'confirmed_track': self.monitor.track}
+        completed = self.audio.feed(data, context)
+        diagnostic = self.monitor.observe(production_frame, now)
+        self.audio.enabled = self.auto_capture or self.monitor.mode != 'normal'
         for capture, path in completed:
             self.timeline.record(
                 "event_audio_saved",
@@ -674,6 +729,7 @@ class ExperimentHarness:
             "hardware": health,
             "side": self.side.summary(now),
             "trusted_label": trusted,
+            "diagnostics": diagnostic,
         }
 
     def _record_transitions(self, frame, shadows, now, engine_state):
@@ -817,7 +873,7 @@ class ExperimentHarness:
                 min_gap_sec=30.0,
             )
 
-        if trusted == "actually_off" and frame.get("turntable_on"):
+        if self.monitor.mode == "normal" and trusted == "actually_off" and frame.get("turntable_on"):
             self.audio.trigger(
                 "known_off_power_on",
                 now,
@@ -836,4 +892,5 @@ class ExperimentHarness:
             "shadows": self.shadows.compact(),
             "side": self.side.summary(now),
             "event_log": self.timeline.path,
+            "diagnostics": self.monitor.summary(),
         }
