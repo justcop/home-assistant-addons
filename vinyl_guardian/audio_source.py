@@ -400,6 +400,16 @@ class AudioSourceManager:
             return False
 
         os.environ["PULSE_SOURCE"] = source_name
+        try:
+            subprocess.run(
+                ["pactl", "set-source-mute", source_name, "0"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+                check=False,
+            )
+        except Exception:
+            pass
         self.selected_source = source_name
         source = self._source_by_name(source_name)
         self.selected_description = (
@@ -426,6 +436,16 @@ class AudioSourceManager:
         if not source_name:
             return False
         os.environ.pop("PULSE_SOURCE", None)
+        try:
+            subprocess.run(
+                ["pactl", "set-source-mute", source_name, "0"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+                check=False,
+            )
+        except Exception:
+            pass
         self.selected_source = source_name
         source = self._source_by_name(source_name)
         self.selected_description = (source or {}).get("description") or source_name
@@ -729,9 +749,26 @@ class AudioSourceManager:
         source = self._source_by_name(option)
         if source is None:
             return False
+
+        card_name = None
+        profile_name = None
+        card_index = source.get("card_index")
+        if card_index is not None:
+            for card in self.list_cards():
+                try:
+                    same_card = int(card.get("index")) == int(card_index)
+                except (TypeError, ValueError):
+                    same_card = False
+                if same_card:
+                    card_name = card.get("name")
+                    profile_name = card.get("active_profile")
+                    break
+
         return self.select_source(
             source["name"],
             description=source.get("description"),
+            card_name=card_name,
+            profile_name=profile_name,
             persist=True,
             reason="home_assistant_select",
         )
