@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - vinyl-guardian-detection-v2
     paths:
       - 'vinyl_guardian/**'
       - '.github/scripts/test_calibration_screen.cjs'

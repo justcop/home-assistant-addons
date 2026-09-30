@@ -26,14 +26,15 @@ class ScanOnceTests(unittest.TestCase):
     def test_options_reset_preserves_other_settings(self):
         with tempfile.TemporaryDirectory() as root:
             path = Path(root) / 'options.json'
-            path.write_text(json.dumps({'code_branch': 'experiment', 'lastfm_password': 'private', 'audio_scan_on_start': True, 'audio_source': 'old'}))
+            path.write_text(json.dumps({'recording_directory': '/media/records', 'code_branch': 'experiment', 'lastfm_password': 'private', 'audio_scan_on_start': True, 'audio_source': 'old'}))
             with patch.dict(os.environ, {'SUPERVISOR_TOKEN': 'token'}), patch('audio_scan_once.urllib.request.urlopen', return_value=io.BytesIO(b'{"result":"ok"}')) as request:
                 self.assertTrue(reset_scan_options(path))
                 body = json.loads(request.call_args.args[0].data)['options']
                 self.assertFalse(body['audio_scan_on_start'])
                 self.assertEqual(body['audio_source'], 'auto')
                 self.assertEqual(body['lastfm_password'], 'private')
-                self.assertEqual(body['code_branch'], 'experiment')
+                self.assertNotIn('code_branch', body)
+                self.assertEqual(body['recording_directory'], '/media/records')
 
     def test_missing_supervisor_token_leaves_persistent_gate_as_fallback(self):
         with patch.dict(os.environ, {}, clear=True):

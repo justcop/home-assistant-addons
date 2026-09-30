@@ -1,147 +1,127 @@
 configuration:
-  code_branch:
-    name: ✅ Runtime version
-    description: Choose main or vinyl-guardian-detection-v2, save and restart. ✅ Both; 🧪 experimental
-      only; ⚪ unused in both active versions. Labels remain visible when switching branches. Python
-      runtime changes; installed dependencies and the form require an app update.
   recording_directory:
-    name: ✅ Recording storage folder
+    name: Recording storage folder
     description: Absolute folder for WAVs, datasets and experiment recordings. Use a mounted external
       drive under /media, for example /media/recordings/vinyl_guardian. The parent folder must already
       exist and be writable. Existing recordings are not moved; active profiles stay in /share/vinyl_guardian.
   lastfm_username:
-    name: ✅ Last.fm username
+    name: Last.fm username
     description: Account to scrobble identified music to.
   lastfm_password:
-    name: ✅ Last.fm password
+    name: Last.fm password
     description: Password for Last.fm authentication.
   lastfm_api_key:
-    name: ✅ Last.fm API key
+    name: Last.fm API key
     description: API key for scrobbling.
   lastfm_api_secret:
-    name: ✅ Last.fm API secret
+    name: Last.fm API secret
     description: API secret for scrobbling.
   mqtt_broker:
-    name: ✅ MQTT broker
+    name: MQTT broker
     description: Broker used for sensors and the Continue Calibration button.
   mqtt_port:
-    name: ✅ MQTT port
+    name: MQTT port
     description: Port of the MQTT broker.
   mqtt_user:
-    name: ✅ MQTT username
+    name: MQTT username
     description: Broker login, if required.
   mqtt_password:
-    name: ✅ MQTT password
+    name: MQTT password
     description: Broker password, if required.
   test_capture_mode:
-    name: ✅ Test capture mode
+    name: Test capture mode
     description: Capture a diagnostic sample instead of normal recognition.
   calibration_mode:
-    name: ✅ Guided calibration
+    name: Guided calibration
     description: Enable and restart. Select Open Web UI on the app Info page for instructions, progress,
       live logs and Continue together. The MQTT Continue Calibration button also works. Disable and
       restart when complete. Fresh capture requires Reuse calibration audio to be off.
   recording_seconds:
-    name: ✅ Recognition recording length
+    name: Recognition recording length
     description: Seconds of audio recorded for each recognition attempt.
   debug_logging:
-    name: ✅ Debug logging
+    name: Debug logging
     description: Enable detailed diagnostics in the app logs.
   audio_source:
-    name: 🧪 Audio capture input
-    description: 'Home Assistant host input that receives the turntable output. auto restores the
-      remembered input (or the host default). A successful scan saves its choice and returns this
-      setting to auto. Main uses the native Audio Input selector. Guardian does not play audio: the
-      native Audio Output selector is unused.'
+    name: Audio capture input
+    description: Home Assistant host capture input receiving your turntable output. auto restores
+      the remembered input. system_default follows the native Audio Input selection. A successful
+      scan saves its choice and returns this setting to auto. Guardian never plays audio; Audio Output
+      is unused.
   audio_scan_on_start:
-    name: 🧪 Find audio input on next start
+    name: Find audio input on next start
     description: 'Play music, enable and restart. A successful scan remembers the winning input for
       future runs and switches this off. If Supervisor cannot update the form, repeat starts are
       still blocked: switch off and restart, then on and restart to re-arm. The Find Audio Input
       button runs a manual scan.'
   audio_scan_seconds:
-    name: 🧪 Audio scan time per candidate
+    name: Audio scan time per candidate
     description: Seconds sampled for each available input/profile candidate.
   data_collection_enabled:
-    name: 🧪 Collect detector dataset
+    name: Collect detector dataset
     description: Save labelled detector features for analysis.
   data_collection_label:
-    name: 🧪 Dataset label
+    name: Dataset label
     description: Ground-truth label attached to collected features.
   data_collection_raw_audio:
-    name: 🧪 Save dataset audio
+    name: Save dataset audio
     description: Also retain raw audio; this uses substantially more storage.
   data_collection_feature_interval:
-    name: 🧪 Dataset feature interval
+    name: Dataset feature interval
     description: Seconds between collected feature samples.
   data_collection_raw_segment_minutes:
-    name: 🧪 Dataset audio segment length
+    name: Dataset audio segment length
     description: Minutes per raw audio file.
   experiment_harness_enabled:
-    name: 🧪 Experiment lab
+    name: Experiment lab
     description: Enable experiment sessions, timelines and profile analysis.
   auto_capture_interesting_events:
-    name: 🧪 Record interesting events
+    name: Record interesting events
     description: Automatically save event audio for detector analysis when the experiment lab is
       enabled.
   advanced:
-    name: ✅ Advanced settings
-    description: Detector and calibration tuning for both active branches. Prefer calibration defaults
-      unless diagnosing a problem.
+    name: Advanced settings
+    description: Detector and calibration tuning for the detector. Prefer calibration defaults unless
+      diagnosing a problem.
     fields:
       manual_override_mic_volume:
-        name: ✅ Override input gain
+        name: Override input gain
         description: 0 uses calibration; 1–100 overrides capture gain. This controls the host recording
           input, not speaker volume.
       manual_override_music_threshold:
-        name: ✅ Music threshold fallback
+        name: Music threshold fallback
         description: 0 uses the default fallback. Positive values set a fallback threshold; saved
-          calibration thresholds take priority in both current branches. Recalibrate to change the
-          active profile.
+          calibration thresholds take priority in the detector. Recalibrate to change the active
+          profile.
       manual_override_motor_threshold:
-        name: ✅ Motor threshold fallback
+        name: Motor threshold fallback
         description: 0 uses the default fallback. Positive values set a fallback threshold; saved
-          calibration thresholds take priority in both current branches. Recalibrate to change the
-          active profile.
+          calibration thresholds take priority in the detector. Recalibrate to change the active
+          profile.
       max_attempts:
-        name: ✅ Recognition attempts
+        name: Recognition attempts
         description: Maximum identification attempts per track.
       min_audio_seconds:
-        name: ✅ Minimum recognition audio
+        name: Minimum recognition audio
         description: Minimum seconds retained when trimming recognition audio.
       audio_onset_threshold:
-        name: ✅ Audio onset threshold
+        name: Audio onset threshold
         description: PCM amplitude used to find the beginning of recognition audio.
       trigger_debounce_chunks:
-        name: ✅ Trigger debounce
+        name: Trigger debounce
         description: Consecutive audio chunks required before triggering recognition; calibration
           can supply its own value.
       needle_lift_seconds:
-        name: ✅ Needle lift silence
+        name: Needle lift silence
         description: Seconds of silence before considering the needle lifted.
       consecutive_failure_timeout:
-        name: ✅ Failure timeout
+        name: Failure timeout
         description: Seconds of repeated recognition failures before entering fallback behaviour.
       fallback_sleep_secs:
-        name: ✅ Fallback sleep
+        name: Fallback sleep
         description: Seconds to wait during fallback recognition.
       reuse_calibration_audio:
-        name: ✅ Reuse calibration audio
+        name: Reuse calibration audio
         description: Off records fresh physical steps with confirmation. On re-analyses a complete
           saved recording set and skips physical recording after you confirm. Keep off when recalibrating
           changed hardware.
-  acoustid_key:
-    name: ⚪ Acoustid key
-    description: Not used by main or vinyl-guardian-detection-v2. Retained for configuration compatibility.
-  audio_threshold:
-    name: ⚪ Audio threshold
-    description: Not used by main or vinyl-guardian-detection-v2. Retained for configuration compatibility.
-  debug_one_shot:
-    name: ⚪ Debug one shot
-    description: Not used by main or vinyl-guardian-detection-v2. Retained for configuration compatibility.
-  mic_volume:
-    name: ⚪ Mic volume
-    description: Not used by main or vinyl-guardian-detection-v2. Retained for configuration compatibility.
-  record_diagnostic_sample:
-    name: ⚪ Record diagnostic sample
-    description: Not used by main or vinyl-guardian-detection-v2. Retained for configuration compatibility.

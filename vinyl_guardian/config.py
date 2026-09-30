@@ -33,6 +33,24 @@ CALIBRATION_MODE = config.get("calibration_mode", False)
 TEST_CAPTURE_MODE = config.get("test_capture_mode", False)
 DEBUG = config.get("debug_logging", False)
 
+# --- Dataset / Feature Collection ---
+DATA_COLLECTION_ENABLED = config.get("data_collection_enabled", False)
+DATA_COLLECTION_LABEL = config.get("data_collection_label", "unlabelled")
+DATA_COLLECTION_RAW_AUDIO = config.get("data_collection_raw_audio", False)
+DATA_COLLECTION_FEATURE_INTERVAL = config.get("data_collection_feature_interval", 0.25)
+DATA_COLLECTION_RAW_SEGMENT_MINUTES = config.get("data_collection_raw_segment_minutes", 30)
+
+# --- Audio Input Selection ---
+# "auto" reuses Guardian's remembered source, "system_default" follows Home
+# Assistant's PulseAudio default, or an exact Pulse source name can be used.
+AUDIO_SOURCE = config.get("audio_source", "auto")
+AUDIO_SCAN_ON_START = config.get("audio_scan_on_start", False)
+AUDIO_SCAN_SECONDS = config.get("audio_scan_seconds", 2.5)
+
+# --- Experimental Harness ---
+EXPERIMENT_HARNESS_ENABLED = config.get("experiment_harness_enabled", True)
+AUTO_CAPTURE_INTERESTING_EVENTS = config.get("auto_capture_interesting_events", True)
+
 # 👻 TEMPORARY DEBUG TOGGLE: Capture False Positives
 DEBUG_GHOST_CATCHER = True
 

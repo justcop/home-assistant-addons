@@ -2,14 +2,11 @@ name: Publish Vinyl Guardian update
 
 on:
   push:
+    branches: [main]
     paths:
       - 'vinyl_guardian/**'
       - '.github/scripts/vinyl_guardian_release.py'
       - '.github/workflows/vinyl-guardian-release.yml'
-  create:
-  delete:
-  schedule:
-    - cron: '23 5 * * *'
   workflow_dispatch:
     inputs:
       bump:
@@ -21,7 +18,7 @@ on:
 permissions:
   contents: write
 
-# Reconcile ALL latest branch content each time, including any queued/coalesced pushes.
+# Publish only installed main runtime changes.
 concurrency:
   group: vinyl-guardian-delivery
   cancel-in-progress: false
@@ -44,19 +41,19 @@ jobs:
           python -m unittest discover -s .github/scripts/tests -v
           python -m compileall -q vinyl_guardian
           bash -n vinyl_guardian/run.sh
-      - name: Refresh branch dropdown and publish version
+      - name: Publish main version
         env:
           BUMP: ${{ inputs.bump || 'auto' }}
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           for attempt in 1 2 3; do
-            git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*'
+            git fetch origin main
             git reset --hard origin/main
             python .github/scripts/vinyl_guardian_release.py --bump "$BUMP"
-            git add vinyl_guardian/config.yaml .github/vinyl-guardian-release-state.json .github/vinyl-guardian-settings-report.json
+            git add vinyl_guardian/config.yaml .github/vinyl-guardian-release-state.json
             if git diff --cached --quiet; then
-              echo 'No runtime or branch catalog changes to publish.'
+              echo 'No main runtime changes to publish.'
               exit 0
             fi
             git commit -m 'chore: publish Vinyl Guardian delivery update'

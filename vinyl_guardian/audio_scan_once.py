@@ -41,6 +41,8 @@ def reset_scan_options(options_path='/data/options.json'):
         return False
     with open(options_path) as handle:
         options = json.load(handle)
+    for key in ('code_branch', 'acoustid_key', 'audio_threshold', 'debug_one_shot', 'mic_volume', 'record_diagnostic_sample'):
+        options.pop(key, None)
     options.update(audio_scan_on_start=False, audio_source='auto')
     request = urllib.request.Request(
         'http://supervisor/addons/self/options',

@@ -1,36 +1,35 @@
-name: "Vinyl Guardian"
-description: "Detects needle drops, IDs vinyl records, and natively scrobbles to Last.fm."
-version: "4.50.2"
-slug: "vinyl_guardian"
+name: Vinyl Guardian
+description: Detects needle drops, IDs vinyl records, and natively scrobbles to Last.fm.
+version: 4.50.2
+slug: vinyl_guardian
 init: false
 arch:
-- "aarch64"
-- "amd64"
-- "armhf"
-- "armv7"
-- "i386"
-startup: "application"
-boot: "auto"
+- aarch64
+- amd64
+- armhf
+- armv7
+- i386
+startup: application
+boot: auto
 options:
-  code_branch: "main"
-  recording_directory: "/share/vinyl_guardian"
-  lastfm_username: ""
-  lastfm_password: ""
-  lastfm_api_key: ""
-  lastfm_api_secret: ""
-  mqtt_broker: "core-mosquitto"
+  recording_directory: /share/vinyl_guardian
+  lastfm_username: ''
+  lastfm_password: ''
+  lastfm_api_key: ''
+  lastfm_api_secret: ''
+  mqtt_broker: core-mosquitto
   mqtt_port: 1883
-  mqtt_user: ""
-  mqtt_password: ""
+  mqtt_user: ''
+  mqtt_password: ''
   test_capture_mode: false
   calibration_mode: false
   recording_seconds: 10
   debug_logging: false
-  audio_source: "auto"
+  audio_source: auto
   audio_scan_on_start: false
   audio_scan_seconds: 2.5
   data_collection_enabled: false
-  data_collection_label: "unlabelled"
+  data_collection_label: unlabelled
   data_collection_raw_audio: false
   data_collection_feature_interval: 0.25
   data_collection_raw_segment_minutes: 30
@@ -48,59 +47,48 @@ options:
     consecutive_failure_timeout: 1800
     fallback_sleep_secs: 60
     reuse_calibration_audio: false
-  acoustid_key: ""
-  audio_threshold: 0.015
-  debug_one_shot: true
-  mic_volume: 10
-  record_diagnostic_sample: false
 schema:
-  code_branch: "list(main|archive/main-before-detector-promotion-2026-09-30|codex/fix-docker-build-failure-for-vinyl_guardian|codex/fix-dockerfile-package-installation-error|codex/fix-dockerfile-package-installation-error-oj0rjv|codex/fix-dockerfile-package-installation-error-rl9vwb|codex/fix-issues-in-vinyl_guardian-add-on|codex/fix-issues-in-vinyl_guardian-add-on-luf2ij|justcop-patch-1|justcop-patch-2|justcop-patch-3|vinyl-guardian-detection-v2)"
-  recording_directory: "str"
-  lastfm_username: "str?"
-  lastfm_password: "password?"
-  lastfm_api_key: "str?"
-  lastfm_api_secret: "str?"
-  mqtt_broker: "str"
-  mqtt_port: "port"
-  mqtt_user: "str?"
-  mqtt_password: "password?"
-  test_capture_mode: "bool"
-  calibration_mode: "bool"
-  recording_seconds: "int"
-  debug_logging: "bool"
-  audio_source: "str"
-  audio_scan_on_start: "bool"
-  audio_scan_seconds: "float"
-  data_collection_enabled: "bool"
-  data_collection_label: "str"
-  data_collection_raw_audio: "bool"
-  data_collection_feature_interval: "float"
-  data_collection_raw_segment_minutes: "int"
-  experiment_harness_enabled: "bool"
-  auto_capture_interesting_events: "bool"
+  recording_directory: str
+  lastfm_username: str?
+  lastfm_password: password?
+  lastfm_api_key: str?
+  lastfm_api_secret: str?
+  mqtt_broker: str
+  mqtt_port: port
+  mqtt_user: str?
+  mqtt_password: password?
+  test_capture_mode: bool
+  calibration_mode: bool
+  recording_seconds: int
+  debug_logging: bool
+  audio_source: str
+  audio_scan_on_start: bool
+  audio_scan_seconds: float
+  data_collection_enabled: bool
+  data_collection_label: str
+  data_collection_raw_audio: bool
+  data_collection_feature_interval: float
+  data_collection_raw_segment_minutes: int
+  experiment_harness_enabled: bool
+  auto_capture_interesting_events: bool
   advanced:
-    manual_override_mic_volume: "int(0,100)?"
-    manual_override_music_threshold: "float?"
-    manual_override_motor_threshold: "float?"
-    max_attempts: "int"
-    min_audio_seconds: "int"
-    audio_onset_threshold: "int"
-    trigger_debounce_chunks: "int"
-    needle_lift_seconds: "int"
-    consecutive_failure_timeout: "int"
-    fallback_sleep_secs: "int"
-    reuse_calibration_audio: "bool"
-  acoustid_key: "str"
-  audio_threshold: "float"
-  debug_one_shot: "bool"
-  mic_volume: "int"
-  record_diagnostic_sample: "bool"
+    manual_override_mic_volume: int(0,100)?
+    manual_override_music_threshold: float?
+    manual_override_motor_threshold: float?
+    max_attempts: int
+    min_audio_seconds: int
+    audio_onset_threshold: int
+    trigger_debounce_chunks: int
+    needle_lift_seconds: int
+    consecutive_failure_timeout: int
+    fallback_sleep_secs: int
+    reuse_calibration_audio: bool
 map:
-- "share:rw"
-- "media:rw"
+- share:rw
+- media:rw
 audio: true
 hassio_api: true
 ingress: true
 ingress_port: 8099
-panel_icon: "mdi:record-circle"
-panel_title: "Vinyl Guardian"
+panel_icon: mdi:record-circle
+panel_title: Vinyl Guardian

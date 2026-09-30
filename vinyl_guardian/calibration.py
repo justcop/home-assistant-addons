@@ -19,6 +19,14 @@ from calibration_capture import capture_bytes
 from calibration_session import CalibrationSession
 from gain_search import find_input_gain
 from audio_math import RUNOUT_RPM_INTERVALS
+from detector import GuardianDetector, pcm16_to_mono
+from calibration_quality import assess_calibration
+from profile_manager import ProfileManager
+from regression import (
+    collect_labelled_event_clips,
+    compare_profiles,
+    save_regression_report,
+)
 
 # --- HOME ASSISTANT OPTION LOADING ---
 REUSE_CALIB_OPT = False
@@ -87,7 +95,7 @@ def load_wav(filename):
             audio_data = audio_data.reshape(-1, 2).mean(axis=1)
         return audio_data
 
-def chunked_metrics(data, chunk_size=4096):
+def chunked_metrics(data, chunk_size=CHUNK):
     chunks = len(data) // chunk_size
     rms_v, hfer_v, crest_v = [], [], []
     for i in range(chunks):
@@ -97,21 +105,21 @@ def chunked_metrics(data, chunk_size=4096):
         crest_v.append(get_crest(c))
     return np.array(rms_v), np.array(hfer_v), np.array(crest_v)
 
-def chunked_rms(data, chunk_size=4096):
+def chunked_rms(data, chunk_size=CHUNK):
     chunks = len(data) // chunk_size
     rms_arr = np.zeros(chunks)
     for i in range(chunks):
         rms_arr[i] = get_rms(data[i*chunk_size:(i+1)*chunk_size])
     return rms_arr
 
-def chunked_music_rms(data, chunk_size=4096):
+def chunked_music_rms(data, chunk_size=CHUNK):
     chunks = len(data) // chunk_size
     rms_arr = np.zeros(chunks)
     for i in range(chunks):
         rms_arr[i] = get_music_rms(data[i*chunk_size:(i+1)*chunk_size])
     return rms_arr
 
-def chunked_hfer(data, chunk_size=4096):
+def chunked_hfer(data, chunk_size=CHUNK):
     chunks = len(data) // chunk_size
     hfer_arr = np.zeros(chunks)
     for i in range(chunks):
@@ -126,7 +134,9 @@ def record_chunk(duration):
                              format=FORMAT, periodsize=CHUNK),
         duration, RATE, CHANNELS, checkpoint=checkpoint,
     )
-    audio_data = np.frombuffer(raw_audio, dtype=np.int16).astype(np.float32) / 32768.0
+    # Return mono analysis samples so calibration prompts and live detection
+    # see the same signal representation.
+    audio_data = pcm16_to_mono(bytes(raw_audio), CHANNELS)
     return raw_audio, audio_data
 
 def record_segmented_file(filename, action_dur, settle_dur, steady_dur, prompt):
@@ -210,8 +220,24 @@ def record_dynamic_transition(filename):
     pause(1)
 
 def set_mic_volume(vol_pct):
-    try: subprocess.run(["pactl", "set-source-volume", os.environ.get("PULSE_SOURCE") or "@DEFAULT_SOURCE@", f"{vol_pct}%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except: pass
+    target = os.environ.get("PULSE_SOURCE") or "@DEFAULT_SOURCE@"
+    try:
+        subprocess.run(
+            ["pactl", "set-source-mute", target, "0"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+            check=False,
+        )
+        subprocess.run(
+            ["pactl", "set-source-volume", target, f"{vol_pct}%"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+            check=False,
+        )
+    except Exception:
+        pass
 
 def gain_staging():
     print_log("\n" + "="*50)
@@ -233,154 +259,85 @@ def gain_staging():
 
 # --- SIMULATION & TIMELINE ENGINE ---
 def simulate_timeline(data, thresholds, state):
-    chunk_size = 4096 
+    """
+    Replay calibration audio through the exact same GuardianDetector used live.
+
+    The previous calibration simulator independently reimplemented the live
+    rules, which meant a calibration could pass while production behaved
+    differently.  Keeping the detector object in state also preserves
+    hysteresis and runout phase between sequential calibration recordings.
+    """
+    chunk_size = 2048
     chunks = len(data) // chunk_size
-    duration = chunks * chunk_size / RATE
-    
+
+    detector = state.get("_detector")
+    if detector is None:
+        detector = GuardianDetector(thresholds, rate=RATE, channels=1)
+
     current_power = state.get("current_power", "Off")
     current_status = state.get("current_status", "Powered Off")
-    
-    transitions = [{'time': 0.0, 'power': current_power, 'status': current_status, 'log': f"   -> 0.0s : [INITIAL] Power [{current_power}] | Status [{current_status}]"}]
-    
-    turntable_on = state.get("turntable_on", False)
-    power_max_score = int(RATE / chunk_size * 2.0)
-    power_score = state.get("power_score", 0)
-    
-    consecutive_music = state.get("consecutive_music", 0)
-    has_played_music = state.get("has_played_music", False)
-    last_music_time = state.get("last_music_time", -10.0)
-    last_rhythm_time = state.get("last_rhythm_time", -10.0)
-    pop_history = state.get("pop_history", [])
-    rhythm_locked = state.get("rhythm_locked", False)
-    
-    VALID_RPM_INTERVALS = [(1.20, 1.46), (1.65, 1.95), (2.45, 2.85), (3.35, 3.85)]
-    
+    transitions = [{
+        "time": 0.0,
+        "power": current_power,
+        "status": current_status,
+        "log": f"   -> 0.0s : [INITIAL] Power [{current_power}] | Status [{current_status}]"
+    }]
+
+    base_time = detector.last_now if detector.last_now is not None else 0.0
+
     for i in range(chunks):
-        chunk = data[i*chunk_size : (i+1)*chunk_size]
-        raw_rms = get_rms(chunk)
-        music_rms = get_music_rms(chunk)
-        hfer = get_hfer(chunk)
-        crest = get_crest(chunk)
-        max_val = np.max(np.abs(chunk))
-        time_sec = (i * chunk_size) / RATE
-        
-        continuous_silence = time_sec - last_music_time
-        recently_played = (0 <= continuous_silence <= 25.0) and (last_music_time > 0)
-        
-        if recently_played:
-            active_pop_amp = thresholds["pop_amplitude_threshold"] * 0.4
-            active_r_min = thresholds["rms_min"] / 1.4
-            active_h_max = 999.0
-            active_c_max = 999.0
-        else:
-            active_pop_amp = thresholds["pop_amplitude_threshold"]
-            active_r_min = thresholds["rms_min"]
-            active_h_max = thresholds["hfer_max"]
-            active_c_max = thresholds["crest_max"]
-            
-        is_dust_pop = False
-        if raw_rms > 0:
-            if (crest >= thresholds["runout_crest_threshold"] and 
-                max_val >= active_pop_amp and 
-                raw_rms <= thresholds["motor_power_ceiling"]):
-                is_dust_pop = True
-                
-        if has_played_music and (time_sec - last_music_time <= 5.0):
-            active_m_thresh = thresholds.get("music_hold_threshold", thresholds["music_threshold"] * 0.6)
-        else:
-            active_m_thresh = thresholds["music_threshold"]
+        chunk = data[i * chunk_size:(i + 1) * chunk_size]
+        local_time = (i + 1) * chunk_size / RATE
+        frame = detector.update_mono(chunk, base_time + local_time)
 
-        if music_rms > active_m_thresh and not is_dust_pop:
-            consecutive_music += 1
-        else:
-            consecutive_music = 0
-            
-        is_playing = (consecutive_music >= 3)
-        if is_playing: 
-            last_music_time = time_sec
-            has_played_music = True
-            rhythm_locked = False
-            continuous_silence = 0.0
+        p_state = "On" if frame["turntable_on"] else "Off"
+        s_state = frame["status"]
 
-        if is_dust_pop:
-            pop_history.append(time_sec)
-            if len(pop_history) > 15: pop_history.pop(0)
-            match_count = 0
-            for p in pop_history[:-1]:
-                delta = time_sec - p
-                for lo, hi in VALID_RPM_INTERVALS:
-                    if lo <= delta <= hi:
-                        match_count += 1
-                        break
-            
-            if match_count >= 2 and turntable_on:
-                rhythm_locked = True
-                last_rhythm_time = time_sec
-
-        if rhythm_locked and (time_sec - last_rhythm_time > 6.0): rhythm_locked = False
-
-        in_rms_win = active_r_min <= raw_rms <= thresholds["rms_max"]
-        in_hfer_win = thresholds["hfer_min"] <= hfer <= active_h_max
-        in_crest_win = thresholds["crest_min"] <= crest <= active_c_max
-        
-        motor_on_cond = (in_rms_win and in_hfer_win and in_crest_win)
-
-        if has_played_music or rhythm_locked: motor_on_cond = True
-
-        if motor_on_cond:
-            power_score = min(power_score + 1, power_max_score)
-            if power_score >= power_max_score: turntable_on = True
-        else:
-            power_score = max(power_score - 2, 0)
-            if power_score <= 0:
-                turntable_on, has_played_music, rhythm_locked = False, False, False
-
-        p_state = "On" if turntable_on else "Off"
-        if not turntable_on: 
-            s_state = "Powered Off"
-        elif is_playing: 
-            s_state = "Playing"
-        elif rhythm_locked: 
-            s_state = "Runout Groove"
-        elif has_played_music:
-            if continuous_silence <= 5.0: 
-                if current_status in ["Playing", "Between Tracks"]:
-                    s_state = "Between Tracks"
-                else:
-                    s_state = "Motor Idle"
-            else: 
-                s_state = "Motor Idle"
-                has_played_music = False
-        else: 
-            s_state = "Motor Idle"
-        
         if p_state != current_power or s_state != current_status:
-            transitions.append({'time': time_sec, 'power': p_state, 'status': s_state, 'log': f"   -> {time_sec:.1f}s : Power [{p_state}] | Status [{s_state}]"})
+            rhythm = ""
+            if frame["runout_locked"]:
+                rhythm = (
+                    f" | Rhythm [{frame['runout_rpm']} RPM, "
+                    f"{frame['runout_confidence']:.0%}, "
+                    f"{frame['runout_support']} hits]"
+                )
+            transitions.append({
+                "time": local_time,
+                "power": p_state,
+                "status": s_state,
+                "log": (
+                    f"   -> {local_time:.1f}s : Power [{p_state}] | "
+                    f"Status [{s_state}]{rhythm}"
+                )
+            })
             current_power, current_status = p_state, s_state
-            
+
     next_state = {
+        "_detector": detector,
         "current_power": current_power,
         "current_status": current_status,
-        "turntable_on": turntable_on,
-        "power_score": power_score,
-        "consecutive_music": consecutive_music,
-        "has_played_music": has_played_music,
-        "last_music_time": last_music_time - duration,
-        "last_rhythm_time": last_rhythm_time - duration,
-        "pop_history": [p - duration for p in pop_history],
-        "rhythm_locked": rhythm_locked
+        # Legacy keys are retained for report/debug compatibility.
+        "turntable_on": detector.turntable_on,
+        "power_score": int(round(detector.motor_confidence * 100.0)),
+        "consecutive_music": 1 if detector.music_active else 0,
+        "has_played_music": detector.has_played_music,
+        "last_music_time": detector.last_music_time,
+        "last_rhythm_time": detector.runout.last_candidate_time,
+        "pop_history": list(detector.runout.events),
+        "rhythm_locked": detector.runout.locked,
     }
-            
+
     return transitions, current_power, current_status, next_state
+
 
 def calculate_hardware_thresholds(files):
     print_log("\n" + "="*70)
-    print_log("🧠 THE GUARDIAN ENGINE CALIBRATION (V7.4: PRODUCTION CORE)")
+    print_log("🧠 THE GUARDIAN ENGINE CALIBRATION (V8: SHARED DETECTOR)")
     print_log("="*70)
     
     print_log("\n[STAGE 1: BASELINE NOISE]")
     floor_data = load_wav(files["floor"])
-    baseline_rms, _, _ = chunked_metrics(floor_data)
+    baseline_rms, baseline_hfer, baseline_crest = chunked_metrics(floor_data)
     baseline_median = float(np.median(baseline_rms))
     floor_max_amp = float(np.max(np.abs(floor_data)))
     print_log(f"   [EXTRACTED] Baseline Silence Median: {baseline_median:.6f}")
@@ -423,7 +380,7 @@ def calculate_hardware_thresholds(files):
 
     print_log("\n[STAGE 3: ROOM NOISE & DISTURBANCE]")
     disturb_data = load_wav(files["disturbance"])
-    d_rms, _, _ = chunked_metrics(disturb_data)
+    d_rms, d_hfer, d_crest = chunked_metrics(disturb_data)
     max_room_transient = float(np.max(d_rms))
     print_log(f"   [EXTRACTED] Max Ambient Transient: {max_room_transient:.6f}")
 
@@ -445,16 +402,48 @@ def calculate_hardware_thresholds(files):
     if music_hold_threshold >= (music_threshold * 0.85):
         music_hold_threshold = music_threshold * 0.60
 
+    # Explicitly labelled missed-music clips can teach calibration about
+    # unusually quiet records without globally lowering the threshold on a
+    # guess. Only chunks clearly above the baseline are considered.
+    missed_files = sorted(glob.glob(os.path.join(RECORDING_DIR, "missed_music_*.wav")))[-10:]
+    missed_music_values = []
+    for missed_file in missed_files:
+        try:
+            missed_data = load_wav(missed_file)
+            vals = chunked_music_rms(missed_data)
+            vals = vals[vals > (baseline_median * 1.20)]
+            if len(vals):
+                missed_music_values.extend(vals.tolist())
+        except Exception:
+            pass
+
+    if missed_music_values:
+        learned_music_floor = float(np.percentile(missed_music_values, 10))
+        learned_music_threshold = max(
+            baseline_median * 1.5,
+            learned_music_floor * 0.78,
+        )
+        if learned_music_threshold < music_threshold:
+            print_log(
+                f"   [LEARNED] Missed-music examples lower trigger "
+                f"{music_threshold:.6f} -> {learned_music_threshold:.6f}"
+            )
+            music_threshold = learned_music_threshold
+            music_hold_threshold = min(
+                music_hold_threshold,
+                max(baseline_median * 1.2, music_threshold * 0.60),
+            )
+
     print_log(f"   [EXTRACTED] Music Trigger Threshold: {music_threshold:.6f}")
     print_log(f"   [EXTRACTED] Music Hold Threshold:    {music_hold_threshold:.6f}")
     print_log(f"   [ANALYSIS] Threshold Gap: {(music_threshold - music_hold_threshold):.6f} (If < 0.001, room may be too noisy)")
     
     runout_chunk = trans_data[-int(20 * RATE):]
-    runout_chunks_n = len(runout_chunk) // 4096
+    runout_chunks_n = len(runout_chunk) // CHUNK
     runout_crests, runout_amps = [], []
 
     for i in range(runout_chunks_n):
-        chunk = runout_chunk[i*4096:(i+1)*4096]
+        chunk = runout_chunk[i*CHUNK:(i+1)*CHUNK]
         r = get_rms(chunk)
         if r > 0:
             m_val = np.max(np.abs(chunk))
@@ -473,7 +462,72 @@ def calculate_hardware_thresholds(files):
         pop_crest_threshold = 3.5
         pop_amplitude_threshold = floor_max_amp * 1.5
 
-    motor_power_ceiling = motor_median_rms * 4.0 
+    motor_power_ceiling = motor_median_rms * 4.0
+
+    # V8 learns broad class profiles as an additional source of evidence.
+    # These do not replace the safety windows above; they help distinguish
+    # motor-like audio from room noise that happens to land inside them.
+    def build_profile(rms_arr, hfer_arr, crest_arr):
+        def stat(arr, floor):
+            arr = np.asarray(arr, dtype=float)
+            arr = arr[np.isfinite(arr)]
+            if len(arr) == 0:
+                return {"median": 0.0, "scale": floor}
+            med = float(np.median(arr))
+            mad = float(np.median(np.abs(arr - med)))
+            scale = max(1.4826 * mad, abs(med) * 0.05, floor)
+            return {
+                "median": round(med, 8),
+                "scale": round(scale, 8),
+            }
+
+        return {
+            "rms": stat(rms_arr, 1e-6),
+            "hfer": stat(hfer_arr, 1e-4),
+            "crest": stat(crest_arr, 1e-3),
+        }
+
+    negative_rms = [np.asarray(d_rms)]
+    negative_hfer = [np.asarray(d_hfer)]
+    negative_crest = [np.asarray(d_crest)]
+
+    ghost_files = sorted(glob.glob(os.path.join(RECORDING_DIR, "ghost_trigger_*.wav")))[-10:]
+    labelled_off_files = [
+        wav_path
+        for wav_path, expectation, _label
+        in collect_labelled_event_clips(RECORDING_DIR)
+        if expectation == "off"
+    ][-10:]
+    negative_example_files = list(dict.fromkeys(ghost_files + labelled_off_files))
+
+    learned_ghost_chunks = 0
+    for ghost_file in negative_example_files:
+        try:
+            ghost_data = load_wav(ghost_file)
+            g_rms, g_hfer, g_crest = chunked_metrics(ghost_data)
+            mask = g_rms >= (rms_min * 0.60)
+            if np.any(mask):
+                negative_rms.append(g_rms[mask])
+                negative_hfer.append(g_hfer[mask])
+                negative_crest.append(g_crest[mask])
+                learned_ghost_chunks += int(np.sum(mask))
+        except Exception:
+            pass
+
+    motor_profile = build_profile(m_rms, m_hfer, m_crest)
+    negative_profile = build_profile(
+        np.concatenate(negative_rms),
+        np.concatenate(negative_hfer),
+        np.concatenate(negative_crest),
+    )
+
+    print_log("   [LEARNED] Robust motor profile added to detector.")
+    if learned_ghost_chunks:
+        print_log(
+            f"   [LEARNED] Included {learned_ghost_chunks} chunks from "
+            f"{len(negative_example_files)} historical false-positive/"
+            f"explicit-off recording(s)."
+        )
 
     thresholds = {
         "rms_min": round(rms_min, 6), "rms_max": round(rms_max, 6),
@@ -485,6 +539,9 @@ def calculate_hardware_thresholds(files):
         "motor_hfer_floor": round(hfer_min, 5),
         "music_threshold": round(music_threshold, 6),
         "music_hold_threshold": round(music_hold_threshold, 6),
+        "detector_version": 2,
+        "motor_profile": motor_profile,
+        "negative_profile": negative_profile,
         "runout_crest_threshold": round(pop_crest_threshold, 3),
         "pop_amplitude_threshold": round(pop_amplitude_threshold, 6),
         "max_room_transient": round(max_room_transient, 6)
@@ -615,7 +672,7 @@ def _run_calibration(session):
        \  /  | | | | | |_| | | | |__| | |_| | (_| | | | || | | (_| | | | |
         \/   |_|_| |_|\__, |_|  \____/ \__,_|\__,_|_| |_|__|_|\__,_|_| |_|
                        __/ |                                              
-                      |___/   CALIBRATION SUITE v7.4 (Production Core)                      
+                      |___/   CALIBRATION SUITE v8 (Shared Detector)                      
     """, flush=True)
     
     FILES = {
@@ -652,20 +709,176 @@ def _run_calibration(session):
                 existing = json.load(f)
             if "mic_volume" in existing:
                 thresholds["mic_volume"] = existing["mic_volume"]
-        except Exception: pass
-    
+        except Exception:
+            pass
+
+    print_log("\n" + "="*70)
+    print_log("🧪 CALIBRATION QUALITY ASSESSMENT")
+    print_log("="*70)
+    try:
+        quality = assess_calibration(FILES, thresholds)
+    except Exception as e:
+        quality = {
+            "status": "warning",
+            "warnings": [f"Quality assessment failed: {e}"],
+            "critical": [],
+        }
+
+    print_log(f"   Quality status: {quality.get('status', 'unknown').upper()}")
+    sep = quality.get("motor_off_separability_robust_z", {})
+    if sep:
+        print_log(
+            "   Motor/off separation (robust z): "
+            + ", ".join(f"{k}={v:.2f}" for k, v in sep.items())
+        )
+    if quality.get("music_floor_margin_db") is not None:
+        print_log(
+            f"   Quiet-music margin over floor: "
+            f"{quality.get('music_floor_margin_db', 0.0):.1f} dB"
+        )
+    input_info = quality.get("input_channels", {})
+    if input_info:
+        print_log(
+            f"   Input channel assessment: "
+            f"{input_info.get('mode', 'unknown')} "
+            f"(configured {input_info.get('configured_channels', CHANNELS)} ch)"
+        )
+    runout_info = quality.get("runout", {})
+    if runout_info:
+        print_log(
+            f"   Runout estimate: {runout_info.get('estimated_rpm_median')} RPM, "
+            f"phase jitter {runout_info.get('phase_jitter_ms_median')} ms"
+        )
+    for message in quality.get("warnings", []):
+        print_log(f"   ⚠️ {message}")
+    for message in quality.get("critical", []):
+        print_log(f"   ❌ {message}")
+
+    quality_path = os.path.join(SHARE_DIR, "calibration_quality.json")
+    try:
+        with open(quality_path, "w") as f:
+            json.dump(quality, f, indent=2)
+    except Exception:
+        pass
+
+    baseline_thresholds = {}
+    if os.path.exists(AUTO_CALIB_FILE):
+        try:
+            with open(AUTO_CALIB_FILE, "r") as f:
+                baseline_thresholds = json.load(f)
+        except Exception:
+            baseline_thresholds = {}
+
+    print_log("\n" + "="*70)
+    print_log("🧬 HISTORICAL REGRESSION GATE")
+    print_log("="*70)
+    try:
+        regression = compare_profiles(
+            thresholds,
+            baseline_thresholds,
+            RECORDING_DIR,
+            calibration_files=FILES,
+        )
+    except Exception as e:
+        regression = {
+            "can_compare": False,
+            "accepted": True,
+            "reason": f"Regression suite could not run: {e}",
+            "candidate": {},
+            "baseline": None,
+        }
+
+    print_log(f"   {regression.get('reason', 'No regression result.')}")
+    candidate_reg = regression.get("candidate") or {}
+    if candidate_reg:
+        print_log(
+            f"   Candidate: {candidate_reg.get('fixture_count', 0)} fixtures, "
+            f"penalty {candidate_reg.get('total_penalty', 0.0):.2f}, "
+            f"severe failures {candidate_reg.get('severe_failures', 0)}"
+        )
+    baseline_reg = regression.get("baseline") or {}
+    if baseline_reg:
+        print_log(
+            f"   Current:   {baseline_reg.get('fixture_count', 0)} fixtures, "
+            f"penalty {baseline_reg.get('total_penalty', 0.0):.2f}, "
+            f"severe failures {baseline_reg.get('severe_failures', 0)}"
+        )
+
+    regression_path = os.path.join(SHARE_DIR, "regression_report.json")
+    try:
+        save_regression_report(regression_path, regression)
+    except Exception:
+        pass
+
+    # Never replace a working profile with a regression or critically weak
+    # candidate. On a first-ever calibration there is no profile to preserve,
+    # so the candidate is promoted but the quality warning remains visible.
+    has_previous_profile = bool(baseline_thresholds)
+    quality_safe = quality.get("status") != "weak"
+    promote = bool(regression.get("accepted", True)) and (
+        quality_safe or not has_previous_profile
+    )
+
     freeze_for_save()
-    with open(AUTO_CALIB_FILE, 'w') as f: json.dump(thresholds, f, indent=4)
-    with open("config.json", 'w') as f: json.dump(thresholds, f, indent=4)
-    with open(REPORT_FILE, 'w') as f: f.write("\n".join(report_log))
+    profile_manager = ProfileManager(SHARE_DIR, AUTO_CALIB_FILE)
+    metadata = {
+        "calibration_files": {
+            key: os.path.basename(path) for key, path in FILES.items()
+        },
+        "reuse_calibration_audio": bool(use_existing),
+        "mic_volume": thresholds.get("mic_volume"),
+        "audio_source": os.environ.get("PULSE_SOURCE") or "@DEFAULT_SOURCE@",
+        "detector_version": thresholds.get("detector_version"),
+    }
+
+    try:
+        saved_profile = profile_manager.save_candidate(
+            thresholds,
+            metadata=metadata,
+            quality=quality,
+            regression=regression,
+            accepted=promote,
+        )
+        profile_id = saved_profile.get("profile_id")
+    except Exception as e:
+        saved_profile = None
+        profile_id = None
+        print_log(f"   ⚠️ Could not version detector profile: {e}")
+        if promote:
+            with open(AUTO_CALIB_FILE, "w") as f:
+                json.dump(thresholds, f, indent=4)
+
+    active_for_local = thresholds if promote else baseline_thresholds
+    if active_for_local:
+        with open("config.json", "w") as f:
+            json.dump(active_for_local, f, indent=4)
+
+    with open(REPORT_FILE, "w") as f:
+        f.write("\n".join(report_log))
     
-    print_log("\n🎉 CALIBRATION COMPLETE 🎉")
+    if promote:
+        print_log("\n🎉 CALIBRATION COMPLETE — PROFILE PROMOTED 🎉")
+        if profile_id:
+            print_log(f"   Active profile: {profile_id}")
+    else:
+        print_log("\n🛡️ CALIBRATION COMPLETE — EXISTING PROFILE RETAINED")
+        if profile_id:
+            print_log(f"   Candidate saved for analysis: {profile_id}")
+        print_log(
+            "   The candidate did not clear the quality/regression gate, so "
+            "the previous active detector remains untouched."
+        )
+
     for key, value in thresholds.items():
-        print_log(f"   - {key}: {value}")
+        print_log(f"   - candidate {key}: {value}")
+
+    # Rewrite once more so the final promotion verdict is included.
+    with open(REPORT_FILE, "w") as f:
+        f.write("\n".join(report_log))
         
     print("\n📄 A copy of this report was saved to: " + REPORT_FILE, flush=True)
     print("🔄 Please disable CALIBRATION_MODE in your config and RESTART the Add-on.", flush=True)
-    set_status('Calibration finished. Disable calibration_mode and restart. See logs for the report.', phase='complete')
+    set_status('Calibration finished. Disable calibration_mode and restart. See logs for the profile verdict.', phase='complete')
     wait_for_navigation()
 
 
