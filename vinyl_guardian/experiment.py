@@ -581,8 +581,9 @@ class ExperimentHarness:
             return self.current_manual_label
         if self.session_label in {"known_off", "off", "turntable_off", "known-off"}:
             return "actually_off"
-        if self.session_label in {"album_playback", "playing", "music"}:
-            return "playing"
+        # Broad album sessions contain track gaps, runout and needle lifts, so
+        # they are valuable analysis labels but are deliberately NOT treated
+        # as frame-level ground truth for adaptive learning.
         return None
 
     def manual_label(self, label, now=None):
