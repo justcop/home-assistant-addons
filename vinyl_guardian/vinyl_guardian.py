@@ -537,7 +537,11 @@ def publish_audio_source_state():
             json.dumps(status),
             retain=True,
         )
-        selection_state = source or SYSTEM_DEFAULT_OPTION
+        selection_state = (
+            SYSTEM_DEFAULT_OPTION
+            if status.get("follow_system_default")
+            else (source or SYSTEM_DEFAULT_OPTION)
+        )
         if selection_state not in audio_source_manager.selectable_options():
             selection_state = SYSTEM_DEFAULT_OPTION
         mqtt_client.publish(
