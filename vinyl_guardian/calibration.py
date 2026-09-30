@@ -14,6 +14,8 @@ import glob
 warnings.filterwarnings('ignore')
 
 from config import SHARE_DIR, RECORDING_DIR, AUTO_CALIB_FILE, RATE, CHANNELS, CHUNK
+from calibration_control import wait_for_confirmation, set_status
+from calibration_capture import capture_bytes
 from audio_math import RUNOUT_RPM_INTERVALS
 
 # --- HOME ASSISTANT OPTION LOADING ---
@@ -114,29 +116,19 @@ def chunked_hfer(data, chunk_size=4096):
 
 # --- ALSA RECORDING ENGINE ---
 def record_chunk(duration):
-    try:
-        inp = alsaaudio.PCM(type=alsaaudio.PCM_CAPTURE, mode=alsaaudio.PCM_NORMAL, device='default', channels=CHANNELS, rate=RATE, format=FORMAT, periodsize=CHUNK)
-    except Exception as e:
-        print_log(f"🚨 ALSA Error: Could not open microphone -> {e}")
-        return bytearray(), np.array([])
-
-    frames_to_record = int(RATE * duration)
-    frames_recorded = 0
-    raw_audio = bytearray()
-    
-    while frames_recorded < frames_to_record:
-        length, data = inp.read()
-        if length > 0:
-            raw_audio.extend(data)
-            frames_recorded += length
-            
-    inp.close()
+    raw_audio = capture_bytes(
+        lambda: alsaaudio.PCM(type=alsaaudio.PCM_CAPTURE, mode=alsaaudio.PCM_NORMAL,
+                             device='default', channels=CHANNELS, rate=RATE,
+                             format=FORMAT, periodsize=CHUNK),
+        duration, RATE, CHANNELS,
+    )
     audio_data = np.frombuffer(raw_audio, dtype=np.int16).astype(np.float32) / 32768.0
     return raw_audio, audio_data
 
 def record_segmented_file(filename, action_dur, settle_dur, steady_dur, prompt):
     print_log(f"\n" + "-"*50)
     print_log(f"{prompt}")
+    wait_for_confirmation(prompt, print_log)
     
     raw_bytes = bytearray()
     
@@ -166,6 +158,7 @@ def record_dynamic_transition(filename):
     print_log("[FILE 3/6: THE MASTER TRANSITION]\n🎶 ACTION: Drop needle on the LAST TRACK now.")
     print_log("〰️  The system will listen live for the track to end, wait for the runout groove, and capture the rumble.")
     
+    wait_for_confirmation("Prepare the last track of a record side. Press Continue, then lower the needle during the 25-second action window.", print_log)
     raw_bytes = bytearray()
     
     print_log(f"🎬 ACTION WINDOW (25s): Drop the needle NOW!")
@@ -223,6 +216,7 @@ def gain_staging():
     print_log("🔊 ACTION: Find the LOUDEST record you own and drop the needle NOW.")
     print_log("   Searching for 1% precision sweet spot...")
     
+    wait_for_confirmation("Play a loud record for input gain calibration.", print_log)
     current_vol = 50
     step = 16 
     last_direction = 0 
@@ -232,9 +226,13 @@ def gain_staging():
     
     while True:
         _, audio_data = record_chunk(3.0)
-        if len(audio_data) == 0: return current_vol
+        if len(audio_data) == 0: raise RuntimeError("No calibration audio captured")
         peak = np.max(np.abs(audio_data))
         
+        if peak < 0.50 and current_vol == 100:
+            raise RuntimeError("Input remains too quiet at maximum gain. Check the audio input and play a loud record.")
+        if peak > 0.80 and current_vol == 1:
+            raise RuntimeError("Input is too loud at minimum gain. Reduce the physical input level.")
         if peak > 0.80:
             if last_direction == 1: step = max(1, step // 2)
             last_direction = -1
@@ -666,6 +664,7 @@ def run_calibration():
     else:
         if all(os.path.exists(f) for f in FILES.values()):
             print_log("\n📁 REUSE_CALIBRATION_AUDIO is ON. Reusing existing recordings.")
+            wait_for_confirmation("Reuse saved calibration audio: no new recording steps will run. Disable reuse_calibration_audio and restart for a fresh calibration.", print_log)
             use_existing = True
         else:
             print_log("\n⚠️  REUSE_CALIBRATION_AUDIO is ON, but files are missing. Starting fresh recordings...")
@@ -674,12 +673,12 @@ def run_calibration():
             
     if not use_existing:
         final_mic_vol = gain_staging()
-        record_segmented_file(FILES["floor"], 0, 0, 30, "[FILE 1/6: THE BASELINE]")
-        record_segmented_file(FILES["spinup"], 10, 10, 15, "[FILE 2/6: THE MOTOR HUM]")
+        record_segmented_file(FILES["floor"], 0, 0, 30, "[FILE 1/6] Switch the turntable OFF and keep the room quiet.")
+        record_segmented_file(FILES["spinup"], 10, 10, 15, "[FILE 2/6] Keep the needle raised. After Continue, switch the motor ON during the action window.")
         record_dynamic_transition(FILES["transition"])
-        record_segmented_file(FILES["lift"], 10, 5, 15, "[FILE 4/6: THE PHYSICAL THUMP]")
-        record_segmented_file(FILES["powerdown"], 10, 10, 15, "[FILE 5/6: THE ELECTRICAL POP]")
-        record_segmented_file(FILES["disturbance"], 0, 0, 30, "[FILE 6/6: ROOM NOISE]")
+        record_segmented_file(FILES["lift"], 10, 5, 15, "[FILE 4/6] Leave the motor running in runout. After Continue, lift the needle during the action window.")
+        record_segmented_file(FILES["powerdown"], 10, 10, 15, "[FILE 5/6] Keep the needle raised and motor running. After Continue, turn the motor OFF during the action window.")
+        record_segmented_file(FILES["disturbance"], 0, 0, 30, "[FILE 6/6] Turntable OFF. Make realistic room disturbances while this step records.")
 
     thresholds = calculate_hardware_thresholds(FILES)
     analyze_ghost_triggers(thresholds)
@@ -704,6 +703,7 @@ def run_calibration():
         
     print("\n📄 A copy of this report was saved to: " + REPORT_FILE, flush=True)
     print("🔄 Please disable CALIBRATION_MODE in your config and RESTART the Add-on.", flush=True)
+    set_status('Calibration finished. Disable calibration_mode and restart. See logs for the report.')
     while True: time.sleep(3600)
 
 if __name__ == "__main__":

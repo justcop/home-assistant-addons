@@ -1,3 +1,4 @@
+import calibration_control
 import sys
 import os
 import glob
@@ -79,6 +80,10 @@ if MQTT_USER and MQTT_PASS:
 
 def on_message(client, userdata, msg):
     global debug_countdown, debug_metrics_buffer
+    if msg.topic == "vinyl_guardian/calibration/continue":
+        if not msg.retain:
+            calibration_control.confirm()
+        return
     if msg.topic == "vinyl_guardian/debug/trigger":
         target_chunks = int(RATE / CHUNK * 10.0) 
         log(f"🐞 Live Debug Triggered! Capturing 10 seconds ({target_chunks} chunks) of motor profile...")
@@ -86,8 +91,11 @@ def on_message(client, userdata, msg):
         debug_countdown = target_chunks
 
 def publish_discovery():
+    mqtt_client.subscribe("vinyl_guardian/calibration/continue")
     log("Publishing MQTT Auto-Discovery payloads...")
     device_info = {"identifiers": ["vinyl_guardian_01"], "name": "Vinyl Guardian", "manufacturer": "Custom Add-on"}
+    mqtt_client.publish("homeassistant/button/vinyl_guardian/calibration_continue/config", json.dumps({"name": "Continue Calibration", "unique_id": "vinyl_guardian_calibration_continue", "command_topic": "vinyl_guardian/calibration/continue", "device": device_info, "icon": "mdi:play"}), retain=True)
+    mqtt_client.publish("homeassistant/sensor/vinyl_guardian/calibration_step/config", json.dumps({"name": "Calibration Instructions", "unique_id": "vinyl_guardian_calibration_step", "state_topic": "vinyl_guardian/calibration/step", "json_attributes_topic": "vinyl_guardian/calibration/details", "device": device_info, "icon": "mdi:clipboard-list"}), retain=True)
     deprecated_sensors = ["music_rms", "rumble_rms", "scrobble", "scrobble_countdown", "scrobble_state"]
     for old_sensor in deprecated_sensors:
         mqtt_client.publish(f"homeassistant/sensor/vinyl_guardian/{old_sensor}/config", "", retain=True)
@@ -647,9 +655,20 @@ def listen_and_identify():
             elif current_state == "COOLDOWN" and now >= cooldown_end:
                 with state_lock: app_state = "IDLE"
 
+def publish_calibration_status(message):
+    mqtt_client.publish("vinyl_guardian/calibration/step", message[:250], retain=True)
+    mqtt_client.publish("vinyl_guardian/calibration/details", json.dumps({"instruction": message}), retain=True)
+
+
 if __name__ == "__main__":
     connect_mqtt()
-    if CALIBRATION_MODE: run_calibration()
+    calibration_control.configure(publish_calibration_status)
+    if CALIBRATION_MODE:
+        try:
+            run_calibration()
+        except Exception as exc:
+            calibration_control.set_status(f"Calibration stopped: {exc}")
+            raise
     else:
         files_to_clean = [os.path.join(RECORDING_DIR, "vinyl_debug.wav"), os.path.join(RECORDING_DIR, "process.wav")]
         for f in files_to_clean:
