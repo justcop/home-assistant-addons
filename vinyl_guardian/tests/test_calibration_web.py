@@ -95,6 +95,29 @@ class CalibrationWebTests(unittest.TestCase):
             self.assertEqual(state['phase'], phase)
             self.assertFalse(state['waiting'])
 
+    def test_repeat_endpoint_requires_current_step_and_interrupts_wait(self):
+        control.set_stage(2, 'Motor startup')
+        received = []
+        ready = threading.Event()
+        def wait():
+            try:
+                control.wait_for_confirmation('Prepare', lambda _: ready.set())
+            except control.CalibrationNavigation as request:
+                received.append(request.stage)
+        worker = threading.Thread(target=wait, daemon=True); worker.start()
+        self.assertTrue(ready.wait(1))
+        step = self.request('/api/state')['step_id']
+        with self.assertRaises(HTTPError) as error:
+            self.request('/api/repeat', {'step_id': step, 'stage': 5})
+        self.assertEqual(error.exception.code, 409)
+        state = self.request('/api/repeat', {'step_id': step, 'stage': 1})
+        self.assertEqual(state['phase'], 'changing')
+        with self.assertRaises(HTTPError) as error:
+            self.request('/api/restart', {'step_id': step})
+        self.assertEqual(error.exception.code, 409)
+        worker.join(1)
+        self.assertEqual(received, [1])
+
     def test_production_server_denies_non_ingress_peers(self):
         server = make_server('127.0.0.1', 0)
         thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
