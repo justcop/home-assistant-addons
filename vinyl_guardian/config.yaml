@@ -1,14 +1,14 @@
 name: "Vinyl Guardian"
 description: "Detects needle drops, IDs vinyl records, and natively scrobbles to Last.fm."
-version: "4.40.0"
+version: "4.42.0"
 slug: "vinyl_guardian"
 init: false
 arch:
-  - aarch64
-  - amd64
-  - armhf
-  - armv7
-  - i386
+- "aarch64"
+- "amd64"
+- "armhf"
+- "armv7"
+- "i386"
 startup: "application"
 boot: "auto"
 options:
@@ -47,6 +47,11 @@ options:
     consecutive_failure_timeout: 1800
     fallback_sleep_secs: 60
     reuse_calibration_audio: false
+  acoustid_key: ""
+  audio_threshold: 0.015
+  debug_one_shot: true
+  mic_volume: 10
+  record_diagnostic_sample: false
 schema:
   code_branch: "list(main|codex/fix-docker-build-failure-for-vinyl_guardian|codex/fix-dockerfile-package-installation-error|codex/fix-dockerfile-package-installation-error-oj0rjv|codex/fix-dockerfile-package-installation-error-rl9vwb|codex/fix-issues-in-vinyl_guardian-add-on|codex/fix-issues-in-vinyl_guardian-add-on-luf2ij|justcop-patch-1|justcop-patch-2|justcop-patch-3|vinyl-guardian-detection-v2)"
   lastfm_username: "str?"
@@ -83,6 +88,11 @@ schema:
     consecutive_failure_timeout: "int"
     fallback_sleep_secs: "int"
     reuse_calibration_audio: "bool"
+  acoustid_key: "str"
+  audio_threshold: "float"
+  debug_one_shot: "bool"
+  mic_volume: "int"
+  record_diagnostic_sample: "bool"
 map:
-  - share:rw
+- "share:rw"
 audio: true
