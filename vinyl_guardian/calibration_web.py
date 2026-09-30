@@ -10,7 +10,7 @@ PAGE = r'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Vinyl Guardian calibration</title>
 <style>
 :root{color-scheme:light dark;--bg:#111820;--card:#1c2632;--text:#f1f5fa;--muted:#bdc9d7;--accent:#8bdbbd;--border:#354557}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px system-ui,sans-serif}main{max-width:1160px;margin:auto;padding:24px}header{margin-bottom:22px}h1{font-size:28px;margin:0 0 8px}h2{font-size:20px;margin:0 0 14px}p{line-height:1.6}.muted{color:var(--muted)}.layout{display:grid;grid-template-columns:minmax(280px,1fr) minmax(320px,1.4fr);gap:20px}.card{border:1px solid var(--border);border-radius:16px;background:var(--card);padding:22px}.badge{display:inline-block;background:#304356;color:var(--text);padding:5px 10px;border-radius:20px;margin-bottom:16px}#instruction{font-size:19px;margin:0 0 22px;white-space:pre-wrap}button{border:0;border-radius:10px;background:var(--accent);color:#102a20;font-size:18px;font-weight:700;padding:14px 20px;cursor:pointer;width:100%}button:disabled{background:#354557;color:var(--muted);cursor:default}button:focus-visible{outline:3px solid white;outline-offset:4px}#connection{min-height:1.5em;color:#ffd091}#steps{padding:0;list-style:none;margin:20px 0 0}#steps li{padding:6px 0;color:var(--muted)}#steps li.current{color:var(--accent);font-weight:700}#steps li.done{color:var(--text)}#logs{font:13px/1.65 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere;overflow:auto;height:58vh;min-height:250px;margin:0}label{display:flex;gap:8px;margin-bottom:14px;color:var(--muted)}.retry{border-top:1px solid var(--border);padding-top:16px;margin-top:16px}.retry label{display:block}.retry select{width:100%;font:inherit;padding:10px;border-radius:8px;background:var(--bg);color:var(--text);border:1px solid var(--border);margin-bottom:10px}.retry button{font-size:15px;margin-bottom:10px;background:#304356;color:var(--text)}.help{font-size:14px;margin-bottom:0}@media(max-width:760px){main{padding:16px}.layout{grid-template-columns:1fr}.card{padding:18px}#logs{height:38vh}h1{font-size:24px}}
-</style></head><body><main><header><h1>🎵 Vinyl Guardian calibration</h1><div class="muted">Prepare each step, then press Continue. Instructions and live calibration logs stay together.</div></header><div class="layout"><section class="card"><div id="phase" class="badge">Connecting…</div><h2 id="stage">Calibration</h2><p id="instruction" aria-live="polite">Loading the current calibration step…</p><button id="continue" disabled>Continue</button><div id="connection" role="status" aria-live="polite"></div><div class="retry"><label for="repeat-stage">Step to repeat</label><select id="repeat-stage" disabled aria-label="Step to repeat"></select><button id="repeat" disabled>Repeat selected step</button><button id="restart" disabled>Restart calibration</button><p class="muted help">Repeating stops the current recording and returns to preparation for the selected step. That step and all later recordings are replaced. Restart begins again from Input gain. Your active profile stays in place until a new result is saved.</p></div><ol id="steps"></ol><p class="muted help">For fresh recordings, turn Reuse calibration audio off. When finished, disable calibration_mode and restart the app. You can leave this screen open throughout calibration.</p></section><section class="card"><h2>Live calibration log</h2><label><input type="checkbox" id="follow" checked> Follow new messages</label><pre id="logs" tabindex="0" aria-label="Live calibration log">Waiting for calibration messages…</pre></section></div></main>
+</style></head><body><main><header><h1>🎵 Vinyl Guardian calibration</h1><div class="muted">Prepare each step, then press Continue. Instructions and live calibration logs stay together.</div></header><div class="layout"><section class="card"><div id="phase" class="badge">Connecting…</div><h2 id="stage">Calibration</h2><p id="instruction" aria-live="polite">Loading the current calibration step…</p><button id="continue" disabled>Continue</button><div id="connection" role="status" aria-live="polite"></div><div class="retry"><label for="repeat-stage">Step to repeat</label><select id="repeat-stage" disabled aria-label="Step to repeat"></select><button id="repeat" disabled>Repeat selected step</button><button id="restart" disabled>Restart calibration</button><p class="muted help">Repeating stops the current recording and returns to preparation for the selected step. That step and all later recordings are replaced. Restart begins again from Input gain. Your active profile stays in place until a new result is saved.</p></div><ol id="steps"></ol><p class="muted help">For fresh recordings, turn Reuse calibration audio off. When finished, disable calibration_mode and restart the app. You can leave this screen open throughout calibration.</p></section><section class="card"><h2>Live calibration log</h2><p><a href="api/measurements" download>Download calibration measurements</a><br><span class="muted help">Download when recordings or analysis have finished. Includes replayable measurements and detector reports.</span></p><label><input type="checkbox" id="follow" checked> Follow new messages</label><pre id="logs" tabindex="0" aria-label="Live calibration log">Waiting for calibration messages…</pre></section></div></main>
 <script>
 const button=document.getElementById('continue'),connection=document.getElementById('connection');
 const labels=['Input gain','Quiet baseline','Motor startup','Music to runout','Needle lift','Motor shutdown','Room disturbances'];
@@ -27,7 +27,7 @@ poll();
 </script></body></html>'''
 
 
-def make_server(host='0.0.0.0', port=8099, allowed_peer='172.30.32.2'):
+def make_server(host='0.0.0.0', port=8099, allowed_peer='172.30.32.2', exporter=None):
     token = secrets.token_urlsafe(32)
     page = PAGE.replace('__TOKEN__', token).encode()
 
@@ -35,11 +35,13 @@ def make_server(host='0.0.0.0', port=8099, allowed_peer='172.30.32.2'):
         def log_message(self, *args):
             pass
 
-        def send(self, status, body, content_type='application/json'):
+        def send(self, status, body, content_type='application/json', filename=None):
             if not isinstance(body, bytes):
                 body = json.dumps(body).encode()
             self.send_response(status)
             self.send_header('Content-Type', content_type)
+            if filename:
+                self.send_header('Content-Disposition', f'attachment; filename="{filename}"')
             self.send_header('Cache-Control', 'no-store')
             self.send_header('X-Content-Type-Options', 'nosniff')
             self.send_header('Content-Length', str(len(body)))
@@ -61,6 +63,16 @@ def make_server(host='0.0.0.0', port=8099, allowed_peer='172.30.32.2'):
             path = urlsplit(self.path).path
             if path == '/':
                 self.send(200, page, 'text/html; charset=utf-8')
+            elif path == '/api/measurements':
+                if control.snapshot()['phase'] in ('recording', 'changing', 'saving', 'starting'):
+                    self.send(409, {'error': 'Wait for recording or analysis to finish.'})
+                elif exporter is None:
+                    self.send(404, {'error': 'Measurements are unavailable.'})
+                else:
+                    try:
+                        self.send(200, exporter(), 'application/zip', 'vinyl-guardian-measurements.zip')
+                    except (OSError, ValueError) as error:
+                        self.send(409, {'error': str(error)})
             elif path == '/api/state':
                 self.send(200, self.state())
             else:
@@ -99,6 +111,9 @@ def make_server(host='0.0.0.0', port=8099, allowed_peer='172.30.32.2'):
 
 
 def start_server():
-    server = make_server()
+    import os
+    from config import SHARE_DIR, RECORDING_DIR
+    from calibration_measurements import export_measurements
+    server = make_server(exporter=lambda: export_measurements(os.path.join(RECORDING_DIR, 'calibration_data'), SHARE_DIR))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server

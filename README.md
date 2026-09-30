@@ -27,3 +27,10 @@ Vinyl Guardian is a custom Home Assistant Add-on that bridges the gap between yo
 ## ⚙️ Configuration
 
 Before starting the Add-on, configure your settings in the UI.
+### Reanalysing calibration recordings
+
+Set **Calibration record speed** to the physical speed of the recorded side (33⅓ RPM by default, or 45 RPM). Both speeds remain supported during normal listening. A calibration rhythm at the wrong speed fails the quality gate.
+
+To analyse existing captures after an update, enable **Reuse calibration audio** and **Calibration mode**, restart, and follow Continue in **Open Web UI** through reuse and the analysis review. The recordings keep their original input gain, including recordings from a rejected candidate. The detector learns separate quiet, shutdown and disturbance profiles; it must distinguish motor evidence from each off class. An existing profile is retained if the candidate fails quality or regression checks.
+
+Use **Download calibration measurements** on the calibration screen after capture or analysis finishes. The ZIP includes per-chunk features, recording checksums, profiles and reports, without raw audio or app options. These measurements can replay the live detector exactly, so a failed calibration can be investigated without recording the same stages again.

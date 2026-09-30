@@ -1,6 +1,6 @@
 name: Vinyl Guardian
 description: Detects needle drops, IDs vinyl records, and natively scrobbles to Last.fm.
-version: "5.0.0"
+version: 5.0.0
 slug: vinyl_guardian
 init: false
 arch:
@@ -47,6 +47,7 @@ options:
     consecutive_failure_timeout: 1800
     fallback_sleep_secs: 60
     reuse_calibration_audio: false
+  calibration_record_rpm: 33⅓
 schema:
   recording_directory: str
   lastfm_username: str?
@@ -83,6 +84,7 @@ schema:
     consecutive_failure_timeout: int
     fallback_sleep_secs: int
     reuse_calibration_audio: bool
+  calibration_record_rpm: list(33⅓|45)
 map:
 - share:rw
 - media:rw

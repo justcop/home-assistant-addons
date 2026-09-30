@@ -13,10 +13,11 @@ import glob
 # Suppress numpy warnings for clean output
 warnings.filterwarnings('ignore')
 
-from config import MIC_VOLUME, SHARE_DIR, RECORDING_DIR, AUTO_CALIB_FILE, RATE, CHANNELS, CHUNK
+from config import config, MIC_VOLUME, SHARE_DIR, RECORDING_DIR, AUTO_CALIB_FILE, RATE, CHANNELS, CHUNK
 from calibration_control import wait_for_confirmation, set_status, set_stage, append_log, checkpoint, pause, freeze_for_save, wait_for_navigation, CalibrationNavigation
 from calibration_capture import capture_bytes
 from calibration_session import CalibrationSession
+from calibration_measurements import capture_gain, save_capture_gain
 from gain_search import find_input_gain
 from audio_math import RUNOUT_RPM_INTERVALS
 from detector import GuardianDetector, pcm16_to_mono
@@ -487,6 +488,14 @@ def calculate_hardware_thresholds(files):
             "crest": stat(crest_arr, 1e-3),
         }
 
+    off_profiles = [
+        {"name": "quiet_floor", "profile": build_profile(baseline_rms, baseline_hfer, baseline_crest)},
+        {"name": "room_disturbance", "profile": build_profile(d_rms, d_hfer, d_crest)},
+    ]
+    powerdown_data = load_wav(files["powerdown"])
+    off_rms, off_hfer, off_crest = chunked_metrics(powerdown_data[20 * RATE:])
+    if len(off_rms):
+        off_profiles.append({"name": "power_off", "profile": build_profile(off_rms, off_hfer, off_crest)})
     negative_rms = [np.asarray(d_rms)]
     negative_hfer = [np.asarray(d_hfer)]
     negative_crest = [np.asarray(d_crest)]
@@ -507,6 +516,8 @@ def calculate_hardware_thresholds(files):
             g_rms, g_hfer, g_crest = chunked_metrics(ghost_data)
             mask = g_rms >= (rms_min * 0.60)
             if np.any(mask):
+                off_profiles.append({"name": os.path.basename(ghost_file),
+                                     "profile": build_profile(g_rms[mask], g_hfer[mask], g_crest[mask])})
                 negative_rms.append(g_rms[mask])
                 negative_hfer.append(g_hfer[mask])
                 negative_crest.append(g_crest[mask])
@@ -539,7 +550,9 @@ def calculate_hardware_thresholds(files):
         "motor_hfer_floor": round(hfer_min, 5),
         "music_threshold": round(music_threshold, 6),
         "music_hold_threshold": round(music_hold_threshold, 6),
-        "detector_version": 2,
+        "detector_version": 3,
+        "motor_negative_profiles": off_profiles,
+        "calibration_expected_runout_rpm": config.get("calibration_record_rpm", "33⅓"),
         "motor_profile": motor_profile,
         "negative_profile": negative_profile,
         "runout_crest_threshold": round(pop_crest_threshold, 3),
@@ -578,7 +591,7 @@ def calculate_hardware_thresholds(files):
     trans, end_p, end_s, sim_state = simulate_timeline(floor_data, thresholds, sim_state)
     for t in trans: print_log(t['log'])
     passed = (end_p == "Off" and end_s == "Powered Off" and len(trans) == 1)
-    print_log("   ✅ PASS" if passed else "   ❌ FAIL — The silence floor is too high.")
+    print_log("   ✅ PASS" if passed else "   ❌ FAIL — The off recording produced false power evidence.")
 
     print_log(f"\n⚙️  [TEST 2: MOTOR HUM]")
     print_log(f"   Expected Flow: Off -> User turns motor ON -> On / Motor Idle")
@@ -591,7 +604,10 @@ def calculate_hardware_thresholds(files):
     print_log(f"   Expected Flow: Motor Idle -> Playing -> Between Tracks -> Motor Idle -> Runout Groove")
     trans, end_p, end_s, sim_state = simulate_timeline(trans_data, thresholds, sim_state)
     for t in trans: print_log(t['log'])
-    passed = (end_p == "On" and end_s == "Runout Groove" and states_in_order(trans, "Playing", "Between Tracks", "Motor Idle", "Runout Groove"))
+    expected_rpm = thresholds["calibration_expected_runout_rpm"]
+    observed_rpm = sim_state["_detector"].runout.rpm_label
+    print_log(f"   Expected runout: {expected_rpm} RPM; observed: {observed_rpm} RPM")
+    passed = (observed_rpm == expected_rpm and end_p == "On" and end_s == "Runout Groove" and states_in_order(trans, "Playing", "Between Tracks", "Motor Idle", "Runout Groove"))
     print_log("   ✅ PASS" if passed else "   ❌ FAIL — Engine lost track of music or failed rhythm lock.")
 
     lift_data = load_wav(files["lift"])
@@ -609,14 +625,14 @@ def calculate_hardware_thresholds(files):
     trans, end_p, end_s, sim_state = simulate_timeline(powerdown_data, thresholds, sim_state)
     for t in trans: print_log(t['log'])
     passed = (end_p == "Off" and end_s == "Powered Off" and not any_bad_status(trans, "Playing", "Runout Groove", "Between Tracks"))
-    print_log("   ✅ PASS" if passed else "   ❌ FAIL — Electrical pop triggered false states.")
+    print_log("   ✅ PASS" if passed else "   ❌ FAIL — Detector did not settle to Powered Off, or reported music/runout during shutdown.")
 
     print_log("\n🗣️  [TEST 6: ROOM NOISE]")
     print_log("   Expected Flow: Off -> User talks/taps -> Stays Off")
     trans, end_p, end_s, sim_state = simulate_timeline(disturb_data, thresholds, sim_state)
     for t in trans: print_log(t['log'])
     passed = (end_p == "Off" and end_s == "Powered Off" and len(trans) == 1)
-    print_log("   ✅ PASS" if passed else "   ❌ FAIL — Acoustic shield breached by transients.")
+    print_log("   ✅ PASS" if passed else "   ❌ FAIL — False power state persisted or was triggered during room disturbance.")
 
     return thresholds
 
@@ -684,7 +700,8 @@ def _run_calibration(session):
         "disturbance": os.path.join(CALIB_DIR, "calib_disturbance.wav")
     }
 
-    session.prepare(CALIB_DIR, FILES, REUSE_CALIB_OPT, MIC_VOLUME)
+    recording_gain = capture_gain(CALIB_DIR, SHARE_DIR) if REUSE_CALIB_OPT else None
+    session.prepare(CALIB_DIR, FILES, REUSE_CALIB_OPT, recording_gain if REUSE_CALIB_OPT else MIC_VOLUME)
     use_existing = session.use_existing
     final_mic_vol = session.record([
         gain_staging,
@@ -696,6 +713,9 @@ def _run_calibration(session):
         lambda: record_segmented_file(FILES["disturbance"], 0, 0, 30, "[FILE 6/6] Turntable OFF. Make realistic room disturbances while this step records."),
     ], print_log)
 
+    if not use_existing:
+        save_capture_gain(CALIB_DIR, final_mic_vol)
+
     set_stage(7, "Analysing recordings")
     set_status("Analysing recordings. Follow the live calibration log for results.", phase="recording")
     thresholds = calculate_hardware_thresholds(FILES)
@@ -703,14 +723,11 @@ def _run_calibration(session):
     
     if not use_existing:
         thresholds["mic_volume"] = final_mic_vol
+    elif recording_gain is not None:
+        thresholds["mic_volume"] = recording_gain
+        print_log(f"   Reusing the recordings' capture gain: {recording_gain}%.")
     else:
-        try:
-            with open(AUTO_CALIB_FILE, "r") as f:
-                existing = json.load(f)
-            if "mic_volume" in existing:
-                thresholds["mic_volume"] = existing["mic_volume"]
-        except Exception:
-            pass
+        raise ValueError("The saved recordings' input gain is unknown. Download calibration measurements before continuing.")
 
     print_log("\n" + "="*70)
     print_log("🧪 CALIBRATION QUALITY ASSESSMENT")

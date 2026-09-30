@@ -125,3 +125,8 @@ configuration:
         description: Off records fresh physical steps with confirmation. On re-analyses a complete
           saved recording set and skips physical recording after you confirm. Keep off when recalibrating
           changed hardware.
+  calibration_record_rpm:
+    name: Calibration record speed
+    description: Known physical speed of the record used in calibration. Default 33⅓ RPM. A 45 RPM
+      replay result on a 33⅓ record is a failed classification. Normal listening continues to support
+      either speed.

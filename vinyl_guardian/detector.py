@@ -250,29 +250,35 @@ class RunoutRhythmDetector:
         self.last_candidate_time = now
         self.last_support = best_support
 
-        if best_observed_periods:
-            period_arr = np.asarray(best_observed_periods, dtype=float)
-            median_period = float(np.median(period_arr))
-            self.estimated_rpm = 60.0 / median_period if median_period > 0 else None
-            self.phase_jitter_ms = float(np.std(period_arr) * 1000.0)
-        elif not self.locked:
-            self.estimated_rpm = None
-            self.phase_jitter_ms = None
-
-        # Four consecutive revolutions are required to acquire a lock.
-        # Once proven, a phase-correct hit after one missed revolution is
-        # enough to maintain it and extend the hold window.
+        # A short accidental chain can produce a false speed acquisition.
+        # Require six coherent hits to acquire either speed; keep an existing
+        # valid rhythm while weaker competing chains come and go.
+        if self.locked:
+            label = self.rpm_label
+            period = RUNOUT_SPEEDS[label]
+            support, quality, observed = self._score_period(now, peak, period, label)
+            if support >= 2:
+                best_label, best_period = label, period
+                best_support, best_quality = support, quality
+                best_observed_periods = observed
         maintaining_same_rhythm = self.locked and self.rpm_label == best_label
-        required = 2 if maintaining_same_rhythm else 4
-        new_conf = min(1.0, (best_support / 4.0) * (0.65 + 0.35 * best_quality))
+        required = 2 if maintaining_same_rhythm else 6
+        new_conf = min(1.0, (best_support / 6.0) * (0.65 + 0.35 * best_quality))
         self.confidence = max(self.confidence * 0.82, new_conf)
 
         if best_support >= required and best_period is not None:
             self.locked = True
             self.rpm_label = best_label
-            # Long enough to bridge to the next expected click even if one is
-            # missed, but short enough to release promptly after needle lift.
+            self.last_support = best_support
             self.hold_until = now + max(3.2, best_period * 2.25)
+            if best_observed_periods:
+                period_arr = np.asarray(best_observed_periods, dtype=float)
+                median_period = float(np.median(period_arr))
+                self.estimated_rpm = 60.0 / median_period if median_period > 0 else None
+                self.phase_jitter_ms = float(np.std(period_arr) * 1000.0)
+        elif not self.locked:
+            self.estimated_rpm = None
+            self.phase_jitter_ms = None
 
 
 class GuardianDetector:
@@ -327,14 +333,39 @@ class GuardianDetector:
             return None
         return sum(distances) / len(distances)
 
+    def _profile_log_density(self, features, profile):
+        """Independent robust Gaussian likelihood, including distribution width."""
+        if not isinstance(profile, dict):
+            return None
+        result = 0.0
+        for name in ("rms", "hfer", "crest"):
+            try:
+                spec = profile[name]
+                scale = max(float(spec["scale"]), 1e-8)
+                z = (float(features[name]) - float(spec["median"])) / scale
+                result += -math.log(scale) - 0.5 * min(z * z, 1e6)
+            except (KeyError, TypeError, ValueError):
+                return None
+        return result
+
     def _profile_motor_score(self, features):
+        negatives = self.thresholds.get("motor_negative_profiles")
+        if isinstance(negatives, list) and negatives:
+            motor = self._profile_log_density(features, self.thresholds.get("motor_profile"))
+            off = [self._profile_log_density(features, item.get("profile"))
+                   for item in negatives if isinstance(item, dict)]
+            off = [value for value in off if value is not None]
+            if motor is not None and off:
+                # An observation must beat EVERY recorded kind of off noise.
+                # Pooling quiet floor and loud disturbances hides their modes.
+                delta = max(-30.0, min(30.0, motor - max(off)))
+                return 1.0 / (1.0 + math.exp(-delta))
+        # Retain the interpretation of existing profiles until saved audio is
+        # re-analysed to learn the new negative classes.
         motor_d = self._profile_distance(features, self.thresholds.get("motor_profile"))
         noise_d = self._profile_distance(features, self.thresholds.get("negative_profile"))
         if motor_d is None or noise_d is None:
             return None
-
-        # Positive when the chunk is closer to the motor distribution than to
-        # the calibrated floor/disturbance/known-false-positive distribution.
         delta = max(-12.0, min(12.0, (noise_d - motor_d) / 3.0))
         return 1.0 / (1.0 + math.exp(-delta))
 
@@ -344,10 +375,14 @@ class GuardianDetector:
 
     def update_mono(self, mono, now, force_music_active=False):
         features = extract_features(mono, self.rate)
+        return self.update_features(features, now, sample_count=len(mono), force_music_active=force_music_active)
+
+    def update_features(self, features, now, sample_count=2048, force_music_active=False):
+        """Replay exported measurements through the identical live state machine."""
         self.last_features = features
 
         if self.last_now is None:
-            dt = max(0.01, len(mono) / float(self.rate)) if len(mono) else 0.05
+            dt = max(0.01, sample_count / float(self.rate)) if sample_count else 0.05
         else:
             dt = max(0.005, min(0.5, float(now) - float(self.last_now)))
         self.last_now = float(now)
@@ -441,6 +476,8 @@ class GuardianDetector:
         profile_score = self._profile_motor_score(features)
         if profile_score is None:
             motor_evidence = window_evidence
+        elif self.thresholds.get("motor_negative_profiles"):
+            motor_evidence = window_evidence * profile_score
         else:
             # Keep the broad calibrated windows dominant by default for
             # tolerance to day-to-day drift. The weight is configurable so

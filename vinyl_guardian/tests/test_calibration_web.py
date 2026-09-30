@@ -15,7 +15,7 @@ class CalibrationWebTests(unittest.TestCase):
     def setUp(self):
         control.begin(True)
         control.configure(lambda message: None)
-        self.server = make_server('127.0.0.1', 0, allowed_peer='127.0.0.1')
+        self.server = make_server('127.0.0.1', 0, allowed_peer='127.0.0.1', exporter=lambda: b'zip-data')
         self.worker = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.worker.start()
         self.base = f'http://127.0.0.1:{self.server.server_port}'
@@ -44,6 +44,17 @@ class CalibrationWebTests(unittest.TestCase):
         worker.start()
         self.assertTrue(ready.wait(1))
         return worker, control.snapshot()['step_id']
+
+    def test_measurements_download_and_active_recording_protection(self):
+        control.set_status('Finished', phase='complete')
+        with urlopen(self.base + '/api/measurements') as response:
+            self.assertEqual(response.read(), b'zip-data')
+            self.assertEqual(response.headers['Content-Type'], 'application/zip')
+            self.assertIn('attachment', response.headers['Content-Disposition'])
+        control.set_status('Recording', phase='recording')
+        with self.assertRaises(HTTPError) as error:
+            urlopen(self.base + '/api/measurements')
+        self.assertEqual(error.exception.code, 409)
 
     def test_instruction_logs_and_valid_confirmation_share_the_same_state(self):
         worker, step = self.waiting()

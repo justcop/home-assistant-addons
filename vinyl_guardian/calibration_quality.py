@@ -50,9 +50,12 @@ def _db_ratio(a, b):
     return 20.0 * math.log10((float(a) + 1e-12) / (float(b) + 1e-12))
 
 
-def _replay(path, thresholds, chunk=2048):
+def _replay(path, thresholds, chunk=2048, initial_on=False):
     mono, rate, channels, raw = _load_mono(path)
     detector = GuardianDetector(thresholds, rate=rate, channels=channels)
+    if initial_on:
+        detector.turntable_on = True
+        detector.motor_confidence = 1.0
     frame_bytes = chunk * channels * 2
     dt = chunk / float(rate)
     elapsed = 0.0
@@ -69,6 +72,7 @@ def _replay(path, thresholds, chunk=2048):
         runout += int(bool(frame.get("runout_locked")))
         if frame.get("runout_locked"):
             runout_samples.append({
+                "label": frame.get("runout_rpm"),
                 "estimated_rpm": frame.get("runout_estimated_rpm"),
                 "phase_jitter_ms": frame.get("runout_phase_jitter_ms"),
                 "support": frame.get("runout_support"),
@@ -157,6 +161,8 @@ def assess_calibration(files, thresholds):
     music_p10 = float(np.percentile(music_values, 10)) if len(music_values) else 0.0
     music_margin_db = _db_ratio(music_p10, floor_p95)
 
+    baseline_replay = _replay(files["floor"], thresholds)
+    shutdown_replay = _replay(files["powerdown"], thresholds, initial_on=True)
     disturbance = _replay(files["disturbance"], thresholds)
     transition_replay = _replay(files["transition"], thresholds)
 
@@ -175,6 +181,10 @@ def assess_calibration(files, thresholds):
     warnings = []
     critical = []
 
+    if baseline_replay.get("on_fraction", 0.0) > 0.02:
+        critical.append("Quiet baseline produces sustained false power evidence.")
+    if shutdown_replay.get("final_status") != "Powered Off":
+        critical.append("Power-down recording does not return the detector to Powered Off.")
     min_sep = min(separability.values()) if separability else 0.0
     if min_sep < 1.5:
         warnings.append("At least one motor/off feature overlaps heavily.")
@@ -188,6 +198,10 @@ def assess_calibration(files, thresholds):
         critical.append("Calibration transition does not produce reliable music detection.")
     if transition_replay.get("runout_fraction", 0.0) <= 0.0:
         critical.append("Calibration transition never acquires a runout rhythm.")
+
+    expected_rpm = thresholds.get("calibration_expected_runout_rpm")
+    if expected_rpm and any(x.get("label") != expected_rpm for x in runout_samples):
+        critical.append(f"Runout classification disagrees with the known {expected_rpm} RPM calibration record.")
 
     if critical:
         status = "weak"
