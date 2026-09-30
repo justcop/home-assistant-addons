@@ -102,7 +102,12 @@ fi
 # Experimental runtimes select their own source without changing HA defaults.
 if [ ! -f /usr/src/app/audio_source.py ]; then
 # Find physical soundcard input quietly
-PHYSICAL_SINK=$(pactl list short sources | grep "alsa_input" | awk '{print $2}' | head -n 1)
+PHYSICAL_SINK="${PULSE_SOURCE:-$(pactl get-default-source 2>/dev/null)}"
+case "$PHYSICAL_SINK" in
+    ""|*.monitor)
+        PHYSICAL_SINK=$(pactl list short sources | grep "alsa_input" | awk '{print $2}' | head -n 1)
+        ;;
+esac
 
 if [ -z "$PHYSICAL_SINK" ]; then
     echo "[$(date +"%Y-%m-%d %H:%M:%S")] 🚨 ERROR: Could not find physical ALSA capture device! Please ensure 'Audio' is enabled in Add-on config."
@@ -111,7 +116,7 @@ else
         echo "[$(date +"%Y-%m-%d %H:%M:%S")] 🎯 TARGET LOCKED: Found physical mic port -> $PHYSICAL_SINK"
     fi
 
-    pactl set-default-source "$PHYSICAL_SINK"
+    export PULSE_SOURCE="$PHYSICAL_SINK"
     pactl set-source-mute "$PHYSICAL_SINK" 0
 
     # Grab Volume from options.json

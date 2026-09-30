@@ -1,3 +1,5 @@
+import calibration_control
+from audio_scan_once import StartupScanGate, reset_scan_options
 import sys
 import os
 import glob
@@ -111,6 +113,10 @@ def on_message(client, userdata, msg):
     global replay_latest_requested, rollback_profile_requested
     global audio_scan_requested, requested_audio_source_option
 
+    if msg.topic == "vinyl_guardian/calibration/continue":
+        if not msg.retain:
+            calibration_control.confirm()
+        return
     if msg.topic == "vinyl_guardian/debug/trigger":
         target_chunks = int(RATE / CHUNK * 10.0)
         log(f"🐞 Live Debug Triggered! Capturing 10 seconds ({target_chunks} chunks) of motor profile...")
@@ -148,7 +154,10 @@ def on_message(client, userdata, msg):
 
 def publish_discovery():
     log("Publishing MQTT Auto-Discovery payloads...")
+    mqtt_client.subscribe("vinyl_guardian/calibration/continue")
     device_info = {"identifiers": ["vinyl_guardian_01"], "name": "Vinyl Guardian", "manufacturer": "Custom Add-on"}
+    mqtt_client.publish("homeassistant/button/vinyl_guardian/calibration_continue/config", json.dumps({"name": "Continue Calibration", "unique_id": "vinyl_guardian_calibration_continue", "command_topic": "vinyl_guardian/calibration/continue", "device": device_info, "icon": "mdi:play"}), retain=True)
+    mqtt_client.publish("homeassistant/sensor/vinyl_guardian/calibration_step/config", json.dumps({"name": "Calibration Instructions", "unique_id": "vinyl_guardian_calibration_step", "state_topic": "vinyl_guardian/calibration/step", "json_attributes_topic": "vinyl_guardian/calibration/details", "device": device_info, "icon": "mdi:clipboard-list"}), retain=True)
     deprecated_sensors = ["music_rms", "rumble_rms", "scrobble", "scrobble_countdown", "scrobble_state"]
     for old_sensor in deprecated_sensors:
         mqtt_client.publish(f"homeassistant/sensor/vinyl_guardian/{old_sensor}/config", "", retain=True)
@@ -570,6 +579,19 @@ def audio_scan_progress(message):
         )
 
 
+startup_scan_gate = StartupScanGate(SHARE_DIR)
+startup_scan_pending = startup_scan_gate.should_run(AUDIO_SCAN_ON_START)
+
+def complete_audio_scan():
+    startup_scan_gate.complete(AUDIO_SOURCE)
+    try:
+        if reset_scan_options():
+            log("✅ Audio input remembered. Startup scan switched OFF; input setting is Auto / remembered.")
+        else:
+            log("✅ Input remembered; repeat startup scans blocked. To re-arm, restart once with scan OFF, then enable it, or use Find Input.")
+    except Exception as exc:
+        log(f"⚠️ Could not reset scan option in Home Assistant ({type(exc).__name__}); repeat scans remain blocked. Use Find Input to scan manually.")
+
 def initialise_audio_source():
     global audio_source_manager
     audio_source_manager = AudioSourceManager(
@@ -580,7 +602,7 @@ def initialise_audio_source():
         logger=log,
     )
     try:
-        status = audio_source_manager.apply_startup(AUDIO_SOURCE)
+        status = audio_source_manager.apply_startup(startup_scan_gate.effective_source(AUDIO_SOURCE))
         chosen = status.get("description") or status.get("source") or "system default"
         log(f"🎚️ Guardian capture source: {chosen}")
     except Exception as e:
@@ -599,6 +621,7 @@ def run_startup_audio_scan():
     try:
         result = audio_source_manager.scan(progress=audio_scan_progress)
         if result.get("applied"):
+            complete_audio_scan()
             winner = result.get("winner") or {}
             audio_scan_status = (
                 f"Selected {winner.get('description') or winner.get('source')} "
@@ -882,6 +905,7 @@ def listen_and_identify():
                 scan_applied = bool(result.get("applied"))
                 winner = result.get("winner") or {}
                 if scan_applied:
+                    complete_audio_scan()
                     audio_scan_status = (
                         f"Selected {winner.get('description') or winner.get('source')} "
                         f"({winner.get('confidence', 'unknown')} confidence)"
@@ -1396,20 +1420,30 @@ def listen_and_identify():
             elif current_state == "COOLDOWN" and now >= cooldown_end:
                 with state_lock: app_state = "IDLE"
 
+def publish_calibration_status(message):
+    mqtt_client.publish("vinyl_guardian/calibration/step", message[:250], retain=True)
+    mqtt_client.publish("vinyl_guardian/calibration/details", json.dumps({"instruction": message}), retain=True)
+
+
 if __name__ == "__main__":
     initialise_audio_source()
     connect_mqtt()
+    calibration_control.configure(publish_calibration_status)
     refresh_audio_source_select()
     publish_audio_source_state()
 
-    if AUDIO_SCAN_ON_START:
+    if startup_scan_pending:
         log("🎚️ Startup audio scan enabled. Keep turntable music playing.")
         run_startup_audio_scan()
         refresh_audio_source_select()
         publish_audio_source_state()
 
     if CALIBRATION_MODE:
-        run_calibration()
+        try:
+            run_calibration()
+        except Exception as exc:
+            calibration_control.set_status(f"Calibration stopped: {exc}")
+            raise
     else:
         files_to_clean = [
             os.path.join(RECORDING_DIR, "vinyl_debug.wav"),

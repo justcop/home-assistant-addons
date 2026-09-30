@@ -131,6 +131,7 @@
       "mqtt_port",
       "mqtt_user",
       "record_diagnostic_sample",
+      "recording_directory",
       "recording_seconds",
       "test_capture_mode"
     ],
@@ -172,6 +173,7 @@
       "mqtt_port",
       "mqtt_user",
       "record_diagnostic_sample",
+      "recording_directory",
       "recording_seconds",
       "test_capture_mode"
     ]

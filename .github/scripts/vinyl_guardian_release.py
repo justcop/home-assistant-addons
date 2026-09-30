@@ -130,6 +130,8 @@ def git(*args):
 def runtime_file(path):
     if path.startswith("vinyl_guardian/"):
         name = path.removeprefix("vinyl_guardian/")
+        if name.startswith("translations/") and name.endswith(".yaml"):
+            return True
         return "/" not in name and (
             name.endswith((".py", ".sh"))
             or name in {"Dockerfile", "config.yaml", "build.yaml", "requirements.txt"}

@@ -26,6 +26,7 @@ class ReleaseTests(unittest.TestCase):
     def test_runtime_scope(self):
         self.assertTrue(release.runtime_file("vinyl_guardian/detector.py"))
         self.assertTrue(release.runtime_file("vinyl_guardian/Dockerfile"))
+        self.assertTrue(release.runtime_file("vinyl_guardian/translations/en.yaml"))
         self.assertFalse(release.runtime_file("vinyl_guardian/readme.md"))
         self.assertFalse(release.runtime_file("vinyl_guardian/tests/test_detector.py"))
 

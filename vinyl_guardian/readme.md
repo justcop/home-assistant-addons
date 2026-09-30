@@ -318,3 +318,31 @@ Set `recording_directory` in the add-on Configuration tab, then save and restart
 The setting covers calibration WAVs, continuous audio and feature datasets, feedback/ghost clips, experiment event audio and timelines, and temporary recognition WAVs. Calibration profiles, rollback history and audio-source preferences remain under `/share/vinyl_guardian`, so changing the recording disk does not discard your active calibration. Existing recordings are not moved automatically. To keep old calibration audio/feedback available for reuse, copy `calibration_data`, datasets, experiment folders and WAV feedback into the new recording root, preserving their relative layout.
 
 The add-on now maps `/media` read/write as well as `/share`. A folder setting does not mount a USB disk itself. Home Assistant must first expose the disk or network share in one of those mapped folders. On Home Assistant OS, network storage added with Media usage appears beneath `/media`; the supported external data disk feature instead relocates Home Assistant's whole data disk. Those are different storage arrangements. The write check detects unavailable/unwritable paths but cannot guarantee an existing empty mountpoint still has its external filesystem mounted.
+
+
+## Guided calibration and audio input
+
+Update the installed app before using these controls. With `calibration_mode: true`,
+open the **Vinyl Guardian** device under the MQTT integration. Read **Calibration
+Instructions**, prepare the physical step, and press **Continue Calibration**.
+The wizard waits as long as necessary between stages. The complete instruction is
+also in the sensor's `instruction` attribute and the app logs. Capture errors stop
+calibration instead of saving an empty result. Disable calibration mode and restart
+when finished. Set `advanced.reuse_calibration_audio: false` for fresh recordings;
+true deliberately analyses previously recorded audio instead.
+
+Audio directions are from the **Home Assistant host's** perspective: the turntable
+output feeds the host's **Audio Input**. Guardian captures this input and never
+uses **Audio Output**. On the experimental branch, `audio_source` and **Find Audio
+Input** also select the capture input. A successful scan persists its choice for
+future runs, changes `audio_source` to `auto` and turns `audio_scan_on_start` off.
+If Supervisor cannot reset the options, the saved completion marker still prevents
+repeat startup scans. To re-arm in that case, turn the option off and restart,
+then turn it on and restart. Failed scans do not consume the startup request.
+The manual **Find Audio Input** button remains available for an intentional scan.
+
+The configuration form labels show ✅ for both `main` and
+`vinyl-guardian-detection-v2`, 🧪 for experimental only, and ⚪ for options unused
+by either active version. The native Home Assistant form keeps these fields
+visible when the runtime branch changes; experimental-only values are ignored on
+main. Settings and profiles are retained when switching branches.
