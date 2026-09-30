@@ -423,10 +423,10 @@ def process_audio_background(audio_data_bytes, song_start_timestamp, token, prev
             return
         if preview:
             if match:
-                tentative = dict(match, recognition_status='provisional', source='Shazam')
-                log(f"🎶 TENTATIVE MATCH: {match['title']} - {match['artist']}; waiting for longer recording.")
-                mqtt_client.publish("vinyl_guardian/track", f"{match['title']} - {match['artist']} (confirming)", retain=True)
-                mqtt_client.publish("vinyl_guardian/attributes", json.dumps(tentative), retain=True)
+                display_track = dict(match, source='Shazam')
+                log(f"🎶 MATCH FOUND: {match['title']} - {match['artist']}")
+                mqtt_client.publish("vinyl_guardian/track", f"{match['title']} - {match['artist']}", retain=True)
+                mqtt_client.publish("vinyl_guardian/attributes", json.dumps(display_track), retain=True)
             return
     # Duration lookup can take seconds; never hold the audio loop's state lock.
     total_duration = match.get('duration', 0) if match else 0
