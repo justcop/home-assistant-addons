@@ -120,6 +120,8 @@ class RunoutRhythmDetector:
         self.last_interval = None
         self.phase_jitter_ms = None
         self.estimated_rpm = None
+        self.last_candidate_accepted = False
+        self.candidate_intervals = deque(maxlen=8)
 
     def reset(self):
         self.events.clear()
@@ -132,6 +134,8 @@ class RunoutRhythmDetector:
         self.last_interval = None
         self.phase_jitter_ms = None
         self.estimated_rpm = None
+        self.last_candidate_accepted = False
+        self.candidate_intervals.clear()
 
     def _find_phase_match(self, target, tolerance, peak):
         best = None
@@ -198,6 +202,8 @@ class RunoutRhythmDetector:
         return support, quality / max(1, support), observed_periods
 
     def update(self, now, is_candidate, peak, recently_played, music_active):
+        self.last_candidate_accepted = False
+
         # Expire ancient events. Six 33⅓ revolutions is already generous.
         while self.events and now - self.events[0][0] > 11.5:
             self.events.popleft()
@@ -236,8 +242,10 @@ class RunoutRhythmDetector:
                 best_period = period
                 best_observed_periods = observed_periods
 
+        self.last_candidate_accepted = True
         if self.events:
             self.last_interval = float(now - self.events[-1][0])
+            self.candidate_intervals.append(self.last_interval)
         self.events.append((now, float(peak)))
         self.last_candidate_time = now
         self.last_support = best_support
@@ -536,6 +544,8 @@ class GuardianDetector:
             "runout_confidence": float(self.runout.confidence),
             "runout_support": int(self.runout.last_support),
             "runout_last_interval_sec": self.runout.last_interval,
+            "runout_candidate_accepted": bool(self.runout.last_candidate_accepted),
+            "runout_candidate_intervals_sec": list(self.runout.candidate_intervals),
             "runout_estimated_rpm": self.runout.estimated_rpm,
             "runout_phase_jitter_ms": self.runout.phase_jitter_ms,
             "status": status,
