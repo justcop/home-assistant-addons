@@ -23,6 +23,8 @@ jobs:
           python-version: "3.12"
       - name: Install test dependency
         run: python -m pip install --disable-pip-version-check numpy
+      - name: Check run.sh syntax
+        run: bash -n vinyl_guardian/run.sh
       - name: Compile all Python sources
         run: python -m compileall -q vinyl_guardian
       - name: Run detector and experiment tests
