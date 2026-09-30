@@ -1027,6 +1027,16 @@ class AudioSourceManager:
         return self.selected_source or os.environ.get("PULSE_SOURCE") or "@DEFAULT_SOURCE@"
 
     def status(self):
+        available = []
+        for source in self.list_sources():
+            available.append({
+                "name": source.get("name"),
+                "description": source.get("description"),
+                "card_index": source.get("card_index"),
+                "state": source.get("state"),
+                "active_port": source.get("active_port"),
+                "ports": source.get("ports", []),
+            })
         return {
             "source": self.selected_source,
             "description": self.selected_description,
@@ -1036,6 +1046,6 @@ class AudioSourceManager:
             "follow_system_default": self.follow_system_default,
             "pulse_source_env": os.environ.get("PULSE_SOURCE"),
             "system_default": self.default_source(),
-            "available_sources": self.list_sources(),
+            "available_sources": available,
             "saved_selection": self._saved(),
         }
