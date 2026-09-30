@@ -954,10 +954,24 @@ class AudioSourceManager:
                     reason="music_scan",
                 )
 
+        initial_source_inventory = [
+            {
+                "name": source.get("name"),
+                "description": source.get("description"),
+                "card_index": source.get("card_index"),
+                "state": source.get("state"),
+                "active_port": source.get("active_port"),
+                "ports": source.get("ports", []),
+            }
+            for source in sources
+        ]
+
         result = {
             "started_unix": started,
             "finished_unix": time.time(),
             "scan_seconds_per_source": self.scan_seconds,
+            "initial_sources": initial_source_inventory,
+            "initial_cards": cards,
             "candidate_count": len(candidates),
             "candidates": candidates,
             "winner": winner,
