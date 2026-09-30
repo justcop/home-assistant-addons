@@ -16,6 +16,9 @@ warnings.filterwarnings('ignore')
 from config import SHARE_DIR, AUTO_CALIB_FILE, RATE, CHANNELS, CHUNK
 from audio_math import RUNOUT_RPM_INTERVALS
 from detector import GuardianDetector, pcm16_to_mono
+from calibration_quality import assess_calibration
+from profile_manager import ProfileManager
+from regression import compare_profiles, save_regression_report
 
 # --- HOME ASSISTANT OPTION LOADING ---
 REUSE_CALIB_OPT = False
@@ -717,19 +720,175 @@ def run_calibration():
                 existing = json.load(f)
             if "mic_volume" in existing:
                 thresholds["mic_volume"] = existing["mic_volume"]
-        except Exception: pass
+        except Exception:
+            pass
+
+    print_log("\n" + "="*70)
+    print_log("🧪 CALIBRATION QUALITY ASSESSMENT")
+    print_log("="*70)
+    try:
+        quality = assess_calibration(FILES, thresholds)
+    except Exception as e:
+        quality = {
+            "status": "warning",
+            "warnings": [f"Quality assessment failed: {e}"],
+            "critical": [],
+        }
+
+    print_log(f"   Quality status: {quality.get('status', 'unknown').upper()}")
+    sep = quality.get("motor_off_separability_robust_z", {})
+    if sep:
+        print_log(
+            "   Motor/off separation (robust z): "
+            + ", ".join(f"{k}={v:.2f}" for k, v in sep.items())
+        )
+    if quality.get("music_floor_margin_db") is not None:
+        print_log(
+            f"   Quiet-music margin over floor: "
+            f"{quality.get('music_floor_margin_db', 0.0):.1f} dB"
+        )
+    input_info = quality.get("input_channels", {})
+    if input_info:
+        print_log(
+            f"   Input channel assessment: "
+            f"{input_info.get('mode', 'unknown')} "
+            f"(configured {input_info.get('configured_channels', CHANNELS)} ch)"
+        )
+    runout_info = quality.get("runout", {})
+    if runout_info:
+        print_log(
+            f"   Runout estimate: {runout_info.get('estimated_rpm_median')} RPM, "
+            f"phase jitter {runout_info.get('phase_jitter_ms_median')} ms"
+        )
+    for message in quality.get("warnings", []):
+        print_log(f"   ⚠️ {message}")
+    for message in quality.get("critical", []):
+        print_log(f"   ❌ {message}")
+
+    quality_path = os.path.join(SHARE_DIR, "calibration_quality.json")
+    try:
+        with open(quality_path, "w") as f:
+            json.dump(quality, f, indent=2)
+    except Exception:
+        pass
+
+    baseline_thresholds = {}
+    if os.path.exists(AUTO_CALIB_FILE):
+        try:
+            with open(AUTO_CALIB_FILE, "r") as f:
+                baseline_thresholds = json.load(f)
+        except Exception:
+            baseline_thresholds = {}
+
+    print_log("\n" + "="*70)
+    print_log("🧬 HISTORICAL REGRESSION GATE")
+    print_log("="*70)
+    try:
+        regression = compare_profiles(
+            thresholds,
+            baseline_thresholds,
+            SHARE_DIR,
+            calibration_files=FILES,
+        )
+    except Exception as e:
+        regression = {
+            "can_compare": False,
+            "accepted": True,
+            "reason": f"Regression suite could not run: {e}",
+            "candidate": {},
+            "baseline": None,
+        }
+
+    print_log(f"   {regression.get('reason', 'No regression result.')}")
+    candidate_reg = regression.get("candidate") or {}
+    if candidate_reg:
+        print_log(
+            f"   Candidate: {candidate_reg.get('fixture_count', 0)} fixtures, "
+            f"penalty {candidate_reg.get('total_penalty', 0.0):.2f}, "
+            f"severe failures {candidate_reg.get('severe_failures', 0)}"
+        )
+    baseline_reg = regression.get("baseline") or {}
+    if baseline_reg:
+        print_log(
+            f"   Current:   {baseline_reg.get('fixture_count', 0)} fixtures, "
+            f"penalty {baseline_reg.get('total_penalty', 0.0):.2f}, "
+            f"severe failures {baseline_reg.get('severe_failures', 0)}"
+        )
+
+    regression_path = os.path.join(SHARE_DIR, "regression_report.json")
+    try:
+        save_regression_report(regression_path, regression)
+    except Exception:
+        pass
+
+    # Never replace a working profile with a regression or critically weak
+    # candidate. On a first-ever calibration there is no profile to preserve,
+    # so the candidate is promoted but the quality warning remains visible.
+    has_previous_profile = bool(baseline_thresholds)
+    quality_safe = quality.get("status") != "weak"
+    promote = bool(regression.get("accepted", True)) and (
+        quality_safe or not has_previous_profile
+    )
+
+    profile_manager = ProfileManager(SHARE_DIR, AUTO_CALIB_FILE)
+    metadata = {
+        "calibration_files": {
+            key: os.path.basename(path) for key, path in FILES.items()
+        },
+        "reuse_calibration_audio": bool(use_existing),
+        "mic_volume": thresholds.get("mic_volume"),
+        "detector_version": thresholds.get("detector_version"),
+    }
+
+    try:
+        saved_profile = profile_manager.save_candidate(
+            thresholds,
+            metadata=metadata,
+            quality=quality,
+            regression=regression,
+            accepted=promote,
+        )
+        profile_id = saved_profile.get("profile_id")
+    except Exception as e:
+        saved_profile = None
+        profile_id = None
+        print_log(f"   ⚠️ Could not version detector profile: {e}")
+        if promote:
+            with open(AUTO_CALIB_FILE, "w") as f:
+                json.dump(thresholds, f, indent=4)
+
+    active_for_local = thresholds if promote else baseline_thresholds
+    if active_for_local:
+        with open("config.json", "w") as f:
+            json.dump(active_for_local, f, indent=4)
+
+    with open(REPORT_FILE, "w") as f:
+        f.write("\n".join(report_log))
     
-    with open(AUTO_CALIB_FILE, 'w') as f: json.dump(thresholds, f, indent=4)
-    with open("config.json", 'w') as f: json.dump(thresholds, f, indent=4)
-    with open(REPORT_FILE, 'w') as f: f.write("\n".join(report_log))
-    
-    print_log("\n🎉 CALIBRATION COMPLETE 🎉")
+    if promote:
+        print_log("\n🎉 CALIBRATION COMPLETE — PROFILE PROMOTED 🎉")
+        if profile_id:
+            print_log(f"   Active profile: {profile_id}")
+    else:
+        print_log("\n🛡️ CALIBRATION COMPLETE — EXISTING PROFILE RETAINED")
+        if profile_id:
+            print_log(f"   Candidate saved for analysis: {profile_id}")
+        print_log(
+            "   The candidate did not clear the quality/regression gate, so "
+            "the previous active detector remains untouched."
+        )
+
     for key, value in thresholds.items():
-        print_log(f"   - {key}: {value}")
+        print_log(f"   - candidate {key}: {value}")
+
+    # Rewrite once more so the final promotion verdict is included.
+    with open(REPORT_FILE, "w") as f:
+        f.write("\n".join(report_log))
         
     print("\n📄 A copy of this report was saved to: " + REPORT_FILE, flush=True)
     print("🔄 Please disable CALIBRATION_MODE in your config and RESTART the Add-on.", flush=True)
-    while True: time.sleep(3600)
+    while True:
+        time.sleep(3600)
 
 if __name__ == "__main__":
     run_calibration()
