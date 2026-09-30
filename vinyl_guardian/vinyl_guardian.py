@@ -330,14 +330,18 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
     log(f"🔬 Analyzing {RECORD_SECONDS}s capture (Attempt {local_attempt}/{MAX_ATTEMPTS})...")
     
     full_data = np.frombuffer(audio_data_bytes, dtype=np.int16)
-    abs_data = np.abs(full_data)
-    trigger = np.where(abs_data > AUDIO_ONSET_THRESHOLD)[0]
-    start_idx = trigger[0] if len(trigger) > 0 else 0
-    min_s = RATE * MIN_AUDIO_SECONDS
-    if len(full_data) - start_idx < min_s: start_idx = max(0, len(full_data) - min_s)
-        
-    trimmed_bytes = full_data[start_idx:].tobytes()
-    trimmed_seconds = start_idx / RATE
+    usable = len(full_data) - (len(full_data) % max(1, CHANNELS))
+    frame_data = full_data[:usable].reshape(-1, max(1, CHANNELS))
+    frame_peak = np.max(np.abs(frame_data), axis=1) if len(frame_data) else np.array([])
+    trigger = np.where(frame_peak > AUDIO_ONSET_THRESHOLD)[0]
+    start_frame = int(trigger[0]) if len(trigger) > 0 else 0
+    min_frames = RATE * MIN_AUDIO_SECONDS
+    if len(frame_data) - start_frame < min_frames:
+        start_frame = max(0, len(frame_data) - min_frames)
+
+    # Trim only on complete PCM frames so stereo channel order is preserved.
+    trimmed_bytes = frame_data[start_frame:].reshape(-1).tobytes()
+    trimmed_seconds = start_frame / RATE
     wav_temp = "/tmp/process.wav"
     try:
         with wave.open(wav_temp, "wb") as wf:
