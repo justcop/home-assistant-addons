@@ -854,6 +854,97 @@ def listen_and_identify():
                         f"{frame['runout_confidence'] * 100.0:.1f}",
                         retain=False,
                     )
+                    mqtt_client.publish(
+                        "vinyl_guardian/runout_estimated_rpm",
+                        (
+                            f"{frame['runout_estimated_rpm']:.3f}"
+                            if frame.get("runout_estimated_rpm") is not None
+                            else "0.0"
+                        ),
+                        retain=False,
+                    )
+                    mqtt_client.publish(
+                        "vinyl_guardian/runout_jitter",
+                        (
+                            f"{frame['runout_phase_jitter_ms']:.1f}"
+                            if frame.get("runout_phase_jitter_ms") is not None
+                            else "0.0"
+                        ),
+                        retain=False,
+                    )
+                    mqtt_client.publish(
+                        "vinyl_guardian/runout_support",
+                        str(frame.get("runout_support", 0)),
+                        retain=False,
+                    )
+
+                    hardware = experiment_snapshot.get("hardware") or {}
+                    side_summary = experiment_snapshot.get("side") or {}
+                    shadows = experiment_snapshot.get("shadows") or {}
+
+                    mqtt_client.publish(
+                        "vinyl_guardian/hardware_mode",
+                        hardware.get("channel_mode", "Unavailable"),
+                        retain=False,
+                    )
+                    mqtt_client.publish(
+                        "vinyl_guardian/stereo_correlation",
+                        f"{float(hardware.get('left_right_correlation', 0.0) or 0.0):.5f}",
+                        retain=False,
+                    )
+                    mqtt_client.publish(
+                        "vinyl_guardian/hardware_health",
+                        json.dumps(hardware),
+                        retain=False,
+                    )
+
+                    mqtt_client.publish(
+                        "vinyl_guardian/side_session",
+                        side_summary.get("state", "Idle"),
+                        retain=False,
+                    )
+                    mqtt_client.publish(
+                        "vinyl_guardian/side_session_attributes",
+                        json.dumps(side_summary),
+                        retain=False,
+                    )
+
+                    prod_signature = (
+                        bool(frame.get("turntable_on")),
+                        bool(frame.get("music_active")),
+                        bool(frame.get("runout_locked")),
+                    )
+                    disagreeing = []
+                    for shadow_name, shadow in shadows.items():
+                        shadow_signature = (
+                            bool(shadow.get("turntable_on")),
+                            bool(shadow.get("music_active")),
+                            bool(shadow.get("runout_locked")),
+                        )
+                        if shadow_signature != prod_signature:
+                            disagreeing.append(shadow_name)
+                    mqtt_client.publish(
+                        "vinyl_guardian/shadow_disagreement",
+                        ", ".join(disagreeing) if disagreeing else "None",
+                        retain=False,
+                    )
+                    mqtt_client.publish(
+                        "vinyl_guardian/experiment_status",
+                        "Active" if experiment_harness is not None else "Disabled",
+                        retain=False,
+                    )
+                    mqtt_client.publish(
+                        "vinyl_guardian/experiment_attributes",
+                        json.dumps({
+                            "trusted_label": experiment_snapshot.get("trusted_label"),
+                            "shadows": shadows,
+                            "event_log": (
+                                experiment_harness.timeline.path
+                                if experiment_harness is not None else None
+                            ),
+                        }),
+                        retain=False,
+                    )
                     
                     mqtt_client.publish("vinyl_guardian/music_energy", f"{min(250.0, norm_music_energy):.1f}", retain=False)
                     mqtt_client.publish("vinyl_guardian/pop_texture", f"{min(250.0, norm_pop_texture):.1f}", retain=False)
