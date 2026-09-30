@@ -15,7 +15,7 @@ warnings.filterwarnings('ignore')
 
 from config import SHARE_DIR, AUTO_CALIB_FILE, RATE, CHANNELS, CHUNK
 from audio_math import RUNOUT_RPM_INTERVALS
-from detector import GuardianDetector
+from detector import GuardianDetector, pcm16_to_mono
 
 # --- HOME ASSISTANT OPTION LOADING ---
 REUSE_CALIB_OPT = False
@@ -132,7 +132,9 @@ def record_chunk(duration):
             frames_recorded += length
             
     inp.close()
-    audio_data = np.frombuffer(raw_audio, dtype=np.int16).astype(np.float32) / 32768.0
+    # Return mono analysis samples so calibration prompts and live detection
+    # see the same signal representation.
+    audio_data = pcm16_to_mono(bytes(raw_audio), CHANNELS)
     return raw_audio, audio_data
 
 def record_segmented_file(filename, action_dur, settle_dur, steady_dur, prompt):
