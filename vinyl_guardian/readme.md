@@ -36,3 +36,14 @@ The release workflow checks every repository branch for changes to Vinyl Guardia
 Versions now use `MAJOR.MINOR.PATCH`, starting at `4.40.0`, above the previous stable and experimental versions. Ordinary changes get a patch bump. Conventional `feat:` commits request a minor bump; `type!:` or `BREAKING CHANGE:` requests a major bump. The largest request wins for a batch of changes. The workflow can also be run manually with `patch`, `minor` or `major`. This is an explicit convention, not an AI guess about whether a change is compatible. Documentation and test-only edits do not publish updates.
 
 Selecting another branch downloads only its Python runtime. Dependency, launcher and schema changes still require the advertised add-on update. Returning to `main` uses the stable files baked into that updated image.
+
+
+### Settings across branches
+
+The delivery workflow reads every selectable branch's `config.yaml` and adds compatible settings to the schema installed from `main`, including nested settings such as `advanced`. Existing main defaults and field types take precedence. New settings with one consistent default receive that default. Settings with conflicting defaults or no default are optional, so they do not become compulsory for users of other branches. Enable Home Assistant's **Show unused optional configuration options** switch to reveal optional fields that have no value yet.
+
+Incompatible new field types are not imported. Existing main fields are not replaced by incompatible branch definitions. The action emits a warning and records the affected names and branches in `.github/vinyl-guardian-settings-report.json`, without writing credential/default values into that report. Settings remain available after a branch is removed so existing saved values are preserved.
+
+Home Assistant's native configuration form does not support conditional fields based on `code_branch`. The shared settings therefore remain visible when switching versions. Options apply only where the selected runtime supports them. Legacy `mic_volume` settings are explicitly ignored by the stable startup script when selecting `main`, so returning to stable operation retains its calibrated input behaviour.
+
+New compatible branch settings become configurable after the advertised add-on update is installed. Schema synchronisation does not install a branch's extra system or Python dependencies; branches that need different dependencies may still need a dedicated image.

@@ -37,6 +37,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install configuration parser
+        run: python -m pip install --disable-pip-version-check PyYAML
       - name: Validate release automation and stable runtime
         run: |
           python -m unittest discover -s .github/scripts/tests -v
@@ -52,7 +54,7 @@ jobs:
             git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*'
             git reset --hard origin/main
             python .github/scripts/vinyl_guardian_release.py --bump "$BUMP"
-            git add vinyl_guardian/config.yaml .github/vinyl-guardian-release-state.json
+            git add vinyl_guardian/config.yaml .github/vinyl-guardian-release-state.json .github/vinyl-guardian-settings-report.json
             if git diff --cached --quiet; then
               echo 'No runtime or branch catalog changes to publish.'
               exit 0

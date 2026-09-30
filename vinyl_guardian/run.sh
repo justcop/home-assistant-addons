@@ -117,7 +117,9 @@ else
     # Grab Volume from options.json
     CONFIG_VOL=$(jq --raw-output '.mic_volume' /data/options.json)
 
-    if [ "$CONFIG_VOL" != "null" ] && [ -n "$CONFIG_VOL" ]; then
+    # mic_volume belongs to legacy branches. A retained legacy value must not
+    # override the stable detector's calibrated input volume after switching back.
+    if [ "$CODE_BRANCH" != "main" ] && [ "$CONFIG_VOL" != "null" ] && [ -n "$CONFIG_VOL" ]; then
         if [ "$DEBUG_MODE" == "true" ]; then
             echo "[$(date +"%Y-%m-%d %H:%M:%S")] Applying UI Configuration: Setting capture volume to ${CONFIG_VOL}%..."
         fi
