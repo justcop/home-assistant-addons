@@ -109,6 +109,27 @@ class DiagnosticPolicyTests(unittest.TestCase):
             note=next(e for e in saved['events'] if e['event']=='intentional_action')
             self.assertEqual(note['applies_from_unix'],983)
 
+    def test_long_side_break_is_classified_expected_without_recovery_alarm(self):
+        with tempfile.TemporaryDirectory() as root:
+            monitor,captures=self.monitor(root,'listening_session')
+            monitor.observe(frame(True,True),1001)
+            monitor.observe(frame(),1002)
+            monitor.observe(frame(),1040)
+            monitor.observe(frame(True,True),1050)
+            expected=next(e for e in monitor.session['events'] if e['event']=='expected_long_break')
+            self.assertEqual(expected['capture_times'],[1002])
+            self.assertFalse(expected['review_required'])
+            self.assertEqual(len(captures),1)
+
+    def test_long_gap_with_missing_audio_frames_is_still_expected(self):
+        with tempfile.TemporaryDirectory() as root:
+            monitor,captures=self.monitor(root,'listening_session')
+            monitor.observe(frame(True,True),1001)
+            monitor.observe(frame(),1002)
+            monitor.observe(frame(True,True),1100)
+            self.assertEqual(monitor.session['expected_long_breaks'],1)
+            self.assertEqual(len(captures),1)
+
     def test_live_mode_persists_and_new_config_overrides(self):
         with tempfile.TemporaryDirectory() as root:
             monitor,_=self.monitor(root,'known_off')
@@ -149,6 +170,22 @@ class DiagnosticCaptureTests(unittest.TestCase):
             self.assertEqual(json.loads(archive.read('manifest.json'))['included_clips'],1)
             small=zipfile.ZipFile(io.BytesIO(export_diagnostics(root,max_bytes=1)))
             self.assertEqual(json.loads(small.read('manifest.json'))['included_clips'],0)
+
+    def test_long_break_clips_are_excluded_from_suspicious_download(self):
+        with tempfile.TemporaryDirectory() as root:
+            audio=EventAudioRecorder(root,rate=4,channels=1,chunk=4)
+            audio.feed(b'\0\0'*4)
+            audio.trigger('diagnostic_listening_anomaly',1002,details={'diagnostic_session':'example'})
+            audio.flush()
+            sessions=Path(root)/'experiments'/'diagnostic_sessions'
+            sessions.mkdir()
+            (sessions/'example.json').write_text(json.dumps({'id':'example','events':[
+                {'event':'expected_long_break','capture_times':[1002]}]}))
+            archive=zipfile.ZipFile(io.BytesIO(export_diagnostics(root)))
+            manifest=json.loads(archive.read('manifest.json'))
+            self.assertEqual(manifest['included_clips'],0)
+            self.assertEqual(manifest['excluded_long_break_clips'],1)
+            self.assertFalse(any(p.endswith('.wav') for p in archive.namelist()))
 
     def test_mode_change_flushes_off_before_later_playback(self):
         with tempfile.TemporaryDirectory() as root:

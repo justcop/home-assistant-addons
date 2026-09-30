@@ -10,13 +10,29 @@ def export_diagnostics(recording_directory, max_bytes=128*1024*1024, max_clips=2
     files = []
     audio = root / 'event_audio'
     candidates = []
+    ignored = set()
+    for session_path in (root/'diagnostic_sessions').glob('*.json'):
+        if session_path.is_symlink():
+            continue
+        try:
+            session = json.loads(session_path.read_text())
+            for event in session.get('events',[]):
+                if event.get('event') == 'expected_long_break':
+                    ignored.update((session['id'], stamp) for stamp in event.get('capture_times',[]))
+        except (OSError, ValueError, KeyError, AttributeError):
+            continue
+    excluded = 0
     for sidecar in audio.glob('*.json'):
         if sidecar.is_symlink():
             continue
         try:
             metadata = json.loads(sidecar.read_text())
-            if metadata.get('details', {}).get('diagnostic_session'):
-                candidates.append((sidecar, metadata))
+            session_id = metadata.get('details', {}).get('diagnostic_session')
+            if session_id:
+                if (session_id,metadata.get('trigger_time')) in ignored:
+                    excluded += 1
+                else:
+                    candidates.append((sidecar, metadata))
         except (OSError, ValueError):
             continue
     candidates.sort(key=lambda item: item[1].get('trigger_time', 0), reverse=True)
@@ -40,7 +56,7 @@ def export_diagnostics(recording_directory, max_bytes=128*1024*1024, max_clips=2
         if used + size <= max_bytes:
             files.append(path)
             used += size
-    manifest = {'included_clips': len(included), 'available_clips': len(candidates),
+    manifest = {'included_clips': len(included), 'available_clips': len(candidates), 'excluded_long_break_clips': excluded,
                 'max_clips': max_clips, 'uncompressed_bytes': used,
                 'events': [{'event': m['event'], 'unix_time': m['trigger_time'],
                             'wav': m['wav'], 'label': m.get('label'),

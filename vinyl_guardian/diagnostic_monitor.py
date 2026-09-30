@@ -33,6 +33,8 @@ class DiagnosticMonitor:
         self.track = None
         self.last_music = -1e12
         self.last_drop = None
+        self.break_events = []
+        self.in_long_break = False
         self.expected_boundary_until = -1e12
         self.intentional_until = -1e12
         selected = self.configured_mode
@@ -57,6 +59,8 @@ class DiagnosticMonitor:
         self.previous = self.track = self.session = None
         self.last_music = self.intentional_until = self.expected_boundary_until = -1e12
         self.last_drop = None
+        self.break_events = []
+        self.in_long_break = False
         if mode != 'normal':
             self.session = {'id': uuid.uuid4().hex, 'mode': mode, 'started_unix': now,
                             'addon_version': self.version, 'audio_source': self.source,
@@ -133,6 +137,15 @@ class DiagnosticMonitor:
                 self._event('known_off_activation', now, frame, sensors=rising,
                             expected_state='Powered Off', review_required=False)
         else:
+            if self.last_drop is not None and now-self.last_drop >= 30:
+                self.session['expected_long_breaks'] = self.session.get('expected_long_breaks', 0) + 1
+                self._note('expected_long_break', now, break_started_unix=self.last_drop,
+                           capture_times=list(self.break_events), review_required=False)
+                self.last_drop = None
+                self.break_events = []
+                self.in_long_break = True
+            if frame.get('music_active'):
+                self.in_long_break = False
             remaining = None
             if self.track and self.track.get('duration_known') and self.track.get('duration', 0) > 0:
                 remaining = self.track['start_timestamp'] + self.track['duration'] - now
@@ -150,7 +163,7 @@ class DiagnosticMonitor:
                 self._note('expected_track_boundary', now, seconds_remaining=remaining)
             grace = now <= max(self.intentional_until, self.expected_boundary_until)
             reasons = []
-            if not grace:
+            if not grace and not self.in_long_break:
                 if power_drop and now - self.last_music < 90:
                     reasons.append('power_lost_during_listening')
                 if music_drop and (remaining is None or remaining > 8):
@@ -160,12 +173,15 @@ class DiagnosticMonitor:
             if reasons:
                 self._event('listening_anomaly', now, frame, reasons=reasons,
                             seconds_remaining=remaining, review_required=True)
-                self.last_drop = now
+                if self.last_drop is None:
+                    self.last_drop = now
+                self.break_events.append(now)
             if frame.get('music_active'):
                 if self.last_drop is not None and now-self.last_drop <= 30:
                     self._event('listening_recovery', now, frame, review_required=True,
                                 seconds_after_drop=now-self.last_drop)
                     self.last_drop = None
+                    self.break_events = []
                 self.last_music = now
         self.previous = dict(frame)
         return self.summary()
@@ -173,4 +189,5 @@ class DiagnosticMonitor:
     def summary(self):
         return {'mode': self.mode, 'session_id': self.session['id'] if self.session else None,
                 'captured_count': self.session['captured_count'] if self.session else 0,
+                'expected_long_breaks': self.session.get('expected_long_breaks',0) if self.session else 0,
                 'report_folder': str(self.root)}

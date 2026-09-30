@@ -22,6 +22,7 @@ from audio_math import calculate_audio_levels, calculate_deep_metrics
 from integrations import recognize_shazam, get_track_duration, scrobble_to_lastfm, log
 from calibration import run_calibration
 from detector import GuardianDetector
+from stylus_usage import StylusUsage
 from recognition_session import RecognitionSession, recognize_fragment
 from telemetry import DatasetCollector
 from experiment import ExperimentHarness, TRUSTED_LABELS
@@ -47,6 +48,7 @@ paused_track_memory = None
 inp = None
 dataset_collector = None
 experiment_harness = None
+stylus_usage = None
 profile_manager = None
 manual_label_requested = None
 selected_ground_truth_label = "playing"
@@ -75,6 +77,11 @@ current_engine_status = "Off"
 
 def signal_handler(sig, frame):
     log("🛑 Shutting down gracefully...")
+    try:
+        if stylus_usage is not None:
+            stylus_usage.flush()
+    except (OSError, ValueError) as error:
+        log(f"🚨 Could not save stylus use: {error}")
     try:
         global inp, dataset_collector
         if inp is not None: inp.close()
@@ -176,6 +183,14 @@ def publish_discovery():
     device_info = {"identifiers": ["vinyl_guardian_01"], "name": "Vinyl Guardian", "manufacturer": "Custom Add-on"}
     mqtt_client.publish("homeassistant/button/vinyl_guardian/calibration_continue/config", json.dumps({"name": "Continue Calibration", "unique_id": "vinyl_guardian_calibration_continue", "command_topic": "vinyl_guardian/calibration/continue", "device": device_info, "icon": "mdi:play"}), retain=True)
     mqtt_client.publish("homeassistant/sensor/vinyl_guardian/calibration_step/config", json.dumps({"name": "Calibration Instructions", "unique_id": "vinyl_guardian_calibration_step", "state_topic": "vinyl_guardian/calibration/step", "json_attributes_topic": "vinyl_guardian/calibration/details", "device": device_info, "icon": "mdi:clipboard-list"}), retain=True)
+    mqtt_client.publish('homeassistant/sensor/vinyl_guardian/stylus_usage/config', json.dumps({
+        'name': 'Stylus Use', 'unique_id': 'vinyl_guardian_stylus_usage', 'device': device_info,
+        'state_topic': 'vinyl_guardian/stylus_usage', 'json_attributes_topic': 'vinyl_guardian/stylus_usage/attributes',
+        'device_class': 'duration', 'unit_of_measurement': 'h', 'state_class': 'total_increasing',
+        'suggested_display_precision': 2, 'icon': 'mdi:timer-outline',
+    }), retain=True)
+    if stylus_usage is not None:
+        mqtt_client.publish('vinyl_guardian/stylus_usage', f'{stylus_usage.saved_hours:.6f}', retain=True)
     deprecated_sensors = ["music_rms", "rumble_rms", "scrobble", "scrobble_countdown", "scrobble_state"]
     for old_sensor in deprecated_sensors:
         mqtt_client.publish(f"homeassistant/sensor/vinyl_guardian/{old_sensor}/config", "", retain=True)
@@ -1015,6 +1030,12 @@ def listen_and_identify():
                 force_music_active=current_state in ["RECORDING", "PROCESSING"],
             )
 
+            known_off = bool(experiment_harness and experiment_harness.monitor.mode == 'known_off')
+            if DATA_COLLECTION_ENABLED and str(DATA_COLLECTION_LABEL).lower() in ('known_off','off','turntable_off','known-off'):
+                known_off = True
+            if stylus_usage is not None:
+                stylus_usage.observe(frame, len(data)//(CHANNELS*2), RATE, known_off=known_off)
+
             raw_rms = frame["rms"]
             music_rms = frame["music_rms"]
             hfer = frame["hfer"]
@@ -1295,6 +1316,9 @@ def listen_and_identify():
                         retain=False,
                     )
 
+                    if stylus_usage is not None:
+                        mqtt_client.publish('vinyl_guardian/stylus_usage', f'{stylus_usage.saved_hours:.6f}', retain=True)
+                        mqtt_client.publish('vinyl_guardian/stylus_usage/attributes', json.dumps(stylus_usage.saved_snapshot()), retain=True)
                     diagnostics = experiment_snapshot.get('diagnostics') or {}
                     mqtt_client.publish('vinyl_guardian/diagnostics/mode', MODE_NAMES.get(diagnostics.get('mode'), 'Unavailable'), retain=True)
                     mqtt_client.publish('vinyl_guardian/diagnostics/attributes', json.dumps(diagnostics), retain=True)
@@ -1506,6 +1530,14 @@ def publish_calibration_status(message):
 
 
 if __name__ == "__main__":
+    try:
+        stylus_usage = StylusUsage()
+        log(f"⏱️ Cumulative stylus use: {stylus_usage.hours:.2f} hours, stored at {stylus_usage.path}.")
+        if stylus_usage.recovered:
+            log("⚠️ Stylus use recovered from its saved backup.")
+    except (OSError, ValueError) as error:
+        log(f"🚨 Stylus use storage error: {error}")
+        sys.exit(1)
     calibration_control.begin(CALIBRATION_MODE)
     start_server()
     initialise_audio_source()
