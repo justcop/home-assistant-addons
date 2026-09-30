@@ -1,46 +1,4 @@
 {
-  "codex/fix-docker-build-failure-for-vinyl_guardian": {
-    "fingerprint": "cf74c1fb8699c9521a45533b9ffaf9c2f0930510802cea44a8dfbb39da710c6f",
-    "sha": "bdcc6fa1925f72a1453b117eb29e8f61ff5979da"
-  },
-  "codex/fix-dockerfile-package-installation-error": {
-    "fingerprint": "cf74c1fb8699c9521a45533b9ffaf9c2f0930510802cea44a8dfbb39da710c6f",
-    "sha": "38016662b34001407201da324a4895fa0b272849"
-  },
-  "codex/fix-dockerfile-package-installation-error-oj0rjv": {
-    "fingerprint": "64467a4bc3cf2d20dbc1efe26fee086fc29ef85997456cf46d90c4d812f4684b",
-    "sha": "38f8104a1022eddd9488e0911b1bbadb0b5a49a1"
-  },
-  "codex/fix-dockerfile-package-installation-error-rl9vwb": {
-    "fingerprint": "64467a4bc3cf2d20dbc1efe26fee086fc29ef85997456cf46d90c4d812f4684b",
-    "sha": "2dda016c886ccf7bd21d32d6e9dd01b6bd26f139"
-  },
-  "codex/fix-issues-in-vinyl_guardian-add-on": {
-    "fingerprint": "9b5d550be0caddb825b334bb85e322c3959990269d649107111dddc630a397d6",
-    "sha": "c0921d6226db327bc57b046ad362d831edacf257"
-  },
-  "codex/fix-issues-in-vinyl_guardian-add-on-luf2ij": {
-    "fingerprint": "9b5d550be0caddb825b334bb85e322c3959990269d649107111dddc630a397d6",
-    "sha": "a4858f02a1764eb05c269190eef11cd61d10e0a4"
-  },
-  "justcop-patch-1": {
-    "fingerprint": "01646779b8e964f572043c008b12e5283b6393916fdbdac480ba3cd41c033251",
-    "sha": "b077241e0612557900088131bbdc5090fa5d10ee"
-  },
-  "justcop-patch-2": {
-    "fingerprint": "5f27cfe641d760913206d015003d0ed07de23cfacab2a2033b50c4ad594f9598",
-    "sha": "37a3171e126e72f8301b92d2dd3a5ac35d678e03"
-  },
-  "justcop-patch-3": {
-    "fingerprint": "01646779b8e964f572043c008b12e5283b6393916fdbdac480ba3cd41c033251",
-    "sha": "9b33c480b0aa2ffa56d6dfe82b719dd9cff4c5eb"
-  },
-  "main": {
-    "fingerprint": "4ed6cc159e25c164e5c91aa3962f5c9348e108cd4e55ebbaeca7360369d4f1ab",
-    "sha": "ae29fee6c836111b1d62c07e9cf6ea33df7c7f09"
-  },
-  "vinyl-guardian-detection-v2": {
-    "fingerprint": "398caedf4d620c14964573ac252de8a2861a4f2492f987048345bea6d80aa188",
-    "sha": "f3ee7ae85886f45a71f0947e6c0af4fe24c4750b"
-  }
+  "sha": "68187ca13c39269400739db4e96686cb8f041783",
+  "fingerprint": "d8c7630ecd2a0b40917124942a6a4a0b171f644947bee6d87e879306d7fab67c"
 }
