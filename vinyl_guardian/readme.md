@@ -21,6 +21,18 @@ Click Install.
 ⚙️ Configuration
 Before starting the Add-on, configure your settings in the UI:
 
-`code_branch`: Leave this as `main` for the normal installed version. To test development code, enter an existing Git branch name and restart the Add-on. Vinyl Guardian will download the Python runtime files from that branch each time it starts. If the branch cannot be downloaded, startup stops rather than silently running `main`.
+`code_branch`: Leave this as `main` for the normal installed version. To test development code, choose a Git branch from the dropdown and restart the Add-on. Vinyl Guardian will download the Python runtime files from that branch each time it starts. If the branch cannot be downloaded, startup stops rather than silently running `main`.
 
 Branch selection changes the runtime Python files only. Changes to `Dockerfile`, `config.yaml`, `run.sh`, system packages, or Python dependencies still require a normal Add-on rebuild/update.
+
+The dropdown includes all repository branches and is refreshed automatically when branches change. Old development branches are available for testing but may not support current settings. Save and restart after changing `code_branch`. The installed version shown by Home Assistant is the delivery version from `main`, not the selected branch's original version.
+
+The configuration also exposes the experimental audio-source, collection and harness settings. These take effect when running `vinyl-guardian-detection-v2`; the stable detector ignores them. Audio scanning on that branch uses its own per-process input selector, rather than the stable startup script changing Home Assistant's default input.
+
+### Automatic updates
+
+The release workflow checks every repository branch for changes to Vinyl Guardian runtime files, dependencies and configuration. It updates the branch dropdown and bumps the delivery version on `main` whenever those change. Home Assistant offers the update after refreshing the add-on repository, rather than immediately when a commit is pushed. No update is installed automatically by this workflow.
+
+Versions now use `MAJOR.MINOR.PATCH`, starting at `4.40.0`, above the previous stable and experimental versions. Ordinary changes get a patch bump. Conventional `feat:` commits request a minor bump; `type!:` or `BREAKING CHANGE:` requests a major bump. The largest request wins for a batch of changes. The workflow can also be run manually with `patch`, `minor` or `major`. This is an explicit convention, not an AI guess about whether a change is compatible. Documentation and test-only edits do not publish updates.
+
+Selecting another branch downloads only its Python runtime. Dependency, launcher and schema changes still require the advertised add-on update. Returning to `main` uses the stable files baked into that updated image.

@@ -1,6 +1,6 @@
 name: "Vinyl Guardian"
 description: "Detects needle drops, IDs vinyl records, and natively scrobbles to Last.fm."
-version: "4.4"
+version: "4.40.0"
 slug: "vinyl_guardian"
 init: false
 arch:
@@ -25,6 +25,16 @@ options:
   calibration_mode: false
   recording_seconds: 10
   debug_logging: false
+  audio_source: "auto"
+  audio_scan_on_start: false
+  audio_scan_seconds: 2.5
+  data_collection_enabled: false
+  data_collection_label: "unlabelled"
+  data_collection_raw_audio: false
+  data_collection_feature_interval: 0.25
+  data_collection_raw_segment_minutes: 30
+  experiment_harness_enabled: true
+  auto_capture_interesting_events: true
   advanced:
     manual_override_mic_volume: 0
     manual_override_music_threshold: 0
@@ -38,7 +48,7 @@ options:
     fallback_sleep_secs: 60
     reuse_calibration_audio: false
 schema:
-  code_branch: "str"
+  code_branch: "list(main|codex/fix-docker-build-failure-for-vinyl_guardian|codex/fix-dockerfile-package-installation-error|codex/fix-dockerfile-package-installation-error-oj0rjv|codex/fix-dockerfile-package-installation-error-rl9vwb|codex/fix-issues-in-vinyl_guardian-add-on|codex/fix-issues-in-vinyl_guardian-add-on-luf2ij|justcop-patch-1|justcop-patch-2|justcop-patch-3|vinyl-guardian-detection-v2)"
   lastfm_username: "str?"
   lastfm_password: "password?"
   lastfm_api_key: "str?"
@@ -51,6 +61,16 @@ schema:
   calibration_mode: "bool"
   recording_seconds: "int"
   debug_logging: "bool"
+  audio_source: "str"
+  audio_scan_on_start: "bool"
+  audio_scan_seconds: "float"
+  data_collection_enabled: "bool"
+  data_collection_label: "str"
+  data_collection_raw_audio: "bool"
+  data_collection_feature_interval: "float"
+  data_collection_raw_segment_minutes: "int"
+  experiment_harness_enabled: "bool"
+  auto_capture_interesting_events: "bool"
   advanced:
     manual_override_mic_volume: "int(0,100)?"
     manual_override_music_threshold: "float?"

@@ -99,6 +99,8 @@ if [ "$DEBUG_MODE" == "true" ]; then
     echo "[$(date +"%Y-%m-%d %H:%M:%S")] --------------------------------------"
 fi
 
+# Experimental runtimes select their own source without changing HA defaults.
+if [ ! -f /usr/src/app/audio_source.py ]; then
 # Find physical soundcard input quietly
 PHYSICAL_SINK=$(pactl list short sources | grep "alsa_input" | awk '{print $2}' | head -n 1)
 
@@ -121,6 +123,8 @@ else
         fi
         pactl set-source-volume "$PHYSICAL_SINK" "${CONFIG_VOL}%"
     fi
+fi
+
 fi
 
 if [ "$DEBUG_MODE" == "true" ]; then
