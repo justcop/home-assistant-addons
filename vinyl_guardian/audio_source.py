@@ -484,6 +484,10 @@ class AudioSourceManager:
             self.log(f"⚠️ Configured audio source is unavailable: {preference}")
 
         saved = self._saved()
+        if saved.get("follow_system_default"):
+            self.use_system_default(persist=False)
+            return self.status()
+
         saved_profile = saved.get("profile")
         saved_card = saved.get("card")
         if saved_profile and saved_card:
@@ -605,11 +609,35 @@ class AudioSourceManager:
         tested_keys = set()
 
         sources = self.list_sources()
+        cards = self.list_cards()
+        cards_by_index = {}
+        for card in cards:
+            try:
+                cards_by_index[int(card.get("index"))] = card
+            except (TypeError, ValueError):
+                pass
+
         progress(f"Found {len(sources)} currently exposed capture source(s).")
         for source in sources:
             key = (source.get("name"), None)
             tested_keys.add(key)
-            candidates.append(self._test_source(source, progress=progress))
+            source_card = cards_by_index.get(source.get("card_index"))
+            context = None
+            if source_card is not None:
+                context = {
+                    "card": source_card.get("name"),
+                    "card_description": source_card.get("description"),
+                    "profile": source_card.get("active_profile"),
+                    "profile_description": source_card.get("active_profile"),
+                    "profile_has_output": None,
+                }
+            candidates.append(
+                self._test_source(
+                    source,
+                    progress=progress,
+                    context=context,
+                )
+            )
 
         active_best = choose_best_candidate(candidates)
 
