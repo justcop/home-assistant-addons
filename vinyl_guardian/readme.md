@@ -20,6 +20,19 @@ Click Install.
 ⚙️ Configuration
 Before starting the Add-on, configure your settings in the UI:
 
+### Runtime branch selection
+
+Set `code_branch` to `main` for normal operation. To test another development branch, enter that branch name and restart the Add-on, for example:
+
+```yaml
+code_branch: "vinyl-guardian-detection-v2"
+```
+
+At startup Vinyl Guardian downloads the Python runtime files from that branch. If the branch is unavailable or invalid, startup stops rather than silently falling back to `main`.
+
+This selector changes Python runtime files only. Changes to `Dockerfile`, `config.yaml`, `run.sh`, system packages, or Python dependencies still require a normal Add-on rebuild/update.
+
+
 ## Experimental dataset collection (v4.34 branch)
 
 The `vinyl-guardian-detection-v2` branch can collect a labelled feature dataset without allowing the experimental measurements to influence detection yet.
