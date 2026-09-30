@@ -1,4 +1,8 @@
 {
+  "archive/main-before-detector-promotion-2026-09-30": {
+    "fingerprint": "9f846a93126b4f008f77f7f1d6c9cfcd584880984deeb0ca4a70c5cf196dda6d",
+    "sha": "274f09c0b69d9a909caa0e1928b4f1a311cda3a0"
+  },
   "codex/fix-docker-build-failure-for-vinyl_guardian": {
     "fingerprint": "cf74c1fb8699c9521a45533b9ffaf9c2f0930510802cea44a8dfbb39da710c6f",
     "sha": "bdcc6fa1925f72a1453b117eb29e8f61ff5979da"
