@@ -103,7 +103,9 @@ def publish_discovery():
         "raw_volume": {"name": "Guardian Vol (Target 0-100)", "topic": "raw_volume", "icon": "mdi:volume-high", "domain": "sensor", "state_class": "measurement"},
         "raw_pitch": {"name": "Guardian Pitch (Target 0-100)", "topic": "raw_pitch", "icon": "mdi:sine-wave", "domain": "sensor", "state_class": "measurement"},
         "raw_texture": {"name": "Guardian Texture (Target 0-100)", "topic": "raw_texture", "icon": "mdi:chart-timeline-variant", "domain": "sensor", "state_class": "measurement"},
-        "power_score": {"name": "Guardian Power Score", "topic": "power_score", "icon": "mdi:counter", "domain": "sensor", "state_class": "measurement"},
+        "power_score": {"name": "Guardian Motor Confidence", "topic": "power_score", "icon": "mdi:gauge", "domain": "sensor", "state_class": "measurement"},
+        "runout_rpm": {"name": "Runout Speed", "topic": "runout_rpm", "icon": "mdi:rotate-right", "domain": "sensor"},
+        "runout_confidence": {"name": "Runout Rhythm Confidence", "topic": "runout_confidence", "icon": "mdi:pulse", "domain": "sensor", "state_class": "measurement"},
         "music_energy": {"name": "Guardian Music Energy (Target 100+)", "topic": "music_energy", "icon": "mdi:music-note", "domain": "sensor", "state_class": "measurement"},
         "pop_texture": {"name": "Guardian Pop Texture (Target 100+)", "topic": "pop_texture", "icon": "mdi:waveform", "domain": "sensor", "state_class": "measurement"},
         "pop_volume": {"name": "Guardian Pop Volume (Target 100+)", "topic": "pop_volume", "icon": "mdi:volume-source", "domain": "sensor", "state_class": "measurement"}
@@ -139,6 +141,8 @@ def publish_discovery():
         mqtt_client.publish("vinyl_guardian/raw_pitch", "0.0", retain=True)
         mqtt_client.publish("vinyl_guardian/raw_texture", "0.0", retain=True)
         mqtt_client.publish("vinyl_guardian/power_score", "0", retain=True)
+        mqtt_client.publish("vinyl_guardian/runout_rpm", "None", retain=True)
+        mqtt_client.publish("vinyl_guardian/runout_confidence", "0.0", retain=True)
         mqtt_client.publish("vinyl_guardian/music_energy", "0.0", retain=True)
         mqtt_client.publish("vinyl_guardian/pop_texture", "0.0", retain=True)
         mqtt_client.publish("vinyl_guardian/pop_volume", "0.0", retain=True)
@@ -154,6 +158,8 @@ def publish_discovery():
         mqtt_client.publish("vinyl_guardian/raw_pitch", "0.0", retain=True)
         mqtt_client.publish("vinyl_guardian/raw_texture", "0.0", retain=True)
         mqtt_client.publish("vinyl_guardian/power_score", "0", retain=True)
+        mqtt_client.publish("vinyl_guardian/runout_rpm", "None", retain=True)
+        mqtt_client.publish("vinyl_guardian/runout_confidence", "0.0", retain=True)
         mqtt_client.publish("vinyl_guardian/music_energy", "0.0", retain=True)
         mqtt_client.publish("vinyl_guardian/pop_texture", "0.0", retain=True)
         mqtt_client.publish("vinyl_guardian/pop_volume", "0.0", retain=True)
@@ -482,6 +488,16 @@ def listen_and_identify():
                     mqtt_client.publish("vinyl_guardian/raw_pitch", f"{norm_h:.1f}", retain=False)
                     mqtt_client.publish("vinyl_guardian/raw_texture", f"{norm_c:.1f}", retain=False)
                     mqtt_client.publish("vinyl_guardian/power_score", str(power_score), retain=False)
+                    mqtt_client.publish(
+                        "vinyl_guardian/runout_rpm",
+                        frame["runout_rpm"] or "None",
+                        retain=False,
+                    )
+                    mqtt_client.publish(
+                        "vinyl_guardian/runout_confidence",
+                        f"{frame['runout_confidence'] * 100.0:.1f}",
+                        retain=False,
+                    )
                     
                     mqtt_client.publish("vinyl_guardian/music_energy", f"{min(250.0, norm_music_energy):.1f}", retain=False)
                     mqtt_client.publish("vinyl_guardian/pop_texture", f"{min(250.0, norm_pop_texture):.1f}", retain=False)
@@ -521,7 +537,14 @@ def listen_and_identify():
                         r_icon = "🥁 RHYTHM ACQUIRED" if rhythm_locked else "🛑 RHYTHM LOST"
                         print(f"\n[{timestamp}] 🔄 STATE CHANGE: {last_logged_status} -> {new_vinyl_status}")
                         print(f"   ↳ RMS: {raw_rms:.4f} | Music: {music_rms:.4f} | Crest: {crest:.2f}")
-                        if rhythm_changed: print(f"   ↳ {r_icon}")
+                        if rhythm_changed:
+                            rhythm_detail = (
+                                f"{frame['runout_rpm']} RPM, "
+                                f"{frame['runout_confidence'] * 100.0:.0f}% confidence, "
+                                f"{frame['runout_support']} aligned clicks"
+                                if rhythm_locked else "unlocked"
+                            )
+                            print(f"   ↳ {r_icon}: {rhythm_detail}")
                         last_logged_status, last_logged_rhythm = new_vinyl_status, rhythm_locked
                     
                     if current_state == "SLEEPING" and now - last_sleep_log >= 15.0:
