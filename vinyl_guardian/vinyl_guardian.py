@@ -493,6 +493,133 @@ def save_feedback_clip(kind, chunks):
         return None
 
 
+def publish_audio_source_state():
+    if audio_source_manager is None or not mqtt_client.is_connected():
+        return
+    try:
+        status = audio_source_manager.status()
+        source = status.get("source")
+        description = status.get("description") or source or "Unavailable"
+        mqtt_client.publish(
+            "vinyl_guardian/audio/source/current",
+            description,
+            retain=True,
+        )
+        mqtt_client.publish(
+            "vinyl_guardian/audio/source/attributes",
+            json.dumps(status),
+            retain=True,
+        )
+        selection_state = source or SYSTEM_DEFAULT_OPTION
+        if selection_state not in audio_source_manager.selectable_options():
+            selection_state = SYSTEM_DEFAULT_OPTION
+        mqtt_client.publish(
+            "vinyl_guardian/audio/source/selection",
+            selection_state,
+            retain=True,
+        )
+        mqtt_client.publish(
+            "vinyl_guardian/audio/scan_status",
+            audio_scan_status,
+            retain=True,
+        )
+    except Exception as e:
+        log(f"⚠️ Could not publish audio source state: {e}")
+
+
+def audio_scan_progress(message):
+    global audio_scan_status
+    audio_scan_status = str(message)
+    log(f"🎚️ {audio_scan_status}")
+    if mqtt_client.is_connected():
+        mqtt_client.publish(
+            "vinyl_guardian/audio/scan_status",
+            audio_scan_status,
+            retain=True,
+        )
+
+
+def initialise_audio_source():
+    global audio_source_manager
+    audio_source_manager = AudioSourceManager(
+        SHARE_DIR,
+        rate=RATE,
+        channels=CHANNELS,
+        scan_seconds=AUDIO_SCAN_SECONDS,
+        logger=log,
+    )
+    try:
+        status = audio_source_manager.apply_startup(AUDIO_SOURCE)
+        chosen = status.get("description") or status.get("source") or "system default"
+        log(f"🎚️ Guardian capture source: {chosen}")
+    except Exception as e:
+        log(f"⚠️ Audio source selection failed; using system default: {e}")
+        try:
+            audio_source_manager.use_system_default(persist=False)
+        except Exception:
+            pass
+
+
+def run_startup_audio_scan():
+    global audio_scan_status
+    if audio_source_manager is None:
+        return False
+    audio_scan_status = "Scanning — keep music playing"
+    try:
+        result = audio_source_manager.scan(progress=audio_scan_progress)
+        if result.get("applied"):
+            winner = result.get("winner") or {}
+            audio_scan_status = (
+                f"Selected {winner.get('description') or winner.get('source')} "
+                f"({winner.get('confidence', 'unknown')} confidence)"
+            )
+            publish_audio_source_state()
+            return True
+        audio_scan_status = "No convincing input found"
+    except Exception as e:
+        audio_scan_status = f"Scan error: {e}"
+        log(f"⚠️ Audio-input scan failed: {e}")
+    publish_audio_source_state()
+    return False
+
+
+def open_guardian_capture():
+    return alsaaudio.PCM(
+        type=alsaaudio.PCM_CAPTURE,
+        mode=alsaaudio.PCM_NORMAL,
+        device="default",
+        channels=CHANNELS,
+        rate=RATE,
+        format=FORMAT,
+        periodsize=CHUNK,
+    )
+
+
+def apply_guardian_source_volume():
+    target = (
+        audio_source_manager.volume_target()
+        if audio_source_manager is not None
+        else "@DEFAULT_SOURCE@"
+    )
+    try:
+        subprocess.run(
+            ["pactl", "set-source-mute", target, "0"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+            check=False,
+        )
+        subprocess.run(
+            ["pactl", "set-source-volume", target, f"{MIC_VOLUME}%"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+            check=False,
+        )
+    except Exception:
+        pass
+
+
 def replay_latest_background():
     global replay_status
     replay_status = "Running"
@@ -530,18 +657,23 @@ def listen_and_identify():
     global app_state, current_attempt, wake_up_time, scrobble_fired, current_track, last_scrobbled_track, paused_track_memory, inp, dataset_collector
     global experiment_harness, profile_manager, manual_label_requested
     global replay_latest_requested, rollback_profile_requested, replay_status, profile_status_text
+    global audio_scan_requested, audio_scan_running, audio_source_change_requested
+    global requested_audio_source_option, audio_scan_status
     global debug_countdown, debug_metrics_buffer
     global capture_false_positive_requested, capture_missed_music_requested
     
+    if DEBUG:
+        log(
+            f"🔊 Applying tuned mic volume: {MIC_VOLUME}% to "
+            f"{audio_source_manager.volume_target() if audio_source_manager else '@DEFAULT_SOURCE@'}"
+        )
+    apply_guardian_source_volume()
+
     try:
-        if DEBUG: log(f"🔊 Applying tuned mic volume: {MIC_VOLUME}%")
-        subprocess.run(["pactl", "set-source-volume", "@DEFAULT_SOURCE@", f"{MIC_VOLUME}%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except: pass
-        
-    try:
-        inp = alsaaudio.PCM(type=alsaaudio.PCM_CAPTURE, mode=alsaaudio.PCM_NORMAL, device='default', channels=CHANNELS, rate=RATE, format=FORMAT, periodsize=CHUNK)
+        inp = open_guardian_capture()
     except Exception as e:
-        log(f"🚨 ALSA Error: {e}"); sys.exit(1)
+        log(f"🚨 ALSA Error: {e}")
+        sys.exit(1)
         
     log("Guardian Engine Online. Shields Armed.")
 
