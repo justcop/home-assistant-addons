@@ -19,6 +19,7 @@ path that actually contains audio.
 import json
 import math
 import os
+import re
 import subprocess
 import time
 
@@ -184,6 +185,8 @@ class AudioSourceManager:
         self.selected_description = None
         self.selected_card = None
         self.selected_profile = None
+        self.selected_port = None
+        self.follow_system_default = False
         self.last_scan = None
 
     def _pactl_json(self, kind):
@@ -225,6 +228,38 @@ class AudioSourceManager:
                     card_index = int(item.get("card"))
                 except (TypeError, ValueError):
                     card_index = None
+                ports_raw = item.get("ports") or []
+                ports = []
+                if isinstance(ports_raw, dict):
+                    port_iterator = ports_raw.items()
+                elif isinstance(ports_raw, list):
+                    port_iterator = (
+                        (entry.get("name"), entry)
+                        for entry in ports_raw
+                        if isinstance(entry, dict)
+                    )
+                else:
+                    port_iterator = []
+                for port_name, port_spec in port_iterator:
+                    if not port_name or not isinstance(port_spec, dict):
+                        continue
+                    ports.append({
+                        "name": str(port_name),
+                        "description": str(
+                            port_spec.get("description") or port_name
+                        ),
+                        "available": str(
+                            port_spec.get("availability")
+                            or port_spec.get("available")
+                            or "unknown"
+                        ),
+                        "priority": int(port_spec.get("priority", 0) or 0),
+                    })
+
+                active_port = item.get("active_port")
+                if isinstance(active_port, dict):
+                    active_port = active_port.get("name")
+
                 sources.append({
                     "index": item.get("index"),
                     "name": name,
@@ -235,6 +270,8 @@ class AudioSourceManager:
                     ),
                     "card_index": card_index,
                     "state": str(item.get("state") or ""),
+                    "active_port": str(active_port or ""),
+                    "ports": ports,
                     "properties": properties,
                 })
             return sources
@@ -265,6 +302,8 @@ class AudioSourceManager:
                     "description": name,
                     "card_index": None,
                     "state": cols[-1] if cols else "",
+                    "active_port": "",
+                    "ports": [],
                     "properties": {},
                 })
         except Exception:
@@ -380,6 +419,58 @@ class AudioSourceManager:
         except Exception:
             return False
 
+    def _set_source_port(self, source, port):
+        if not source or not port:
+            return False
+        try:
+            result = subprocess.run(
+                ["pactl", "set-source-port", str(source), str(port)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=8,
+                check=False,
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
+
+    def _source_mute(self, source):
+        try:
+            result = subprocess.run(
+                ["pactl", "get-source-mute", str(source)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            text = result.stdout.strip().lower()
+            if "yes" in text:
+                return True
+            if "no" in text:
+                return False
+        except Exception:
+            pass
+        return None
+
+    def _source_volume_percent(self, source):
+        try:
+            result = subprocess.run(
+                ["pactl", "get-source-volume", str(source)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            match = re.search(r"(\d+)%", result.stdout)
+            if match:
+                return int(match.group(1))
+        except Exception:
+            pass
+        return None
+
     def _source_by_name(self, name):
         for source in self.list_sources():
             if source.get("name") == name:
@@ -392,6 +483,7 @@ class AudioSourceManager:
         description=None,
         card_name=None,
         profile_name=None,
+        port_name=None,
         persist=True,
         reason="manual",
     ):
@@ -417,8 +509,12 @@ class AudioSourceManager:
             or (source or {}).get("description")
             or source_name
         )
+        if port_name:
+            self._set_source_port(source_name, port_name)
         self.selected_card = card_name
         self.selected_profile = profile_name
+        self.selected_port = port_name
+        self.follow_system_default = False
 
         if persist:
             _atomic_json(self.selection_path, {
@@ -426,6 +522,7 @@ class AudioSourceManager:
                 "description": self.selected_description,
                 "card": self.selected_card,
                 "profile": self.selected_profile,
+                "port": self.selected_port,
                 "selected_unix": time.time(),
                 "reason": reason,
             })
@@ -451,6 +548,8 @@ class AudioSourceManager:
         self.selected_description = (source or {}).get("description") or source_name
         self.selected_card = None
         self.selected_profile = None
+        self.selected_port = None
+        self.follow_system_default = True
         if persist:
             _atomic_json(self.selection_path, {
                 "source": source_name,
@@ -490,6 +589,7 @@ class AudioSourceManager:
 
         saved_profile = saved.get("profile")
         saved_card = saved.get("card")
+        saved_port = saved.get("port")
         if saved_profile and saved_card:
             if self._set_card_profile(saved_card, saved_profile):
                 time.sleep(0.7)
@@ -504,6 +604,7 @@ class AudioSourceManager:
                     description=saved.get("description") or source.get("description"),
                     card_name=saved_card,
                     profile_name=saved_profile,
+                    port_name=saved_port,
                     persist=False,
                     reason="remembered",
                 )
@@ -557,17 +658,76 @@ class AudioSourceManager:
 
     def _test_source(self, source, progress=None, context=None):
         if progress:
+            label = source.get("description") or source.get("name")
+            port_label = (context or {}).get("port_description")
             progress(
-                f"Testing {source.get('description') or source.get('name')}…"
+                f"Testing {label}"
+                + (f" · {port_label}" if port_label else "")
+                + "…"
             )
+
+        # Make the comparison fair even if one source happens to be muted or
+        # left at a very low gain. The original mute/volume are restored after
+        # each short probe.
+        previous_mute = self._source_mute(source["name"])
+        previous_volume = self._source_volume_percent(source["name"])
+        try:
+            subprocess.run(
+                ["pactl", "set-source-mute", source["name"], "0"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+                check=False,
+            )
+            subprocess.run(
+                ["pactl", "set-source-volume", source["name"], "50%"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+                check=False,
+            )
+        except Exception:
+            pass
+
         raw, channels, error = self._capture_source(source["name"])
         metrics = score_pcm(raw, rate=self.rate, channels=channels)
+
+        if previous_volume is not None:
+            try:
+                subprocess.run(
+                    [
+                        "pactl", "set-source-volume", source["name"],
+                        f"{previous_volume}%"
+                    ],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5,
+                    check=False,
+                )
+            except Exception:
+                pass
+        if previous_mute is not None:
+            try:
+                subprocess.run(
+                    [
+                        "pactl", "set-source-mute", source["name"],
+                        "1" if previous_mute else "0"
+                    ],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5,
+                    check=False,
+                )
+            except Exception:
+                pass
+
         result = {
             "source": source.get("name"),
             "description": source.get("description") or source.get("name"),
             "card_index": source.get("card_index"),
             "profile": None,
             "card": None,
+            "port": source.get("active_port") or None,
             "channels_recorded": channels,
             "metrics": metrics,
         }
@@ -576,6 +736,63 @@ class AudioSourceManager:
         if error and not raw:
             result["error"] = error
         return result
+
+    def _test_source_ports(self, source, progress=None, context=None):
+        results = []
+        original_port = source.get("active_port")
+        base_context = dict(context or {})
+
+        current_context = dict(base_context)
+        current_context["port"] = original_port or None
+        if original_port:
+            current_spec = next(
+                (
+                    p for p in source.get("ports", [])
+                    if p.get("name") == original_port
+                ),
+                None,
+            )
+            current_context["port_description"] = (
+                (current_spec or {}).get("description") or original_port
+            )
+        results.append(
+            self._test_source(
+                source,
+                progress=progress,
+                context=current_context,
+            )
+        )
+
+        alternate_ports = [
+            port for port in source.get("ports", [])
+            if port.get("name")
+            and port.get("name") != original_port
+            and str(port.get("available", "")).lower() != "no"
+        ]
+        alternate_ports.sort(key=lambda p: -int(p.get("priority", 0) or 0))
+
+        for port in alternate_ports[:6]:
+            if not self._set_source_port(source["name"], port["name"]):
+                continue
+            time.sleep(0.4)
+            refreshed = self._source_by_name(source["name"]) or source
+            port_context = dict(base_context)
+            port_context["port"] = port["name"]
+            port_context["port_description"] = (
+                port.get("description") or port["name"]
+            )
+            results.append(
+                self._test_source(
+                    refreshed,
+                    progress=progress,
+                    context=port_context,
+                )
+            )
+
+        if original_port:
+            self._set_source_port(source["name"], original_port)
+            time.sleep(0.2)
+        return results
 
     def _profiles_to_probe(self, card):
         active = card.get("active_profile")
@@ -631,8 +848,8 @@ class AudioSourceManager:
                     "profile_description": source_card.get("active_profile"),
                     "profile_has_output": None,
                 }
-            candidates.append(
-                self._test_source(
+            candidates.extend(
+                self._test_source_ports(
                     source,
                     progress=progress,
                     context=context,
@@ -668,8 +885,8 @@ class AudioSourceManager:
                         if key in tested_keys:
                             continue
                         tested_keys.add(key)
-                        candidates.append(
-                            self._test_source(
+                        candidates.extend(
+                            self._test_source_ports(
                                 source,
                                 progress=progress,
                                 context={
@@ -698,6 +915,7 @@ class AudioSourceManager:
         if winner is not None:
             card_name = winner.get("card")
             profile_name = winner.get("profile")
+            port_name = winner.get("port")
             source_name = winner.get("source")
             if card_name and profile_name:
                 if self._set_card_profile(card_name, profile_name):
@@ -724,11 +942,14 @@ class AudioSourceManager:
                         winner["description"] = source.get("description") or source_name
 
             if self._source_by_name(source_name):
+                if port_name:
+                    self._set_source_port(source_name, port_name)
                 applied = self.select_source(
                     source_name,
                     description=winner.get("description"),
                     card_name=card_name,
                     profile_name=profile_name,
+                    port_name=port_name,
                     persist=True,
                     reason="music_scan",
                 )
@@ -797,6 +1018,7 @@ class AudioSourceManager:
             description=source.get("description"),
             card_name=card_name,
             profile_name=profile_name,
+            port_name=source.get("active_port") or None,
             persist=True,
             reason="home_assistant_select",
         )
@@ -810,6 +1032,8 @@ class AudioSourceManager:
             "description": self.selected_description,
             "card": self.selected_card,
             "profile": self.selected_profile,
+            "port": self.selected_port,
+            "follow_system_default": self.follow_system_default,
             "pulse_source_env": os.environ.get("PULSE_SOURCE"),
             "system_default": self.default_source(),
             "available_sources": self.list_sources(),
