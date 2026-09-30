@@ -22,6 +22,13 @@ CALIBRATION_MODE = config.get("calibration_mode", False)
 TEST_CAPTURE_MODE = config.get("test_capture_mode", False)
 DEBUG = config.get("debug_logging", False)
 
+# --- Dataset / Feature Collection ---
+DATA_COLLECTION_ENABLED = config.get("data_collection_enabled", False)
+DATA_COLLECTION_LABEL = config.get("data_collection_label", "unlabelled")
+DATA_COLLECTION_RAW_AUDIO = config.get("data_collection_raw_audio", False)
+DATA_COLLECTION_FEATURE_INTERVAL = config.get("data_collection_feature_interval", 0.25)
+DATA_COLLECTION_RAW_SEGMENT_MINUTES = config.get("data_collection_raw_segment_minutes", 30)
+
 # 👻 TEMPORARY DEBUG TOGGLE: Capture False Positives
 DEBUG_GHOST_CATCHER = True
 
