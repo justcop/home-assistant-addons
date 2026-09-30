@@ -38,6 +38,8 @@ inp = None
 # Debug Dumper State
 debug_countdown = 0
 debug_metrics_buffer = {'rms': [], 'hfer': [], 'crest': []}
+capture_false_positive_requested = False
+capture_missed_music_requested = False
 
 # 3-Tier State Tracking Variables
 current_display_status = "Powered Off"
@@ -80,11 +82,20 @@ if MQTT_USER and MQTT_PASS:
 
 def on_message(client, userdata, msg):
     global debug_countdown, debug_metrics_buffer
+    global capture_false_positive_requested, capture_missed_music_requested
+    global capture_false_positive_requested, capture_missed_music_requested
+
     if msg.topic == "vinyl_guardian/debug/trigger":
-        target_chunks = int(RATE / CHUNK * 10.0) 
+        target_chunks = int(RATE / CHUNK * 10.0)
         log(f"🐞 Live Debug Triggered! Capturing 10 seconds ({target_chunks} chunks) of motor profile...")
         debug_metrics_buffer = {'rms': [], 'hfer': [], 'crest': []}
         debug_countdown = target_chunks
+    elif msg.topic == "vinyl_guardian/debug/false_positive":
+        capture_false_positive_requested = True
+        log("👻 False-positive marker received. Saving the recent audio context...")
+    elif msg.topic == "vinyl_guardian/debug/missed_music":
+        capture_missed_music_requested = True
+        log("🎵 Missed-music marker received. Saving the recent audio context...")
 
 def publish_discovery():
     log("Publishing MQTT Auto-Discovery payloads...")
@@ -129,6 +140,32 @@ def publish_discovery():
     }
     mqtt_client.publish("homeassistant/button/vinyl_guardian/debug/config", json.dumps(btn_payload), retain=True)
 
+    feedback_buttons = {
+        "false_positive": {
+            "name": "Mark False Positive",
+            "topic": "vinyl_guardian/debug/false_positive",
+            "icon": "mdi:ghost-off-outline",
+        },
+        "missed_music": {
+            "name": "Mark Missed Music",
+            "topic": "vinyl_guardian/debug/missed_music",
+            "icon": "mdi:music-note-off",
+        },
+    }
+    for key, button in feedback_buttons.items():
+        payload = {
+            "name": button["name"],
+            "command_topic": button["topic"],
+            "unique_id": f"vinyl_guardian_{key}_btn",
+            "device": device_info,
+            "icon": button["icon"],
+        }
+        mqtt_client.publish(
+            f"homeassistant/button/vinyl_guardian/{key}/config",
+            json.dumps(payload),
+            retain=True,
+        )
+
     if CALIBRATION_MODE:
         mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
         mqtt_client.publish("vinyl_guardian/status", "Calibrating", retain=True)
@@ -169,6 +206,8 @@ def connect_mqtt():
         mqtt_client.on_message = on_message
         mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
         mqtt_client.subscribe("vinyl_guardian/debug/trigger")
+        mqtt_client.subscribe("vinyl_guardian/debug/false_positive")
+        mqtt_client.subscribe("vinyl_guardian/debug/missed_music")
         mqtt_client.loop_start()
         publish_discovery()
     except Exception as e: log(f"🚨 MQTT Failed: {e}")
@@ -347,7 +386,35 @@ def listen_and_identify():
         if length > 0:
             if DEBUG_GHOST_CATCHER:
                 ghost_buffer.append(data)
-                if len(ghost_buffer) > ghost_max_chunks: ghost_buffer.pop(0)
+                if len(ghost_buffer) > ghost_max_chunks:
+                    ghost_buffer.pop(0)
+
+                feedback_kind = None
+                if capture_false_positive_requested:
+                    feedback_kind = "ghost_trigger"
+                    capture_false_positive_requested = False
+                elif capture_missed_music_requested:
+                    feedback_kind = "missed_music"
+                    capture_missed_music_requested = False
+
+                if feedback_kind and ghost_buffer:
+                    try:
+                        stamp = time.strftime("%Y%m%d_%H%M%S")
+                        feedback_path = os.path.join(
+                            SHARE_DIR,
+                            f"{feedback_kind}_{stamp}.wav",
+                        )
+                        with wave.open(feedback_path, "wb") as wf:
+                            wf.setnchannels(CHANNELS)
+                            wf.setsampwidth(2)
+                            wf.setframerate(RATE)
+                            wf.writeframes(b"".join(ghost_buffer))
+                        log(
+                            f"💾 Saved {len(ghost_buffer) * CHUNK / RATE:.1f}s "
+                            f"feedback clip: {os.path.basename(feedback_path)}"
+                        )
+                    except Exception as e:
+                        log(f"⚠️ Could not save detector feedback clip: {e}")
             
             now = time.time()
             with state_lock:
