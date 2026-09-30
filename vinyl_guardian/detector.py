@@ -237,6 +237,39 @@ class GuardianDetector:
         except (TypeError, ValueError):
             return float(default)
 
+
+    def _profile_distance(self, features, profile):
+        if not isinstance(profile, dict):
+            return None
+
+        distances = []
+        for name in ("rms", "hfer", "crest"):
+            spec = profile.get(name)
+            if not isinstance(spec, dict):
+                continue
+            try:
+                centre = float(spec["median"])
+                scale = max(float(spec["scale"]), 1e-8)
+                z = (float(features[name]) - centre) / scale
+                distances.append(min(36.0, z * z))
+            except (KeyError, TypeError, ValueError):
+                continue
+
+        if not distances:
+            return None
+        return sum(distances) / len(distances)
+
+    def _profile_motor_score(self, features):
+        motor_d = self._profile_distance(features, self.thresholds.get("motor_profile"))
+        noise_d = self._profile_distance(features, self.thresholds.get("negative_profile"))
+        if motor_d is None or noise_d is None:
+            return None
+
+        # Positive when the chunk is closer to the motor distribution than to
+        # the calibrated floor/disturbance/known-false-positive distribution.
+        delta = max(-12.0, min(12.0, (noise_d - motor_d) / 3.0))
+        return 1.0 / (1.0 + math.exp(-delta))
+
     def update_pcm(self, data, now, force_music_active=False):
         mono = pcm16_to_mono(data, self.channels)
         return self.update_mono(mono, now, force_music_active=force_music_active)
@@ -331,11 +364,20 @@ class GuardianDetector:
         rms_score = _soft_window(rms, r_min, r_max)
         hfer_score = _soft_window(hfer, h_min, h_max)
         crest_score = _soft_window(crest, c_min, c_max)
-        motor_evidence = (
+        window_evidence = (
             (rms_score ** 0.58)
             * (hfer_score ** 0.24)
             * (crest_score ** 0.18)
         )
+
+        profile_score = self._profile_motor_score(features)
+        if profile_score is None:
+            motor_evidence = window_evidence
+        else:
+            # Keep the broad calibrated windows dominant for tolerance to
+            # day-to-day drift, while using the learned profile to reject
+            # convincing room-noise clones.
+            motor_evidence = (0.72 * window_evidence) + (0.28 * profile_score)
 
         # Known needle-down states are supporting evidence, not an instant
         # "power = on" bypass.
