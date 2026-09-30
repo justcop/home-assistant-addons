@@ -127,29 +127,61 @@ class RunoutRhythmDetector:
         self.hold_until = -1e9
         self.last_support = 0
 
-    def _score_period(self, now, peak, period):
-        tolerance = max(0.11, period * 0.085)
+    def _find_phase_match(self, target, tolerance, peak):
+        best = None
+        for event_time, event_peak in self.events:
+            error = abs(event_time - target)
+            if error > tolerance:
+                continue
+            amp_ratio = max(peak, event_peak) / max(min(peak, event_peak), 1e-9)
+            if amp_ratio > 3.5:
+                continue
+            if best is None or error < best[0]:
+                best = (error, event_time, event_peak)
+        return best
+
+    def _score_period(self, now, peak, period, label):
+        # Acquisition requires a genuinely consecutive rotational chain.
+        # This is much harder for random dust pops or room transients to fake
+        # than simply finding several historical events near integer multiples.
+        tolerance = max(0.09, period * 0.07)
         support = 1
         quality = 1.0
+        cursor_time = now
+        cursor_peak = peak
+        used_skip = False
 
-        # Look up to five revolutions backwards. Missing one click is allowed:
-        # an event two rotations ago still supports the same phase.
-        for n in range(1, 6):
-            target = now - (period * n)
-            best = None
-            for event_time, event_peak in self.events:
-                err = abs(event_time - target)
-                if err <= tolerance:
-                    amp_ratio = max(peak, event_peak) / max(min(peak, event_peak), 1e-9)
-                    # Runout clicks vary, but a 10x amplitude jump is unlikely
-                    # to be the same physical groove feature.
-                    if amp_ratio <= 6.0:
-                        candidate = (err, event_peak)
-                        if best is None or candidate[0] < best[0]:
-                            best = candidate
-            if best is not None:
-                support += 1
-                quality += 1.0 - min(1.0, best[0] / tolerance)
+        for _ in range(5):
+            match = self._find_phase_match(
+                cursor_time - period,
+                tolerance,
+                cursor_peak,
+            )
+
+            # Once a rhythm is already proven, tolerate one missed revolution
+            # so a weak click does not unnecessarily destroy the lock.
+            if (
+                match is None
+                and self.locked
+                and self.rpm_label == label
+                and not used_skip
+            ):
+                match = self._find_phase_match(
+                    cursor_time - (2.0 * period),
+                    tolerance * 1.15,
+                    cursor_peak,
+                )
+                if match is not None:
+                    used_skip = True
+
+            if match is None:
+                break
+
+            error, event_time, event_peak = match
+            support += 1
+            quality += 1.0 - min(1.0, error / tolerance)
+            cursor_time = event_time
+            cursor_peak = event_peak
 
         return support, quality / max(1, support)
 
@@ -169,6 +201,7 @@ class RunoutRhythmDetector:
         accepted = (
             is_candidate
             and not music_active
+            and (recently_played or self.locked)
             and (now - self.last_candidate_time) >= 0.24
         )
 
@@ -182,7 +215,7 @@ class RunoutRhythmDetector:
         best_period = None
 
         for label, period in RUNOUT_SPEEDS.items():
-            support, quality = self._score_period(now, peak, period)
+            support, quality = self._score_period(now, peak, period, label)
             if (support, quality) > (best_support, best_quality):
                 best_label = label
                 best_support = support
@@ -193,9 +226,9 @@ class RunoutRhythmDetector:
         self.last_candidate_time = now
         self.last_support = best_support
 
-        # After genuine music has just stopped, three phase-aligned clicks are
-        # sufficient. With no recent music we deliberately require four.
-        required = 3 if recently_played else 4
+        # Four consecutive revolutions gives a strong lock while still
+        # completing comfortably before the normal needle-lift timeout.
+        required = 4
         new_conf = min(1.0, (best_support / 4.0) * (0.65 + 0.35 * best_quality))
         self.confidence = max(self.confidence * 0.82, new_conf)
 
