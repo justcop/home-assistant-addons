@@ -20,6 +20,9 @@ from integrations import recognize_shazam, get_track_duration, scrobble_to_lastf
 from calibration import run_calibration
 from detector import GuardianDetector
 from telemetry import DatasetCollector
+from experiment import ExperimentHarness, TRUSTED_LABELS
+from profile_manager import ProfileManager
+from replay_lab import replay_latest_dataset
 
 VERSION = os.environ.get("ADDON_VERSION", "Unknown")
 FORMAT = alsaaudio.PCM_FORMAT_S16_LE
@@ -36,6 +39,14 @@ last_scrobbled_track = None
 paused_track_memory = None
 inp = None
 dataset_collector = None
+experiment_harness = None
+profile_manager = None
+manual_label_requested = None
+selected_ground_truth_label = "playing"
+replay_latest_requested = False
+rollback_profile_requested = False
+replay_status = "Idle"
+profile_status_text = "Unknown"
 
 # Debug Dumper State
 debug_countdown = 0
@@ -89,6 +100,8 @@ if MQTT_USER and MQTT_PASS:
 def on_message(client, userdata, msg):
     global debug_countdown, debug_metrics_buffer
     global capture_false_positive_requested, capture_missed_music_requested
+    global manual_label_requested, selected_ground_truth_label
+    global replay_latest_requested, rollback_profile_requested
 
     if msg.topic == "vinyl_guardian/debug/trigger":
         target_chunks = int(RATE / CHUNK * 10.0)
@@ -101,6 +114,21 @@ def on_message(client, userdata, msg):
     elif msg.topic == "vinyl_guardian/debug/missed_music":
         capture_missed_music_requested = True
         log("🎵 Missed-music marker received. Saving the recent audio context...")
+    elif msg.topic == "vinyl_guardian/label/set":
+        label = msg.payload.decode("utf-8", errors="ignore").strip().lower()
+        if label in TRUSTED_LABELS:
+            selected_ground_truth_label = label
+            client.publish("vinyl_guardian/label/current", label, retain=True)
+            log(f"🏷️ Ground-truth selector set to: {label}")
+    elif msg.topic == "vinyl_guardian/label/mark":
+        manual_label_requested = selected_ground_truth_label
+        log(f"🏷️ Ground-truth mark requested: {selected_ground_truth_label}")
+    elif msg.topic == "vinyl_guardian/experiment/replay_latest":
+        replay_latest_requested = True
+        log("⏩ Replay-latest request received.")
+    elif msg.topic == "vinyl_guardian/profile/rollback":
+        rollback_profile_requested = True
+        log("↩️ Profile rollback request received.")
 
 def publish_discovery():
     log("Publishing MQTT Auto-Discovery payloads...")
@@ -122,6 +150,14 @@ def publish_discovery():
         "power_score": {"name": "Guardian Motor Confidence", "topic": "power_score", "icon": "mdi:gauge", "domain": "sensor", "state_class": "measurement"},
         "runout_rpm": {"name": "Runout Speed", "topic": "runout_rpm", "icon": "mdi:rotate-right", "domain": "sensor"},
         "runout_confidence": {"name": "Runout Rhythm Confidence", "topic": "runout_confidence", "icon": "mdi:pulse", "domain": "sensor", "state_class": "measurement"},
+        "runout_estimated_rpm": {"name": "Runout Estimated RPM", "topic": "runout_estimated_rpm", "icon": "mdi:speedometer", "domain": "sensor", "state_class": "measurement"},
+        "runout_jitter": {"name": "Runout Phase Jitter", "topic": "runout_jitter", "icon": "mdi:chart-timeline-variant-shimmer", "domain": "sensor", "state_class": "measurement"},
+        "hardware_mode": {"name": "Guardian Input Mode", "topic": "hardware_mode", "icon": "mdi:audio-input-stereo-minijack", "domain": "sensor"},
+        "stereo_correlation": {"name": "Guardian L/R Correlation", "topic": "stereo_correlation", "icon": "mdi:compare-horizontal", "domain": "sensor", "state_class": "measurement"},
+        "side_session": {"name": "Vinyl Side Session", "topic": "side_session", "icon": "mdi:album", "attr": True, "domain": "sensor"},
+        "experiment_status": {"name": "Guardian Experiment Harness", "topic": "experiment_status", "icon": "mdi:flask-outline", "domain": "sensor"},
+        "replay_status": {"name": "Guardian Replay Lab", "topic": "replay_status", "icon": "mdi:fast-forward", "domain": "sensor"},
+        "active_profile": {"name": "Guardian Active Profile", "topic": "active_profile", "icon": "mdi:restore", "domain": "sensor"},
         "music_energy": {"name": "Guardian Music Energy (Target 100+)", "topic": "music_energy", "icon": "mdi:music-note", "domain": "sensor", "state_class": "measurement"},
         "pop_texture": {"name": "Guardian Pop Texture (Target 100+)", "topic": "pop_texture", "icon": "mdi:waveform", "domain": "sensor", "state_class": "measurement"},
         "pop_volume": {"name": "Guardian Pop Volume (Target 100+)", "topic": "pop_volume", "icon": "mdi:volume-source", "domain": "sensor", "state_class": "measurement"}
@@ -171,6 +207,57 @@ def publish_discovery():
             retain=True,
         )
 
+    label_select = {
+        "name": "Ground Truth Label",
+        "command_topic": "vinyl_guardian/label/set",
+        "state_topic": "vinyl_guardian/label/current",
+        "options": sorted(TRUSTED_LABELS),
+        "unique_id": "vinyl_guardian_ground_truth_label",
+        "device": device_info,
+        "icon": "mdi:tag-check-outline",
+    }
+    mqtt_client.publish(
+        "homeassistant/select/vinyl_guardian/ground_truth/config",
+        json.dumps(label_select),
+        retain=True,
+    )
+
+    experiment_buttons = {
+        "mark_ground_truth": {
+            "name": "Mark Ground Truth Now",
+            "topic": "vinyl_guardian/label/mark",
+            "icon": "mdi:tag-plus-outline",
+        },
+        "replay_latest": {
+            "name": "Replay Latest Dataset",
+            "topic": "vinyl_guardian/experiment/replay_latest",
+            "icon": "mdi:fast-forward",
+        },
+        "rollback_profile": {
+            "name": "Rollback Detector Profile",
+            "topic": "vinyl_guardian/profile/rollback",
+            "icon": "mdi:backup-restore",
+        },
+    }
+    for key, button in experiment_buttons.items():
+        mqtt_client.publish(
+            f"homeassistant/button/vinyl_guardian/{key}/config",
+            json.dumps({
+                "name": button["name"],
+                "command_topic": button["topic"],
+                "unique_id": f"vinyl_guardian_{key}_btn",
+                "device": device_info,
+                "icon": button["icon"],
+            }),
+            retain=True,
+        )
+
+    mqtt_client.publish(
+        "vinyl_guardian/label/current",
+        selected_ground_truth_label,
+        retain=True,
+    )
+
     if CALIBRATION_MODE:
         mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
         mqtt_client.publish("vinyl_guardian/status", "Calibrating", retain=True)
@@ -213,6 +300,10 @@ def connect_mqtt():
         mqtt_client.subscribe("vinyl_guardian/debug/trigger")
         mqtt_client.subscribe("vinyl_guardian/debug/false_positive")
         mqtt_client.subscribe("vinyl_guardian/debug/missed_music")
+        mqtt_client.subscribe("vinyl_guardian/label/set")
+        mqtt_client.subscribe("vinyl_guardian/label/mark")
+        mqtt_client.subscribe("vinyl_guardian/experiment/replay_latest")
+        mqtt_client.subscribe("vinyl_guardian/profile/rollback")
         mqtt_client.loop_start()
         publish_discovery()
     except Exception as e: log(f"🚨 MQTT Failed: {e}")
