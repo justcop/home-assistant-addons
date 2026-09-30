@@ -1,6 +1,6 @@
 name: "Vinyl Guardian"
 description: "Detects needle drops, IDs vinyl records, and natively scrobbles to Last.fm."
-version: "4.36"
+version: "4.40.0"
 slug: "vinyl_guardian"
 init: false
 arch:
@@ -48,7 +48,7 @@ options:
     fallback_sleep_secs: 60
     reuse_calibration_audio: false
 schema:
-  code_branch: "str"
+  code_branch: "list(main|codex/fix-docker-build-failure-for-vinyl_guardian|codex/fix-dockerfile-package-installation-error|codex/fix-dockerfile-package-installation-error-oj0rjv|codex/fix-dockerfile-package-installation-error-rl9vwb|codex/fix-issues-in-vinyl_guardian-add-on|codex/fix-issues-in-vinyl_guardian-add-on-luf2ij|justcop-patch-1|justcop-patch-2|justcop-patch-3|vinyl-guardian-detection-v2)"
   lastfm_username: "str?"
   lastfm_password: "password?"
   lastfm_api_key: "str?"

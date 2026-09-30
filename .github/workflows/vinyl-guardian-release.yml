@@ -1,0 +1,66 @@
+name: Publish Vinyl Guardian update
+
+on:
+  push:
+    paths:
+      - 'vinyl_guardian/**'
+      - '.github/scripts/vinyl_guardian_release.py'
+      - '.github/workflows/vinyl-guardian-release.yml'
+  create:
+  delete:
+  schedule:
+    - cron: '23 5 * * *'
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Delivery version increment
+        type: choice
+        options: [auto, patch, minor, major]
+        default: auto
+
+permissions:
+  contents: write
+
+# Reconcile ALL latest branch content each time, including any queued/coalesced pushes.
+concurrency:
+  group: vinyl-guardian-delivery
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate release automation and stable runtime
+        run: |
+          python -m unittest discover -s .github/scripts/tests -v
+          python -m compileall -q vinyl_guardian
+          bash -n vinyl_guardian/run.sh
+      - name: Refresh branch dropdown and publish version
+        env:
+          BUMP: ${{ inputs.bump || 'auto' }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3; do
+            git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*'
+            git reset --hard origin/main
+            python .github/scripts/vinyl_guardian_release.py --bump "$BUMP"
+            git add vinyl_guardian/config.yaml .github/vinyl-guardian-release-state.json
+            if git diff --cached --quiet; then
+              echo 'No runtime or branch catalog changes to publish.'
+              exit 0
+            fi
+            git commit -m 'chore: publish Vinyl Guardian delivery update'
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+          done
+          echo 'Main changed repeatedly; retry this workflow.' >&2
+          exit 1

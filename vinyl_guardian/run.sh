@@ -16,9 +16,9 @@ echo "[$(date +"%Y-%m-%d %H:%M:%S")] ===========================================
 DEBUG_MODE=$(jq --raw-output '.debug_logging' /data/options.json)
 CODE_BRANCH=$(jq --raw-output '.code_branch // "main"' /data/options.json)
 
-# Home Assistant installs the add-on image itself from the repository version.
-# For development branches, swap in the selected branch's Python runtime files
-# at startup while leaving the container and Supervisor-managed configuration alone.
+# The Supervisor installs the image built from the add-on repository. For development
+# branches, replace only the runtime Python files with the selected branch at startup.
+# Keeping "main" uses the files baked into the installed image and requires no network.
 if [ "$CODE_BRANCH" != "main" ]; then
     echo "[$(date +"%Y-%m-%d %H:%M:%S")] 🌿 Runtime branch selected: $CODE_BRANCH"
     export CODE_BRANCH
@@ -99,15 +99,32 @@ if [ "$DEBUG_MODE" == "true" ]; then
     echo "[$(date +"%Y-%m-%d %H:%M:%S")] --------------------------------------"
 fi
 
-# Do not force the first alsa_input to become Home Assistant's global default.
-# Source ordering is not a stable device identifier and can change after OS,
-# kernel, USB or PulseAudio updates. Vinyl Guardian selects its own capture
-# source per-process using PULSE_SOURCE in audio_source.py.
-SOURCE_COUNT=$(pactl list short sources 2>/dev/null | grep -v "\.monitor" | wc -l | tr -d ' ')
-if [ "$SOURCE_COUNT" = "0" ]; then
-    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 🚨 ERROR: PulseAudio exposes no capture sources. Check Home Assistant Audio/card profiles."
-elif [ "$DEBUG_MODE" == "true" ]; then
-    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 🎚️ ${SOURCE_COUNT} capture source(s) exposed. Guardian will select its own input."
+# Experimental runtimes select their own source without changing HA defaults.
+if [ ! -f /usr/src/app/audio_source.py ]; then
+# Find physical soundcard input quietly
+PHYSICAL_SINK=$(pactl list short sources | grep "alsa_input" | awk '{print $2}' | head -n 1)
+
+if [ -z "$PHYSICAL_SINK" ]; then
+    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 🚨 ERROR: Could not find physical ALSA capture device! Please ensure 'Audio' is enabled in Add-on config."
+else
+    if [ "$DEBUG_MODE" == "true" ]; then
+        echo "[$(date +"%Y-%m-%d %H:%M:%S")] 🎯 TARGET LOCKED: Found physical mic port -> $PHYSICAL_SINK"
+    fi
+
+    pactl set-default-source "$PHYSICAL_SINK"
+    pactl set-source-mute "$PHYSICAL_SINK" 0
+
+    # Grab Volume from options.json
+    CONFIG_VOL=$(jq --raw-output '.mic_volume' /data/options.json)
+
+    if [ "$CONFIG_VOL" != "null" ] && [ -n "$CONFIG_VOL" ]; then
+        if [ "$DEBUG_MODE" == "true" ]; then
+            echo "[$(date +"%Y-%m-%d %H:%M:%S")] Applying UI Configuration: Setting capture volume to ${CONFIG_VOL}%..."
+        fi
+        pactl set-source-volume "$PHYSICAL_SINK" "${CONFIG_VOL}%"
+    fi
+fi
+
 fi
 
 if [ "$DEBUG_MODE" == "true" ]; then
