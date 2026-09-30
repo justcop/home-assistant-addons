@@ -13,7 +13,7 @@ import glob
 # Suppress numpy warnings for clean output
 warnings.filterwarnings('ignore')
 
-from config import SHARE_DIR, AUTO_CALIB_FILE, RATE, CHANNELS, CHUNK
+from config import SHARE_DIR, RECORDING_DIR, AUTO_CALIB_FILE, RATE, CHANNELS, CHUNK
 from audio_math import RUNOUT_RPM_INTERVALS
 
 # --- HOME ASSISTANT OPTION LOADING ---
@@ -30,7 +30,7 @@ if os.path.exists(OPTIONS_FILE):
 
 # --- CONFIGURATION ---
 FORMAT = alsaaudio.PCM_FORMAT_S16_LE
-CALIB_DIR = os.path.join(SHARE_DIR, "calibration_data")
+CALIB_DIR = os.path.join(RECORDING_DIR, "calibration_data")
 REPORT_FILE = os.path.join(SHARE_DIR, "calibration_report.txt")
 
 # Global report list for file output
@@ -600,7 +600,7 @@ def analyze_ghost_triggers(thresholds):
     print_log("   Scanning chunks that passed the volume filters...")
     print_log("="*70)
 
-    ghost_files = glob.glob(os.path.join(SHARE_DIR, "ghost_trigger_*.wav"))
+    ghost_files = glob.glob(os.path.join(RECORDING_DIR, "ghost_trigger_*.wav"))
     if not ghost_files:
         print_log("   [INFO] No ghost trigger files found.")
         return

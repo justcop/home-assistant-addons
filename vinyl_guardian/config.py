@@ -17,6 +17,17 @@ except Exception as e:
     print(f"🚨 Failed to load config: {e}")
     sys.exit(1)
 
+# --- Recording Storage ---
+from storage import DEFAULT_RECORDING_DIRECTORY, prepare_recording_directory
+try:
+    RECORDING_DIR = prepare_recording_directory(
+        config.get("recording_directory", DEFAULT_RECORDING_DIRECTORY)
+    )
+except (ValueError, OSError) as exc:
+    print(f"🚨 Recording storage unavailable: {exc}", flush=True)
+    sys.exit(1)
+print(f"📁 Recording data folder: {RECORDING_DIR}", flush=True)
+
 # --- System Modes ---
 CALIBRATION_MODE = config.get("calibration_mode", False)
 TEST_CAPTURE_MODE = config.get("test_capture_mode", False)

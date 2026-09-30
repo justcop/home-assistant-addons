@@ -1,0 +1,34 @@
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from storage import prepare_recording_directory
+
+
+class RecordingStorageTests(unittest.TestCase):
+    def test_creates_recording_folder_and_removes_write_probe(self):
+        with tempfile.TemporaryDirectory() as root:
+            target = Path(root) / 'recordings'
+            self.assertEqual(prepare_recording_directory(str(target), (root,)), str(target))
+            self.assertEqual(list(target.iterdir()), [])
+
+    def test_does_not_create_missing_external_storage_parent(self):
+        with tempfile.TemporaryDirectory() as root:
+            target = Path(root) / 'missing-drive' / 'recordings'
+            with self.assertRaisesRegex(ValueError, 'Mount the storage first'):
+                prepare_recording_directory(str(target), (root,))
+            self.assertFalse(target.parent.exists())
+
+    def test_rejects_relative_and_unmapped_paths(self):
+        for target in ('recordings', '', '/tmp/recordings'):
+            with self.subTest(target=target), self.assertRaises(ValueError):
+                prepare_recording_directory(target)
+
+    def test_unwritable_storage_fails_without_fallback(self):
+        with tempfile.TemporaryDirectory() as root:
+            with patch('storage.tempfile.NamedTemporaryFile', side_effect=PermissionError('read only')):
+                with self.assertRaisesRegex(ValueError, 'not writable'):
+                    prepare_recording_directory(str(Path(root) / 'recordings'), (root,))

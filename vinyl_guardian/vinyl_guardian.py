@@ -192,7 +192,7 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
         
     trimmed_bytes = full_data[start_idx:].tobytes()
     trimmed_seconds = start_idx / RATE
-    wav_temp = "/tmp/process.wav"
+    wav_temp = os.path.join(RECORDING_DIR, "process.wav")
     try:
         with wave.open(wav_temp, "wb") as wf:
             wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(trimmed_bytes)
@@ -651,7 +651,7 @@ if __name__ == "__main__":
     connect_mqtt()
     if CALIBRATION_MODE: run_calibration()
     else:
-        files_to_clean = [os.path.join(SHARE_DIR, "vinyl_debug.wav"), "/tmp/process.wav"]
+        files_to_clean = [os.path.join(RECORDING_DIR, "vinyl_debug.wav"), os.path.join(RECORDING_DIR, "process.wav")]
         for f in files_to_clean:
             try:
                 if os.path.exists(f): os.remove(f)
