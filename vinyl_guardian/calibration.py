@@ -550,7 +550,7 @@ def calculate_hardware_thresholds(files):
         "motor_hfer_floor": round(hfer_min, 5),
         "music_threshold": round(music_threshold, 6),
         "music_hold_threshold": round(music_hold_threshold, 6),
-        "detector_version": 3,
+        "detector_version": 4,
         "motor_negative_profiles": off_profiles,
         "calibration_expected_runout_rpm": config.get("calibration_record_rpm", "33⅓"),
         "motor_profile": motor_profile,
@@ -607,8 +607,8 @@ def calculate_hardware_thresholds(files):
     expected_rpm = thresholds["calibration_expected_runout_rpm"]
     observed_rpm = sim_state["_detector"].runout.rpm_label
     print_log(f"   Expected runout: {expected_rpm} RPM; observed: {observed_rpm} RPM")
-    passed = (observed_rpm == expected_rpm and end_p == "On" and end_s == "Runout Groove" and states_in_order(trans, "Playing", "Between Tracks", "Motor Idle", "Runout Groove"))
-    print_log("   ✅ PASS" if passed else "   ❌ FAIL — Engine lost track of music or failed rhythm lock.")
+    passed = (observed_rpm == expected_rpm and end_p == "On" and end_s == "Runout Groove" and states_in_order(trans, "Playing", "Between Tracks", "Motor Idle", "Runout Groove") and not any(t["power"] == "Off" for t in trans))
+    print_log("   ✅ PASS" if passed else "   ❌ FAIL — Engine lost track of music, interrupted power or failed rhythm lock.")
 
     lift_data = load_wav(files["lift"])
     
@@ -742,6 +742,11 @@ def _run_calibration(session):
         }
 
     print_log(f"   Quality status: {quality.get('status', 'unknown').upper()}")
+    sequence = quality.get("sequential_replay", {})
+    if sequence:
+        passed_checks = sum(sequence["checks"].values())
+        print_log(f"   Whole-sequence checks: {passed_checks}/{len(sequence['checks'])} passed.")
+
     sep = quality.get("motor_off_separability_robust_z", {})
     if sep:
         print_log(

@@ -34,3 +34,17 @@ Set **Calibration record speed** to the physical speed of the recorded side (33â
 To analyse existing captures after an update, enable **Reuse calibration audio** and **Calibration mode**, restart, and follow Continue in **Open Web UI** through reuse and the analysis review. The recordings keep their original input gain, including recordings from a rejected candidate. The detector learns separate quiet, shutdown and disturbance profiles; it must distinguish motor evidence from each off class. An existing profile is retained if the candidate fails quality or regression checks.
 
 Use **Download calibration measurements** on the calibration screen after capture or analysis finishes. The ZIP includes per-chunk features, recording checksums, profiles and reports, without raw audio or app options. These measurements can replay the live detector exactly, so a failed calibration can be investigated without recording the same stages again.
+
+### Full calibration replay checks
+
+Calibration now checks nine behaviours across all six recordings with detector state carried between files. These include continuous power from music into runout, stable motor detection after settling, shutdown reaching and staying off, and disturbances staying off after shutdown. Failed sequence checks block replacement of an existing profile even if the older individual-file regression suite passes.
+
+Profile-backed motor evidence uses a 1.5-second median and balanced confidence averaging to reject isolated off-state hum. A developing three-hit rhythm can support an already powered turntable until the full six-hit runout lock forms; it cannot turn power on or declare runout itself. Existing profiles without separate negative classes retain their previous motor evidence handling.
+
+For offline comparison with saved recordings:
+
+```sh
+python calibration_replay.py /path/to/calibration_data candidate.json --baseline auto_calibration.json
+```
+
+The candidate may be a complete `profiles/profile_*.json` file or a thresholds dictionary. The command emits all checks, state transitions and per-stage metrics as JSON and exits unsuccessfully if any candidate check fails. No Home Assistant or audio hardware is needed for replay; NumPy is required.

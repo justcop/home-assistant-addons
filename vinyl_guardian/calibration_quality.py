@@ -7,6 +7,7 @@ import wave
 import numpy as np
 
 from detector import GuardianDetector, extract_features
+from calibration_replay import evaluate_calibration_sequence
 from telemetry import pcm16_channels, stereo_features
 
 
@@ -199,6 +200,11 @@ def assess_calibration(files, thresholds):
     if transition_replay.get("runout_fraction", 0.0) <= 0.0:
         critical.append("Calibration transition never acquires a runout rhythm.")
 
+    sequential = evaluate_calibration_sequence(files, thresholds)
+    for check, passed in sequential['checks'].items():
+        if not passed:
+            critical.append(f"Whole-sequence check failed: {check}.")
+
     expected_rpm = thresholds.get("calibration_expected_runout_rpm")
     if expected_rpm and any(x.get("label") != expected_rpm for x in runout_samples):
         critical.append(f"Runout classification disagrees with the known {expected_rpm} RPM calibration record.")
@@ -212,6 +218,7 @@ def assess_calibration(files, thresholds):
 
     return {
         "status": status,
+        "sequential_replay": sequential,
         "motor_off_separability_robust_z": separability,
         "music_floor_margin_db": music_margin_db,
         "disturbance_replay": {

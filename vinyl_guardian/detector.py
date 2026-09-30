@@ -289,6 +289,7 @@ class GuardianDetector:
         self.rate = int(rate)
         self.channels = max(1, int(channels or 1))
 
+        self.motor_evidence_history = deque()
         self.motor_confidence = 0.0
         self.music_confidence = 0.0
         self.turntable_on = False
@@ -492,19 +493,41 @@ class GuardianDetector:
                 + (profile_weight * profile_score)
             )
 
+        if self.thresholds.get("motor_negative_profiles"):
+            window = max(0.0, self._threshold("motor_evidence_window_seconds", 1.5))
+            self.motor_evidence_history.append((float(now), motor_evidence))
+            while self.motor_evidence_history and self.motor_evidence_history[0][0] < float(now) - window:
+                self.motor_evidence_history.popleft()
+            # A median rejects isolated motor-like off-state chunks instead
+            # of letting them reset the entire five-second shutdown timer.
+            motor_evidence = float(np.median([value for _, value in self.motor_evidence_history]))
+
         # Known needle-down states are supporting evidence, not an instant
         # "power = on" bypass.
         if self.music_active:
             motor_evidence = max(motor_evidence, 0.82)
         if self.runout.locked:
             motor_evidence = max(motor_evidence, 0.88)
+        elif (self.thresholds.get("motor_negative_profiles")
+              and self.thresholds.get("runout_power_support", True)
+              and self.turntable_on and recently_played
+              and self.runout.last_support >= 3
+              and float(now) - self.runout.last_candidate_time <= 2.25):
+            # Three aligned hits support an ALREADY powered turntable while
+            # the six-hit rhythm is being acquired. This cannot turn power on
+            # or report runout, and expires promptly when the clicks stop.
+            motor_evidence = max(motor_evidence, 0.55)
 
         self.motor_confidence = _ema(
             self.motor_confidence,
             motor_evidence,
             dt,
             rise_tau=0.85,
-            fall_tau=3.5,
+            # Fast attack / slow release biased sparse off-state hum upward.
+            # Profile-backed evidence needs balanced averaging; hysteresis
+            # and the sustained off timer still handle physical transitions.
+            fall_tau=self._threshold("motor_evidence_fall_tau",
+                0.85 if self.thresholds.get("motor_negative_profiles") else 3.5),
         )
 
         motor_on_confidence = self._threshold("motor_on_confidence", 0.72)
