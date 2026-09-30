@@ -374,6 +374,8 @@ class DatasetCollector:
             "stereo_mid_rms", "stereo_side_rms",
             "stereo_side_mid_ratio", "stereo_identical_fraction",
             "trusted_label", "hardware_channel_mode",
+            "audio_source", "audio_source_description",
+            "audio_card", "audio_profile",
         ]
         for shadow_name in (
             "music_sensitive",
@@ -502,6 +504,12 @@ class DatasetCollector:
         row["trusted_label"] = str(experiment_snapshot.get("trusted_label") or "")
         hardware = experiment_snapshot.get("hardware") or {}
         row["hardware_channel_mode"] = str(hardware.get("channel_mode") or "")
+        row["audio_source"] = str(experiment_snapshot.get("audio_source") or "")
+        row["audio_source_description"] = str(
+            experiment_snapshot.get("audio_source_description") or ""
+        )
+        row["audio_card"] = str(experiment_snapshot.get("audio_card") or "")
+        row["audio_profile"] = str(experiment_snapshot.get("audio_profile") or "")
         shadows = experiment_snapshot.get("shadows") or {}
         for shadow_name in (
             "music_sensitive",
