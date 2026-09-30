@@ -1,0 +1,60 @@
+name: Work Audit
+description: Combine EMIS Helper activity and phone entities into a daily work timeline.
+version: "0.1.0"
+slug: work_audit
+url: https://github.com/justcop/home-assistant-addons/tree/main/work_audit
+arch: [amd64, aarch64]
+startup: application
+boot: auto
+init: true
+stage: experimental
+backup: cold
+homeassistant_api: true
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:timeline-clock-outline
+panel_title: Work Audit
+options:
+  mqtt_host: core-mosquitto
+  mqtt_port: 1883
+  mqtt_username: ''
+  mqtt_password: ''
+  mqtt_tls: false
+  mqtt_transport: tcp
+  mqtt_websocket_path: /mqtt
+  status_topic: work/monitor/status
+  idle_topic: work/monitor/idle
+  phone_screen_entity: ''
+  phone_screen_on_states: ["on", "true", "unlocked"]
+  phone_screen_off_states: ["off", "false", "locked"]
+  location_entity: ''
+  work_location_states: ["Work"]
+  idle_threshold_seconds: 120
+  heartbeat_timeout_seconds: 90
+  timezone: Europe/London
+  retention_days: 90
+  work_apps: [EmisWeb.exe, Docman10.Desktop.exe]
+  useful_context_patterns: ["AccuRx", "Docman", "e-Referral", "DrIQ", "NICE", "BNF"]
+  distracting_context_patterns: []
+schema:
+  mqtt_host: str
+  mqtt_port: port
+  mqtt_username: str?
+  mqtt_password: password?
+  mqtt_tls: bool
+  mqtt_transport: list(tcp|websockets)
+  mqtt_websocket_path: str
+  status_topic: str
+  idle_topic: str
+  phone_screen_entity: str?
+  phone_screen_on_states: [str]
+  phone_screen_off_states: [str]
+  location_entity: str?
+  work_location_states: [str]
+  idle_threshold_seconds: int(15,3600)
+  heartbeat_timeout_seconds: int(45,600)
+  timezone: str
+  retention_days: int(1,3650)
+  work_apps: [str]
+  useful_context_patterns: [str]
+  distracting_context_patterns: [str]
