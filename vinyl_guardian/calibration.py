@@ -866,6 +866,7 @@ def run_calibration():
         },
         "reuse_calibration_audio": bool(use_existing),
         "mic_volume": thresholds.get("mic_volume"),
+        "audio_source": os.environ.get("PULSE_SOURCE") or "@DEFAULT_SOURCE@",
         "detector_version": thresholds.get("detector_version"),
     }
 
