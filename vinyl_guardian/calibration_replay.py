@@ -24,7 +24,7 @@ def load_recording_features(files, chunk=2048):
     return recordings
 
 
-def evaluate_sequence(recordings, thresholds):
+def evaluate_sequence(recordings, thresholds, detector_factory=GuardianDetector):
     detector = None
     elapsed = 0.0
     stages, checks = {}, {}
@@ -33,7 +33,7 @@ def evaluate_sequence(recordings, thresholds):
         recording = recordings[stage]
         rate, chunk = recording['rate'], recording['chunk']
         if detector is None:
-            detector = GuardianDetector(thresholds, rate=rate, channels=1)
+            detector = detector_factory(thresholds, rate=rate, channels=1)
         elif detector.rate != rate:
             raise ValueError('All calibration stages must have the same sample rate')
         frames, changes = [], []

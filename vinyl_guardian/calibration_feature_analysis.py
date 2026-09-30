@@ -7,6 +7,7 @@ import wave
 import numpy as np
 from detector import extract_features, pcm16_to_mono
 from telemetry import FeatureExtractor, pcm16_channels, stereo_features
+from feature_combinations import search
 
 
 def measurement_rows(path, chunk=2048):
@@ -96,10 +97,10 @@ def analyse_features(files, output_directory):
     runout = {'runout_tail': interval('transition', duration - 20)}
     music = {'music_steady': interval('transition', 25, duration - 40)}
     comparisons = {'motor_vs_off': (motor, off), 'motor_vs_runout': (motor, runout),
-                   'runout_vs_off': (runout, off)}
+                   'runout_vs_off': (runout, off), 'power_vs_off': (dict(motor, **runout), off)}
     if len(music['music_steady']) >= 40:
         comparisons['music_vs_runout'] = (music, runout)
-    report = {'format_version': 1, 'observational_only': True,
+    report = {'format_version': 2, 'observational_only': True,
         'measurement_count': len(recordings['floor'][0]) - 2, 'recordings': sources,
         'validation': 'First 60% of each labelled steady block trains thresholds; last 40% validates. Classes and recordings are equally weighted.',
         'limitations': ['One calibration session is not independent validation across different records or days.',
@@ -108,5 +109,9 @@ def analyse_features(files, output_directory):
                        'Rankings do not automatically change live detection. Promoted features must pass sequence and historical regressions.'],
         'comparisons': {name: rank_pair(pos, neg) for name, (pos, neg) in comparisons.items()
                         if all(pos.values()) and all(neg.values())}}
+    report['combination_analysis'] = {}
+    for name, (positive, negative) in comparisons.items():
+        if all(len(rows) >= 10 for rows in list(positive.values()) + list(negative.values())):
+            report['combination_analysis'][name] = search(positive, negative)
     (directory / 'calibration_feature_analysis.json').write_text(json.dumps(report, indent=2))
     return report

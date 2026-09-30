@@ -720,6 +720,12 @@ def _run_calibration(session):
             if candidates:
                 best = candidates[0]
                 print_log(f"   {comparison}: {best['feature']}, held-out balanced accuracy {best['held_out_balanced_accuracy']:.1%}, worst recording {best['worst_recording_accuracy']:.1%}.")
+        for comparison, combination in feature_report.get('combination_analysis', {}).items():
+            selected = max(combination['winners_by_size'], key=lambda candidate: (
+                candidate['selection']['balanced_accuracy'], candidate['selection']['worst_recording_accuracy'],
+                -len(candidate['model']['features'])))
+            fields = ', '.join(selected['model']['features'])
+            print_log(f"   {comparison} combination ({combination['candidate_count']} candidates): {fields}; final-block balanced accuracy {selected['test']['balanced_accuracy']:.1%}, worst recording {selected['test']['worst_recording_accuracy']:.1%}.")
         print_log("   Full rankings and feature CSVs are included in Download calibration measurements. These observations do not automatically change live detection.")
     except (OSError, ValueError) as exc:
         print_log(f"   Extended measurement analysis failed: {exc}")
