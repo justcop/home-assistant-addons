@@ -117,6 +117,9 @@ class RunoutRhythmDetector:
         self.confidence = 0.0
         self.hold_until = -1e9
         self.last_support = 0
+        self.last_interval = None
+        self.phase_jitter_ms = None
+        self.estimated_rpm = None
 
     def reset(self):
         self.events.clear()
@@ -126,6 +129,9 @@ class RunoutRhythmDetector:
         self.confidence = 0.0
         self.hold_until = -1e9
         self.last_support = 0
+        self.last_interval = None
+        self.phase_jitter_ms = None
+        self.estimated_rpm = None
 
     def _find_phase_match(self, target, tolerance, peak):
         best = None
@@ -150,8 +156,10 @@ class RunoutRhythmDetector:
         cursor_time = now
         cursor_peak = peak
         used_skip = False
+        observed_periods = []
 
         for _ in range(5):
+            skip_revolutions = 1
             match = self._find_phase_match(
                 cursor_time - period,
                 tolerance,
@@ -173,17 +181,21 @@ class RunoutRhythmDetector:
                 )
                 if match is not None:
                     used_skip = True
+                    skip_revolutions = 2
 
             if match is None:
                 break
 
             error, event_time, event_peak = match
+            observed_period = (cursor_time - event_time) / float(skip_revolutions)
+            if observed_period > 0:
+                observed_periods.append(observed_period)
             support += 1
             quality += 1.0 - min(1.0, error / tolerance)
             cursor_time = event_time
             cursor_peak = event_peak
 
-        return support, quality / max(1, support)
+        return support, quality / max(1, support), observed_periods
 
     def update(self, now, is_candidate, peak, recently_played, music_active):
         # Expire ancient events. Six 33⅓ revolutions is already generous.
@@ -213,18 +225,31 @@ class RunoutRhythmDetector:
         best_support = 0
         best_quality = 0.0
         best_period = None
+        best_observed_periods = []
 
         for label, period in RUNOUT_SPEEDS.items():
-            support, quality = self._score_period(now, peak, period, label)
+            support, quality, observed_periods = self._score_period(now, peak, period, label)
             if (support, quality) > (best_support, best_quality):
                 best_label = label
                 best_support = support
                 best_quality = quality
                 best_period = period
+                best_observed_periods = observed_periods
 
+        if self.events:
+            self.last_interval = float(now - self.events[-1][0])
         self.events.append((now, float(peak)))
         self.last_candidate_time = now
         self.last_support = best_support
+
+        if best_observed_periods:
+            period_arr = np.asarray(best_observed_periods, dtype=float)
+            median_period = float(np.median(period_arr))
+            self.estimated_rpm = 60.0 / median_period if median_period > 0 else None
+            self.phase_jitter_ms = float(np.std(period_arr) * 1000.0)
+        elif not self.locked:
+            self.estimated_rpm = None
+            self.phase_jitter_ms = None
 
         # Four consecutive revolutions are required to acquire a lock.
         # Once proven, a phase-correct hit after one missed revolution is
@@ -409,10 +434,18 @@ class GuardianDetector:
         if profile_score is None:
             motor_evidence = window_evidence
         else:
-            # Keep the broad calibrated windows dominant for tolerance to
-            # day-to-day drift, while using the learned profile to reject
-            # convincing room-noise clones.
-            motor_evidence = (0.72 * window_evidence) + (0.28 * profile_score)
+            # Keep the broad calibrated windows dominant by default for
+            # tolerance to day-to-day drift. The weight is configurable so
+            # shadow detectors can test alternatives without changing live
+            # production behaviour.
+            profile_weight = max(
+                0.0,
+                min(1.0, self._threshold("motor_profile_weight", 0.28)),
+            )
+            motor_evidence = (
+                ((1.0 - profile_weight) * window_evidence)
+                + (profile_weight * profile_score)
+            )
 
         # Known needle-down states are supporting evidence, not an instant
         # "power = on" bypass.
@@ -429,12 +462,28 @@ class GuardianDetector:
             fall_tau=3.5,
         )
 
-        strong_on = self.motor_confidence >= 0.72 or self.music_confidence >= 0.86
+        motor_on_confidence = self._threshold("motor_on_confidence", 0.72)
+        music_power_assist_confidence = self._threshold(
+            "music_power_assist_confidence", 0.86
+        )
+        motor_on_seconds = self._threshold("motor_on_seconds", 1.35)
+        music_power_on_seconds = self._threshold("music_power_on_seconds", 0.70)
+        motor_off_confidence = self._threshold("motor_off_confidence", 0.22)
+        motor_off_seconds = self._threshold("motor_off_seconds", 5.0)
+
+        strong_on = (
+            self.motor_confidence >= motor_on_confidence
+            or self.music_confidence >= music_power_assist_confidence
+        )
         if not self.turntable_on:
             if strong_on:
                 if self.on_candidate_since is None:
                     self.on_candidate_since = float(now)
-                required_on = 0.70 if self.music_confidence >= 0.86 else 1.35
+                required_on = (
+                    music_power_on_seconds
+                    if self.music_confidence >= music_power_assist_confidence
+                    else motor_on_seconds
+                )
                 if float(now) - self.on_candidate_since >= required_on:
                     self.turntable_on = True
                     self.off_candidate_since = None
@@ -442,14 +491,14 @@ class GuardianDetector:
                 self.on_candidate_since = None
         else:
             strong_off = (
-                self.motor_confidence <= 0.22
+                self.motor_confidence <= motor_off_confidence
                 and not self.music_active
                 and not self.runout.locked
             )
             if strong_off:
                 if self.off_candidate_since is None:
                     self.off_candidate_since = float(now)
-                if float(now) - self.off_candidate_since >= 5.0:
+                if float(now) - self.off_candidate_since >= motor_off_seconds:
                     self.turntable_on = False
                     self.has_played_music = False
                     self.on_candidate_since = None
@@ -486,6 +535,9 @@ class GuardianDetector:
             "runout_rpm": self.runout.rpm_label,
             "runout_confidence": float(self.runout.confidence),
             "runout_support": int(self.runout.last_support),
+            "runout_last_interval_sec": self.runout.last_interval,
+            "runout_estimated_rpm": self.runout.estimated_rpm,
+            "runout_phase_jitter_ms": self.runout.phase_jitter_ms,
             "status": status,
         }
         self.last_frame = frame
