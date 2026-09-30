@@ -18,7 +18,11 @@ from audio_math import RUNOUT_RPM_INTERVALS
 from detector import GuardianDetector, pcm16_to_mono
 from calibration_quality import assess_calibration
 from profile_manager import ProfileManager
-from regression import compare_profiles, save_regression_report
+from regression import (
+    collect_labelled_event_clips,
+    compare_profiles,
+    save_regression_report,
+)
 
 # --- HOME ASSISTANT OPTION LOADING ---
 REUSE_CALIB_OPT = False
@@ -503,8 +507,16 @@ def calculate_hardware_thresholds(files):
     negative_crest = [np.asarray(d_crest)]
 
     ghost_files = sorted(glob.glob(os.path.join(SHARE_DIR, "ghost_trigger_*.wav")))[-10:]
+    labelled_off_files = [
+        wav_path
+        for wav_path, expectation, _label
+        in collect_labelled_event_clips(SHARE_DIR)
+        if expectation == "off"
+    ][-10:]
+    negative_example_files = list(dict.fromkeys(ghost_files + labelled_off_files))
+
     learned_ghost_chunks = 0
-    for ghost_file in ghost_files:
+    for ghost_file in negative_example_files:
         try:
             ghost_data = load_wav(ghost_file)
             g_rms, g_hfer, g_crest = chunked_metrics(ghost_data)
@@ -528,7 +540,8 @@ def calculate_hardware_thresholds(files):
     if learned_ghost_chunks:
         print_log(
             f"   [LEARNED] Included {learned_ghost_chunks} chunks from "
-            f"{len(ghost_files)} historical false-positive recording(s)."
+            f"{len(negative_example_files)} historical false-positive/"
+            f"explicit-off recording(s)."
         )
 
     thresholds = {
