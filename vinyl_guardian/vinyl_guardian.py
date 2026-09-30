@@ -493,6 +493,33 @@ def save_feedback_clip(kind, chunks):
         return None
 
 
+def refresh_audio_source_select():
+    if audio_source_manager is None or not mqtt_client.is_connected():
+        return
+    try:
+        device_info = {
+            "identifiers": ["vinyl_guardian_01"],
+            "name": "Vinyl Guardian",
+            "manufacturer": "Custom Add-on",
+        }
+        payload = {
+            "name": "Guardian Audio Source",
+            "command_topic": "vinyl_guardian/audio/source/set",
+            "state_topic": "vinyl_guardian/audio/source/selection",
+            "options": audio_source_manager.selectable_options(),
+            "unique_id": "vinyl_guardian_audio_source_select",
+            "device": device_info,
+            "icon": "mdi:audio-input-stereo-minijack",
+        }
+        mqtt_client.publish(
+            "homeassistant/select/vinyl_guardian/audio_source/config",
+            json.dumps(payload),
+            retain=True,
+        )
+    except Exception as e:
+        log(f"⚠️ Could not refresh audio source selector: {e}")
+
+
 def publish_audio_source_state():
     if audio_source_manager is None or not mqtt_client.is_connected():
         return
@@ -779,7 +806,122 @@ def listen_and_identify():
         )
 
     while True:
-        length, data = inp.read()
+        if requested_audio_source_option is not None:
+            option = requested_audio_source_option
+            requested_audio_source_option = None
+            try:
+                inp.close()
+            except Exception:
+                pass
+
+            changed = False
+            try:
+                changed = bool(
+                    audio_source_manager
+                    and audio_source_manager.select_option(option)
+                )
+            except Exception as e:
+                log(f"⚠️ Could not select audio source {option!r}: {e}")
+
+            if changed:
+                apply_guardian_source_volume()
+                detector = GuardianDetector(v6_cfg, rate=RATE, channels=CHANNELS)
+                ghost_buffer.clear()
+                buffer.clear()
+                chunks = loud_chunks = silence_sleep = trigger_chunks = 0
+                with state_lock:
+                    app_state = "IDLE"
+                    current_track = None
+                    scrobble_fired = False
+                    current_attempt = 1
+                log(
+                    "🎚️ Audio source changed. Detector confidence reset; "
+                    "a fresh calibration is recommended if this is new hardware."
+                )
+
+            try:
+                inp = open_guardian_capture()
+            except Exception as e:
+                log(f"🚨 ALSA Error after audio-source change: {e}")
+                time.sleep(1.0)
+                continue
+            publish_audio_source_state()
+
+        if audio_scan_requested and not audio_scan_running:
+            audio_scan_requested = False
+            audio_scan_running = True
+            try:
+                inp.close()
+            except Exception:
+                pass
+
+            with state_lock:
+                app_state = "IDLE"
+                current_track = None
+                scrobble_fired = False
+                current_attempt = 1
+            buffer.clear()
+            ghost_buffer.clear()
+            chunks = loud_chunks = silence_sleep = trigger_chunks = 0
+
+            audio_scan_status = "Scanning — keep music playing"
+            if mqtt_client.is_connected():
+                mqtt_client.publish(
+                    "vinyl_guardian/audio/scan_status",
+                    audio_scan_status,
+                    retain=True,
+                )
+
+            scan_applied = False
+            try:
+                result = audio_source_manager.scan(progress=audio_scan_progress)
+                scan_applied = bool(result.get("applied"))
+                winner = result.get("winner") or {}
+                if scan_applied:
+                    audio_scan_status = (
+                        f"Selected {winner.get('description') or winner.get('source')} "
+                        f"({winner.get('confidence', 'unknown')} confidence)"
+                    )
+                else:
+                    audio_scan_status = "No convincing input found"
+            except Exception as e:
+                audio_scan_status = f"Scan error: {e}"
+                log(f"⚠️ Audio-input scan failed: {e}")
+            finally:
+                audio_scan_running = False
+
+            apply_guardian_source_volume()
+            detector = GuardianDetector(v6_cfg, rate=RATE, channels=CHANNELS)
+            try:
+                inp = open_guardian_capture()
+            except Exception as e:
+                log(f"🚨 ALSA Error after audio scan: {e}")
+                time.sleep(1.0)
+                continue
+
+            refresh_audio_source_select()
+            publish_audio_source_state()
+            if scan_applied:
+                log(
+                    "🎚️ New input is active. Detector state was reset; run a "
+                    "fresh calibration before judging detection accuracy."
+                )
+
+        try:
+            length, data = inp.read()
+        except Exception as e:
+            log(f"⚠️ Audio capture read failed ({e}); reopening source.")
+            try:
+                inp.close()
+            except Exception:
+                pass
+            time.sleep(0.25)
+            try:
+                inp = open_guardian_capture()
+            except Exception:
+                time.sleep(1.0)
+            continue
+
         if length > 0:
             if DEBUG_GHOST_CATCHER:
                 ghost_buffer.append(data)
