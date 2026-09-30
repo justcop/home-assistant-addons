@@ -8,6 +8,7 @@ Smart Needle-Lift Detection: If you lift the needle halfway through a song, the 
 MQTT Auto-Discovery: Automatically creates beautiful, dedicated sensors in your Home Assistant dashboard without any manual YAML configuration.
 Audio Health Monitoring: Actively monitors the audio stream and warns you in the Add-on logs if your audio is clipping or too quiet.
 UI Volume Control: Adjust your physical soundcard's input volume directly from the Home Assistant Add-on configuration screen.
+Runtime Branch Selection: Set `code_branch` in the Add-on configuration to run the Python code from another branch of this repository. `main` remains the safe default.
 🛠️ Prerequisites
 Hardware: A USB soundcard, audio capture device, or direct line-in connected to your Home Assistant host machine. You will need to route your turntable/pre-amp output into this input.
 Software: An active MQTT Broker (like the official Mosquitto broker Add-on) running in Home Assistant.
@@ -19,3 +20,7 @@ Close the modal, scroll down (or refresh), and look for Vinyl Guardian.
 Click Install.
 ⚙️ Configuration
 Before starting the Add-on, configure your settings in the UI:
+
+`code_branch`: Leave this as `main` for the normal installed version. To test development code, enter an existing Git branch name and restart the Add-on. Vinyl Guardian will download the Python runtime files from that branch each time it starts. If the branch cannot be downloaded, startup stops rather than silently running `main`.
+
+Branch selection changes the runtime Python files only. Changes to `Dockerfile`, `config.yaml`, `run.sh`, system packages, or Python dependencies still require a normal Add-on rebuild/update.
