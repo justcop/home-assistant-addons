@@ -94,11 +94,15 @@ configuration:
         description: 0 uses calibration; 1–100 overrides capture gain. This controls the host recording
           input, not speaker volume.
       manual_override_music_threshold:
-        name: ✅ Override music threshold
-        description: 0 uses calibration; positive values override the music threshold.
+        name: ✅ Music threshold fallback
+        description: 0 uses the default fallback. Positive values set a fallback threshold; saved
+          calibration thresholds take priority in both current branches. Recalibrate to change the
+          active profile.
       manual_override_motor_threshold:
-        name: ✅ Override motor threshold
-        description: 0 uses calibration; positive values override the motor threshold.
+        name: ✅ Motor threshold fallback
+        description: 0 uses the default fallback. Positive values set a fallback threshold; saved
+          calibration thresholds take priority in both current branches. Recalibrate to change the
+          active profile.
       max_attempts:
         name: ✅ Recognition attempts
         description: Maximum identification attempts per track.
