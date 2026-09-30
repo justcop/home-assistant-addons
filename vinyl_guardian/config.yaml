@@ -100,3 +100,7 @@ map:
 - "media:rw"
 audio: true
 hassio_api: true
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:record-circle
+panel_title: Vinyl Guardian

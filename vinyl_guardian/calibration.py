@@ -14,7 +14,7 @@ import glob
 warnings.filterwarnings('ignore')
 
 from config import SHARE_DIR, RECORDING_DIR, AUTO_CALIB_FILE, RATE, CHANNELS, CHUNK
-from calibration_control import wait_for_confirmation, set_status
+from calibration_control import wait_for_confirmation, set_status, set_stage, append_log
 from calibration_capture import capture_bytes
 from audio_math import RUNOUT_RPM_INTERVALS
 
@@ -41,6 +41,7 @@ report_log = []
 def print_log(msg):
     print(msg, flush=True)
     report_log.append(msg)
+    append_log(msg)
 
 # --- NATIVE MATH UTILITIES ---
 def reject_outliers_mad(data, threshold=3.5):
@@ -664,6 +665,7 @@ def run_calibration():
     else:
         if all(os.path.exists(f) for f in FILES.values()):
             print_log("\n📁 REUSE_CALIBRATION_AUDIO is ON. Reusing existing recordings.")
+            set_stage(-1, "Reuse saved calibration audio")
             wait_for_confirmation("Reuse saved calibration audio: no new recording steps will run. Disable reuse_calibration_audio and restart for a fresh calibration.", print_log)
             use_existing = True
         else:
@@ -672,14 +674,23 @@ def run_calibration():
             use_existing = False
             
     if not use_existing:
+        set_stage(0, "Input gain")
         final_mic_vol = gain_staging()
+        set_stage(1, "Quiet baseline")
         record_segmented_file(FILES["floor"], 0, 0, 30, "[FILE 1/6] Switch the turntable OFF and keep the room quiet.")
+        set_stage(2, "Motor startup")
         record_segmented_file(FILES["spinup"], 10, 10, 15, "[FILE 2/6] Keep the needle raised. After Continue, switch the motor ON during the action window.")
+        set_stage(3, "Music to runout")
         record_dynamic_transition(FILES["transition"])
+        set_stage(4, "Needle lift")
         record_segmented_file(FILES["lift"], 10, 5, 15, "[FILE 4/6] Leave the motor running in runout. After Continue, lift the needle during the action window.")
+        set_stage(5, "Motor shutdown")
         record_segmented_file(FILES["powerdown"], 10, 10, 15, "[FILE 5/6] Keep the needle raised and motor running. After Continue, turn the motor OFF during the action window.")
+        set_stage(6, "Room disturbances")
         record_segmented_file(FILES["disturbance"], 0, 0, 30, "[FILE 6/6] Turntable OFF. Make realistic room disturbances while this step records.")
 
+    set_stage(7, "Analysing recordings")
+    set_status("Analysing recordings. Follow the live calibration log for results.", phase="recording")
     thresholds = calculate_hardware_thresholds(FILES)
     analyze_ghost_triggers(thresholds)
     
@@ -703,7 +714,7 @@ def run_calibration():
         
     print("\n📄 A copy of this report was saved to: " + REPORT_FILE, flush=True)
     print("🔄 Please disable CALIBRATION_MODE in your config and RESTART the Add-on.", flush=True)
-    set_status('Calibration finished. Disable calibration_mode and restart. See logs for the report.')
+    set_status('Calibration finished. Disable calibration_mode and restart. See logs for the report.', phase='complete')
     while True: time.sleep(3600)
 
 if __name__ == "__main__":

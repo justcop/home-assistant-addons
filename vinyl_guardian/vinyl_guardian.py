@@ -1,4 +1,5 @@
 import calibration_control
+from calibration_web import start_server
 import sys
 import os
 import glob
@@ -661,14 +662,18 @@ def publish_calibration_status(message):
 
 
 if __name__ == "__main__":
+    calibration_control.begin(CALIBRATION_MODE)
+    start_server()
     connect_mqtt()
     calibration_control.configure(publish_calibration_status)
     if CALIBRATION_MODE:
         try:
             run_calibration()
         except Exception as exc:
-            calibration_control.set_status(f"Calibration stopped: {exc}")
-            raise
+            calibration_control.append_log(f"Calibration stopped: {exc}")
+            calibration_control.set_status(f"Calibration stopped: {exc}", phase="failed")
+            log(f"Calibration stopped: {exc}. Correct the input settings and restart to retry.")
+            threading.Event().wait()  # Keep the failure and logs visible in the calibration screen.
     else:
         files_to_clean = [os.path.join(RECORDING_DIR, "vinyl_debug.wav"), os.path.join(RECORDING_DIR, "process.wav")]
         for f in files_to_clean:
