@@ -12,8 +12,83 @@ echo "[$(date +"%Y-%m-%d %H:%M:%S")] ===========================================
 echo "[$(date +"%Y-%m-%d %H:%M:%S")] 🔄 BOOTING VINYL GUARDIAN v${ADDON_VERSION} 🔄"
 echo "[$(date +"%Y-%m-%d %H:%M:%S")] ========================================================"
 
-# Read debug mode from options.json
+# Read configuration from options.json
 DEBUG_MODE=$(jq --raw-output '.debug_logging' /data/options.json)
+CODE_BRANCH=$(jq --raw-output '.code_branch // "main"' /data/options.json)
+
+# Home Assistant installs the add-on image itself from the repository version.
+# For development branches, swap in the selected branch's Python runtime files
+# at startup while leaving the container and Supervisor-managed configuration alone.
+if [ "$CODE_BRANCH" != "main" ]; then
+    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 🌿 Runtime branch selected: $CODE_BRANCH"
+    export CODE_BRANCH
+
+    if python3 - <<'PY'
+import io
+import os
+import shutil
+import sys
+import tarfile
+import urllib.parse
+import urllib.request
+
+branch = os.environ["CODE_BRANCH"].strip()
+if not branch:
+    print("Branch name is empty.", file=sys.stderr)
+    sys.exit(1)
+
+url = (
+    "https://codeload.github.com/justcop/home-assistant-addons/tar.gz/refs/heads/"
+    + urllib.parse.quote(branch, safe="")
+)
+
+try:
+    with urllib.request.urlopen(url, timeout=30) as response:
+        archive = response.read()
+
+    with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tar:
+        members = [
+            member
+            for member in tar.getmembers()
+            if member.isfile()
+            and "/vinyl_guardian/" in member.name
+            and member.name.endswith(".py")
+        ]
+
+        if not members:
+            raise RuntimeError(
+                f"Branch {branch!r} contains no vinyl_guardian Python files."
+            )
+
+        app_dir = "/usr/src/app"
+        copied = 0
+        for member in members:
+            filename = os.path.basename(member.name)
+            source = tar.extractfile(member)
+            if source is None:
+                continue
+            with source, open(os.path.join(app_dir, filename), "wb") as target:
+                shutil.copyfileobj(source, target)
+            copied += 1
+
+        if copied == 0:
+            raise RuntimeError("No runtime Python files could be copied.")
+
+    print(f"Loaded {copied} Python files from branch {branch!r}.")
+except Exception as exc:
+    print(f"Unable to load branch {branch!r}: {exc}", file=sys.stderr)
+    sys.exit(1)
+PY
+    then
+        echo "[$(date +"%Y-%m-%d %H:%M:%S")] ✅ Branch '$CODE_BRANCH' loaded successfully."
+    else
+        echo "[$(date +"%Y-%m-%d %H:%M:%S")] 🚨 ERROR: Could not load branch '$CODE_BRANCH'."
+        echo "[$(date +"%Y-%m-%d %H:%M:%S")] Refusing to fall back silently to main. Set code_branch to 'main' or fix the branch name."
+        exit 1
+    fi
+else
+    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 🌿 Runtime branch: main (using installed image)"
+fi
 
 # Only show diagnostic spam if debug mode is explicitly true
 if [ "$DEBUG_MODE" == "true" ]; then
