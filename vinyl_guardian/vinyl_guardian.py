@@ -23,6 +23,7 @@ from telemetry import DatasetCollector
 from experiment import ExperimentHarness, TRUSTED_LABELS
 from profile_manager import ProfileManager
 from replay_lab import replay_latest_dataset
+from audio_source import AudioSourceManager, AUTO_OPTION, SYSTEM_DEFAULT_OPTION
 
 VERSION = os.environ.get("ADDON_VERSION", "Unknown")
 FORMAT = alsaaudio.PCM_FORMAT_S16_LE
@@ -47,6 +48,12 @@ replay_latest_requested = False
 rollback_profile_requested = False
 replay_status = "Idle"
 profile_status_text = "Unknown"
+audio_source_manager = None
+audio_scan_requested = False
+audio_scan_running = False
+audio_source_change_requested = False
+requested_audio_source_option = None
+audio_scan_status = "Idle"
 
 # Debug Dumper State
 debug_countdown = 0
@@ -102,6 +109,7 @@ def on_message(client, userdata, msg):
     global capture_false_positive_requested, capture_missed_music_requested
     global manual_label_requested, selected_ground_truth_label
     global replay_latest_requested, rollback_profile_requested
+    global audio_scan_requested, requested_audio_source_option
 
     if msg.topic == "vinyl_guardian/debug/trigger":
         target_chunks = int(RATE / CHUNK * 10.0)
@@ -129,6 +137,14 @@ def on_message(client, userdata, msg):
     elif msg.topic == "vinyl_guardian/profile/rollback":
         rollback_profile_requested = True
         log("↩️ Profile rollback request received.")
+    elif msg.topic == "vinyl_guardian/audio/scan":
+        audio_scan_requested = True
+        log("🎚️ Audio-input scan requested. Keep music playing during the scan.")
+    elif msg.topic == "vinyl_guardian/audio/source/set":
+        requested_audio_source_option = msg.payload.decode(
+            "utf-8", errors="ignore"
+        ).strip()
+        log(f"🎚️ Audio source selection requested: {requested_audio_source_option}")
 
 def publish_discovery():
     log("Publishing MQTT Auto-Discovery payloads...")
@@ -160,6 +176,8 @@ def publish_discovery():
         "runout_support": {"name": "Runout Aligned Clicks", "topic": "runout_support", "icon": "mdi:counter", "domain": "sensor", "state_class": "measurement"},
         "replay_status": {"name": "Guardian Replay Lab", "topic": "replay_status", "icon": "mdi:fast-forward", "domain": "sensor"},
         "active_profile": {"name": "Guardian Active Profile", "topic": "active_profile", "icon": "mdi:restore", "domain": "sensor"},
+        "audio_input": {"name": "Guardian Audio Input", "topic": "audio/source/current", "icon": "mdi:audio-input-stereo-minijack", "attr": True, "attr_topic": "audio/source/attributes", "domain": "sensor"},
+        "audio_scan_status": {"name": "Guardian Audio Scan", "topic": "audio/scan_status", "icon": "mdi:waveform", "domain": "sensor"},
         "music_energy": {"name": "Guardian Music Energy (Target 100+)", "topic": "music_energy", "icon": "mdi:music-note", "domain": "sensor", "state_class": "measurement"},
         "pop_texture": {"name": "Guardian Pop Texture (Target 100+)", "topic": "pop_texture", "icon": "mdi:waveform", "domain": "sensor", "state_class": "measurement"},
         "pop_volume": {"name": "Guardian Pop Volume (Target 100+)", "topic": "pop_volume", "icon": "mdi:volume-source", "domain": "sensor", "state_class": "measurement"}
@@ -225,7 +243,29 @@ def publish_discovery():
         retain=True,
     )
 
+    if audio_source_manager is not None:
+        audio_options = audio_source_manager.selectable_options()
+        audio_select = {
+            "name": "Guardian Audio Source",
+            "command_topic": "vinyl_guardian/audio/source/set",
+            "state_topic": "vinyl_guardian/audio/source/selection",
+            "options": audio_options,
+            "unique_id": "vinyl_guardian_audio_source_select",
+            "device": device_info,
+            "icon": "mdi:audio-input-stereo-minijack",
+        }
+        mqtt_client.publish(
+            "homeassistant/select/vinyl_guardian/audio_source/config",
+            json.dumps(audio_select),
+            retain=True,
+        )
+
     experiment_buttons = {
+        "find_audio_input": {
+            "name": "Find Audio Input — Play Music",
+            "topic": "vinyl_guardian/audio/scan",
+            "icon": "mdi:audio-input-stereo-minijack",
+        },
         "mark_ground_truth": {
             "name": "Mark Ground Truth Now",
             "topic": "vinyl_guardian/label/mark",
@@ -307,6 +347,8 @@ def connect_mqtt():
         mqtt_client.subscribe("vinyl_guardian/label/mark")
         mqtt_client.subscribe("vinyl_guardian/experiment/replay_latest")
         mqtt_client.subscribe("vinyl_guardian/profile/rollback")
+        mqtt_client.subscribe("vinyl_guardian/audio/scan")
+        mqtt_client.subscribe("vinyl_guardian/audio/source/set")
         mqtt_client.loop_start()
         publish_discovery()
     except Exception as e: log(f"🚨 MQTT Failed: {e}")
