@@ -135,6 +135,7 @@
       "test_capture_mode"
     ],
     "vinyl-guardian-detection-v2": [
+      "acoustid_key",
       "advanced.audio_onset_threshold",
       "advanced.consecutive_failure_timeout",
       "advanced.fallback_sleep_secs",
@@ -149,6 +150,7 @@
       "audio_scan_on_start",
       "audio_scan_seconds",
       "audio_source",
+      "audio_threshold",
       "auto_capture_interesting_events",
       "calibration_mode",
       "code_branch",
@@ -158,15 +160,18 @@
       "data_collection_raw_audio",
       "data_collection_raw_segment_minutes",
       "debug_logging",
+      "debug_one_shot",
       "experiment_harness_enabled",
       "lastfm_api_key",
       "lastfm_api_secret",
       "lastfm_password",
       "lastfm_username",
+      "mic_volume",
       "mqtt_broker",
       "mqtt_password",
       "mqtt_port",
       "mqtt_user",
+      "record_diagnostic_sample",
       "recording_seconds",
       "test_capture_mode"
     ]
