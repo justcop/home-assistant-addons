@@ -152,10 +152,12 @@ def publish_discovery():
         "runout_confidence": {"name": "Runout Rhythm Confidence", "topic": "runout_confidence", "icon": "mdi:pulse", "domain": "sensor", "state_class": "measurement"},
         "runout_estimated_rpm": {"name": "Runout Estimated RPM", "topic": "runout_estimated_rpm", "icon": "mdi:speedometer", "domain": "sensor", "state_class": "measurement"},
         "runout_jitter": {"name": "Runout Phase Jitter", "topic": "runout_jitter", "icon": "mdi:chart-timeline-variant-shimmer", "domain": "sensor", "state_class": "measurement"},
-        "hardware_mode": {"name": "Guardian Input Mode", "topic": "hardware_mode", "icon": "mdi:audio-input-stereo-minijack", "domain": "sensor"},
+        "hardware_mode": {"name": "Guardian Input Mode", "topic": "hardware_mode", "icon": "mdi:audio-input-stereo-minijack", "attr": True, "attr_topic": "hardware_health", "domain": "sensor"},
         "stereo_correlation": {"name": "Guardian L/R Correlation", "topic": "stereo_correlation", "icon": "mdi:compare-horizontal", "domain": "sensor", "state_class": "measurement"},
-        "side_session": {"name": "Vinyl Side Session", "topic": "side_session", "icon": "mdi:album", "attr": True, "domain": "sensor"},
-        "experiment_status": {"name": "Guardian Experiment Harness", "topic": "experiment_status", "icon": "mdi:flask-outline", "domain": "sensor"},
+        "side_session": {"name": "Vinyl Side Session", "topic": "side_session", "icon": "mdi:album", "attr": True, "attr_topic": "side_session_attributes", "domain": "sensor"},
+        "experiment_status": {"name": "Guardian Experiment Harness", "topic": "experiment_status", "icon": "mdi:flask-outline", "attr": True, "attr_topic": "experiment_attributes", "domain": "sensor"},
+        "shadow_disagreement": {"name": "Guardian Shadow Disagreement", "topic": "shadow_disagreement", "icon": "mdi:source-branch", "domain": "sensor"},
+        "runout_support": {"name": "Runout Aligned Clicks", "topic": "runout_support", "icon": "mdi:counter", "domain": "sensor", "state_class": "measurement"},
         "replay_status": {"name": "Guardian Replay Lab", "topic": "replay_status", "icon": "mdi:fast-forward", "domain": "sensor"},
         "active_profile": {"name": "Guardian Active Profile", "topic": "active_profile", "icon": "mdi:restore", "domain": "sensor"},
         "music_energy": {"name": "Guardian Music Energy (Target 100+)", "topic": "music_energy", "icon": "mdi:music-note", "domain": "sensor", "state_class": "measurement"},
@@ -165,7 +167,8 @@ def publish_discovery():
     
     for key, c in configs.items():
         payload = {"name": c["name"], "state_topic": f"vinyl_guardian/{c['topic']}", "unique_id": f"vinyl_guardian_{key}", "device": device_info, "icon": c["icon"]}
-        if c.get("attr"): payload["json_attributes_topic"] = "vinyl_guardian/attributes"
+        if c.get("attr"):
+            payload["json_attributes_topic"] = f"vinyl_guardian/{c.get('attr_topic', 'attributes')}"
         if c.get("state_class"): payload["state_class"] = c["state_class"]
         if c["domain"] == "binary_sensor":
             payload["payload_on"] = "ON"
