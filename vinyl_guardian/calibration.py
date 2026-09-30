@@ -82,7 +82,7 @@ def load_wav(filename):
             audio_data = audio_data.reshape(-1, 2).mean(axis=1)
         return audio_data
 
-def chunked_metrics(data, chunk_size=4096):
+def chunked_metrics(data, chunk_size=CHUNK):
     chunks = len(data) // chunk_size
     rms_v, hfer_v, crest_v = [], [], []
     for i in range(chunks):
@@ -92,21 +92,21 @@ def chunked_metrics(data, chunk_size=4096):
         crest_v.append(get_crest(c))
     return np.array(rms_v), np.array(hfer_v), np.array(crest_v)
 
-def chunked_rms(data, chunk_size=4096):
+def chunked_rms(data, chunk_size=CHUNK):
     chunks = len(data) // chunk_size
     rms_arr = np.zeros(chunks)
     for i in range(chunks):
         rms_arr[i] = get_rms(data[i*chunk_size:(i+1)*chunk_size])
     return rms_arr
 
-def chunked_music_rms(data, chunk_size=4096):
+def chunked_music_rms(data, chunk_size=CHUNK):
     chunks = len(data) // chunk_size
     rms_arr = np.zeros(chunks)
     for i in range(chunks):
         rms_arr[i] = get_music_rms(data[i*chunk_size:(i+1)*chunk_size])
     return rms_arr
 
-def chunked_hfer(data, chunk_size=4096):
+def chunked_hfer(data, chunk_size=CHUNK):
     chunks = len(data) // chunk_size
     hfer_arr = np.zeros(chunks)
     for i in range(chunks):
@@ -415,11 +415,11 @@ def calculate_hardware_thresholds(files):
     print_log(f"   [ANALYSIS] Threshold Gap: {(music_threshold - music_hold_threshold):.6f} (If < 0.001, room may be too noisy)")
     
     runout_chunk = trans_data[-int(20 * RATE):]
-    runout_chunks_n = len(runout_chunk) // 4096
+    runout_chunks_n = len(runout_chunk) // CHUNK
     runout_crests, runout_amps = [], []
 
     for i in range(runout_chunks_n):
-        chunk = runout_chunk[i*4096:(i+1)*4096]
+        chunk = runout_chunk[i*CHUNK:(i+1)*CHUNK]
         r = get_rms(chunk)
         if r > 0:
             m_val = np.max(np.abs(chunk))
