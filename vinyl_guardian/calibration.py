@@ -15,6 +15,7 @@ warnings.filterwarnings('ignore')
 
 from config import SHARE_DIR, AUTO_CALIB_FILE, RATE, CHANNELS, CHUNK
 from audio_math import RUNOUT_RPM_INTERVALS
+from detector import GuardianDetector
 
 # --- HOME ASSISTANT OPTION LOADING ---
 REUSE_CALIB_OPT = False
@@ -264,149 +265,80 @@ def gain_staging():
 
 # --- SIMULATION & TIMELINE ENGINE ---
 def simulate_timeline(data, thresholds, state):
-    chunk_size = 4096 
+    """
+    Replay calibration audio through the exact same GuardianDetector used live.
+
+    The previous calibration simulator independently reimplemented the live
+    rules, which meant a calibration could pass while production behaved
+    differently.  Keeping the detector object in state also preserves
+    hysteresis and runout phase between sequential calibration recordings.
+    """
+    chunk_size = 2048
     chunks = len(data) // chunk_size
-    duration = chunks * chunk_size / RATE
-    
+
+    detector = state.get("_detector")
+    if detector is None:
+        detector = GuardianDetector(thresholds, rate=RATE, channels=1)
+
     current_power = state.get("current_power", "Off")
     current_status = state.get("current_status", "Powered Off")
-    
-    transitions = [{'time': 0.0, 'power': current_power, 'status': current_status, 'log': f"   -> 0.0s : [INITIAL] Power [{current_power}] | Status [{current_status}]"}]
-    
-    turntable_on = state.get("turntable_on", False)
-    power_max_score = int(RATE / chunk_size * 2.0)
-    power_score = state.get("power_score", 0)
-    
-    consecutive_music = state.get("consecutive_music", 0)
-    has_played_music = state.get("has_played_music", False)
-    last_music_time = state.get("last_music_time", -10.0)
-    last_rhythm_time = state.get("last_rhythm_time", -10.0)
-    pop_history = state.get("pop_history", [])
-    rhythm_locked = state.get("rhythm_locked", False)
-    
-    VALID_RPM_INTERVALS = [(1.20, 1.46), (1.65, 1.95), (2.45, 2.85), (3.35, 3.85)]
-    
+    transitions = [{
+        "time": 0.0,
+        "power": current_power,
+        "status": current_status,
+        "log": f"   -> 0.0s : [INITIAL] Power [{current_power}] | Status [{current_status}]"
+    }]
+
+    base_time = detector.last_now if detector.last_now is not None else 0.0
+
     for i in range(chunks):
-        chunk = data[i*chunk_size : (i+1)*chunk_size]
-        raw_rms = get_rms(chunk)
-        music_rms = get_music_rms(chunk)
-        hfer = get_hfer(chunk)
-        crest = get_crest(chunk)
-        max_val = np.max(np.abs(chunk))
-        time_sec = (i * chunk_size) / RATE
-        
-        continuous_silence = time_sec - last_music_time
-        recently_played = (0 <= continuous_silence <= 25.0) and (last_music_time > 0)
-        
-        if recently_played:
-            active_pop_amp = thresholds["pop_amplitude_threshold"] * 0.4
-            active_r_min = thresholds["rms_min"] / 1.4
-            active_h_max = 999.0
-            active_c_max = 999.0
-        else:
-            active_pop_amp = thresholds["pop_amplitude_threshold"]
-            active_r_min = thresholds["rms_min"]
-            active_h_max = thresholds["hfer_max"]
-            active_c_max = thresholds["crest_max"]
-            
-        is_dust_pop = False
-        if raw_rms > 0:
-            if (crest >= thresholds["runout_crest_threshold"] and 
-                max_val >= active_pop_amp and 
-                raw_rms <= thresholds["motor_power_ceiling"]):
-                is_dust_pop = True
-                
-        if has_played_music and (time_sec - last_music_time <= 5.0):
-            active_m_thresh = thresholds.get("music_hold_threshold", thresholds["music_threshold"] * 0.6)
-        else:
-            active_m_thresh = thresholds["music_threshold"]
+        chunk = data[i * chunk_size:(i + 1) * chunk_size]
+        local_time = (i + 1) * chunk_size / RATE
+        frame = detector.update_mono(chunk, base_time + local_time)
 
-        if music_rms > active_m_thresh and not is_dust_pop:
-            consecutive_music += 1
-        else:
-            consecutive_music = 0
-            
-        is_playing = (consecutive_music >= 3)
-        if is_playing: 
-            last_music_time = time_sec
-            has_played_music = True
-            rhythm_locked = False
-            continuous_silence = 0.0
+        p_state = "On" if frame["turntable_on"] else "Off"
+        s_state = frame["status"]
 
-        if is_dust_pop:
-            pop_history.append(time_sec)
-            if len(pop_history) > 15: pop_history.pop(0)
-            match_count = 0
-            for p in pop_history[:-1]:
-                delta = time_sec - p
-                for lo, hi in VALID_RPM_INTERVALS:
-                    if lo <= delta <= hi:
-                        match_count += 1
-                        break
-            
-            if match_count >= 2 and turntable_on:
-                rhythm_locked = True
-                last_rhythm_time = time_sec
-
-        if rhythm_locked and (time_sec - last_rhythm_time > 6.0): rhythm_locked = False
-
-        in_rms_win = active_r_min <= raw_rms <= thresholds["rms_max"]
-        in_hfer_win = thresholds["hfer_min"] <= hfer <= active_h_max
-        in_crest_win = thresholds["crest_min"] <= crest <= active_c_max
-        
-        motor_on_cond = (in_rms_win and in_hfer_win and in_crest_win)
-
-        if has_played_music or rhythm_locked: motor_on_cond = True
-
-        if motor_on_cond:
-            power_score = min(power_score + 1, power_max_score)
-            if power_score >= power_max_score: turntable_on = True
-        else:
-            power_score = max(power_score - 2, 0)
-            if power_score <= 0:
-                turntable_on, has_played_music, rhythm_locked = False, False, False
-
-        p_state = "On" if turntable_on else "Off"
-        if not turntable_on: 
-            s_state = "Powered Off"
-        elif is_playing: 
-            s_state = "Playing"
-        elif rhythm_locked: 
-            s_state = "Runout Groove"
-        elif has_played_music:
-            if continuous_silence <= 5.0: 
-                if current_status in ["Playing", "Between Tracks"]:
-                    s_state = "Between Tracks"
-                else:
-                    s_state = "Motor Idle"
-            else: 
-                s_state = "Motor Idle"
-                has_played_music = False
-        else: 
-            s_state = "Motor Idle"
-        
         if p_state != current_power or s_state != current_status:
-            transitions.append({'time': time_sec, 'power': p_state, 'status': s_state, 'log': f"   -> {time_sec:.1f}s : Power [{p_state}] | Status [{s_state}]"})
+            rhythm = ""
+            if frame["runout_locked"]:
+                rhythm = (
+                    f" | Rhythm [{frame['runout_rpm']} RPM, "
+                    f"{frame['runout_confidence']:.0%}, "
+                    f"{frame['runout_support']} hits]"
+                )
+            transitions.append({
+                "time": local_time,
+                "power": p_state,
+                "status": s_state,
+                "log": (
+                    f"   -> {local_time:.1f}s : Power [{p_state}] | "
+                    f"Status [{s_state}]{rhythm}"
+                )
+            })
             current_power, current_status = p_state, s_state
-            
+
     next_state = {
+        "_detector": detector,
         "current_power": current_power,
         "current_status": current_status,
-        "turntable_on": turntable_on,
-        "power_score": power_score,
-        "consecutive_music": consecutive_music,
-        "has_played_music": has_played_music,
-        "last_music_time": last_music_time - duration,
-        "last_rhythm_time": last_rhythm_time - duration,
-        "pop_history": [p - duration for p in pop_history],
-        "rhythm_locked": rhythm_locked
+        # Legacy keys are retained for report/debug compatibility.
+        "turntable_on": detector.turntable_on,
+        "power_score": int(round(detector.motor_confidence * 100.0)),
+        "consecutive_music": 1 if detector.music_active else 0,
+        "has_played_music": detector.has_played_music,
+        "last_music_time": detector.last_music_time,
+        "last_rhythm_time": detector.runout.last_candidate_time,
+        "pop_history": list(detector.runout.events),
+        "rhythm_locked": detector.runout.locked,
     }
-            
+
     return transitions, current_power, current_status, next_state
+
 
 def calculate_hardware_thresholds(files):
     print_log("\n" + "="*70)
-    print_log("🧠 THE GUARDIAN ENGINE CALIBRATION (V7.4: PRODUCTION CORE)")
+    print_log("🧠 THE GUARDIAN ENGINE CALIBRATION (V8: SHARED DETECTOR)")
     print_log("="*70)
     
     print_log("\n[STAGE 1: BASELINE NOISE]")
@@ -516,7 +448,7 @@ def calculate_hardware_thresholds(files):
         "motor_hfer_floor": round(hfer_min, 5),
         "music_threshold": round(music_threshold, 6),
         "music_hold_threshold": round(music_hold_threshold, 6),
-        "runout_crest_threshold": round(pop_crest_threshold, 3),
+        "detector_version": 2,\n        "runout_crest_threshold": round(pop_crest_threshold, 3),
         "pop_amplitude_threshold": round(pop_amplitude_threshold, 6),
         "max_room_transient": round(max_room_transient, 6)
     }
@@ -646,7 +578,7 @@ def run_calibration():
        \  /  | | | | | |_| | | | |__| | |_| | (_| | | | || | | (_| | | | |
         \/   |_|_| |_|\__, |_|  \____/ \__,_|\__,_|_| |_|__|_|\__,_|_| |_|
                        __/ |                                              
-                      |___/   CALIBRATION SUITE v7.4 (Production Core)                      
+                      |___/   CALIBRATION SUITE v8 (Shared Detector)                      
     """, flush=True)
     
     FILES = {
