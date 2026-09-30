@@ -1025,6 +1025,14 @@ def listen_and_identify():
                     log(f"⚠️ Experimental harness observation failed: {e}")
                     experiment_snapshot = {}
 
+            if audio_source_manager is not None:
+                experiment_snapshot["audio_source"] = audio_source_manager.selected_source
+                experiment_snapshot["audio_source_description"] = (
+                    audio_source_manager.selected_description
+                )
+                experiment_snapshot["audio_card"] = audio_source_manager.selected_card
+                experiment_snapshot["audio_profile"] = audio_source_manager.selected_profile
+
             known_off_labels = {"off", "known_off", "turntable_off", "known-off"}
             if (
                 DATA_COLLECTION_ENABLED
@@ -1385,12 +1393,28 @@ def listen_and_identify():
                 with state_lock: app_state = "IDLE"
 
 if __name__ == "__main__":
+    initialise_audio_source()
     connect_mqtt()
-    if CALIBRATION_MODE: run_calibration()
+    refresh_audio_source_select()
+    publish_audio_source_state()
+
+    if AUDIO_SCAN_ON_START:
+        log("🎚️ Startup audio scan enabled. Keep turntable music playing.")
+        run_startup_audio_scan()
+        refresh_audio_source_select()
+        publish_audio_source_state()
+
+    if CALIBRATION_MODE:
+        run_calibration()
     else:
-        files_to_clean = [os.path.join(SHARE_DIR, "vinyl_debug.wav"), "/tmp/process.wav"]
+        files_to_clean = [
+            os.path.join(SHARE_DIR, "vinyl_debug.wav"),
+            "/tmp/process.wav",
+        ]
         for f in files_to_clean:
             try:
-                if os.path.exists(f): os.remove(f)
-            except: pass
+                if os.path.exists(f):
+                    os.remove(f)
+            except Exception:
+                pass
         listen_and_identify()
