@@ -1,44 +1,32 @@
 import numpy as np
 
-def calculate_audio_levels(data):
+from detector import pcm16_to_mono, extract_features
+
+
+def calculate_audio_levels(data, channels=2):
+    """Compatibility wrapper around the shared detector feature extractor."""
     try:
-        audio_data = np.frombuffer(data, dtype=np.int16).astype(np.float32)
-        if len(audio_data) <= 1:
-            return 0.0, 0.0, 1.0
-            
-        raw_rms = float(np.sqrt(np.mean(np.square(audio_data)))) / 32768.0
-        
-        filtered_data = audio_data[1:] - 0.95 * audio_data[:-1]
-        music_rms = float(np.sqrt(np.mean(np.square(filtered_data)))) / 32768.0
-        
-        peak = np.max(np.abs(audio_data)) / 32768.0
-        crest = peak / raw_rms if raw_rms > 0 else 1.0
-        
-        return raw_rms, music_rms, crest
+        metrics = extract_features(pcm16_to_mono(data, channels))
+        return metrics["rms"], metrics["music_rms"], metrics["crest"]
     except Exception:
         return 0.0, 0.0, 1.0
 
-def calculate_deep_metrics(data):
-    audio_data = np.frombuffer(data, dtype=np.int16).astype(np.float32)
-    if len(audio_data) <= 1:
+
+def calculate_deep_metrics(data, channels=2):
+    """Return the exact same mono features used by the production detector."""
+    try:
+        metrics = extract_features(pcm16_to_mono(data, channels))
+        return {
+            "rms": metrics["rms"],
+            "music_rms": metrics["music_rms"],
+            "crest": metrics["crest"],
+            "hfer": metrics["hfer"],
+            "peak": metrics["peak"],
+            "zcr": metrics["zcr"],
+        }
+    except Exception:
         return None
-   
-    rms = float(np.sqrt(np.mean(np.square(audio_data)))) / 32768.0
-    
-    filtered_data = audio_data[1:] - 0.95 * audio_data[:-1]
-    music_rms = float(np.sqrt(np.mean(np.square(filtered_data)))) / 32768.0
-    
-    peak = np.max(np.abs(audio_data)) / 32768.0
-    crest = peak / rms if rms > 0 else 1.0
-    
-    if rms < 0.0001:
-        hfer = 0.0
-    else:
-        hf_data = audio_data[1:] - audio_data[:-1] 
-        hf_rms = float(np.sqrt(np.mean(np.square(hf_data)))) / 32768.0
-        hfer = hf_rms / rms
-   
-    return {"rms": rms, "music_rms": music_rms, "crest": crest, "hfer": float(hfer)}
+
 
 # ---------------------------------------------------------------------------
 # SHARED POP & RHYTHM-LOCK LOGIC
