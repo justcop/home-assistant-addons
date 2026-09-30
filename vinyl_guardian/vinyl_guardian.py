@@ -22,6 +22,7 @@ from audio_math import calculate_audio_levels, calculate_deep_metrics
 from integrations import recognize_shazam, get_track_duration, scrobble_to_lastfm, log
 from calibration import run_calibration
 from detector import GuardianDetector
+from recognition_session import RecognitionSession, recognize_fragment
 from telemetry import DatasetCollector
 from experiment import ExperimentHarness, TRUSTED_LABELS
 from profile_manager import ProfileManager
@@ -33,6 +34,7 @@ FORMAT = alsaaudio.PCM_FORMAT_S16_LE
 
 # Global State & Thread Safety
 state_lock = threading.Lock()
+recognition_session = RecognitionSession()
 app_state = "IDLE"
 current_attempt = 1
 wake_up_time = 0
@@ -374,42 +376,42 @@ def change_3_tier_status(new_vinyl_status, new_engine_status):
             current_engine_status = new_engine_status
 
 # --- BACKGROUND WORKER (SHAZAM) ---
-def process_audio_background(audio_data_bytes, song_start_timestamp):
+def process_audio_background(audio_data_bytes, song_start_timestamp, token, preview=False):
     global app_state, current_attempt, wake_up_time, consecutive_failures, current_track, scrobble_fired, last_scrobbled_track, paused_track_memory
     global experiment_harness
-    local_attempt = None
-    with state_lock: local_attempt = current_attempt
-    log(f"🔬 Analyzing {RECORD_SECONDS}s capture (Attempt {local_attempt}/{MAX_ATTEMPTS})...")
-    
-    full_data = np.frombuffer(audio_data_bytes, dtype=np.int16)
-    usable = len(full_data) - (len(full_data) % max(1, CHANNELS))
-    frame_data = full_data[:usable].reshape(-1, max(1, CHANNELS))
-    frame_peak = np.max(np.abs(frame_data), axis=1) if len(frame_data) else np.array([])
-    trigger = np.where(frame_peak > AUDIO_ONSET_THRESHOLD)[0]
-    start_frame = int(trigger[0]) if len(trigger) > 0 else 0
-    min_frames = RATE * MIN_AUDIO_SECONDS
-    if len(frame_data) - start_frame < min_frames:
-        start_frame = max(0, len(frame_data) - min_frames)
-
-    # Trim only on complete PCM frames so stereo channel order is preserved.
-    trimmed_bytes = frame_data[start_frame:].reshape(-1).tobytes()
-    trimmed_seconds = start_frame / RATE
-    wav_temp = os.path.join(RECORDING_DIR, "process.wav")
-    try:
-        with wave.open(wav_temp, "wb") as wf:
-            wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(trimmed_bytes)
-    except Exception as e:
-        log(f"⚠️ Failed to write temp wav: {e}")
-        with state_lock: app_state = "IDLE"
-        return
-        
-    match = recognize_shazam(wav_temp)
     with state_lock:
+        if not recognition_session.valid(token, app_state):
+            return
+        local_attempt = current_attempt
+    seconds = len(audio_data_bytes) / (RATE * CHANNELS * 2)
+    log(f"🔬 Analyzing {seconds:.1f}s {'preview' if preview else 'confirmation'} (Attempt {local_attempt}/{MAX_ATTEMPTS})...")
+    try:
+        match, trimmed_seconds = recognize_fragment(
+            audio_data_bytes, RECORDING_DIR, RATE, CHANNELS, AUDIO_ONSET_THRESHOLD,
+            MIN_AUDIO_SECONDS, recognize_shazam)
+    except Exception as exc:
+        log(f"⚠️ Recognition failed: {exc}")
+        match, trimmed_seconds = None, 0
+    with state_lock:
+        if not recognition_session.accept(token, app_state, preview):
+            return
+        if preview:
+            if match:
+                tentative = dict(match, recognition_status='provisional', source='Shazam')
+                log(f"🎶 TENTATIVE MATCH: {match['title']} - {match['artist']}; waiting for longer recording.")
+                mqtt_client.publish("vinyl_guardian/track", f"{match['title']} - {match['artist']} (confirming)", retain=True)
+                mqtt_client.publish("vinyl_guardian/attributes", json.dumps(tentative), retain=True)
+            return
+    # Duration lookup can take seconds; never hold the audio loop's state lock.
+    total_duration = match.get('duration', 0) if match else 0
+    if match and total_duration <= 0:
+        total_duration = get_track_duration(match['title'], match['artist'], match.get('adamid'))
+    with state_lock:
+        if not recognition_session.valid(token, app_state):
+            return
         if match:
             current_attempt = 1
             consecutive_failures = 0
-            total_duration = match.get('duration', 0)
-            if total_duration <= 0: total_duration = get_track_duration(match['title'], match['artist'], match.get('adamid'))
             if total_duration <= 0:
                 log("⚠️ Duration unknown. Using track gaps fallback.")
                 total_duration = 1200
@@ -438,7 +440,7 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
                 "duration": total_duration, "start_timestamp": start_ts,
                 "session_start_time": song_start_timestamp, "scrobble_trigger_time": song_start_timestamp + scrobble_delay,
                 "duration_known": duration_known, "previously_played": previously_played,
-                "source": "Shazam", "image": match.get('image', '')
+                "source": "Shazam", "recognition_status": "confirmed", "image": match.get('image', '')
             }
             scrobble_fired = False
             if experiment_harness is not None:
@@ -460,14 +462,12 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
                 consecutive_failures += 1
                 log(f"❌ Max attempts reached. Fallback to gap detection.")
                 mqtt_client.publish("vinyl_guardian/track", "Unknown Track", retain=True)
+                mqtt_client.publish("vinyl_guardian/attributes", "{}", retain=True)
                 current_attempt = 1
                 wake_up_time = time.time() + (CONSECUTIVE_FAILURE_TIMEOUT if consecutive_failures >= 10 else FALLBACK_SLEEP_SECS)
                 if consecutive_failures >= 10: consecutive_failures = 0
                 app_state = "SLEEPING"
                     
-    try:
-        if os.path.exists(wav_temp): os.remove(wav_temp)
-    except: pass
     if TEST_CAPTURE_MODE:
         log("🛑 TEST CAPTURE COMPLETE."); os._exit(0)
 
@@ -794,6 +794,10 @@ def listen_and_identify():
     # music hysteresis and runout rhythm. Calibration replay uses this same
     # class, so passing calibration now means passing production logic.
     detector = GuardianDetector(v6_cfg, rate=RATE, channels=CHANNELS)
+    if v6_cfg.get('motor_combination_model'):
+        log("🔬 Active motor model: " + ', '.join(v6_cfg['motor_combination_model']['features']))
+    else:
+        log("🔬 Existing motor profile active. Run calibration with saved-audio reuse to fit the three-feature model.")
 
     profile_manager = ProfileManager(SHARE_DIR, AUTO_CALIB_FILE)
     try:
@@ -858,6 +862,7 @@ def listen_and_identify():
                 buffer.clear()
                 chunks = loud_chunks = silence_sleep = trigger_chunks = 0
                 with state_lock:
+                    recognition_session.invalidate()
                     app_state = "IDLE"
                     current_track = None
                     scrobble_fired = False
@@ -884,6 +889,7 @@ def listen_and_identify():
                 pass
 
             with state_lock:
+                recognition_session.invalidate()
                 app_state = "IDLE"
                 current_track = None
                 scrobble_fired = False
@@ -1161,6 +1167,7 @@ def listen_and_identify():
                                         "id": track_id,
                                         "accumulated_playtime": time_played,
                                     }
+                            recognition_session.invalidate()
                             app_state, current_track, scrobble_fired, current_attempt, consecutive_failures = (
                                 "IDLE", None, False, 1, 0
                             )
@@ -1366,7 +1373,9 @@ def listen_and_identify():
                             mqtt_client.publish("vinyl_guardian/track", "Searching...", retain=True)
                             mqtt_client.publish("vinyl_guardian/attributes", "{}", retain=True)
                         song_start, buffer, chunks, loud_chunks, silence_sleep, trigger_chunks = now, bytearray(data), 1, 1, 0, 0
-                        with state_lock: app_state = "RECORDING"
+                        with state_lock:
+                            token = recognition_session.begin()
+                            app_state = "RECORDING"
                 else: trigger_chunks = 0
                     
             elif current_state == "RECORDING":
@@ -1377,10 +1386,17 @@ def listen_and_identify():
                     if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/track", "Not Playing", retain=True)
                     with state_lock: app_state = "IDLE"
                     continue
+                with state_lock:
+                    preview_due = recognition_session.preview_due(token, chunks * CHUNK / RATE, RECORD_SECONDS)
+                if preview_due and loud_chunks >= chunks / 2:
+                    threading.Thread(target=process_audio_background, args=(bytes(buffer), song_start, token, True), daemon=True).start()
                 if chunks >= target:
                     if loud_chunks >= (target / 2.0):
-                        with state_lock: app_state = "PROCESSING"
-                        threading.Thread(target=process_audio_background, args=(bytes(buffer), song_start)).start()
+                        with state_lock:
+                            if not recognition_session.valid(token, app_state):
+                                continue
+                            app_state = "PROCESSING"
+                        threading.Thread(target=process_audio_background, args=(bytes(buffer), song_start, token), daemon=True).start()
                     else:
                         if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/track", "Not Playing", retain=True)
                         with state_lock: app_state = "IDLE"

@@ -1,4 +1,4 @@
-"""Offline feature-combination experiments. Never modifies the live detector."""
+"""Feature-combination fitting and scoring shared by calibration and detection."""
 from itertools import combinations
 import numpy as np
 

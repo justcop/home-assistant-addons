@@ -37,8 +37,11 @@ configuration:
       live logs and Continue together. The MQTT Continue Calibration button also works. Disable and
       restart when complete. Fresh capture requires Reuse calibration audio to be off.
   recording_seconds:
-    name: Recognition recording length
-    description: Seconds of audio recorded for each recognition attempt.
+    name: Recording seconds
+    description: Full recognition recording length. A tentative match is requested after
+      five seconds while recording continues. The full result takes priority and controls
+      scrobbling. Values of five seconds or less use one request.
+
   debug_logging:
     name: Debug logging
     description: Enable detailed diagnostics in the app logs.

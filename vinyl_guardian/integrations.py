@@ -6,7 +6,6 @@ import pylast
 from shazamio import Shazam
 from config import *
 
-shazam_instance = Shazam()
 
 # --- LAST.FM SETUP ---
 lastfm_network = None
@@ -56,7 +55,9 @@ def recognize_shazam(wav_path):
     if DEBUG: log("Uploading to Shazam...")
     try:
         async def _recognize():
-            return await shazam_instance.recognize(wav_path)
+            # Each concurrent request owns its connection pool and event loop.
+            async with Shazam() as recognizer:
+                return await asyncio.wait_for(recognizer.recognize(wav_path), timeout=45)
         res_json = asyncio.run(_recognize())
        
         if isinstance(res_json, dict) and 'track' in res_json and isinstance(res_json.get('matches'), list) and len(res_json['matches']) > 0:

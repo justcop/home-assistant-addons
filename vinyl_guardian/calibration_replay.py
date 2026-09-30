@@ -1,6 +1,7 @@
 """Whole-sequence calibration checks using the production detector."""
 import wave
 from detector import GuardianDetector, extract_features, pcm16_to_mono
+from telemetry import FeatureExtractor
 
 STAGES = ('floor', 'spinup', 'transition', 'lift', 'powerdown', 'disturbance')
 
@@ -13,11 +14,15 @@ def load_recording_features(files, chunk=2048):
                 raise ValueError('Calibration replay requires 16-bit PCM WAV files')
             rate, channels = recording.getframerate(), recording.getnchannels()
             rows = []
+            extractor = FeatureExtractor(rate)
             while True:
                 raw = recording.readframes(chunk)
                 if len(raw) != chunk * channels * 2:
                     break
-                rows.append(extract_features(pcm16_to_mono(raw, channels), rate))
+                mono = pcm16_to_mono(raw, channels)
+                row = extractor.extract(mono)
+                row.update(extract_features(mono, rate))
+                rows.append(row)
             if not rows:
                 raise ValueError(f'No complete audio chunks in {stage}')
             recordings[stage] = {'rate': rate, 'chunk': chunk, 'features': rows}

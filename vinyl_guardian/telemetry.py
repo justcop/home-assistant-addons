@@ -1,8 +1,7 @@
 """Feature and dataset collection for Vinyl Guardian.
 
-This module is observational only. None of the measurements here influence the
-Guardian state machine. That separation is intentional: collect first, compare
-against labelled real-world data, then promote only useful features later.
+FeatureExtractor is shared by observational datasets and the promoted three-feature
+motor model. Dataset collection itself does not alter detector settings.
 """
 
 import csv

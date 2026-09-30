@@ -726,9 +726,16 @@ def _run_calibration(session):
                 -len(candidate['model']['features'])))
             fields = ', '.join(selected['model']['features'])
             print_log(f"   {comparison} combination ({combination['candidate_count']} candidates): {fields}; final-block balanced accuracy {selected['test']['balanced_accuracy']:.1%}, worst recording {selected['test']['worst_recording_accuracy']:.1%}.")
-        print_log("   Full rankings and feature CSVs are included in Download calibration measurements. These observations do not automatically change live detection.")
+        candidate = feature_report.get('motor_combination_candidate')
+        if not candidate:
+            raise ValueError('Saved recordings do not contain sufficient steady-state audio for the motor model')
+        thresholds['motor_combination_model'] = candidate['model']
+        thresholds['detector_version'] = 5
+        print_log("   Three-feature motor/off model enabled for quality and regression checks: " + ', '.join(candidate['model']['features']))
+        print_log(f"   Reserved-block balanced accuracy: {candidate['test']['balanced_accuracy']:.1%}.")
+        print_log("   The model becomes active only if the complete calibration passes promotion checks. Other feature combinations remain observational.")
     except (OSError, ValueError) as exc:
-        print_log(f"   Extended measurement analysis failed: {exc}")
+        raise ValueError(f"Extended measurement analysis failed; active profile retained: {exc}") from exc
     
     if not use_existing:
         thresholds["mic_volume"] = final_mic_vol
@@ -745,9 +752,9 @@ def _run_calibration(session):
         quality = assess_calibration(FILES, thresholds)
     except Exception as e:
         quality = {
-            "status": "warning",
-            "warnings": [f"Quality assessment failed: {e}"],
-            "critical": [],
+            "status": "weak",
+            "warnings": [],
+            "critical": [f"Quality assessment failed: {e}"],
         }
 
     print_log(f"   Quality status: {quality.get('status', 'unknown').upper()}")
@@ -813,7 +820,7 @@ def _run_calibration(session):
     except Exception as e:
         regression = {
             "can_compare": False,
-            "accepted": True,
+            "accepted": False,
             "reason": f"Regression suite could not run: {e}",
             "candidate": {},
             "baseline": None,
@@ -847,7 +854,7 @@ def _run_calibration(session):
     has_previous_profile = bool(baseline_thresholds)
     quality_safe = quality.get("status") != "weak"
     promote = bool(regression.get("accepted", True)) and (
-        quality_safe or not has_previous_profile
+        quality_safe or (not has_previous_profile and not thresholds.get("motor_combination_model"))
     )
 
     freeze_for_save()

@@ -289,6 +289,10 @@ class GuardianDetector:
         self.rate = int(rate)
         self.channels = max(1, int(channels or 1))
 
+        self.motor_feature_extractor = None
+        if self.thresholds.get('motor_combination_model'):
+            from telemetry import FeatureExtractor
+            self.motor_feature_extractor = FeatureExtractor(self.rate)
         self.motor_evidence_history = deque()
         self.motor_confidence = 0.0
         self.music_confidence = 0.0
@@ -350,6 +354,10 @@ class GuardianDetector:
         return result
 
     def _profile_motor_score(self, features):
+        model = self.thresholds.get('motor_combination_model')
+        if model:
+            from feature_combinations import score
+            return score(model, features)
         negatives = self.thresholds.get("motor_negative_profiles")
         if isinstance(negatives, list) and negatives:
             motor = self._profile_log_density(features, self.thresholds.get("motor_profile"))
@@ -376,6 +384,9 @@ class GuardianDetector:
 
     def update_mono(self, mono, now, force_music_active=False):
         features = extract_features(mono, self.rate)
+        if self.motor_feature_extractor is not None:
+            extra = self.motor_feature_extractor.extract(mono)
+            features.update({name: extra[name] for name in self.thresholds['motor_combination_model']['features']})
         return self.update_features(features, now, sample_count=len(mono), force_music_active=force_music_active)
 
     def update_features(self, features, now, sample_count=2048, force_music_active=False):

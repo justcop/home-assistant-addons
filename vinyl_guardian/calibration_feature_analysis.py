@@ -7,7 +7,7 @@ import wave
 import numpy as np
 from detector import extract_features, pcm16_to_mono
 from telemetry import FeatureExtractor, pcm16_channels, stereo_features
-from feature_combinations import search
+from feature_combinations import search, fit, blocks, evaluate
 
 
 def measurement_rows(path, chunk=2048):
@@ -113,5 +113,15 @@ def analyse_features(files, output_directory):
     for name, (positive, negative) in comparisons.items():
         if all(len(rows) >= 10 for rows in list(positive.values()) + list(negative.values())):
             report['combination_analysis'][name] = search(positive, negative)
+    # Fixed feature set established by the combination and sequence experiments.
+    # Refit on early blocks only; reserve the later blocks for validation.
+    fields = ('band_60_120', 'autocorr_periodicity', 'subframe_rms_cv')
+    if all(len(rows) >= 10 for rows in list(motor.values()) + list(off.values())):
+        mt, mv, me = blocks(motor)
+        ot, ov, oe = blocks(off)
+        model = fit(mt, ot, fields)
+        report['motor_combination_candidate'] = {
+            'model': model, 'selection': evaluate(model, mv, ov),
+            'test': evaluate(model, me, oe)}
     (directory / 'calibration_feature_analysis.json').write_text(json.dumps(report, indent=2))
     return report
