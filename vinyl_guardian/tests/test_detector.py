@@ -44,6 +44,10 @@ class RunoutRhythmTests(unittest.TestCase):
         self.assertTrue(detector.locked)
         self.assertEqual(detector.rpm_label, "33⅓")
         self.assertGreaterEqual(detector.last_support, 4)
+        self.assertIsNotNone(detector.estimated_rpm)
+        self.assertLess(abs(detector.estimated_rpm - (100.0 / 3.0)), 1.5)
+        self.assertIsNotNone(detector.phase_jitter_ms)
+        self.assertLess(detector.phase_jitter_ms, 50.0)
 
     def test_locks_to_45_rpm_after_four_aligned_revolutions(self):
         detector, _, _ = self._feed_rhythm("45")
