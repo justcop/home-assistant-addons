@@ -99,28 +99,15 @@ if [ "$DEBUG_MODE" == "true" ]; then
     echo "[$(date +"%Y-%m-%d %H:%M:%S")] --------------------------------------"
 fi
 
-# Find physical soundcard input quietly
-PHYSICAL_SINK=$(pactl list short sources | grep "alsa_input" | awk '{print $2}' | head -n 1)
-
-if [ -z "$PHYSICAL_SINK" ]; then
-    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 🚨 ERROR: Could not find physical ALSA capture device! Please ensure 'Audio' is enabled in Add-on config."
-else
-    if [ "$DEBUG_MODE" == "true" ]; then
-        echo "[$(date +"%Y-%m-%d %H:%M:%S")] 🎯 TARGET LOCKED: Found physical mic port -> $PHYSICAL_SINK"
-    fi
-    
-    pactl set-default-source "$PHYSICAL_SINK"
-    pactl set-source-mute "$PHYSICAL_SINK" 0
-    
-    # Grab Volume from options.json
-    CONFIG_VOL=$(jq --raw-output '.mic_volume' /data/options.json)
-    
-    if [ "$CONFIG_VOL" != "null" ] && [ -n "$CONFIG_VOL" ]; then
-        if [ "$DEBUG_MODE" == "true" ]; then
-            echo "[$(date +"%Y-%m-%d %H:%M:%S")] Applying UI Configuration: Setting capture volume to ${CONFIG_VOL}%..."
-        fi
-        pactl set-source-volume "$PHYSICAL_SINK" "${CONFIG_VOL}%"
-    fi
+# Do not force the first alsa_input to become Home Assistant's global default.
+# Source ordering is not a stable device identifier and can change after OS,
+# kernel, USB or PulseAudio updates. Vinyl Guardian selects its own capture
+# source per-process using PULSE_SOURCE in audio_source.py.
+SOURCE_COUNT=$(pactl list short sources 2>/dev/null | grep -v "\.monitor" | wc -l | tr -d ' ')
+if [ "$SOURCE_COUNT" = "0" ]; then
+    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 🚨 ERROR: PulseAudio exposes no capture sources. Check Home Assistant Audio/card profiles."
+elif [ "$DEBUG_MODE" == "true" ]; then
+    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 🎚️ ${SOURCE_COUNT} capture source(s) exposed. Guardian will select its own input."
 fi
 
 if [ "$DEBUG_MODE" == "true" ]; then
