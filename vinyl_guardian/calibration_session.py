@@ -1,10 +1,29 @@
 """Resume recording stages without retaining incompatible later recordings."""
 from pathlib import Path
 import shutil
+import wave
 import calibration_control as control
 
 TITLES = ['Input gain', 'Quiet baseline', 'Motor startup', 'Music to runout',
           'Needle lift', 'Motor shutdown', 'Room disturbances']
+
+
+def complete_recordings(files):
+    for path in files.values():
+        try:
+            with wave.open(str(path), 'rb') as recording:
+                if recording.getsampwidth() != 2 or recording.getnframes() <= 0:
+                    return False
+                frame_size = recording.getnchannels() * 2
+                remaining = recording.getnframes()
+                while remaining:
+                    count = min(8192, remaining)
+                    if len(recording.readframes(count)) != count * frame_size:
+                        return False
+                    remaining -= count
+        except (OSError, EOFError, wave.Error):
+            return False
+    return bool(files)
 
 
 class CalibrationSession:
@@ -20,7 +39,7 @@ class CalibrationSession:
             return
         self.initialized = True
         self.files = files
-        self.use_existing = reuse and all(Path(p).exists() for p in files.values())
+        self.use_existing = reuse and complete_recordings(files)
         self.gain = saved_gain if self.use_existing else None
         if self.use_existing:
             self.next_stage = 7
@@ -47,7 +66,9 @@ class CalibrationSession:
     def record(self, callbacks, log):
         if self.use_existing:
             control.set_stage(6, 'Reuse saved calibration audio')
-            control.wait_for_confirmation('Reuse saved recordings, or choose a step below to record again. Restart calibration begins fresh input gain calibration.', log)
+            log('Reusing all six saved calibration recordings automatically. No confirmation or new recording is needed.')
+            control.checkpoint()
+            return self.gain
         else:
             while self.next_stage < len(callbacks):
                 stage = self.next_stage

@@ -93,4 +93,9 @@ def export_measurements(directory, share_dir):
                 archive.writestr(name, path.read_bytes())
         for path in (Path(share_dir) / 'profiles').glob('profile_*.json'):
             archive.writestr('profiles/' + path.name, path.read_bytes())
+        extended = Path(share_dir) / 'calibration_measurements'
+        for name in ['calibration_feature_analysis.json'] + ['extended_' + Path(name).stem + '.csv' for name in NAMES]:
+            path = extended / name
+            if path.is_file():
+                archive.writestr('extended/' + name, path.read_bytes())
     return output.getvalue()

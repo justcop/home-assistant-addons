@@ -31,7 +31,7 @@ Before starting the Add-on, configure your settings in the UI.
 
 Set **Calibration record speed** to the physical speed of the recorded side (33⅓ RPM by default, or 45 RPM). Both speeds remain supported during normal listening. A calibration rhythm at the wrong speed fails the quality gate.
 
-To analyse existing captures after an update, enable **Reuse calibration audio** and **Calibration mode**, restart, and follow Continue in **Open Web UI** through reuse and the analysis review. The recordings keep their original input gain, including recordings from a rejected candidate. The detector learns separate quiet, shutdown and disturbance profiles; it must distinguish motor evidence from each off class. An existing profile is retained if the candidate fails quality or regression checks.
+To analyse existing captures after an update, leave **Reuse calibration audio** on (the default), enable **Calibration mode**, and restart. A complete valid recording set is analysed automatically, without opening the UI or pressing Continue. Missing or invalid recordings start the physical recording wizard. The recordings keep their original input gain, including recordings from a rejected candidate. The detector learns separate quiet, shutdown and disturbance profiles; it must distinguish motor evidence from each off class. An existing profile is retained if the candidate fails quality or regression checks.
 
 Use **Download calibration measurements** on the calibration screen after capture or analysis finishes. The ZIP includes per-chunk features, recording checksums, profiles and reports, without raw audio or app options. These measurements can replay the live detector exactly, so a failed calibration can be investigated without recording the same stages again.
 
@@ -48,3 +48,11 @@ python calibration_replay.py /path/to/calibration_data candidate.json --baseline
 ```
 
 The candidate may be a complete `profiles/profile_*.json` file or a thresholds dictionary. The command emits all checks, state transitions and per-stage metrics as JSON and exits unsuccessfully if any candidate check fails. No Home Assistant or audio hardware is needed for replay; NumPy is required.
+
+### Extended calibration measurements
+
+Every calibration, including automatic reuse, extracts 51 measurements per chunk from the saved WAVs. These cover frequency bands, spectral shape and change, dominant frequencies, within-chunk periodicity and amplitude variation, clipping and stereo relationships. The results are saved under `/share/vinyl_guardian/calibration_measurements` and included in **Download calibration measurements**.
+
+The feature report compares motor with off, motor with runout, runout with off, and music with runout when a sufficiently long music interval exists. Each feature threshold is fitted on the first 60% of the instructed steady intervals and checked on the remaining 40%. Rankings include balanced accuracy and the worst recording, so a strong overall score cannot hide a poor off-state result. These are observational comparisons from one session, rather than proof of generalisation. They do not automatically replace live detection with a different classifier.
+
+For ongoing collection during normal listening, enable **Collect detector dataset** (`data_collection_enabled`), leave **Experiment lab** (`experiment_harness_enabled`) on, disable **Calibration mode**, and restart. Full feature CSVs, rolling statistics and detector state are saved in `<recording_directory>/datasets/`. Raw audio collection is optional; captured calibration WAVs already allow extended offline analysis without any additional live recording.

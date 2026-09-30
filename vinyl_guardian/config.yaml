@@ -46,8 +46,8 @@ options:
     needle_lift_seconds: 15
     consecutive_failure_timeout: 1800
     fallback_sleep_secs: 60
-    reuse_calibration_audio: false
   calibration_record_rpm: 33⅓
+  reuse_calibration_audio: true
 schema:
   recording_directory: str
   lastfm_username: str?
@@ -83,8 +83,8 @@ schema:
     needle_lift_seconds: int
     consecutive_failure_timeout: int
     fallback_sleep_secs: int
-    reuse_calibration_audio: bool
   calibration_record_rpm: list(33⅓|45)
+  reuse_calibration_audio: bool
 map:
 - share:rw
 - media:rw

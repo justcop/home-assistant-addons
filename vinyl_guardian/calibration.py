@@ -18,6 +18,7 @@ from calibration_control import wait_for_confirmation, set_status, set_stage, ap
 from calibration_capture import capture_bytes
 from calibration_session import CalibrationSession
 from calibration_measurements import capture_gain, save_capture_gain
+from calibration_feature_analysis import analyse_features
 from gain_search import find_input_gain
 from audio_math import RUNOUT_RPM_INTERVALS
 from detector import GuardianDetector, pcm16_to_mono
@@ -30,16 +31,7 @@ from regression import (
 )
 
 # --- HOME ASSISTANT OPTION LOADING ---
-REUSE_CALIB_OPT = False
-OPTIONS_FILE = "/data/options.json"
-if os.path.exists(OPTIONS_FILE):
-    try:
-        with open(OPTIONS_FILE, "r") as f:
-            opts = json.load(f)
-            advanced_opts = opts.get("advanced", {})
-            REUSE_CALIB_OPT = advanced_opts.get("reuse_calibration_audio", False)
-    except Exception:
-        pass
+REUSE_CALIB_OPT = config.get("reuse_calibration_audio", True)
 
 # --- CONFIGURATION ---
 FORMAT = alsaaudio.PCM_FORMAT_S16_LE
@@ -720,6 +712,17 @@ def _run_calibration(session):
     set_status("Analysing recordings. Follow the live calibration log for results.", phase="recording")
     thresholds = calculate_hardware_thresholds(FILES)
     analyze_ghost_triggers(thresholds)
+    print_log("\n🔬 EXTENDED CALIBRATION MEASUREMENTS")
+    try:
+        feature_report = analyse_features(FILES, os.path.join(SHARE_DIR, "calibration_measurements"))
+        print_log(f"   Measured {feature_report['measurement_count']} features per audio chunk.")
+        for comparison, candidates in feature_report['comparisons'].items():
+            if candidates:
+                best = candidates[0]
+                print_log(f"   {comparison}: {best['feature']}, held-out balanced accuracy {best['held_out_balanced_accuracy']:.1%}, worst recording {best['worst_recording_accuracy']:.1%}.")
+        print_log("   Full rankings and feature CSVs are included in Download calibration measurements. These observations do not automatically change live detection.")
+    except (OSError, ValueError) as exc:
+        print_log(f"   Extended measurement analysis failed: {exc}")
     
     if not use_existing:
         thresholds["mic_volume"] = final_mic_vol

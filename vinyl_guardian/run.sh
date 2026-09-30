@@ -22,6 +22,15 @@ for option in code_branch acoustid_key audio_threshold debug_one_shot mic_volume
     fi
 done
 
+# Reuse is a normal setting and defaults on, including upgrades from the old
+# advanced setting. Explicit top-level choices are retained.
+if ! jq --exit-status 'has("reuse_calibration_audio")' /data/options.json >/dev/null; then
+    bashio::addon.option reuse_calibration_audio true || echo "Could not persist default reuse setting; runtime defaults to on."
+fi
+if jq --exit-status '.advanced | has("reuse_calibration_audio")' /data/options.json >/dev/null; then
+    bashio::addon.option advanced "$(jq --compact-output '.advanced | del(.reuse_calibration_audio)' /data/options.json)" || echo "Could not remove obsolete advanced reuse setting; it is ignored."
+fi
+
 # Only show diagnostic spam if debug mode is explicitly true
 if [ "$DEBUG_MODE" == "true" ]; then
     echo "[$(date +"%Y-%m-%d %H:%M:%S")] --- PULSEAUDIO HARDWARE DIAGNOSTIC ---"

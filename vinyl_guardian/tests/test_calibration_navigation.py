@@ -3,6 +3,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from pathlib import Path
 import tempfile
+import wave
 import threading
 import unittest
 from unittest.mock import Mock
@@ -91,10 +92,41 @@ class NavigationTests(unittest.TestCase):
     def test_repeat_from_saved_audio_keeps_saved_gain_until_gain_is_repeated(self):
         with tempfile.TemporaryDirectory() as root:
             paths = {str(i): str(Path(root) / f'{i}.wav') for i in range(1, 7)}
-            for path in paths.values(): Path(path).write_text('saved')
+            for path in paths.values():
+                with wave.open(path, 'wb') as output:
+                    output.setnchannels(1); output.setsampwidth(2); output.setframerate(44100)
+                    output.writeframes(b'\0\0' * 64)
             session = CalibrationSession(); session.prepare(root, paths, True, 42)
             session.navigate(control.CalibrationNavigation('repeat', 4), lambda _: None)
             self.assertEqual(session.gain, 42)
             self.assertFalse(session.use_existing)
             self.assertEqual(session.next_stage, 4)
             self.assertTrue(Path(paths['3']).exists())
+
+    def test_complete_saved_recordings_reuse_without_callbacks_or_confirmation(self):
+        with tempfile.TemporaryDirectory() as root:
+            paths = {str(i): str(Path(root) / f'{i}.wav') for i in range(1, 7)}
+            for path in paths.values():
+                with wave.open(path, 'wb') as output:
+                    output.setnchannels(1); output.setsampwidth(2); output.setframerate(44100)
+                    output.writeframes(b'\0\0' * 64)
+            session = CalibrationSession(); session.prepare(root, paths, True, 30)
+            callbacks = [Mock(side_effect=AssertionError('Should not record')) for _ in range(7)]
+            from unittest.mock import patch
+            with patch('calibration_session.control.wait_for_confirmation', side_effect=AssertionError('Should not wait')):
+                self.assertEqual(session.record(callbacks, lambda _: None), 30)
+            self.assertTrue(all(not callback.called for callback in callbacks))
+
+    def test_incomplete_or_invalid_saved_recordings_fall_back_to_recording(self):
+        for invalid in ('missing', 'invalid'):
+            with self.subTest(invalid=invalid), tempfile.TemporaryDirectory() as root:
+                paths = {str(i): str(Path(root) / f'{i}.wav') for i in range(1, 7)}
+                for path in list(paths.values())[:-1]:
+                    with wave.open(path, 'wb') as output:
+                        output.setnchannels(1); output.setsampwidth(2); output.setframerate(44100)
+                        output.writeframes(b'\0\0' * 64)
+                if invalid == 'invalid':
+                    Path(paths['6']).write_text('not WAV data')
+                session = CalibrationSession(); session.prepare(root, paths, True, 30)
+                self.assertFalse(session.use_existing)
+                self.assertEqual(session.next_stage, 0)

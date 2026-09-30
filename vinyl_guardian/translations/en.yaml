@@ -120,13 +120,13 @@ configuration:
       fallback_sleep_secs:
         name: Fallback sleep
         description: Seconds to wait during fallback recognition.
-      reuse_calibration_audio:
-        name: Reuse calibration audio
-        description: Off records fresh physical steps with confirmation. On re-analyses a complete
-          saved recording set and skips physical recording after you confirm. Keep off when recalibrating
-          changed hardware.
   calibration_record_rpm:
     name: Calibration record speed
     description: Known physical speed of the record used in calibration. Default 33⅓ RPM. A 45 RPM
       replay result on a 33⅓ record is a failed classification. Normal listening continues to support
       either speed.
+  reuse_calibration_audio:
+    name: Reuse calibration audio
+    description: On by default. Calibration automatically analyses a complete saved WAV set without
+      Continue prompts. Missing or invalid recordings start the recording wizard. Turn off to capture
+      fresh audio after hardware changes.
