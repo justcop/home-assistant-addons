@@ -358,3 +358,22 @@ a second tab. Continue is enabled only while a step is waiting; old screens and
 double clicks cannot advance a later step. The existing MQTT button still works.
 The screen reconnects automatically and preserves the running calibration when
 you close or reopen it. After completion, disable calibration mode and restart.
+
+
+### Repeat or restart calibration
+
+Use **Step to repeat** and **Repeat selected step** to return to a current or
+previous recording stage, including while recording or after a failed stage.
+The current capture stops at its next audio read, then waits for preparation
+and Continue again. Earlier completed recordings are kept; the selected stage
+and later recordings are replaced. Repeating **Input gain** redoes all recordings.
+**Restart calibration** starts fresh from Input gain without restarting the app.
+These controls also work after completion. The active detector profile remains
+in place until a new result is saved. Controls briefly disable during saving.
+A review screen waits before analysis, so you can repeat recordings first.
+
+Input gain now uses a bounded midpoint search across 1–100%, including when the
+10-second verification detects a loud spike. It tests at most seven volume
+settings instead of walking the final range one percent at a time. Silence,
+clipping at minimum gain and inconsistent audio produce an actionable error
+with a Repeat option. Use a steady, loud passage for this step.

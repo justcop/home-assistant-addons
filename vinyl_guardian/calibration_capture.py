@@ -2,7 +2,8 @@
 import time
 
 
-def capture_bytes(open_capture, duration, rate, channels, clock=time.monotonic):
+def capture_bytes(open_capture, duration, rate, channels, clock=time.monotonic, checkpoint=lambda: None):
+    checkpoint()
     try:
         device = open_capture()
     except Exception as exc:
@@ -13,7 +14,9 @@ def capture_bytes(open_capture, duration, rate, channels, clock=time.monotonic):
     started = last_progress = clock()
     try:
         while frames < target:
+            checkpoint()
             length, data = device.read()
+            checkpoint()
             now = clock()
             if length < 0:
                 raise RuntimeError('Audio input reported a capture error; calibration aborted.')

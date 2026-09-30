@@ -1,6 +1,6 @@
 name: "Vinyl Guardian"
 description: "Detects needle drops, IDs vinyl records, and natively scrobbles to Last.fm."
-version: "4.48.2"
+version: "4.49.0"
 slug: "vinyl_guardian"
 init: false
 arch:
@@ -102,5 +102,5 @@ audio: true
 hassio_api: true
 ingress: true
 ingress_port: 8099
-panel_icon: mdi:record-circle
-panel_title: Vinyl Guardian
+panel_icon: "mdi:record-circle"
+panel_title: "Vinyl Guardian"

@@ -13,9 +13,11 @@ import glob
 # Suppress numpy warnings for clean output
 warnings.filterwarnings('ignore')
 
-from config import SHARE_DIR, RECORDING_DIR, AUTO_CALIB_FILE, RATE, CHANNELS, CHUNK
-from calibration_control import wait_for_confirmation, set_status, set_stage, append_log
+from config import MIC_VOLUME, SHARE_DIR, RECORDING_DIR, AUTO_CALIB_FILE, RATE, CHANNELS, CHUNK
+from calibration_control import wait_for_confirmation, set_status, set_stage, append_log, checkpoint, pause, freeze_for_save, wait_for_navigation, CalibrationNavigation
 from calibration_capture import capture_bytes
+from calibration_session import CalibrationSession
+from gain_search import find_input_gain
 from audio_math import RUNOUT_RPM_INTERVALS
 from detector import GuardianDetector, pcm16_to_mono
 from calibration_quality import assess_calibration
@@ -47,6 +49,7 @@ REPORT_FILE = os.path.join(SHARE_DIR, "calibration_report.txt")
 report_log = []
 
 def print_log(msg):
+    checkpoint()
     print(msg, flush=True)
     report_log.append(msg)
     append_log(msg)
@@ -129,7 +132,7 @@ def record_chunk(duration):
         lambda: alsaaudio.PCM(type=alsaaudio.PCM_CAPTURE, mode=alsaaudio.PCM_NORMAL,
                              device='default', channels=CHANNELS, rate=RATE,
                              format=FORMAT, periodsize=CHUNK),
-        duration, RATE, CHANNELS,
+        duration, RATE, CHANNELS, checkpoint=checkpoint,
     )
     # Return mono analysis samples so calibration prompts and live detection
     # see the same signal representation.
@@ -162,7 +165,7 @@ def record_segmented_file(filename, action_dur, settle_dur, steady_dur, prompt):
         wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(raw_bytes)
         
     print_log(f"✅ Saved to {os.path.basename(filename)}")
-    time.sleep(1)
+    pause(1)
 
 def record_dynamic_transition(filename):
     print_log(f"\n" + "-"*50)
@@ -214,7 +217,7 @@ def record_dynamic_transition(filename):
         wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(raw_bytes)
         
     print_log(f"✅ Saved dynamic transition to {os.path.basename(filename)}")
-    time.sleep(1)
+    pause(1)
 
 def set_mic_volume(vol_pct):
     target = os.environ.get("PULSE_SOURCE") or "@DEFAULT_SOURCE@"
@@ -241,51 +244,18 @@ def gain_staging():
     print_log("🎚️  STEP 0: AUTO-CALIBRATING SOFTWARE VOLUME")
     print_log("="*50)
     print_log("🔊 ACTION: Find the LOUDEST record you own and drop the needle NOW.")
-    print_log("   Searching for 1% precision sweet spot...")
+    print_log("   Searching the remaining gain range by its midpoint.")
     
     wait_for_confirmation("Play a loud record for input gain calibration.", print_log)
-    current_vol = 50
-    step = 16 
-    last_direction = 0 
-    set_mic_volume(current_vol)
-    
-    time.sleep(10) 
-    
-    while True:
-        _, audio_data = record_chunk(3.0)
-        if len(audio_data) == 0: raise RuntimeError("No calibration audio captured")
-        peak = np.max(np.abs(audio_data))
-        
-        if peak < 0.50 and current_vol == 100:
-            raise RuntimeError("Input remains too quiet at maximum gain. Check the audio input and play a loud record.")
-        if peak > 0.80 and current_vol == 1:
-            raise RuntimeError("Input is too loud at minimum gain. Reduce the physical input level.")
-        if peak > 0.80:
-            if last_direction == 1: step = max(1, step // 2)
-            last_direction = -1
-            current_vol = max(1, current_vol - step)
-            set_mic_volume(current_vol)
-            print_log(f"   Peak {peak:.2f} (Hot) -> Vol: {current_vol}%")
-        elif peak < 0.50:
-            if last_direction == -1: step = max(1, step // 2)
-            last_direction = 1
-            current_vol = min(100, current_vol + step)
-            set_mic_volume(current_vol)
-            print_log(f"   Peak {peak:.2f} (Low) -> Vol: {current_vol}%")
-        else:
-            print_log(f"   Peak {peak:.2f} (Testing...) -> Verifying {current_vol}% for 10s...")
-            _, v_data = record_chunk(10.0)
-            v_peak = np.max(np.abs(v_data))
-            if v_peak > 0.85:
-                current_vol -= 1
-                set_mic_volume(current_vol)
-                continue
-            print_log(f"✅ VOLUME LOCKED at {current_vol}%")
-            break
-            
-    print_log("\n⏹️  ACTION: Stop the record and turn the turntable OFF completely.")
-    time.sleep(5)
-    return current_vol
+    def measure_peak(seconds):
+        _, data = record_chunk(seconds)
+        if len(data) == 0:
+            raise RuntimeError("No calibration audio captured")
+        return np.max(np.abs(data))
+
+    volume = find_input_gain(set_mic_volume, measure_peak, print_log, settle=lambda: pause(0.5))
+    print_log(f"✅ VOLUME LOCKED at {volume}%")
+    return volume
 
 # --- SIMULATION & TIMELINE ENGINE ---
 def simulate_timeline(data, thresholds, state):
@@ -693,7 +663,7 @@ def analyze_ghost_triggers(thresholds):
         except Exception: pass
 
 # --- MAIN EXECUTION ---
-def run_calibration():
+def _run_calibration(session):
     print(r"""
     __      ___             _    ____                     _ _          
     \ \    / (_)           | |  / __ \                   | (_)         
@@ -714,37 +684,17 @@ def run_calibration():
         "disturbance": os.path.join(CALIB_DIR, "calib_disturbance.wav")
     }
 
-    if not REUSE_CALIB_OPT:
-        print_log("\n🧹 REUSE_CALIBRATION_AUDIO is OFF. Clearing old data...")
-        if os.path.exists(CALIB_DIR): shutil.rmtree(CALIB_DIR)
-        os.makedirs(CALIB_DIR)
-        use_existing = False
-    else:
-        if all(os.path.exists(f) for f in FILES.values()):
-            print_log("\n📁 REUSE_CALIBRATION_AUDIO is ON. Reusing existing recordings.")
-            set_stage(-1, "Reuse saved calibration audio")
-            wait_for_confirmation("Reuse saved calibration audio: no new recording steps will run. Disable reuse_calibration_audio and restart for a fresh calibration.", print_log)
-            use_existing = True
-        else:
-            print_log("\n⚠️  REUSE_CALIBRATION_AUDIO is ON, but files are missing. Starting fresh recordings...")
-            if not os.path.exists(CALIB_DIR): os.makedirs(CALIB_DIR)
-            use_existing = False
-            
-    if not use_existing:
-        set_stage(0, "Input gain")
-        final_mic_vol = gain_staging()
-        set_stage(1, "Quiet baseline")
-        record_segmented_file(FILES["floor"], 0, 0, 30, "[FILE 1/6] Switch the turntable OFF and keep the room quiet.")
-        set_stage(2, "Motor startup")
-        record_segmented_file(FILES["spinup"], 10, 10, 15, "[FILE 2/6] Keep the needle raised. After Continue, switch the motor ON during the action window.")
-        set_stage(3, "Music to runout")
-        record_dynamic_transition(FILES["transition"])
-        set_stage(4, "Needle lift")
-        record_segmented_file(FILES["lift"], 10, 5, 15, "[FILE 4/6] Leave the motor running in runout. After Continue, lift the needle during the action window.")
-        set_stage(5, "Motor shutdown")
-        record_segmented_file(FILES["powerdown"], 10, 10, 15, "[FILE 5/6] Keep the needle raised and motor running. After Continue, turn the motor OFF during the action window.")
-        set_stage(6, "Room disturbances")
-        record_segmented_file(FILES["disturbance"], 0, 0, 30, "[FILE 6/6] Turntable OFF. Make realistic room disturbances while this step records.")
+    session.prepare(CALIB_DIR, FILES, REUSE_CALIB_OPT, MIC_VOLUME)
+    use_existing = session.use_existing
+    final_mic_vol = session.record([
+        gain_staging,
+        lambda: record_segmented_file(FILES["floor"], 0, 0, 30, "[FILE 1/6] Switch the turntable OFF and keep the room quiet."),
+        lambda: record_segmented_file(FILES["spinup"], 10, 10, 15, "[FILE 2/6] Keep the needle raised. After Continue, switch the motor ON during the action window."),
+        lambda: record_dynamic_transition(FILES["transition"]),
+        lambda: record_segmented_file(FILES["lift"], 10, 5, 15, "[FILE 4/6] Leave the motor running in runout. After Continue, lift the needle during the action window."),
+        lambda: record_segmented_file(FILES["powerdown"], 10, 10, 15, "[FILE 5/6] Keep the needle raised and motor running. After Continue, turn the motor OFF during the action window."),
+        lambda: record_segmented_file(FILES["disturbance"], 0, 0, 30, "[FILE 6/6] Turntable OFF. Make realistic room disturbances while this step records."),
+    ], print_log)
 
     set_stage(7, "Analysing recordings")
     set_status("Analysing recordings. Follow the live calibration log for results.", phase="recording")
@@ -869,6 +819,7 @@ def run_calibration():
         quality_safe or not has_previous_profile
     )
 
+    freeze_for_save()
     profile_manager = ProfileManager(SHARE_DIR, AUTO_CALIB_FILE)
     metadata = {
         "calibration_files": {
@@ -928,8 +879,25 @@ def run_calibration():
     print("\n📄 A copy of this report was saved to: " + REPORT_FILE, flush=True)
     print("🔄 Please disable CALIBRATION_MODE in your config and RESTART the Add-on.", flush=True)
     set_status('Calibration finished. Disable calibration_mode and restart. See logs for the profile verdict.', phase='complete')
+    wait_for_navigation()
+
+
+def run_calibration():
+    session = CalibrationSession()
     while True:
-        time.sleep(3600)
+        try:
+            report_log.clear()
+            _run_calibration(session)
+        except CalibrationNavigation as request:
+            session.navigate(request, print_log)
+        except Exception as exc:
+            append_log(f"Calibration stopped: {exc}")
+            set_status(f"Calibration stopped: {exc}. Choose a step to repeat or restart calibration.", phase="failed")
+            print(f"Calibration stopped: {exc}", flush=True)
+            try:
+                wait_for_navigation()
+            except CalibrationNavigation as request:
+                session.navigate(request, print_log)
 
 if __name__ == "__main__":
     run_calibration()
