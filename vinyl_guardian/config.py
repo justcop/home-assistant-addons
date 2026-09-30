@@ -6,7 +6,6 @@ import tempfile
 
 # --- Path Setup ---
 SHARE_DIR = "/share/vinyl_guardian"
-os.makedirs(SHARE_DIR, exist_ok=True)
 AUTO_CALIB_FILE = os.path.join(SHARE_DIR, "auto_calibration.json")
 
 # --- Load Configuration ---
@@ -18,15 +17,17 @@ except Exception as e:
     sys.exit(1)
 
 # --- Recording Storage ---
-from storage import DEFAULT_RECORDING_DIRECTORY, prepare_recording_directory
+from storage import DEFAULT_RECORDING_DIRECTORY, prepare_recording_directory, storage_diagnostics
+recording_path = config.get("recording_directory", DEFAULT_RECORDING_DIRECTORY)
+for diagnostic in storage_diagnostics(recording_path):
+    print(f"📁 {diagnostic}", flush=True)
 try:
-    RECORDING_DIR = prepare_recording_directory(
-        config.get("recording_directory", DEFAULT_RECORDING_DIRECTORY)
-    )
+    RECORDING_DIR = prepare_recording_directory(recording_path)
+    os.makedirs(SHARE_DIR, exist_ok=True)
 except (ValueError, OSError) as exc:
     print(f"🚨 Recording storage unavailable: {exc}", flush=True)
     sys.exit(1)
-print(f"📁 Recording data folder: {RECORDING_DIR}", flush=True)
+print(f"✅ Recording storage check passed: WAV write, read, rename and deletion in {RECORDING_DIR} and its calibration_data folder.", flush=True)
 
 # --- System Modes ---
 CALIBRATION_MODE = config.get("calibration_mode", False)
