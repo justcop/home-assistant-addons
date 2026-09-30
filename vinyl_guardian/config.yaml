@@ -12,6 +12,7 @@ arch:
 startup: "application"
 boot: "auto"
 options:
+  code_branch: "main"
   lastfm_username: ""
   lastfm_password: ""
   lastfm_api_key: ""
@@ -44,6 +45,7 @@ options:
     fallback_sleep_secs: 60
     reuse_calibration_audio: false
 schema:
+  code_branch: "str"
   lastfm_username: "str?"
   lastfm_password: "password?"
   lastfm_api_key: "str?"
