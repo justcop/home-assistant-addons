@@ -62,6 +62,8 @@ def signal_handler(sig, frame):
             mqtt_client.publish("vinyl_guardian/raw_pitch", "0.0", retain=True)
             mqtt_client.publish("vinyl_guardian/raw_texture", "0.0", retain=True)
             mqtt_client.publish("vinyl_guardian/power_score", "0", retain=True)
+            mqtt_client.publish("vinyl_guardian/runout_rpm", "None", retain=True)
+            mqtt_client.publish("vinyl_guardian/runout_confidence", "0.0", retain=True)
             mqtt_client.publish("vinyl_guardian/music_energy", "0.0", retain=True)
             mqtt_client.publish("vinyl_guardian/pop_texture", "0.0", retain=True)
             mqtt_client.publish("vinyl_guardian/pop_volume", "0.0", retain=True)
@@ -82,7 +84,6 @@ if MQTT_USER and MQTT_PASS:
 
 def on_message(client, userdata, msg):
     global debug_countdown, debug_metrics_buffer
-    global capture_false_positive_requested, capture_missed_music_requested
     global capture_false_positive_requested, capture_missed_music_requested
 
     if msg.topic == "vinyl_guardian/debug/trigger":
@@ -324,6 +325,7 @@ def normalize_metric(val, t_min, t_max):
 def listen_and_identify():
     global app_state, current_attempt, wake_up_time, scrobble_fired, current_track, last_scrobbled_track, paused_track_memory, inp
     global debug_countdown, debug_metrics_buffer
+    global capture_false_positive_requested, capture_missed_music_requested
     
     try:
         if DEBUG: log(f"🔊 Applying tuned mic volume: {MIC_VOLUME}%")
