@@ -309,3 +309,12 @@ Incompatible new field types are not imported. Existing main fields are not repl
 Home Assistant's native configuration form does not support conditional fields based on `code_branch`. The shared settings therefore remain visible when switching versions. Options apply only where the selected runtime supports them. Legacy `mic_volume` settings are explicitly ignored by the stable startup script when selecting `main`, so returning to stable operation retains its calibrated input behaviour.
 
 New compatible branch settings become configurable after the advertised add-on update is installed. Schema synchronisation does not install a branch's extra system or Python dependencies; branches that need different dependencies may still need a dedicated image.
+
+
+### Recording folder / external storage
+
+Set `recording_directory` in the add-on Configuration tab, then save and restart. The default is `/share/vinyl_guardian`, retaining the existing layout. For mounted media storage, an example is `/media/Recordings/vinyl_guardian`. The `Recordings` storage folder must already exist and be mounted; Guardian creates the final `vinyl_guardian` folder and checks it is writable. It refuses startup if the chosen path is unavailable instead of silently falling back to the internal disk. A successful startup logs the resolved recording folder.
+
+The setting covers calibration WAVs, continuous audio and feature datasets, feedback/ghost clips, experiment event audio and timelines, and temporary recognition WAVs. Calibration profiles, rollback history and audio-source preferences remain under `/share/vinyl_guardian`, so changing the recording disk does not discard your active calibration. Existing recordings are not moved automatically. To keep old calibration audio/feedback available for reuse, copy `calibration_data`, datasets, experiment folders and WAV feedback into the new recording root, preserving their relative layout.
+
+The add-on now maps `/media` read/write as well as `/share`. A folder setting does not mount a USB disk itself. Home Assistant must first expose the disk or network share in one of those mapped folders. On Home Assistant OS, network storage added with Media usage appears beneath `/media`; the supported external data disk feature instead relocates Home Assistant's whole data disk. Those are different storage arrangements. The write check detects unavailable/unwritable paths but cannot guarantee an existing empty mountpoint still has its external filesystem mounted.

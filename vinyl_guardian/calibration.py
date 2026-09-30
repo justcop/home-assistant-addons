@@ -13,7 +13,7 @@ import glob
 # Suppress numpy warnings for clean output
 warnings.filterwarnings('ignore')
 
-from config import SHARE_DIR, AUTO_CALIB_FILE, RATE, CHANNELS, CHUNK
+from config import SHARE_DIR, RECORDING_DIR, AUTO_CALIB_FILE, RATE, CHANNELS, CHUNK
 from audio_math import RUNOUT_RPM_INTERVALS
 from detector import GuardianDetector, pcm16_to_mono
 from calibration_quality import assess_calibration
@@ -38,7 +38,7 @@ if os.path.exists(OPTIONS_FILE):
 
 # --- CONFIGURATION ---
 FORMAT = alsaaudio.PCM_FORMAT_S16_LE
-CALIB_DIR = os.path.join(SHARE_DIR, "calibration_data")
+CALIB_DIR = os.path.join(RECORDING_DIR, "calibration_data")
 REPORT_FILE = os.path.join(SHARE_DIR, "calibration_report.txt")
 
 # Global report list for file output
@@ -436,7 +436,7 @@ def calculate_hardware_thresholds(files):
     # Explicitly labelled missed-music clips can teach calibration about
     # unusually quiet records without globally lowering the threshold on a
     # guess. Only chunks clearly above the baseline are considered.
-    missed_files = sorted(glob.glob(os.path.join(SHARE_DIR, "missed_music_*.wav")))[-10:]
+    missed_files = sorted(glob.glob(os.path.join(RECORDING_DIR, "missed_music_*.wav")))[-10:]
     missed_music_values = []
     for missed_file in missed_files:
         try:
@@ -522,11 +522,11 @@ def calculate_hardware_thresholds(files):
     negative_hfer = [np.asarray(d_hfer)]
     negative_crest = [np.asarray(d_crest)]
 
-    ghost_files = sorted(glob.glob(os.path.join(SHARE_DIR, "ghost_trigger_*.wav")))[-10:]
+    ghost_files = sorted(glob.glob(os.path.join(RECORDING_DIR, "ghost_trigger_*.wav")))[-10:]
     labelled_off_files = [
         wav_path
         for wav_path, expectation, _label
-        in collect_labelled_event_clips(SHARE_DIR)
+        in collect_labelled_event_clips(RECORDING_DIR)
         if expectation == "off"
     ][-10:]
     negative_example_files = list(dict.fromkeys(ghost_files + labelled_off_files))
@@ -657,7 +657,7 @@ def analyze_ghost_triggers(thresholds):
     print_log("   Scanning chunks that passed the volume filters...")
     print_log("="*70)
 
-    ghost_files = glob.glob(os.path.join(SHARE_DIR, "ghost_trigger_*.wav"))
+    ghost_files = glob.glob(os.path.join(RECORDING_DIR, "ghost_trigger_*.wav"))
     if not ghost_files:
         print_log("   [INFO] No ghost trigger files found.")
         return
@@ -816,7 +816,7 @@ def run_calibration():
         regression = compare_profiles(
             thresholds,
             baseline_thresholds,
-            SHARE_DIR,
+            RECORDING_DIR,
             calibration_files=FILES,
         )
     except Exception as e:

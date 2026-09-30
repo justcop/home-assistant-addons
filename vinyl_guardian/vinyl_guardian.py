@@ -384,7 +384,7 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
     # Trim only on complete PCM frames so stereo channel order is preserved.
     trimmed_bytes = frame_data[start_frame:].reshape(-1).tobytes()
     trimmed_seconds = start_frame / RATE
-    wav_temp = "/tmp/process.wav"
+    wav_temp = os.path.join(RECORDING_DIR, "process.wav")
     try:
         with wave.open(wav_temp, "wb") as wf:
             wf.setnchannels(CHANNELS); wf.setsampwidth(2); wf.setframerate(RATE); wf.writeframes(trimmed_bytes)
@@ -477,7 +477,7 @@ def save_feedback_clip(kind, chunks):
         return None
     try:
         stamp = time.strftime("%Y%m%d_%H%M%S")
-        feedback_path = os.path.join(SHARE_DIR, f"{kind}_{stamp}.wav")
+        feedback_path = os.path.join(RECORDING_DIR, f"{kind}_{stamp}.wav")
         with wave.open(feedback_path, "wb") as wf:
             wf.setnchannels(CHANNELS)
             wf.setsampwidth(2)
@@ -657,7 +657,7 @@ def replay_latest_background():
     if mqtt_client.is_connected():
         mqtt_client.publish("vinyl_guardian/replay_status", replay_status, retain=True)
     try:
-        result = replay_latest_dataset(SHARE_DIR, AUTO_CALIB_FILE)
+        result = replay_latest_dataset(RECORDING_DIR, AUTO_CALIB_FILE)
         summary = result.get("summary", {})
         duration = float(summary.get("duration_sec", 0.0))
         transitions = int(summary.get("transition_count", 0))
@@ -709,7 +709,7 @@ def listen_and_identify():
     log("Guardian Engine Online. Shields Armed.")
 
     dataset_collector = DatasetCollector(
-        SHARE_DIR,
+        RECORDING_DIR,
         rate=RATE,
         channels=CHANNELS,
         chunk=CHUNK,
@@ -783,7 +783,7 @@ def listen_and_identify():
     if EXPERIMENT_HARNESS_ENABLED:
         try:
             experiment_harness = ExperimentHarness(
-                SHARE_DIR,
+                RECORDING_DIR,
                 v6_cfg,
                 rate=RATE,
                 channels=CHANNELS,
@@ -1412,8 +1412,8 @@ if __name__ == "__main__":
         run_calibration()
     else:
         files_to_clean = [
-            os.path.join(SHARE_DIR, "vinyl_debug.wav"),
-            "/tmp/process.wav",
+            os.path.join(RECORDING_DIR, "vinyl_debug.wav"),
+            os.path.join(RECORDING_DIR, "process.wav"),
         ]
         for f in files_to_clean:
             try:
