@@ -410,6 +410,38 @@ def calculate_hardware_thresholds(files):
     if music_hold_threshold >= (music_threshold * 0.85):
         music_hold_threshold = music_threshold * 0.60
 
+    # Explicitly labelled missed-music clips can teach calibration about
+    # unusually quiet records without globally lowering the threshold on a
+    # guess. Only chunks clearly above the baseline are considered.
+    missed_files = sorted(glob.glob(os.path.join(SHARE_DIR, "missed_music_*.wav")))[-10:]
+    missed_music_values = []
+    for missed_file in missed_files:
+        try:
+            missed_data = load_wav(missed_file)
+            vals = chunked_music_rms(missed_data)
+            vals = vals[vals > (baseline_median * 1.20)]
+            if len(vals):
+                missed_music_values.extend(vals.tolist())
+        except Exception:
+            pass
+
+    if missed_music_values:
+        learned_music_floor = float(np.percentile(missed_music_values, 10))
+        learned_music_threshold = max(
+            baseline_median * 1.5,
+            learned_music_floor * 0.78,
+        )
+        if learned_music_threshold < music_threshold:
+            print_log(
+                f"   [LEARNED] Missed-music examples lower trigger "
+                f"{music_threshold:.6f} -> {learned_music_threshold:.6f}"
+            )
+            music_threshold = learned_music_threshold
+            music_hold_threshold = min(
+                music_hold_threshold,
+                max(baseline_median * 1.2, music_threshold * 0.60),
+            )
+
     print_log(f"   [EXTRACTED] Music Trigger Threshold: {music_threshold:.6f}")
     print_log(f"   [EXTRACTED] Music Hold Threshold:    {music_hold_threshold:.6f}")
     print_log(f"   [ANALYSIS] Threshold Gap: {(music_threshold - music_hold_threshold):.6f} (If < 0.001, room may be too noisy)")
