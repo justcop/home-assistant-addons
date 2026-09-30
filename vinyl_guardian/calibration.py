@@ -223,8 +223,24 @@ def record_dynamic_transition(filename):
     time.sleep(1)
 
 def set_mic_volume(vol_pct):
-    try: subprocess.run(["pactl", "set-source-volume", "@DEFAULT_SOURCE@", f"{vol_pct}%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except: pass
+    target = os.environ.get("PULSE_SOURCE") or "@DEFAULT_SOURCE@"
+    try:
+        subprocess.run(
+            ["pactl", "set-source-mute", target, "0"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+            check=False,
+        )
+        subprocess.run(
+            ["pactl", "set-source-volume", target, f"{vol_pct}%"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+            check=False,
+        )
+    except Exception:
+        pass
 
 def gain_staging():
     print_log("\n" + "="*50)
