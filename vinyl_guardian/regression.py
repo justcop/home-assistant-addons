@@ -13,6 +13,37 @@ from detector import GuardianDetector
 DEFAULT_CHUNK = 2048
 
 
+LABEL_EXPECTATIONS = {
+    "actually_off": "off",
+    "motor_on_needle_up": "motor",
+    "playing": "music",
+}
+
+
+def collect_labelled_event_clips(share_dir):
+    """Return event-audio WAVs with explicit ground-truth expectations."""
+    root = os.path.join(share_dir, "experiments", "event_audio")
+    clips = []
+    for sidecar in sorted(glob.glob(os.path.join(root, "*.json"))):
+        try:
+            with open(sidecar, "r") as handle:
+                metadata = json.load(handle)
+            label = str(metadata.get("label") or "").strip().lower()
+            expectation = LABEL_EXPECTATIONS.get(label)
+            if not expectation:
+                continue
+            wav_name = metadata.get("wav")
+            if wav_name:
+                wav_path = os.path.join(root, os.path.basename(str(wav_name)))
+            else:
+                wav_path = os.path.splitext(sidecar)[0] + ".wav"
+            if os.path.exists(wav_path):
+                clips.append((wav_path, expectation, label))
+        except Exception:
+            continue
+    return clips
+
+
 def _read_wav(path):
     with wave.open(path, "rb") as wf:
         channels = wf.getnchannels()
@@ -117,6 +148,12 @@ def collect_fixtures(share_dir, calibration_files=None):
 
     event_audio = os.path.join(share_dir, "experiments", "event_audio")
     add_many(os.path.join(event_audio, "*known_off_power_on*.wav"), "off", limit=30)
+
+    # Explicit Home Assistant ground-truth marks become permanent regression
+    # fixtures. Ambiguous labels such as wrong_state/ignore are retained in
+    # the dataset but deliberately not assigned an expected detector state.
+    for wav_path, expectation, _label in collect_labelled_event_clips(share_dir):
+        fixtures.append((wav_path, expectation))
 
     if calibration_files:
         mapping = {
