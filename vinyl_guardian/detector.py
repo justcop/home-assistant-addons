@@ -226,9 +226,11 @@ class RunoutRhythmDetector:
         self.last_candidate_time = now
         self.last_support = best_support
 
-        # Four consecutive revolutions gives a strong lock while still
-        # completing comfortably before the normal needle-lift timeout.
-        required = 4
+        # Four consecutive revolutions are required to acquire a lock.
+        # Once proven, a phase-correct hit after one missed revolution is
+        # enough to maintain it and extend the hold window.
+        maintaining_same_rhythm = self.locked and self.rpm_label == best_label
+        required = 2 if maintaining_same_rhythm else 4
         new_conf = min(1.0, (best_support / 4.0) * (0.65 + 0.35 * best_quality))
         self.confidence = max(self.confidence * 0.82, new_conf)
 
