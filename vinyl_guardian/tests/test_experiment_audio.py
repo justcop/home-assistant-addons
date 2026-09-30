@@ -11,6 +11,45 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from experiment import HardwareHealthMonitor, ShadowDetectorSuite
 from replay_lab import replay
+from audio_source import choose_best_candidate, score_pcm
+
+
+
+
+class AudioSourceScoringTests(unittest.TestCase):
+    def test_silence_is_not_a_usable_source(self):
+        raw = np.zeros((44100, 2), dtype=np.int16).reshape(-1).tobytes()
+        result = score_pcm(raw, rate=44100, channels=2)
+        self.assertFalse(result["usable"])
+        self.assertLess(result["score"], 0.1)
+
+    def test_strong_changing_audio_is_usable(self):
+        rate = 44100
+        duration = 1.5
+        t = np.arange(int(rate * duration), dtype=np.float32) / rate
+        signal = (
+            0.12 * np.sin(2 * np.pi * 220.0 * t)
+            + 0.08 * np.sin(2 * np.pi * 523.25 * t)
+            + 0.05 * np.sin(2 * np.pi * 1100.0 * t)
+        )
+        envelope = 0.65 + 0.35 * np.sin(2 * np.pi * 2.7 * t)
+        mono = np.clip(signal * envelope, -0.9, 0.9)
+        pcm = (mono * 32767).astype(np.int16)
+        raw = np.column_stack((pcm, pcm)).reshape(-1).tobytes()
+
+        result = score_pcm(raw, rate=rate, channels=2)
+        self.assertTrue(result["usable"])
+        self.assertGreater(result["score"], 0.35)
+
+    def test_best_usable_candidate_wins(self):
+        candidates = [
+            {"source": "silent", "metrics": {"usable": False, "score": 0.02}},
+            {"source": "weak", "metrics": {"usable": True, "score": 0.41}},
+            {"source": "music", "metrics": {"usable": True, "score": 0.78}},
+        ]
+        winner = choose_best_candidate(candidates)
+        self.assertEqual(winner["source"], "music")
+        self.assertEqual(winner["confidence"], "high")
 
 
 class HardwareHealthTests(unittest.TestCase):
