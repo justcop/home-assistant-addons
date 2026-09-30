@@ -115,3 +115,10 @@ Input gain now uses a bounded midpoint search across 1–100%, including when th
 settings instead of walking the final range one percent at a time. Silence,
 clipping at minimum gain and inconsistent audio produce an actionable error
 with a Repeat option. Use a steady, loud passage for this step.
+
+
+The gain search treats its preferred loudness range as a target. If adjacent
+gain settings straddle that range, it verifies the highest safely sampled gain
+over 10 seconds and accepts a lower, unclipped level. If that verification clips,
+it searches the previously safe candidates by midpoint. It still rejects absent
+audio and levels above its clipping safety limit.
