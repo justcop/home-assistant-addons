@@ -345,7 +345,7 @@ def calculate_hardware_thresholds(files):
     
     print_log("\n[STAGE 1: BASELINE NOISE]")
     floor_data = load_wav(files["floor"])
-    baseline_rms, _, _ = chunked_metrics(floor_data)
+    baseline_rms, baseline_hfer, baseline_crest = chunked_metrics(floor_data)
     baseline_median = float(np.median(baseline_rms))
     floor_max_amp = float(np.max(np.abs(floor_data)))
     print_log(f"   [EXTRACTED] Baseline Silence Median: {baseline_median:.6f}")
@@ -388,7 +388,7 @@ def calculate_hardware_thresholds(files):
 
     print_log("\n[STAGE 3: ROOM NOISE & DISTURBANCE]")
     disturb_data = load_wav(files["disturbance"])
-    d_rms, _, _ = chunked_metrics(disturb_data)
+    d_rms, d_hfer, d_crest = chunked_metrics(disturb_data)
     max_room_transient = float(np.max(d_rms))
     print_log(f"   [EXTRACTED] Max Ambient Transient: {max_room_transient:.6f}")
 
@@ -438,7 +438,63 @@ def calculate_hardware_thresholds(files):
         pop_crest_threshold = 3.5
         pop_amplitude_threshold = floor_max_amp * 1.5
 
-    motor_power_ceiling = motor_median_rms * 4.0 
+    motor_power_ceiling = motor_median_rms * 4.0
+
+    # V8 learns broad class profiles as an additional source of evidence.
+    # These do not replace the safety windows above; they help distinguish
+    # motor-like audio from room noise that happens to land inside them.
+    def build_profile(rms_arr, hfer_arr, crest_arr):
+        def stat(arr, floor):
+            arr = np.asarray(arr, dtype=float)
+            arr = arr[np.isfinite(arr)]
+            if len(arr) == 0:
+                return {"median": 0.0, "scale": floor}
+            med = float(np.median(arr))
+            mad = float(np.median(np.abs(arr - med)))
+            scale = max(1.4826 * mad, abs(med) * 0.05, floor)
+            return {
+                "median": round(med, 8),
+                "scale": round(scale, 8),
+            }
+
+        return {
+            "rms": stat(rms_arr, 1e-6),
+            "hfer": stat(hfer_arr, 1e-4),
+            "crest": stat(crest_arr, 1e-3),
+        }
+
+    negative_rms = [np.asarray(d_rms)]
+    negative_hfer = [np.asarray(d_hfer)]
+    negative_crest = [np.asarray(d_crest)]
+
+    ghost_files = sorted(glob.glob(os.path.join(SHARE_DIR, "ghost_trigger_*.wav")))[-10:]
+    learned_ghost_chunks = 0
+    for ghost_file in ghost_files:
+        try:
+            ghost_data = load_wav(ghost_file)
+            g_rms, g_hfer, g_crest = chunked_metrics(ghost_data)
+            mask = g_rms >= (rms_min * 0.60)
+            if np.any(mask):
+                negative_rms.append(g_rms[mask])
+                negative_hfer.append(g_hfer[mask])
+                negative_crest.append(g_crest[mask])
+                learned_ghost_chunks += int(np.sum(mask))
+        except Exception:
+            pass
+
+    motor_profile = build_profile(m_rms, m_hfer, m_crest)
+    negative_profile = build_profile(
+        np.concatenate(negative_rms),
+        np.concatenate(negative_hfer),
+        np.concatenate(negative_crest),
+    )
+
+    print_log("   [LEARNED] Robust motor profile added to detector.")
+    if learned_ghost_chunks:
+        print_log(
+            f"   [LEARNED] Included {learned_ghost_chunks} chunks from "
+            f"{len(ghost_files)} historical false-positive recording(s)."
+        )
 
     thresholds = {
         "rms_min": round(rms_min, 6), "rms_max": round(rms_max, 6),
@@ -450,7 +506,10 @@ def calculate_hardware_thresholds(files):
         "motor_hfer_floor": round(hfer_min, 5),
         "music_threshold": round(music_threshold, 6),
         "music_hold_threshold": round(music_hold_threshold, 6),
-        "detector_version": 2,\n        "runout_crest_threshold": round(pop_crest_threshold, 3),
+        "detector_version": 2,
+        "motor_profile": motor_profile,
+        "negative_profile": negative_profile,
+        "runout_crest_threshold": round(pop_crest_threshold, 3),
         "pop_amplitude_threshold": round(pop_amplitude_threshold, 6),
         "max_room_transient": round(max_room_transient, 6)
     }
