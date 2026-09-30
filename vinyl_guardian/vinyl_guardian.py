@@ -289,7 +289,7 @@ def listen_and_identify():
     
     try:
         if DEBUG: log(f"🔊 Applying tuned mic volume: {MIC_VOLUME}%")
-        subprocess.run(["pactl", "set-source-volume", "@DEFAULT_SOURCE@", f"{MIC_VOLUME}%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["pactl", "set-source-volume", os.environ.get("PULSE_SOURCE") or "@DEFAULT_SOURCE@", f"{MIC_VOLUME}%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except: pass
         
     try:
