@@ -323,7 +323,29 @@ def get_crest(audio_data):
 def normalize_metric(val, t_min, t_max):
     if t_max - t_min == 0: return 0.0
     norm = ((val - t_min) / (t_max - t_min)) * 100.0
-    return max(-50.0, min(150.0, norm)) 
+    return max(-50.0, min(150.0, norm))
+
+
+def save_feedback_clip(kind, chunks):
+    if not chunks:
+        return None
+    try:
+        stamp = time.strftime("%Y%m%d_%H%M%S")
+        feedback_path = os.path.join(SHARE_DIR, f"{kind}_{stamp}.wav")
+        with wave.open(feedback_path, "wb") as wf:
+            wf.setnchannels(CHANNELS)
+            wf.setsampwidth(2)
+            wf.setframerate(RATE)
+            wf.writeframes(b"".join(chunks))
+        log(
+            f"💾 Saved {len(chunks) * CHUNK / RATE:.1f}s feedback clip: "
+            f"{os.path.basename(feedback_path)}"
+        )
+        return feedback_path
+    except Exception as e:
+        log(f"⚠️ Could not save detector feedback clip: {e}")
+        return None
+
 
 # --- MAIN LOOP ---
 def listen_and_identify():
@@ -366,7 +388,7 @@ def listen_and_identify():
     idle_silence_chunks, target = 0, int(RATE / CHUNK * RECORD_SECONDS)
     trigger_chunks = 0  
     buffer = bytearray()
-    ghost_buffer, ghost_max_chunks = [], int(RATE / CHUNK * 6.0)
+    ghost_buffer, ghost_max_chunks = [], int(RATE / CHUNK * 20.0)
     
     turntable_on, has_played_music, rhythm_locked = False, False, False
     power_max_score = int(RATE / CHUNK * 2.0) 
@@ -423,23 +445,7 @@ def listen_and_identify():
                     capture_missed_music_requested = False
 
                 if feedback_kind and ghost_buffer:
-                    try:
-                        stamp = time.strftime("%Y%m%d_%H%M%S")
-                        feedback_path = os.path.join(
-                            SHARE_DIR,
-                            f"{feedback_kind}_{stamp}.wav",
-                        )
-                        with wave.open(feedback_path, "wb") as wf:
-                            wf.setnchannels(CHANNELS)
-                            wf.setsampwidth(2)
-                            wf.setframerate(RATE)
-                            wf.writeframes(b"".join(ghost_buffer))
-                        log(
-                            f"💾 Saved {len(ghost_buffer) * CHUNK / RATE:.1f}s "
-                            f"feedback clip: {os.path.basename(feedback_path)}"
-                        )
-                    except Exception as e:
-                        log(f"⚠️ Could not save detector feedback clip: {e}")
+                    save_feedback_clip(feedback_kind, ghost_buffer)
             
             now = time.time()
             with state_lock:
@@ -465,6 +471,16 @@ def listen_and_identify():
             continuous_silence = frame["seconds_since_music"]
             power_score = int(round(frame["motor_confidence"] * 100.0))
             active_m_thresh = m_hold_thresh if has_played_music and continuous_silence <= 6.0 else m_thresh
+
+            known_off_labels = {"off", "known_off", "turntable_off", "known-off"}
+            if (
+                DATA_COLLECTION_ENABLED
+                and str(DATA_COLLECTION_LABEL).strip().lower() in known_off_labels
+                and not previous_power
+                and turntable_on
+                and ghost_buffer
+            ):
+                save_feedback_clip("ghost_trigger_auto", ghost_buffer)
 
             if dataset_collector is not None:
                 try:
