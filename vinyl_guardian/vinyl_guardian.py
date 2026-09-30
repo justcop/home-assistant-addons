@@ -321,6 +321,7 @@ def change_3_tier_status(new_vinyl_status, new_engine_status):
 # --- BACKGROUND WORKER (SHAZAM) ---
 def process_audio_background(audio_data_bytes, song_start_timestamp):
     global app_state, current_attempt, wake_up_time, consecutive_failures, current_track, scrobble_fired, last_scrobbled_track, paused_track_memory
+    global experiment_harness
     local_attempt = None
     with state_lock: local_attempt = current_attempt
     log(f"🔬 Analyzing {RECORD_SECONDS}s capture (Attempt {local_attempt}/{MAX_ATTEMPTS})...")
@@ -381,6 +382,11 @@ def process_audio_background(audio_data_bytes, song_start_timestamp):
                 "source": "Shazam", "image": match.get('image', '')
             }
             scrobble_fired = False
+            if experiment_harness is not None:
+                try:
+                    experiment_harness.track_identified(current_track, now=time.time())
+                except Exception as e:
+                    log(f"⚠️ Experiment track logging failed: {e}")
             log(f"🎶 MATCH FOUND: {match['title']} - {match['artist']}")
             mqtt_client.publish("vinyl_guardian/track", f"{match['title']} - {match['artist']}", retain=True)
             try: mqtt_client.publish("vinyl_guardian/attributes", json.dumps(current_track), retain=True)
@@ -438,9 +444,43 @@ def save_feedback_clip(kind, chunks):
         return None
 
 
+def replay_latest_background():
+    global replay_status
+    replay_status = "Running"
+    if mqtt_client.is_connected():
+        mqtt_client.publish("vinyl_guardian/replay_status", replay_status, retain=True)
+    try:
+        result = replay_latest_dataset(SHARE_DIR, AUTO_CALIB_FILE)
+        summary = result.get("summary", {})
+        duration = float(summary.get("duration_sec", 0.0))
+        transitions = int(summary.get("transition_count", 0))
+        replay_status = f"Complete · {duration/60.0:.1f} min · {transitions} transitions"
+        log(
+            f"⏩ Replay complete: {duration:.1f}s audio, "
+            f"{transitions} transitions. Report: {result.get('json_path')}"
+        )
+        if experiment_harness is not None:
+            experiment_harness.timeline.record(
+                "replay_complete",
+                source=summary.get("source"),
+                duration_sec=duration,
+                transition_count=transitions,
+                report=result.get("json_path"),
+            )
+    except Exception as e:
+        replay_status = f"Error: {e}"
+        log(f"⚠️ Replay lab failed: {e}")
+        if experiment_harness is not None:
+            experiment_harness.timeline.record("replay_failed", error=str(e))
+    if mqtt_client.is_connected():
+        mqtt_client.publish("vinyl_guardian/replay_status", replay_status, retain=True)
+
+
 # --- MAIN LOOP ---
 def listen_and_identify():
     global app_state, current_attempt, wake_up_time, scrobble_fired, current_track, last_scrobbled_track, paused_track_memory, inp, dataset_collector
+    global experiment_harness, profile_manager, manual_label_requested
+    global replay_latest_requested, rollback_profile_requested, replay_status, profile_status_text
     global debug_countdown, debug_metrics_buffer
     global capture_false_positive_requested, capture_missed_music_requested
     
@@ -519,6 +559,44 @@ def listen_and_identify():
     # class, so passing calibration now means passing production logic.
     detector = GuardianDetector(v6_cfg, rate=RATE, channels=CHANNELS)
 
+    profile_manager = ProfileManager(SHARE_DIR, AUTO_CALIB_FILE)
+    try:
+        profile_manager.ensure_active_archived()
+        profile_info = profile_manager.status()
+        profile_status_text = profile_info.get("active_profile_id") or "Unversioned"
+    except Exception as e:
+        profile_status_text = f"Profile error: {e}"
+        log(f"⚠️ Profile manager initialisation failed: {e}")
+
+    if EXPERIMENT_HARNESS_ENABLED:
+        try:
+            experiment_harness = ExperimentHarness(
+                SHARE_DIR,
+                v6_cfg,
+                rate=RATE,
+                channels=CHANNELS,
+                chunk=CHUNK,
+                enabled=True,
+                auto_capture=AUTO_CAPTURE_INTERESTING_EVENTS,
+                session_label=DATA_COLLECTION_LABEL if DATA_COLLECTION_ENABLED else "unlabelled",
+            )
+            log(
+                "🧪 Experimental harness active: shadow detectors, event "
+                "timeline, hardware health, side sessions and trusted labels."
+            )
+        except Exception as e:
+            experiment_harness = None
+            log(f"⚠️ Experimental harness disabled after startup error: {e}")
+
+    if mqtt_client.is_connected():
+        mqtt_client.publish("vinyl_guardian/active_profile", profile_status_text, retain=True)
+        mqtt_client.publish("vinyl_guardian/replay_status", replay_status, retain=True)
+        mqtt_client.publish(
+            "vinyl_guardian/experiment_status",
+            "Active" if experiment_harness is not None else "Disabled",
+            retain=True,
+        )
+
     while True:
         length, data = inp.read()
         if length > 0:
@@ -563,6 +641,67 @@ def listen_and_identify():
             power_score = int(round(frame["motor_confidence"] * 100.0))
             active_m_thresh = m_hold_thresh if has_played_music and continuous_silence <= 6.0 else m_thresh
 
+            if manual_label_requested is not None:
+                if experiment_harness is not None:
+                    try:
+                        experiment_harness.manual_label(manual_label_requested, now=now)
+                        log(f"🏷️ Ground truth marked: {manual_label_requested}")
+                    except Exception as e:
+                        log(f"⚠️ Ground-truth mark failed: {e}")
+                manual_label_requested = None
+
+            if rollback_profile_requested:
+                rollback_profile_requested = False
+                try:
+                    rolled = profile_manager.rollback_previous() if profile_manager else None
+                    if rolled:
+                        profile_status_text = (
+                            f"{rolled.get('profile_id')} · restart required"
+                        )
+                        log(
+                            f"↩️ Rolled calibration back to "
+                            f"{rolled.get('profile_id')}. Restart the add-on to load it."
+                        )
+                        if experiment_harness is not None:
+                            experiment_harness.timeline.record(
+                                "profile_rollback",
+                                profile_id=rolled.get("profile_id"),
+                                restart_required=True,
+                            )
+                    else:
+                        profile_status_text = "No earlier profile available"
+                        log("↩️ No earlier accepted detector profile is available.")
+                except Exception as e:
+                    profile_status_text = f"Rollback error: {e}"
+                    log(f"⚠️ Profile rollback failed: {e}")
+                if mqtt_client.is_connected():
+                    mqtt_client.publish(
+                        "vinyl_guardian/active_profile",
+                        profile_status_text,
+                        retain=True,
+                    )
+
+            if replay_latest_requested and replay_status != "Running":
+                replay_latest_requested = False
+                threading.Thread(
+                    target=replay_latest_background,
+                    daemon=True,
+                ).start()
+
+            experiment_snapshot = {}
+            if experiment_harness is not None:
+                try:
+                    experiment_snapshot = experiment_harness.observe(
+                        data,
+                        now,
+                        frame,
+                        current_state,
+                        force_music_active=current_state in ["RECORDING", "PROCESSING"],
+                    )
+                except Exception as e:
+                    log(f"⚠️ Experimental harness observation failed: {e}")
+                    experiment_snapshot = {}
+
             known_off_labels = {"off", "known_off", "turntable_off", "known-off"}
             if (
                 DATA_COLLECTION_ENABLED
@@ -581,6 +720,7 @@ def listen_and_identify():
                         frame,
                         current_state,
                         current_track=current_track,
+                        experiment_snapshot=experiment_snapshot,
                     )
                 except Exception as e:
                     log(f"⚠️ Dataset collector error: {e}")
