@@ -216,3 +216,72 @@ Guardian collects feature distributions only from explicitly trusted labels (plu
 ```
 
 They are not yet used to control production decisions; they exist so future detector changes can be based on measured evidence rather than self-reinforcing guesses.
+
+
+## Audio input discovery (v4.36)
+
+Vinyl Guardian no longer assumes that the first PulseAudio `alsa_input` is the turntable. Source ordering can change after OS/kernel updates or when USB hardware is added, so using "first source wins" is not a stable way to identify a soundcard.
+
+Guardian now selects its input per add-on process using PulseAudio's `PULSE_SOURCE`. This means choosing a turntable input does not normally replace Home Assistant's global default microphone.
+
+### Normal behaviour
+
+The default setting is:
+
+```yaml
+audio_source: "auto"
+```
+
+`auto` reuses the last source Guardian successfully selected. If there is no remembered source yet, Guardian follows Home Assistant's current default rather than guessing from source order.
+
+Other supported values are:
+
+```yaml
+audio_source: "system_default"
+```
+
+or an exact PulseAudio source name.
+
+Home Assistant also exposes **Guardian Audio Source**, which lists the currently available capture sources and lets the source be changed without editing YAML. Changing capture hardware resets detector confidence and should be followed by a fresh calibration.
+
+### Find the correct input automatically
+
+If you are unsure which input is the turntable:
+
+1. Connect the turntable/preamp to the input you want to test.
+2. Start playing a record with ordinary music.
+3. Press **Find Audio Input — Play Music** in Home Assistant.
+4. Keep the music playing while Guardian works through the candidates.
+
+Guardian records a short sample from every currently exposed non-monitor input and scores which source actually contains a healthy changing audio signal.
+
+If none of the exposed inputs contains convincing audio, Guardian then inspects the PulseAudio cards for inactive profiles that provide capture. It temporarily tries those input-capable profiles, samples the newly exposed sources, and restores each original profile after testing. Duplex input/output profiles are preferred over input-only profiles where possible.
+
+Only the winning card/profile is left active. If no convincing signal is found, the existing selection is left unchanged.
+
+The chosen source is remembered in:
+
+```text
+/share/vinyl_guardian/audio_source.json
+```
+
+The full last scan, including every candidate and its signal score, is stored in:
+
+```text
+/share/vinyl_guardian/audio_scan_last.json
+```
+
+The scan report includes RMS, dBFS level, pre-emphasised/changing energy, activity, spectral entropy, score and confidence. This gives us useful evidence if an onboard input is visible but silent, or if a Home Assistant update changes how a card is exposed.
+
+### Startup scan
+
+For initial setup or when calibration mode is running, the scan can instead happen automatically as the add-on starts:
+
+```yaml
+audio_scan_on_start: true
+audio_scan_seconds: 2.5
+```
+
+Start the add-on while music is already playing. The selected source is applied before calibration opens its ALSA stream.
+
+After a successful switch between USB and onboard hardware, perform a completely fresh calibration because input gain, noise floor, channel arrangement and frequency response may all differ.
