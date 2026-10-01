@@ -127,6 +127,23 @@ class TransitionLatencyCollector:
         self.contact_sequence = 0
         self.last_contact_candidate = -1e12
         self.control_last = {}
+        self._load_recent()
+
+    def _load_recent(self):
+        def tail(path, limit):
+            try:
+                with open(path, "r") as handle:
+                    lines = deque(handle, maxlen=limit)
+                return [json.loads(line) for line in lines if line.strip()]
+            except (OSError, ValueError, TypeError):
+                return []
+
+        for item in tail(self.events_path, SUMMARY_EVENTS):
+            if item.get("transition_type") in TARGET_LATENCY_SECONDS:
+                self.recent_events.append(item)
+        for item in tail(self.contact_path, SUMMARY_EVENTS * 2):
+            if item.get("event") == "needle_drop_candidate_resolved":
+                self.contact_outcomes.append(item)
 
     def measure(self, data, now):
         measured = fast_transient_features(data, self.channels)
