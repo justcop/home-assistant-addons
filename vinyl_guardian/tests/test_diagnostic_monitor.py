@@ -38,7 +38,9 @@ class DiagnosticPolicyTests(unittest.TestCase):
             monitor.observe(frame(power=True,music=True,runout=True),1005)
             self.assertEqual(len(captures),3)
             self.assertEqual([c['details']['sensors'] for c in captures],[['music_active'],['runout_locked'],['turntable_on']])
-            self.assertTrue(all(c['label']=='actually_off' for c in captures))
+            self.assertTrue(all(c['label'] is None for c in captures))
+            self.assertTrue(all(c['details']['suggested_label']=='actually_off' for c in captures))
+            self.assertTrue(all(c['details']['review_required'] for c in captures))
 
     def test_early_drop_and_recovery_are_review_candidates(self):
         with tempfile.TemporaryDirectory() as root:
@@ -152,7 +154,7 @@ class DiagnosticCaptureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             audio=EventAudioRecorder(root,rate=4,channels=1,chunk=4,pre_roll_sec=2,post_roll_sec=2)
             for i in range(3): audio.feed(bytes([i,0])*4,{'index':i})
-            audio.trigger('diagnostic_known_off_activation',10,label='actually_off',details={'diagnostic_session':'session'})
+            audio.trigger('manual_label',10,label='actually_off',details={'diagnostic_session':'session','human_reviewed':True,'ground_truth':'actually_off'})
             audio.feed(b'\x04\0'*4,{'index':3})
             completed=audio.flush()
             self.assertEqual(len(completed),1)
@@ -200,7 +202,9 @@ class DiagnosticCaptureTests(unittest.TestCase):
             sidecar=next((Path(root)/'experiments'/'event_audio').glob('*.json'))
             meta=json.loads(sidecar.read_text())
             self.assertEqual(meta['post_roll_sec'],0)
-            self.assertEqual(meta['label'],'actually_off')
+            self.assertIsNone(meta['label'])
+            self.assertEqual(meta['review']['status'],'pending')
+            self.assertEqual(meta['review']['suggested_label'],'actually_off')
             self.assertIsNone(harness.trusted_label(1003))
 
     def test_observation_preserves_production_frame(self):
