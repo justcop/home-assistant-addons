@@ -56,7 +56,7 @@ def export_diagnostics(recording_directory, max_bytes=128*1024*1024, max_clips=2
             files.append(path)
             used += size
 
-    for name in ('transition_latency.json', 'transition_latency_events.jsonl', 'needle_drop_candidates.jsonl'):
+    for name in ('transition_latency.json', 'transition_latency_events.jsonl', 'needle_drop_candidates.jsonl', 'safety_metrics.json'):
         path = root / name
         if path.is_file() and not path.is_symlink():
             size = path.stat().st_size
@@ -75,6 +75,7 @@ def export_diagnostics(recording_directory, max_bytes=128*1024*1024, max_clips=2
                           'Intentional flip/pause annotations cover the preceding 20 and following 45 seconds.',
                           'Transition-latency clips are observational and use retrospective evidence-onset estimates, not ground truth.',
                           'Needle-drop candidates are restricted to motor-on, music-off Motor Idle and are resolved against later production state.',
+                          'Safety metrics track stable-state exposure, shadow disagreement episodes and explicit known-off false activations.',
                           'The frames.jsonl trace aligns one row per PCM chunk. Recompute all measurements from the WAV for replay.']}
     output=io.BytesIO()
     with zipfile.ZipFile(output,'w',zipfile.ZIP_DEFLATED) as archive:

@@ -11,6 +11,7 @@ from detector import GuardianDetector
 
 
 DEFAULT_CHUNK = 2048
+SAFETY_SECONDS_TOLERANCE = 0.06  # roughly one 44.1 kHz / 2048-frame chunk
 
 
 LABEL_EXPECTATIONS = {
@@ -56,6 +57,19 @@ def _read_wav(path):
     return frames, rate, channels
 
 
+def _safety_false_state(expectation, frame):
+    """Return whether a negative-control fixture is in a forbidden state."""
+    if expectation == "off":
+        return bool(
+            frame.get("turntable_on")
+            or frame.get("music_active")
+            or frame.get("runout_locked")
+        )
+    if expectation == "motor":
+        return bool(frame.get("music_active") or frame.get("runout_locked"))
+    return False
+
+
 def _run_wav(path, thresholds, expectation, chunk=DEFAULT_CHUNK):
     raw, rate, channels = _read_wav(path)
     frame_bytes = chunk * channels * 2
@@ -71,6 +85,9 @@ def _run_wav(path, thresholds, expectation, chunk=DEFAULT_CHUNK):
     max_music = 0.0
     seen_statuses = set()
     last_frame = None
+    safety_false_activation_frames = 0
+    safety_false_activation_episodes = 0
+    safety_false_active = False
 
     for offset in range(0, len(raw) - frame_bytes + 1, frame_bytes):
         payload = raw[offset:offset + frame_bytes]
@@ -83,6 +100,12 @@ def _run_wav(path, thresholds, expectation, chunk=DEFAULT_CHUNK):
         max_motor = max(max_motor, float(last_frame.get("motor_confidence", 0.0)))
         max_music = max(max_music, float(last_frame.get("music_confidence", 0.0)))
         seen_statuses.add(last_frame.get("status"))
+        safety_false_now = _safety_false_state(expectation, last_frame)
+        if safety_false_now:
+            safety_false_activation_frames += 1
+            if not safety_false_active:
+                safety_false_activation_episodes += 1
+        safety_false_active = safety_false_now
 
     if frames_seen == 0:
         return {
@@ -132,6 +155,9 @@ def _run_wav(path, thresholds, expectation, chunk=DEFAULT_CHUNK):
         "max_music_confidence": max_music,
         "final_status": final_status,
         "seen_statuses": sorted(x for x in seen_statuses if x),
+        "safety_false_activation_episodes": safety_false_activation_episodes,
+        "safety_false_activation_seconds": safety_false_activation_frames * dt,
+        "safety_negative_control": expectation in {"off", "motor"},
         "penalty": float(penalty),
     }
 
@@ -196,10 +222,22 @@ def evaluate_profile(thresholds, share_dir, calibration_files=None):
 
     total_penalty = float(sum(item.get("penalty", 0.0) for item in results))
     severe_failures = sum(1 for item in results if item.get("penalty", 0.0) >= 100.0)
+    safety_fixtures = [item for item in results if item.get("safety_negative_control")]
+    safety_false_activation_episodes = sum(
+        int(item.get("safety_false_activation_episodes", 0))
+        for item in safety_fixtures
+    )
+    safety_false_activation_seconds = float(sum(
+        float(item.get("safety_false_activation_seconds", 0.0))
+        for item in safety_fixtures
+    ))
     return {
         "fixture_count": len(results),
         "total_penalty": total_penalty,
         "severe_failures": severe_failures,
+        "safety_fixture_count": len(safety_fixtures),
+        "safety_false_activation_episodes": safety_false_activation_episodes,
+        "safety_false_activation_seconds": safety_false_activation_seconds,
         "fixtures": results,
     }
 
@@ -226,11 +264,35 @@ def compare_profiles(candidate, baseline, share_dir, calibration_files=None):
     )
 
     fixture_count = candidate_result["fixture_count"]
+    cand_false = int(candidate_result.get("safety_false_activation_episodes", 0))
+    base_false = int(baseline_result.get("safety_false_activation_episodes", 0))
+    cand_false_seconds = float(candidate_result.get("safety_false_activation_seconds", 0.0))
+    base_false_seconds = float(baseline_result.get("safety_false_activation_seconds", 0.0))
+    safety_fixture_count = min(
+        int(candidate_result.get("safety_fixture_count", 0)),
+        int(baseline_result.get("safety_fixture_count", 0)),
+    )
+    safety_gate = (
+        safety_fixture_count == 0
+        or (
+            cand_false <= base_false
+            and cand_false_seconds <= base_false_seconds + SAFETY_SECONDS_TOLERANCE
+        )
+    )
+
     if fixture_count < 3:
         return {
             "can_compare": False,
-            "accepted": True,
-            "reason": "Too few regression fixtures; candidate retained and may be promoted.",
+            "accepted": bool(safety_gate),
+            "safety_gate_passed": bool(safety_gate),
+            "reason": (
+                "Too few regression fixtures for the general score; "
+                + (
+                    "negative-control safety did not regress."
+                    if safety_gate
+                    else "candidate introduced additional false activation on a negative control."
+                )
+            ),
             "candidate": candidate_result,
             "baseline": baseline_result,
         }
@@ -242,15 +304,24 @@ def compare_profiles(candidate, baseline, share_dir, calibration_files=None):
 
     allowed_penalty = (base_penalty * 1.10) + 2.0
     accepted = (
-        cand_penalty <= allowed_penalty
+        safety_gate
+        and cand_penalty <= allowed_penalty
         and cand_severe <= base_severe
     )
 
     if accepted:
         reason = (
-            f"Candidate regression penalty {cand_penalty:.2f} is within the "
-            f"allowed {allowed_penalty:.2f}; severe failures "
-            f"{cand_severe} vs {base_severe}."
+            f"Safety gate passed ({cand_false} vs {base_false} false activation episodes; "
+            f"{cand_false_seconds:.2f}s vs {base_false_seconds:.2f}s), and candidate "
+            f"regression penalty {cand_penalty:.2f} is within the allowed "
+            f"{allowed_penalty:.2f}; severe failures {cand_severe} vs {base_severe}."
+        )
+    elif not safety_gate:
+        reason = (
+            f"Safety gate failed: candidate produced {cand_false} false activation "
+            f"episodes / {cand_false_seconds:.2f}s on negative controls vs baseline "
+            f"{base_false} episodes / {base_false_seconds:.2f}s. Latency or aggregate "
+            f"score improvements cannot override a new false transition."
         )
     else:
         reason = (
@@ -262,6 +333,7 @@ def compare_profiles(candidate, baseline, share_dir, calibration_files=None):
     return {
         "can_compare": True,
         "accepted": bool(accepted),
+        "safety_gate_passed": bool(safety_gate),
         "reason": reason,
         "candidate": candidate_result,
         "baseline": baseline_result,

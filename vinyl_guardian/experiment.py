@@ -21,6 +21,7 @@ from detector import GuardianDetector
 from diagnostic_monitor import DiagnosticMonitor
 from telemetry import FeatureExtractor, pcm16_channels, stereo_features
 from transition_latency import TransitionLatencyCollector
+from safety_monitor import SafetyMonitor
 
 
 TRUSTED_LABELS = {
@@ -603,6 +604,7 @@ class ExperimentHarness:
             channels,
             chunk,
         )
+        self.safety = SafetyMonitor(share_dir, timeline=self.timeline)
 
         self.previous_frame = None
         self.previous_shadow = {}
@@ -732,6 +734,12 @@ class ExperimentHarness:
             transient,
             diagnostic_mode=self.monitor.mode,
         )
+        safety = self.safety.observe(
+            production_frame,
+            shadow_frames,
+            now,
+            diagnostic_mode=self.monitor.mode,
+        )
         self._record_transitions(production_frame, shadow_frames, now, engine_state)
         self._detect_interesting(production_frame, shadow_frames, now, trusted)
         self.side.observe(production_frame, now)
@@ -748,6 +756,7 @@ class ExperimentHarness:
             "trusted_label": trusted,
             "diagnostics": diagnostic,
             "transition_latency": latency_records,
+            "safety": safety,
         }
 
     def _record_transitions(self, frame, shadows, now, engine_state):
@@ -912,4 +921,5 @@ class ExperimentHarness:
             "event_log": self.timeline.path,
             "diagnostics": self.monitor.summary(),
             "transition_latency": self.transitions.summary(),
+            "safety": self.safety.summary(now),
         }
