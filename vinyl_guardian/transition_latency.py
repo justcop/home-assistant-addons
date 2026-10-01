@@ -112,6 +112,7 @@ class TransitionLatencyCollector:
         self.root = os.path.join(share_dir, "experiments")
         os.makedirs(self.root, exist_ok=True)
         self.events_path = os.path.join(self.root, "transition_latency_events.jsonl")
+        self.contact_path = os.path.join(self.root, "needle_drop_candidates.jsonl")
         self.summary_path = os.path.join(self.root, "transition_latency.json")
         self.capture = capture
         self.timeline = timeline
@@ -121,6 +122,10 @@ class TransitionLatencyCollector:
         self.history = deque()
         self.previous_frame = None
         self.recent_events = deque(maxlen=SUMMARY_EVENTS)
+        self.contact_outcomes = deque(maxlen=SUMMARY_EVENTS)
+        self.pending_contacts = deque()
+        self.contact_sequence = 0
+        self.last_contact_candidate = -1e12
         self.control_last = {}
 
     def measure(self, data, now):
@@ -176,6 +181,8 @@ class TransitionLatencyCollector:
         if previous is None:
             return []
 
+        self._observe_needle_drop_candidates(previous, frame, now, transient or {})
+
         transition_types = self._transition_types(previous, frame)
         records = []
         for transition_type in transition_types:
@@ -188,6 +195,99 @@ class TransitionLatencyCollector:
             )
             records.append(record)
         return records
+
+    def _write_contact(self, payload):
+        with open(self.contact_path, "a") as handle:
+            handle.write(json.dumps(payload, sort_keys=True) + "\n")
+        self.timeline.record(payload["event"], now=payload["unix_time"], **{
+            key: value for key, value in payload.items()
+            if key not in {"event", "unix_time"}
+        })
+
+    def _resolve_contact(self, candidate, now, outcome, frame):
+        resolved = dict(candidate)
+        resolved.update({
+            "event": "needle_drop_candidate_resolved",
+            "unix_time": float(now),
+            "resolved_unix": float(now),
+            "outcome": outcome,
+            "seconds_to_resolution": max(0.0, float(now) - candidate["candidate_unix"]),
+            "confirmed_playing": bool(frame.get("music_active")),
+            "resolved_status": frame.get("status"),
+        })
+        if outcome == "music_confirmed":
+            seconds = resolved["seconds_to_resolution"]
+            if seconds <= 2.0:
+                resolved["timing_bucket"] = "within_2s"
+            elif seconds <= 5.0:
+                resolved["timing_bucket"] = "within_5s"
+            else:
+                resolved["timing_bucket"] = "within_10s"
+        else:
+            resolved["timing_bucket"] = "no_music_within_10s"
+        self.contact_outcomes.append(resolved)
+        self._write_contact(resolved)
+
+    def _observe_needle_drop_candidates(self, before, frame, now, transient):
+        # Resolve older candidates first. Production confirmation is deliberately
+        # used only as a later label; the transient itself never changes state.
+        remaining = deque()
+        for candidate in self.pending_contacts:
+            age = now - candidate["candidate_unix"]
+            if frame.get("music_active"):
+                self._resolve_contact(candidate, now, "music_confirmed", frame)
+            elif not frame.get("turntable_on"):
+                self._resolve_contact(candidate, now, "turntable_stopped", frame)
+            elif frame.get("runout_locked"):
+                self._resolve_contact(candidate, now, "runout_confirmed", frame)
+            elif age >= 10.0:
+                self._resolve_contact(candidate, now, "no_music_within_10s", frame)
+            else:
+                remaining.append(candidate)
+        self.pending_contacts = remaining
+
+        motor_idle_before = (
+            bool(before.get("turntable_on"))
+            and not bool(before.get("music_active"))
+            and not bool(before.get("runout_locked"))
+            and before.get("status") == "Motor Idle"
+        )
+        if not motor_idle_before or not transient.get("stylus_contact_candidate"):
+            return
+        if now - self.last_contact_candidate < 1.0:
+            return
+
+        self.contact_sequence += 1
+        candidate_id = "%d-%04d" % (int(now * 1000.0), self.contact_sequence)
+        candidate = {
+            "event": "needle_drop_candidate",
+            "unix_time": float(now),
+            "candidate_unix": float(now),
+            "candidate_id": candidate_id,
+            "precondition": "motor_on_music_off_motor_idle",
+            "status_before": before.get("status"),
+            "motor_confidence_before": before.get("motor_confidence"),
+            "music_confidence_before": before.get("music_confidence"),
+            "motor_evidence_before": before.get("motor_evidence"),
+            "music_evidence_before": before.get("music_evidence"),
+            "transient": dict(transient),
+        }
+        captured = self.capture(
+            "needle_drop_candidate",
+            now,
+            label=None,
+            details={
+                "candidate_id": candidate_id,
+                "precondition": candidate["precondition"],
+                "transient": candidate["transient"],
+                "purpose": "Learn whether motor-idle contact transients predict imminent music.",
+            },
+            min_gap_sec=3.0,
+        )
+        candidate["capture_requested"] = bool(captured)
+        self.pending_contacts.append(candidate)
+        self.last_contact_candidate = now
+        self._write_contact(candidate)
 
     def _transition_types(self, before, after):
         result = []
@@ -461,6 +561,26 @@ class TransitionLatencyCollector:
             ),
             "targets": TARGET_LATENCY_SECONDS,
             "by_type": by_type,
+            "needle_drop_candidates": {
+                "resolved_samples": len(self.contact_outcomes),
+                "music_confirmed": sum(
+                    1 for item in self.contact_outcomes
+                    if item.get("outcome") == "music_confirmed"
+                ),
+                "within_2s": sum(
+                    1 for item in self.contact_outcomes
+                    if item.get("timing_bucket") == "within_2s"
+                ),
+                "within_5s": sum(
+                    1 for item in self.contact_outcomes
+                    if item.get("timing_bucket") == "within_5s"
+                ),
+                "no_music_within_10s": sum(
+                    1 for item in self.contact_outcomes
+                    if item.get("timing_bucket") == "no_music_within_10s"
+                ),
+                "pending": len(self.pending_contacts),
+            },
         })
 
     def summary(self):
