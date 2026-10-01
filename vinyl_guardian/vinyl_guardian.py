@@ -1110,11 +1110,10 @@ def listen_and_identify():
                 current_state = app_state
 
             previous_power = detector.turntable_on
-            frame = detector.update_pcm(
-                data,
-                now,
-                force_music_active=current_state in ["RECORDING", "PROCESSING"],
-            )
+            # Shazam recognition state must never override the physical-state
+            # detector. The staged recognition ladder can run for 30 seconds,
+            # while Playing/Motor Idle/Runout remain purely audio-derived.
+            frame = detector.update_pcm(data, now)
 
             if stylus_usage is not None:
                 # Persistent diagnostic labels are hints only and must never
@@ -1213,7 +1212,7 @@ def listen_and_identify():
                         now,
                         frame,
                         current_state,
-                        force_music_active=current_state in ["RECORDING", "PROCESSING"],
+                        force_music_active=False,
                     )
                 except Exception as e:
                     log(f"⚠️ Experimental harness observation failed: {e}")
