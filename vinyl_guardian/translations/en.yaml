@@ -37,10 +37,10 @@ configuration:
       live logs and Continue together. The MQTT Continue Calibration button also works. Disable and
       restart when complete. Fresh capture requires Reuse calibration audio to be off.
   recording_seconds:
-    name: Recording seconds
-    description: Full recognition recording length. A tentative match is requested after
-      five seconds while recording continues. The full result takes priority and controls
-      scrobbling. Values of five seconds or less use one request.
+    name: Legacy recording seconds
+    description: Retained for configuration compatibility. Recognition now always uses the
+      staged 3, 5, 10, 20 and 30 second ladder; early matches display immediately and later
+      successful stages can replace them before the best completed result is confirmed.
 
   debug_logging:
     name: Debug logging
@@ -76,12 +76,10 @@ configuration:
     name: Dataset audio segment length
     description: Minutes per raw audio file.
   diagnostic_capture_mode:
-    name: Automatic diagnostic capture mode
-    description: Known off captures false power, music and runout activations. Listening
-      session saves unexpected state changes for later review using confirmed track
-      timings as hints. Select the mode on the Home Assistant device to change it live.
-      Audio clips include 20 seconds before and 5 seconds after the event. Download
-      diagnostic reports from Open Web UI. Live selections persist across restarts.
+    name: Legacy diagnostic capture hint
+    description: Retained for compatibility. These modes may influence which suspicious
+      moments are captured, but they never create ground truth. Review captured audio in
+      Open Web UI; only a human-reviewed sample can become a trusted detector fixture.
   experiment_harness_enabled:
     name: Experiment lab
     description: Enable experiment sessions, timelines and profile analysis.
