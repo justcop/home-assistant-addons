@@ -912,22 +912,6 @@ class ExperimentHarness:
                 min_gap_sec=30.0,
             )
 
-        # Persistent diagnostic modes are hints, never ground truth. When the
-        # legacy Known off hint is selected, capture suspicious activations for
-        # later human review rather than creating a trusted fixture.
-        if self.monitor.mode == "known_off" and frame.get("turntable_on"):
-            self.audio.trigger(
-                "known_off_power_on",
-                now,
-                label=None,
-                details={
-                    "motor_confidence": motor_conf,
-                    "suggested_label": "actually_off",
-                    "review_required": True,
-                    "hint_only": True,
-                },
-                min_gap_sec=20.0,
-            )
 
     def status(self, now=None):
         now = float(time.time() if now is None else now)
