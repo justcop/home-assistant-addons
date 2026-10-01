@@ -173,6 +173,34 @@ class DiagnosticCaptureTests(unittest.TestCase):
             small=zipfile.ZipFile(io.BytesIO(export_diagnostics(root,max_bytes=1)))
             self.assertEqual(json.loads(small.read('manifest.json'))['included_clips'],0)
 
+    def test_reviewed_fixture_is_not_pruned_with_pending_capture_limit(self):
+        with tempfile.TemporaryDirectory() as root:
+            audio=EventAudioRecorder(root,rate=4,channels=1,chunk=4,max_files=10)
+            event_dir=Path(root)/'experiments'/'event_audio'
+            event_dir.mkdir(parents=True,exist_ok=True)
+            reviewed_wav=event_dir/'20000101_000000_reviewed.wav'
+            with wave.open(str(reviewed_wav),'wb') as wf:
+                wf.setnchannels(1); wf.setsampwidth(2); wf.setframerate(4)
+                wf.writeframes(b'\\0\\0'*4)
+            reviewed_wav.with_suffix('.json').write_text(json.dumps({
+                'event':'manual_label','label':'playing','wav':reviewed_wav.name,
+                'review':{'status':'reviewed','reviewed_label':'playing'}
+            }))
+            for index in range(12):
+                wav=event_dir/f'pending_{index:02d}.wav'
+                with wave.open(str(wav),'wb') as wf:
+                    wf.setnchannels(1); wf.setsampwidth(2); wf.setframerate(4)
+                    wf.writeframes(b'\\0\\0'*4)
+                wav.with_suffix('.json').write_text(json.dumps({
+                    'event':'automatic','label':None,'wav':wav.name,
+                    'review':{'status':'pending'}
+                }))
+                import os
+                os.utime(wav,(1000+index,1000+index))
+            audio._prune()
+            self.assertTrue(reviewed_wav.exists())
+            self.assertEqual(len(list(event_dir.glob('pending_*.wav'))),10)
+
     def test_long_break_clips_are_excluded_from_suspicious_download(self):
         with tempfile.TemporaryDirectory() as root:
             audio=EventAudioRecorder(root,rate=4,channels=1,chunk=4)
