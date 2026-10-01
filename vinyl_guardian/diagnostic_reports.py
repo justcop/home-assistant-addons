@@ -28,11 +28,10 @@ def export_diagnostics(recording_directory, max_bytes=128*1024*1024, max_clips=2
         try:
             metadata = json.loads(sidecar.read_text())
             session_id = metadata.get('details', {}).get('diagnostic_session')
-            if session_id:
-                if (session_id,metadata.get('trigger_time')) in ignored:
-                    excluded += 1
-                else:
-                    candidates.append((sidecar, metadata))
+            if session_id and (session_id,metadata.get('trigger_time')) in ignored:
+                excluded += 1
+            else:
+                candidates.append((sidecar, metadata))
         except (OSError, ValueError):
             continue
     candidates.sort(key=lambda item: item[1].get('trigger_time', 0), reverse=True)
@@ -56,15 +55,26 @@ def export_diagnostics(recording_directory, max_bytes=128*1024*1024, max_clips=2
         if used + size <= max_bytes:
             files.append(path)
             used += size
+
+    for name in ('transition_latency.json', 'transition_latency_events.jsonl', 'needle_drop_candidates.jsonl'):
+        path = root / name
+        if path.is_file() and not path.is_symlink():
+            size = path.stat().st_size
+            if used + size <= max_bytes:
+                files.append(path)
+                used += size
     manifest = {'included_clips': len(included), 'available_clips': len(candidates), 'excluded_long_break_clips': excluded,
                 'max_clips': max_clips, 'uncompressed_bytes': used,
                 'events': [{'event': m['event'], 'unix_time': m['trigger_time'],
                             'wav': m['wav'], 'label': m.get('label'),
-                            'session_id': m['details']['diagnostic_session']} for m in included],
+                            'session_id': m.get('details', {}).get('diagnostic_session'),
+                            'candidate_id': m.get('details', {}).get('candidate_id')} for m in included],
                 'notes': ['Newest complete clips are included, bounded by count and byte size.',
                           'Known-off clips are explicit ground truth. Listening anomalies are review candidates, not music labels.',
                           'Session events include confirmed track timing and scrobble requests, which do not prove a physical state.',
                           'Intentional flip/pause annotations cover the preceding 20 and following 45 seconds.',
+                          'Transition-latency clips are observational and use retrospective evidence-onset estimates, not ground truth.',
+                          'Needle-drop candidates are restricted to motor-on, music-off Motor Idle and are resolved against later production state.',
                           'The frames.jsonl trace aligns one row per PCM chunk. Recompute all measurements from the WAV for replay.']}
     output=io.BytesIO()
     with zipfile.ZipFile(output,'w',zipfile.ZIP_DEFLATED) as archive:
