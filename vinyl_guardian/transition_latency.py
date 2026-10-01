@@ -552,6 +552,44 @@ class TransitionLatencyCollector:
                     self.control_last[transition_type] = now
         return record
 
+    @staticmethod
+    def _contact_stats(items):
+        items = list(items)
+        result = {"samples": len(items)}
+        if not items:
+            return result
+        timings = [
+            item.get("seconds_to_resolution")
+            for item in items
+            if item.get("outcome") == "music_confirmed"
+            and item.get("seconds_to_resolution") is not None
+        ]
+        if timings:
+            result["median_seconds_to_music"] = statistics.median(timings)
+            result["p90_seconds_to_music"] = _percentile(timings, 0.90)
+        for name in (
+            "transient_peak",
+            "transient_crest",
+            "derivative_peak",
+            "derivative_crest",
+            "impulsive_sample_fraction",
+            "peak_vs_recent_median",
+            "derivative_vs_recent_median",
+            "stylus_contact_score",
+        ):
+            values = [
+                _safe(item.get("transient", {}).get(name), float("nan"))
+                for item in items
+            ]
+            values = [value for value in values if math.isfinite(value)]
+            if values:
+                result[name] = {
+                    "median": statistics.median(values),
+                    "p10": _percentile(values, 0.10),
+                    "p90": _percentile(values, 0.90),
+                }
+        return result
+
     def _save_summary(self, now):
         by_type = {}
         for transition_type, target in TARGET_LATENCY_SECONDS.items():
@@ -569,6 +607,15 @@ class TransitionLatencyCollector:
                 "max_latency_sec": max(latencies) if latencies else None,
                 "latest_latency_sec": latencies[-1] if latencies else None,
             }
+
+        positive_contacts = [
+            item for item in self.contact_outcomes
+            if item.get("outcome") == "music_confirmed"
+        ]
+        negative_contacts = [
+            item for item in self.contact_outcomes
+            if item.get("outcome") != "music_confirmed"
+        ]
 
         _atomic_json(self.summary_path, {
             "updated_unix": float(now),
@@ -598,6 +645,8 @@ class TransitionLatencyCollector:
                     if item.get("timing_bucket") == "no_music_within_10s"
                 ),
                 "pending": len(self.pending_contacts),
+                "positive_feature_profile": self._contact_stats(positive_contacts),
+                "negative_feature_profile": self._contact_stats(negative_contacts),
             },
         })
 
