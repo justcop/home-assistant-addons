@@ -22,14 +22,15 @@ class TrustedLabelTests(unittest.TestCase):
             self.assertTrue(harness.manual_label("playing", now=1000.0))
             self.assertEqual(harness.trusted_label(1001.0), "playing")
 
-    def test_known_off_session_is_trusted_off(self):
+    def test_persistent_known_off_label_is_only_a_hint(self):
         with tempfile.TemporaryDirectory() as tmp:
             harness = ExperimentHarness(
                 tmp, {}, rate=44100, channels=2, chunk=2048,
                 enabled=True, auto_capture=False,
                 session_label="known_off",
+                diagnostic_mode="known_off",
             )
-            self.assertEqual(harness.trusted_label(1000.0), "actually_off")
+            self.assertIsNone(harness.trusted_label(1000.0))
 
 
 class SideSessionTests(unittest.TestCase):
