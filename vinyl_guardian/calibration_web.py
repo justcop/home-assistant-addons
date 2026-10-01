@@ -74,6 +74,7 @@ poll();
 
 
 def make_server(host='0.0.0.0', port=8099, allowed_peer='172.30.32.2', exporter=None, diagnostic_exporter=None, recording_directory=None):
+    recording_directory = recording_directory or '/tmp/vinyl_guardian-review'
     token = secrets.token_urlsafe(32)
     page = PAGE.replace('__TOKEN__', token).encode()
 
