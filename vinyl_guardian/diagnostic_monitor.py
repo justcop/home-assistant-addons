@@ -65,7 +65,7 @@ class DiagnosticMonitor:
             self.session = {'id': uuid.uuid4().hex, 'mode': mode, 'started_unix': now,
                             'addon_version': self.version, 'audio_source': self.source,
                             'thresholds': self.thresholds, 'events': [], 'event_count': 0,
-                            'captured_count': 0, 'label_policy': 'Known off is explicit ground truth. Listening-session anomalies require review; timings and scrobbles are hints.'}
+                            'captured_count': 0, 'label_policy': 'All persistent diagnostic modes are capture hints only. Human review after capture is required before a sample becomes ground truth.'}
             self._save()
             self._prune_sessions()
         save_json(self.state_path, {'mode': mode, 'configured_mode': self.configured_mode})
@@ -118,8 +118,11 @@ class DiagnosticMonitor:
                        intentional_action_active=now <= self.intentional_until,
                        thresholds=self.thresholds, addon_version=self.version,
                        audio_source=self.source, **details)
-        label = 'actually_off' if self.mode == 'known_off' else None
-        saved = self.capture('diagnostic_' + kind, now, label=label, details=payload, min_gap_sec=3)
+        if self.mode == 'known_off':
+            payload['suggested_label'] = 'actually_off'
+            payload['hint_only'] = True
+        payload['review_required'] = True
+        saved = self.capture('diagnostic_' + kind, now, label=None, details=payload, min_gap_sec=3)
         if saved:
             self.session['captured_count'] += 1
         self._note(kind, now, capture_requested=saved, **details)
@@ -135,7 +138,7 @@ class DiagnosticMonitor:
             rising = [field for field in flags if frame.get(field) and not previous.get(field)]
             if rising:
                 self._event('known_off_activation', now, frame, sensors=rising,
-                            expected_state='Powered Off', review_required=False)
+                            expected_state='Powered Off', review_required=True)
         else:
             if self.last_drop is not None and now-self.last_drop >= 30:
                 self.session['expected_long_breaks'] = self.session.get('expected_long_breaks', 0) + 1

@@ -216,6 +216,11 @@ Guardian collects feature distributions only from explicitly trusted labels (plu
 
 They are not yet used to control production decisions; they exist so future detector changes can be based on measured evidence rather than self-reinforcing guesses.
 
+
+### Review-first ground truth
+
+Guardian now separates **capture** from **truth**. Slow transitions, shadow disagreements, needle-drop candidates, uncertain states and legacy diagnostic-mode events may all save useful audio automatically, but their labels are only suggestions. The Open Web UI contains a **Review captured samples** queue with the saved audio, event type, detector state and any suggested label. Choose what was actually happening and save the review; only then can that clip enter the trusted regression library. This prevents a forgotten persistent mode such as Known off from poisoning the detector dataset when you later start playing a record.
+
 ### Transition-speed learning
 
 The experiment harness now treats **detection latency** as a measurable failure mode rather than only checking whether the final state was correct. Every confirmed Playing, power and runout transition gets a retrospective evidence-onset estimate. The collector records confirmation latency, keeps rolling median/p90/max statistics by transition type, and automatically saves slow transitions with the same pre-roll audio and aligned per-chunk trace used by the diagnostic lab. Fast transitions are sampled occasionally as controls so future changes can be compared against both successes and failures.

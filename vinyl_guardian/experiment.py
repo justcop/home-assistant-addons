@@ -244,11 +244,27 @@ class EventAudioRecorder:
                 for context in capture['contexts']:
                     trace.write(json.dumps(context) + '\n')
             sidecar = os.path.splitext(path)[0] + ".json"
+            details = capture.get("details") or {}
+            human_reviewed = bool(details.get("human_reviewed"))
+            review = {
+                "status": "reviewed" if human_reviewed else "pending",
+            }
+            if human_reviewed and capture.get("label"):
+                review.update({
+                    "reviewed_label": capture.get("label"),
+                    "reviewed_unix": capture["trigger_time"],
+                    "source": "explicit_manual_mark",
+                })
+            else:
+                suggested = details.get("suggested_label")
+                if suggested:
+                    review["suggested_label"] = suggested
             _atomic_json(sidecar, {
                 "event": capture["kind"],
-                "label": capture.get("label"),
+                "label": capture.get("label") if human_reviewed else None,
                 "trigger_time": capture["trigger_time"],
-                "details": capture.get("details") or {},
+                "details": details,
+                "review": review,
                 "pre_roll_sec": capture['initial_pre_chunks'] * self.chunk / self.rate,
                 "trace": os.path.basename(trace_path),
                 "post_roll_sec": (len(capture['chunks'])-capture['initial_pre_chunks']) * self.chunk / self.rate,
@@ -262,15 +278,28 @@ class EventAudioRecorder:
 
     def _prune(self):
         try:
-            wavs = sorted(
-                (
-                    os.path.join(self.root, name)
-                    for name in os.listdir(self.root)
-                    if name.lower().endswith(".wav")
-                ),
-                key=os.path.getmtime,
-            )
-            for path in wavs[:-self.max_files]:
+            pending = []
+            for name in os.listdir(self.root):
+                if not name.lower().endswith(".wav"):
+                    continue
+                path = os.path.join(self.root, name)
+                sidecar = os.path.splitext(path)[0] + ".json"
+                reviewed = False
+                try:
+                    if os.path.exists(sidecar):
+                        with open(sidecar, "r") as handle:
+                            metadata = json.load(handle)
+                        review = metadata.get("review") or {}
+                        reviewed = review.get("status") == "reviewed"
+                except (OSError, ValueError, TypeError):
+                    reviewed = False
+                # Human-reviewed clips form the permanent regression library.
+                # Retention limits apply only to unreviewed automatic evidence.
+                if not reviewed:
+                    pending.append(path)
+
+            pending.sort(key=os.path.getmtime)
+            for path in pending[:-self.max_files]:
                 try:
                     os.remove(path)
                     sidecar = os.path.splitext(path)[0] + ".json"
@@ -634,15 +663,11 @@ class ExperimentHarness:
         return accepted
 
     def trusted_label(self, now):
+        # Only an explicit one-shot human mark is trusted live. Persistent
+        # modes and dataset labels are capture hints only because they can be
+        # forgotten and become stale while the physical state changes.
         if float(now) <= self.manual_label_until and self.current_manual_label:
             return self.current_manual_label
-        if self.monitor.mode == "known_off":
-            return "actually_off"
-        if self.session_label in {"known_off", "off", "turntable_off", "known-off"}:
-            return "actually_off"
-        # Broad album sessions contain track gaps, runout and needle lifts, so
-        # they are valuable analysis labels but are deliberately NOT treated
-        # as frame-level ground truth for adaptive learning.
         return None
 
     def manual_label(self, label, now=None):
@@ -663,7 +688,7 @@ class ExperimentHarness:
             "manual_label",
             now,
             label=label,
-            details={"ground_truth": label},
+            details={"ground_truth": label, "human_reviewed": True},
             min_gap_sec=0,
             force=True,
         )
@@ -900,14 +925,6 @@ class ExperimentHarness:
                 min_gap_sec=30.0,
             )
 
-        if self.monitor.mode == "normal" and trusted == "actually_off" and frame.get("turntable_on"):
-            self.audio.trigger(
-                "known_off_power_on",
-                now,
-                label=trusted,
-                details={"motor_confidence": motor_conf},
-                min_gap_sec=20.0,
-            )
 
     def status(self, now=None):
         now = float(time.time() if now is None else now)

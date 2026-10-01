@@ -22,14 +22,17 @@ LABEL_EXPECTATIONS = {
 
 
 def collect_labelled_event_clips(share_dir):
-    """Return event-audio WAVs with explicit ground-truth expectations."""
+    """Return only human-reviewed event-audio WAVs with trusted expectations."""
     root = os.path.join(share_dir, "experiments", "event_audio")
     clips = []
     for sidecar in sorted(glob.glob(os.path.join(root, "*.json"))):
         try:
             with open(sidecar, "r") as handle:
                 metadata = json.load(handle)
-            label = str(metadata.get("label") or "").strip().lower()
+            review = metadata.get("review")
+            if not isinstance(review, dict) or review.get("status") != "reviewed":
+                continue
+            label = str(review.get("reviewed_label") or "").strip().lower()
             expectation = LABEL_EXPECTATIONS.get(label)
             if not expectation:
                 continue
@@ -43,7 +46,6 @@ def collect_labelled_event_clips(share_dir):
         except Exception:
             continue
     return clips
-
 
 def _read_wav(path):
     with wave.open(path, "rb") as wf:
@@ -169,15 +171,9 @@ def collect_fixtures(share_dir, calibration_files=None):
         paths = sorted(glob.glob(pattern))[-limit:]
         fixtures.extend((path, expectation) for path in paths)
 
-    add_many(os.path.join(share_dir, "ghost_trigger*.wav"), "off", limit=30)
-    add_many(os.path.join(share_dir, "missed_music_*.wav"), "music", limit=30)
-
-    event_audio = os.path.join(share_dir, "experiments", "event_audio")
-    add_many(os.path.join(event_audio, "*known_off_power_on*.wav"), "off", limit=30)
-
-    # Explicit Home Assistant ground-truth marks become permanent regression
-    # fixtures. Ambiguous labels such as wrong_state/ignore are retained in
-    # the dataset but deliberately not assigned an expected detector state.
+    # Automatic captures are deliberately excluded. Persistent modes can be
+    # forgotten, and detector-selected anomalies are observational evidence,
+    # not ground truth. Only clips reviewed by a human enter regression.
     for wav_path, expectation, _label in collect_labelled_event_clips(share_dir):
         fixtures.append((wav_path, expectation))
 

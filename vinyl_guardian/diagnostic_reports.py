@@ -70,12 +70,12 @@ def export_diagnostics(recording_directory, max_bytes=128*1024*1024, max_clips=2
                             'session_id': m.get('details', {}).get('diagnostic_session'),
                             'candidate_id': m.get('details', {}).get('candidate_id')} for m in included],
                 'notes': ['Newest complete clips are included, bounded by count and byte size.',
-                          'Known-off clips are explicit ground truth. Listening anomalies are review candidates, not music labels.',
+                          'Automatic and persistent-mode captures are review candidates only; no mode is ground truth.',
                           'Session events include confirmed track timing and scrobble requests, which do not prove a physical state.',
                           'Intentional flip/pause annotations cover the preceding 20 and following 45 seconds.',
                           'Transition-latency clips are observational and use retrospective evidence-onset estimates, not ground truth.',
                           'Needle-drop candidates are restricted to motor-on, music-off Motor Idle and are resolved against later production state.',
-                          'Safety metrics track stable-state exposure, shadow disagreement episodes and explicit known-off false activations.',
+                          'Safety metrics track stable-state exposure and shadow disagreement; legacy known-off statistics are observational hints only.',
                           'The frames.jsonl trace aligns one row per PCM chunk. Recompute all measurements from the WAV for replay.']}
     output=io.BytesIO()
     with zipfile.ZipFile(output,'w',zipfile.ZIP_DEFLATED) as archive:
