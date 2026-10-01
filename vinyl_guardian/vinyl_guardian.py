@@ -417,40 +417,89 @@ def change_3_tier_status(new_vinyl_status, new_engine_status):
             current_engine_status = new_engine_status
 
 # --- BACKGROUND WORKER (SHAZAM) ---
-def process_audio_background(audio_data_bytes, song_start_timestamp, token, preview=False):
-    global app_state, current_attempt, wake_up_time, consecutive_failures, current_track, scrobble_fired, last_scrobbled_track, paused_track_memory
-    global experiment_harness
+def process_audio_background(audio_data_bytes, song_start_timestamp, token, stage_seconds):
+    global app_state, current_attempt, wake_up_time, consecutive_failures, current_track
+    global scrobble_fired, last_scrobbled_track, paused_track_memory, experiment_harness
+
+    stage_seconds = int(stage_seconds)
     with state_lock:
         if not recognition_session.valid(token, app_state):
             return
         local_attempt = current_attempt
+
     seconds = len(audio_data_bytes) / (RATE * CHANNELS * 2)
-    log(f"🔬 Analyzing {seconds:.1f}s {'preview' if preview else 'confirmation'} (Attempt {local_attempt}/{MAX_ATTEMPTS})...")
+    log(
+        f"🔬 Analyzing {seconds:.1f}s recognition stage "
+        f"({stage_seconds}s, Attempt {local_attempt}/{MAX_ATTEMPTS})..."
+    )
     try:
         match, trimmed_seconds = recognize_fragment(
-            audio_data_bytes, RECORDING_DIR, RATE, CHANNELS, AUDIO_ONSET_THRESHOLD,
-            MIN_AUDIO_SECONDS, recognize_shazam)
+            audio_data_bytes,
+            RECORDING_DIR,
+            RATE,
+            CHANNELS,
+            AUDIO_ONSET_THRESHOLD,
+            min(float(MIN_AUDIO_SECONDS), float(stage_seconds)),
+            recognize_shazam,
+        )
     except Exception as exc:
-        log(f"⚠️ Recognition failed: {exc}")
-        match, trimmed_seconds = None, 0
+        log(f"⚠️ Recognition failed at {stage_seconds}s: {exc}")
+        match, trimmed_seconds = None, 0.0
+
     with state_lock:
-        if not recognition_session.accept(token, app_state, preview):
+        outcome = recognition_session.record_result(
+            token,
+            app_state,
+            stage_seconds,
+            match,
+            trimmed_seconds,
+        )
+        if not outcome["accepted"]:
             return
-        if preview:
-            if match:
-                display_track = dict(match, source='Shazam')
-                log(f"🎶 MATCH FOUND: {match['title']} - {match['artist']}")
-                mqtt_client.publish("vinyl_guardian/track", f"{match['title']} - {match['artist']}", retain=True)
-                mqtt_client.publish("vinyl_guardian/attributes", json.dumps(display_track), retain=True)
+
+        if outcome["display"] and match:
+            display_track = dict(
+                match,
+                source="Shazam",
+                recognition_status="provisional",
+                recognition_stage_seconds=stage_seconds,
+            )
+            log(
+                f"🎶 {stage_seconds}s MATCH: "
+                f"{match['title']} - {match['artist']}"
+            )
+            mqtt_client.publish(
+                "vinyl_guardian/track",
+                f"{match['title']} - {match['artist']}",
+                retain=True,
+            )
+            mqtt_client.publish(
+                "vinyl_guardian/attributes",
+                json.dumps(display_track),
+                retain=True,
+            )
+
+        if not outcome["finalize"]:
             return
+
+        best_match = outcome["best_match"]
+        best_stage = int(outcome["best_stage"] or 0)
+        best_trimmed = float(outcome["best_trimmed_seconds"] or 0.0)
+
     # Duration lookup can take seconds; never hold the audio loop's state lock.
-    total_duration = match.get('duration', 0) if match else 0
-    if match and total_duration <= 0:
-        total_duration = get_track_duration(match['title'], match['artist'], match.get('adamid'))
+    total_duration = best_match.get("duration", 0) if best_match else 0
+    if best_match and total_duration <= 0:
+        total_duration = get_track_duration(
+            best_match["title"],
+            best_match["artist"],
+            best_match.get("adamid"),
+        )
+
     with state_lock:
         if not recognition_session.valid(token, app_state):
             return
-        if match:
+
+        if best_match:
             current_attempt = 1
             consecutive_failures = 0
             if total_duration <= 0:
@@ -461,56 +510,92 @@ def process_audio_background(audio_data_bytes, song_start_timestamp, token, prev
             else:
                 duration_known = True
                 scrobble_delay = min(total_duration / 2.0, 240)
-                
-            track_id = f"{match['title']} - {match['artist']}"
-            raw_offset = match.get('offset_seconds', 0)
+
+            track_id = f"{best_match['title']} - {best_match['artist']}"
+            raw_offset = best_match.get("offset_seconds", 0)
             previously_played = 0
             if paused_track_memory and paused_track_memory["id"] == track_id:
                 previously_played = paused_track_memory["accumulated_playtime"]
                 scrobble_delay = max(2, scrobble_delay - previously_played)
                 log(f"▶️ Resuming track! Recovered {int(previously_played)}s playtime.")
             else:
-                if paused_track_memory: log(f"▶️ New track detected. Starting fresh scrobble timer.")
+                if paused_track_memory:
+                    log("▶️ New track detected. Starting fresh scrobble timer.")
                 paused_track_memory = None
-                
-            start_ts = int(song_start_timestamp + trimmed_seconds - raw_offset)
-            if start_ts < 0: start_ts = int(song_start_timestamp)
-                
+
+            start_ts = int(song_start_timestamp + best_trimmed - raw_offset)
+            if start_ts < 0:
+                start_ts = int(song_start_timestamp)
+
             current_track = {
-                "title": match['title'], "artist": match['artist'], "album": match['album'],
-                "duration": total_duration, "start_timestamp": start_ts,
-                "session_start_time": song_start_timestamp, "scrobble_trigger_time": song_start_timestamp + scrobble_delay,
-                "duration_known": duration_known, "previously_played": previously_played,
-                "source": "Shazam", "recognition_status": "confirmed", "image": match.get('image', '')
+                "title": best_match["title"],
+                "artist": best_match["artist"],
+                "album": best_match["album"],
+                "duration": total_duration,
+                "start_timestamp": start_ts,
+                "session_start_time": song_start_timestamp,
+                "scrobble_trigger_time": song_start_timestamp + scrobble_delay,
+                "duration_known": duration_known,
+                "previously_played": previously_played,
+                "source": "Shazam",
+                "recognition_status": "confirmed",
+                "recognition_stage_seconds": best_stage,
+                "image": best_match.get("image", ""),
             }
             scrobble_fired = False
             if experiment_harness is not None:
                 try:
                     experiment_harness.track_identified(current_track, now=time.time())
-                except Exception as e:
-                    log(f"⚠️ Experiment track logging failed: {e}")
-            log(f"🎶 MATCH FOUND: {match['title']} - {match['artist']}")
-            mqtt_client.publish("vinyl_guardian/track", f"{match['title']} - {match['artist']}", retain=True)
-            try: mqtt_client.publish("vinyl_guardian/attributes", json.dumps(current_track), retain=True)
-            except: pass
-            wake_up_time = current_track['start_timestamp'] + total_duration
+                except Exception as exc:
+                    log(f"⚠️ Experiment track logging failed: {exc}")
+
+            log(
+                f"✅ FINAL MATCH ({best_stage}s evidence): "
+                f"{best_match['title']} - {best_match['artist']}"
+            )
+            mqtt_client.publish(
+                "vinyl_guardian/track",
+                f"{best_match['title']} - {best_match['artist']}",
+                retain=True,
+            )
+            try:
+                mqtt_client.publish(
+                    "vinyl_guardian/attributes",
+                    json.dumps(current_track),
+                    retain=True,
+                )
+            except Exception:
+                pass
+            wake_up_time = current_track["start_timestamp"] + total_duration
             app_state = "SLEEPING"
         else:
             if current_attempt < MAX_ATTEMPTS:
-                log(f"❌ No match. Retrying ({current_attempt + 1}/{MAX_ATTEMPTS})...")
-                current_attempt += 1; app_state = "RECORDING"
+                log(
+                    f"❌ No Shazam match across 3/5/10/20/30s. "
+                    f"Retrying with fresh audio ({current_attempt + 1}/{MAX_ATTEMPTS})..."
+                )
+                current_attempt += 1
+                # Return to IDLE so the normal music trigger begins a completely
+                # fresh session/token and no discontinuous audio is reused.
+                app_state = "IDLE"
             else:
                 consecutive_failures += 1
-                log(f"❌ Max attempts reached. Fallback to gap detection.")
+                log("❌ Max staged attempts reached. Fallback to gap detection.")
                 mqtt_client.publish("vinyl_guardian/track", "Unknown Track", retain=True)
                 mqtt_client.publish("vinyl_guardian/attributes", "{}", retain=True)
                 current_attempt = 1
-                wake_up_time = time.time() + (CONSECUTIVE_FAILURE_TIMEOUT if consecutive_failures >= 10 else FALLBACK_SLEEP_SECS)
-                if consecutive_failures >= 10: consecutive_failures = 0
+                wake_up_time = time.time() + (
+                    CONSECUTIVE_FAILURE_TIMEOUT
+                    if consecutive_failures >= 10
+                    else FALLBACK_SLEEP_SECS
+                )
+                if consecutive_failures >= 10:
+                    consecutive_failures = 0
                 app_state = "SLEEPING"
-                    
+
     if TEST_CAPTURE_MODE:
-        log("🛑 TEST CAPTURE COMPLETE."); os._exit(0)
+        log("🛑 TEST CAPTURE COMPLETE.")
+        os._exit(0)
 
 def get_crest(audio_data):
     rms = float(np.sqrt(np.mean(np.square(audio_data))))
@@ -794,7 +879,8 @@ def listen_and_identify():
         )
 
     last_pub, last_sleep_log, cooldown_end, chunks, loud_chunks, silence_sleep, song_start = time.time(), 0, 0, 0, 0, 0, 0
-    idle_silence_chunks, target = 0, int(RATE / CHUNK * RECORD_SECONDS)
+    idle_silence_chunks = 0
+    target = int(RATE / CHUNK * recognition_session.final_stage)
     trigger_chunks = 0  
     buffer = bytearray()
     ghost_buffer, ghost_max_chunks = [], int(RATE / CHUNK * 20.0)
@@ -1030,11 +1116,10 @@ def listen_and_identify():
                 force_music_active=current_state in ["RECORDING", "PROCESSING"],
             )
 
-            known_off = bool(experiment_harness and experiment_harness.monitor.mode == 'known_off')
-            if DATA_COLLECTION_ENABLED and str(DATA_COLLECTION_LABEL).lower() in ('known_off','off','turntable_off','known-off'):
-                known_off = True
             if stylus_usage is not None:
-                stylus_usage.observe(frame, len(data)//(CHANNELS*2), RATE, known_off=known_off)
+                # Persistent diagnostic labels are hints only and must never
+                # suppress real stylus time if the user forgets to clear them.
+                stylus_usage.observe(frame, len(data)//(CHANNELS*2), RATE, known_off=False)
 
             raw_rms = frame["rms"]
             music_rms = frame["music_rms"]
@@ -1468,24 +1553,29 @@ def listen_and_identify():
                     if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/track", "Not Playing", retain=True)
                     with state_lock: app_state = "IDLE"
                     continue
+                elapsed = chunks * CHUNK / RATE
                 with state_lock:
-                    preview_due = recognition_session.preview_due(token, chunks * CHUNK / RATE, RECORD_SECONDS)
-                if preview_due and loud_chunks >= chunks / 2:
-                    threading.Thread(target=process_audio_background, args=(bytes(buffer), song_start, token, True), daemon=True).start()
+                    due_stages = recognition_session.due_stages(token, elapsed)
+                for stage_seconds in due_stages:
+                    stage_bytes = min(
+                        len(buffer),
+                        int(stage_seconds * RATE * CHANNELS * 2),
+                    )
+                    snapshot = bytes(buffer[:stage_bytes])
+                    threading.Thread(
+                        target=process_audio_background,
+                        args=(snapshot, song_start, token, stage_seconds),
+                        daemon=True,
+                    ).start()
+
                 if chunks >= target:
-                    if loud_chunks >= (target / 2.0):
-                        with state_lock:
-                            if not recognition_session.valid(token, app_state):
-                                continue
-                            app_state = "PROCESSING"
-                        threading.Thread(target=process_audio_background, args=(bytes(buffer), song_start, token), daemon=True).start()
-                        # A failed request must gather a fresh recording. Keep
-                        # discontinuous audio out of uploads and preserve offsets.
-                        buffer, chunks, loud_chunks = bytearray(), 0, 0
-                    else:
-                        if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/track", "Not Playing", retain=True)
-                        with state_lock: app_state = "IDLE"
-                        buffer, chunks, loud_chunks = bytearray(), 0, 0
+                    with state_lock:
+                        if not recognition_session.valid(token, app_state):
+                            continue
+                        app_state = "PROCESSING"
+                    # All five uploads own immutable snapshots. The live buffer
+                    # can now be released while their results finish.
+                    buffer, chunks, loud_chunks = bytearray(), 0, 0
                         
             elif current_state == "SLEEPING":
                 # Runout clicks are explicitly excluded from music evidence,
