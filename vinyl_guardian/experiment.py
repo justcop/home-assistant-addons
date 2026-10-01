@@ -20,6 +20,7 @@ import numpy as np
 from detector import GuardianDetector
 from diagnostic_monitor import DiagnosticMonitor
 from telemetry import FeatureExtractor, pcm16_channels, stereo_features
+from transition_latency import TransitionLatencyCollector
 
 
 TRUSTED_LABELS = {
@@ -594,6 +595,14 @@ class ExperimentHarness:
         self.side = SideSessionTracker(share_dir, self.timeline)
         self.baselines = TrustedBaselineLearner(share_dir)
         self.feature_extractor = FeatureExtractor(rate)
+        self.transitions = TransitionLatencyCollector(
+            share_dir,
+            self.audio.trigger,
+            self.timeline,
+            rate,
+            channels,
+            chunk,
+        )
 
         self.previous_frame = None
         self.previous_shadow = {}
@@ -675,8 +684,10 @@ class ExperimentHarness:
             return {}
 
         now = float(now)
+        transient = self.transitions.measure(data, now)
         context = {'unix_time': now, 'production': dict(production_frame),
                    'engine_state': engine_state, 'extended_features': self.last_feature_snapshot,
+                   'transient_features': transient,
                    'diagnostic_mode': self.monitor.mode, 'audio_source': self.monitor.source,
                    'confirmed_track': self.monitor.track}
         completed = self.audio.feed(data, context)
@@ -715,6 +726,12 @@ class ExperimentHarness:
                 self.last_feature_snapshot = snapshot
                 self.baselines.observe(trusted, snapshot, now)
 
+        latency_records = self.transitions.observe(
+            production_frame,
+            now,
+            transient,
+            diagnostic_mode=self.monitor.mode,
+        )
         self._record_transitions(production_frame, shadow_frames, now, engine_state)
         self._detect_interesting(production_frame, shadow_frames, now, trusted)
         self.side.observe(production_frame, now)
@@ -730,6 +747,7 @@ class ExperimentHarness:
             "side": self.side.summary(now),
             "trusted_label": trusted,
             "diagnostics": diagnostic,
+            "transition_latency": latency_records,
         }
 
     def _record_transitions(self, frame, shadows, now, engine_state):
@@ -893,4 +911,5 @@ class ExperimentHarness:
             "side": self.side.summary(now),
             "event_log": self.timeline.path,
             "diagnostics": self.monitor.summary(),
+            "transition_latency": self.transitions.summary(),
         }
