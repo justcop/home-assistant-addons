@@ -278,15 +278,28 @@ class EventAudioRecorder:
 
     def _prune(self):
         try:
-            wavs = sorted(
-                (
-                    os.path.join(self.root, name)
-                    for name in os.listdir(self.root)
-                    if name.lower().endswith(".wav")
-                ),
-                key=os.path.getmtime,
-            )
-            for path in wavs[:-self.max_files]:
+            pending = []
+            for name in os.listdir(self.root):
+                if not name.lower().endswith(".wav"):
+                    continue
+                path = os.path.join(self.root, name)
+                sidecar = os.path.splitext(path)[0] + ".json"
+                reviewed = False
+                try:
+                    if os.path.exists(sidecar):
+                        with open(sidecar, "r") as handle:
+                            metadata = json.load(handle)
+                        review = metadata.get("review") or {}
+                        reviewed = review.get("status") == "reviewed"
+                except (OSError, ValueError, TypeError):
+                    reviewed = False
+                # Human-reviewed clips form the permanent regression library.
+                # Retention limits apply only to unreviewed automatic evidence.
+                if not reviewed:
+                    pending.append(path)
+
+            pending.sort(key=os.path.getmtime)
+            for path in pending[:-self.max_files]:
                 try:
                     os.remove(path)
                     sidecar = os.path.splitext(path)[0] + ".json"
