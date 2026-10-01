@@ -232,6 +232,8 @@ The rolling report is written to:
 
 Transition and needle-drop clips are included in **Download diagnostic reports** even when they are not part of a manually selected diagnostic session. Retrospective onset estimates and later production confirmations are analysis labels, not ground truth, and none of this instrumentation changes the live state machine.
 
+Safety is treated as a hard constraint on latency work. The experiment harness now accumulates stable-state exposure and shadow-detector disagreement episodes in `/share/vinyl_guardian/experiments/safety_metrics.json`, including explicit false activations during Known off sessions. Offline regression comparison also counts false activation episodes on trusted off and motor-idle fixtures. A candidate profile that introduces an additional false activation is rejected even if its aggregate score or transition speed is better; latency improvements are only considered after the safety gate passes.
+
 
 ## Audio input discovery (v4.36)
 
