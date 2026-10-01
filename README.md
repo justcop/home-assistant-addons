@@ -67,6 +67,22 @@ Choose Listening session before playing, then **Finish Listening Session Report*
 
 Reports contain up to 20 seconds before and five seconds after the event, raw WAV, aligned frame trace, active detector thresholds and model coefficients, version, capture source, confirmed track timings and session annotations. Mode changes flush partial clips so audio from a later mode cannot contaminate an off-labelled report. Reports are under `<recording_directory>/experiments/event_audio` and `diagnostic_sessions`. Keep recording access enabled while monitoring; audio may include room sounds. **Open Web UI → Download diagnostic reports** exports the newest 20 complete clips and recent session summaries, bounded to 128 MiB before compression. Older clips remain until the existing 100-clip retention limit is reached. Archives exclude options and API credentials.
 
+### Transition-speed learning
+
+The experiment harness now treats **detection latency** as a measurable failure mode rather than only checking whether the final state was correct. Every confirmed Playing, power and runout transition gets a retrospective evidence-onset estimate. The collector records confirmation latency, keeps rolling median/p90/max statistics by transition type, and automatically saves slow transitions with the same pre-roll audio and aligned per-chunk trace used by the diagnostic lab. Fast transitions are sampled occasionally as controls so future changes can be compared against both successes and failures.
+
+A separate observational needle-drop experiment looks for short contact transients only when production is already in **Motor Idle**: motor on, music off and no runout. Candidate chunks record peak/crest and first-derivative impulse measurements at full detector chunk rate rather than the slower 0.5-second extended-feature cadence. Each candidate is then followed for up to ten seconds and resolved as music confirmed, runout, turntable stopped or no music. Music confirmations are bucketed by whether they followed within two, five or ten seconds. This lets the saved data answer whether a particular "stylus hit" signature is a reliable predictor of imminent music before it is ever allowed to influence production detection.
+
+The rolling report is written to:
+
+```text
+/share/vinyl_guardian/experiments/transition_latency.json
+/share/vinyl_guardian/experiments/transition_latency_events.jsonl
+/share/vinyl_guardian/experiments/needle_drop_candidates.jsonl
+```
+
+Transition and needle-drop clips are included in **Download diagnostic reports** even when they are not part of a manually selected diagnostic session. Retrospective onset estimates and later production confirmations are analysis labels, not ground truth, and none of this instrumentation changes the live state machine.
+
 Recognition uses one Shazam client per concurrent request and supports installed versions without asynchronous context managers. Clients with an explicit close method are cleaned up after each request. If confirmation fails, each retry gathers a fresh full recording instead of immediately submitting the same buffer again.
 
 **Stylus Use** is an always-on cumulative Home Assistant sensor in hours, counting captured audio time while production detection reports Playing or Runout Groove. Separate music and runout seconds are available as sensor attributes. Motor Idle, Powered Off, Between Tracks, explicit Known off observation and offline calibration/replay do not add time. It starts at zero on first installation of this feature, without estimating historic wear. The hard-coded counter is stored at `/data/stylus_usage.json` inside the app's persistent data, with `/data/stylus_usage.backup.json` as a second copy. It is independent of the configurable recording folder and Home Assistant's history. It saves every minute during use, when leaving a counted state, and on graceful shutdown. The Home Assistant sensor publishes saved totals, so a power loss cannot make its displayed cumulative value move backwards. Abrupt power loss may discard up to the last minute. Restarts and updates preserve the count; removing the app's data removes it. Damaged storage is recovered from a valid copy; if both saved copies are invalid, startup stops rather than resetting the accumulated total.
