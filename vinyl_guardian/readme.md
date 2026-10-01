@@ -216,6 +216,22 @@ Guardian collects feature distributions only from explicitly trusted labels (plu
 
 They are not yet used to control production decisions; they exist so future detector changes can be based on measured evidence rather than self-reinforcing guesses.
 
+### Transition-speed learning
+
+The experiment harness now treats **detection latency** as a measurable failure mode rather than only checking whether the final state was correct. Every confirmed Playing, power and runout transition gets a retrospective evidence-onset estimate. The collector records confirmation latency, keeps rolling median/p90/max statistics by transition type, and automatically saves slow transitions with the same pre-roll audio and aligned per-chunk trace used by the diagnostic lab. Fast transitions are sampled occasionally as controls so future changes can be compared against both successes and failures.
+
+A separate observational needle-drop experiment looks for short contact transients only when production is already in **Motor Idle**: motor on, music off and no runout. Candidate chunks record peak/crest and first-derivative impulse measurements at full detector chunk rate rather than the slower 0.5-second extended-feature cadence. Each candidate is then followed for up to ten seconds and resolved as music confirmed, runout, turntable stopped or no music. Music confirmations are bucketed by whether they followed within two, five or ten seconds. This lets the saved data answer whether a particular "stylus hit" signature is a reliable predictor of imminent music before it is ever allowed to influence production detection.
+
+The rolling report is written to:
+
+```text
+/share/vinyl_guardian/experiments/transition_latency.json
+/share/vinyl_guardian/experiments/transition_latency_events.jsonl
+/share/vinyl_guardian/experiments/needle_drop_candidates.jsonl
+```
+
+Transition and needle-drop clips are included in **Download diagnostic reports** even when they are not part of a manually selected diagnostic session. Retrospective onset estimates and later production confirmations are analysis labels, not ground truth, and none of this instrumentation changes the live state machine.
+
 
 ## Audio input discovery (v4.36)
 
