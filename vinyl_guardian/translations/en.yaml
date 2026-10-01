@@ -64,8 +64,9 @@ configuration:
     name: Collect detector dataset
     description: Save labelled detector features for analysis.
   data_collection_label:
-    name: Dataset label
-    description: Ground-truth label attached to collected features.
+    name: Dataset annotation
+    description: Descriptive annotation attached to collected features. Persistent dataset labels are
+      not trusted ground truth; review captured audio or use a one-shot manual mark for human-confirmed truth.
   data_collection_raw_audio:
     name: Save dataset audio
     description: Also retain raw audio; this uses substantially more storage.
