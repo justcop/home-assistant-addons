@@ -227,6 +227,7 @@ class TransitionLatencyCollector:
             resolved["timing_bucket"] = "no_music_within_10s"
         self.contact_outcomes.append(resolved)
         self._write_contact(resolved)
+        self._save_summary(now)
 
     def _observe_needle_drop_candidates(self, before, frame, now, transient):
         # Resolve older candidates first. Production confirmation is deliberately
