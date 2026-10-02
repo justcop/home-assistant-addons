@@ -4,13 +4,15 @@ from difflib import SequenceMatcher
 
 # Remaster labels change editions, while live/acoustic/demo/edit labels change recordings.
 REMASTER = re.compile(r'\s*(?:[-–—]\s*|[\[(])(?:(?:\d{4})\s+)?(?:re-?master(?:ed)?)(?:\s+\d{4})?(?:\s+version)?[\])]?\s*$', re.I)
+PRODUCTION_MIX = re.compile(r'\s*(?:[-–—]\s*|[\[(])(?:(?:new|stereo|mono)\s+)?(?:\d{4}\s+(?:(?:stereo|mono)\s+)?(?:mix|remix)|(?:stereo|mono)\s+mix\s+\d{4})[\])]?\s*$', re.I)
+EDITION_YEAR = re.compile(r'(?:\b(19\d{2}|20\d{2})\s+(?:(?:stereo|mono)\s+)?(?:re-?master(?:ed)?|mix|remix)|(?:re-?master(?:ed)?|mix|remix)\s+(19\d{2}|20\d{2})\b)', re.I)
 VERSION = re.compile(r'\b(live|demo|acoustic|instrumental|remix|radio edit|single edit|rerecord(?:ed|ing)|re-record(?:ed|ing))\b', re.I)
 
 
 def normalize(value, track=False):
     value = value.strip()
     if track:
-        value = REMASTER.sub('', value)
+        value = PRODUCTION_MIX.sub('', REMASTER.sub('', value))
     value = unicodedata.normalize('NFKD', value).casefold()
     value = ''.join(c for c in value if not unicodedata.combining(c))
     return ' '.join(re.findall(r'\w+', value))
@@ -68,14 +70,29 @@ def align(canonical, spotify_tracks, artist_names):
     return result
 
 
+def edition_year(source, mappings=None):
+    selected = {m['spotify_id'] for m in mappings if m['spotify_id']} if mappings is not None else None
+    labels = [source.get('name','')] + [t.get('name','') for t in source.get('all_tracks',[]) if selected is None or t.get('id') in selected]
+    years = [int(a or b) for label in labels for a,b in EDITION_YEAR.findall(label)]
+    labelled = any(re.search(r'\bre-?master(?:ed)?\b', label, re.I) for label in labels)
+    date = source.get('release_date','')[:4]
+    if labelled and not years and date.isdigit():
+        years.append(int(date))
+    return max(years, default=0)
+
+
 def candidate(album, source):
     mappings = align(album['tracks'], source['all_tracks'], [a['name'] for a in album['artists']])
     verified = sum(m['verified'] for m in mappings)
     matched = sum(bool(m['spotify_id']) for m in mappings)
     clean_title = normalize(album['title']) == normalize(source['name'])
-    score = verified*1000 + matched*100 + sum(m['score'] for m in mappings)/max(1,len(mappings))
+    preferred_year = edition_year(source,mappings)
+    quality = sum(m['score'] for m in mappings)/max(1,len(mappings))
+    # Completeness wins first, then the latest explicitly labelled remaster or dated mix.
+    # A recent upload/reissue date alone is not evidence of a new mastering.
+    score = verified*1000000000000 + matched*1000000000 + preferred_year*10000 + quality
     score += 30*clean_title + 10*(source.get('release_date','')[:4] == album['release_date'][:4])
-    score -= max(0, len(source['all_tracks'])-len(mappings))
+    score -= min(20, max(0, len(source['all_tracks'])-len(mappings)))
     return {'id':source['id'], 'name':source['name'], 'release_date':source.get('release_date',''),
-            'track_count':len(source['all_tracks']), 'matched':matched, 'verified':verified,
+            'edition_year':preferred_year, 'track_count':len(source['all_tracks']), 'matched':matched, 'verified':verified,
             'score':score, 'mappings':mappings, 'url':'https://open.spotify.com/album/'+source['id']}

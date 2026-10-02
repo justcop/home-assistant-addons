@@ -1,3 +1,4 @@
+import io
 import hashlib
 import json
 import logging
@@ -11,6 +12,7 @@ from urllib.parse import urlsplit
 from flask import Flask, jsonify, render_template, request, send_file, session
 from werkzeug.exceptions import HTTPException
 
+from .artwork import Artwork
 from .errors import AppError
 from .matching import candidate, track_score
 from .musicbrainz import MusicBrainz, mbid
@@ -23,7 +25,7 @@ LOG = logging.getLogger('audioshelf')
 def load_options():
     path = Path(os.environ.get('AUDIOSHELF_OPTIONS','/data/options.json'))
     options = json.loads(path.read_text()) if path.exists() else {}
-    for key in ('data_directory','spotify_client_id','spotify_redirect_uri','spotify_market','web_password'):
+    for key in ('data_directory','cache_directory','spotify_client_id','spotify_redirect_uri','spotify_market','web_password'):
         value = os.environ.get('AUDIOSHELF_'+key.upper())
         if value is not None:
             options[key] = value
@@ -33,18 +35,26 @@ def load_options():
 
 def create_app(options=None):
     options = options if options is not None else load_options()
-    store = Store(options.get('data_directory','/share/audioshelf'))
+    cache_directory = options.get('cache_directory') or os.environ.get('AUDIOSHELF_CACHE_DIRECTORY')
+    if not cache_directory:
+        cache_directory = str(Path(options['private_directory']).parent/'cache') if options.get('private_directory') else '/share/audioshelf-cache'
+    collection = Path(options.get('data_directory','/share/audioshelf')).resolve()
+    cache = Path(cache_directory).resolve()
+    if cache == collection or collection in cache.parents or cache in collection.parents:
+        raise RuntimeError('Keep cache_directory separate from data_directory, without either containing the other.')
+    store = Store(collection,cache)
     private_dir = Path(options.get('private_directory') or os.environ.get('AUDIOSHELF_PRIVATE_DIRECTORY','/data/audioshelf-private'))
     private_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     secret_path = private_dir/'session.json'
     if not secret_path.exists():
         atomic_private_json(secret_path, {'key':secrets.token_hex(32)})
     app = Flask(__name__)
-    app.config.update(SECRET_KEY=json.loads(secret_path.read_text())['key'], MAX_CONTENT_LENGTH=64*1024,
+    app.config.update(SECRET_KEY=json.loads(secret_path.read_text())['key'], MAX_CONTENT_LENGTH=7*1024*1024,
                       SESSION_COOKIE_NAME='audioshelf_session', SESSION_COOKIE_HTTPONLY=True,
                       SESSION_COOKIE_SAMESITE='Lax', PERMANENT_SESSION_LIFETIME=timedelta(days=30))
     musicbrainz, spotify = MusicBrainz(store), Spotify(store, options, private_dir)
-    app.extensions.update(store=store, musicbrainz=musicbrainz, spotify=spotify)
+    artwork = Artwork(store,spotify)
+    app.extensions.update(store=store, musicbrainz=musicbrainz, spotify=spotify, artwork=artwork)
     build_path = Path(__file__).resolve().parents[1]/'build.json'
     build = json.loads(build_path.read_text()) if build_path.exists() else {'version':'0.1.0','channel':'local','revision':'local'}
     build['version'] = os.environ.get('AUDIOSHELF_VERSION',build['version'])
@@ -115,7 +125,7 @@ def create_app(options=None):
         result = {'build':build,'authenticated':authenticated(),'password_required':bool(password) and not ingress()}
         if authenticated():
             result.update(spotify_configured=spotify.configured, spotify_connected=spotify.connected,
-                          spotify_redirect_uri=spotify.redirect_uri, data_directory=str(store.directory), market=spotify.market)
+                          spotify_redirect_uri=spotify.redirect_uri, data_directory=str(store.directory), cache_directory=str(store.cache_directory), market=spotify.market)
         return jsonify(result)
 
     @app.post('/api/login')
@@ -173,6 +183,23 @@ def create_app(options=None):
             except KeyError:
                 musicbrainz.ensure_group(album_id)
             return jsonify(musicbrainz.ensure_tracks(album_id))
+
+    @app.get('/api/albums/<album_id>/artwork')
+    def album_artwork(album_id):
+        data,mime,source = artwork.get(mbid(album_id))
+        response = send_file(io.BytesIO(data),mimetype=mime,max_age=0)
+        response.headers['X-Artwork-Source'] = source
+        return response
+
+    @app.post('/api/albums/<album_id>/artwork')
+    def replace_artwork(album_id):
+        artwork.upload(mbid(album_id),request.json.get('image',''))
+        return jsonify(ok=True)
+
+    @app.delete('/api/albums/<album_id>/artwork')
+    def reset_artwork(album_id):
+        artwork.reset(mbid(album_id))
+        return jsonify(ok=True)
 
     @app.post('/api/albums/<album_id>/shelf')
     def add_shelf(album_id):

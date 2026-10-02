@@ -1,5 +1,5 @@
 name: AudioShelf
-version: "0.1.0"
+version: "0.2.0"
 slug: audioshelf
 description: Your album collection, with original tracklists and Spotify playback.
 url: https://github.com/justcop/home-assistant-addons/tree/main/audioshelf
@@ -23,12 +23,14 @@ map:
     read_only: false
 options:
   data_directory: /share/audioshelf
+  cache_directory: /share/audioshelf-cache
   spotify_client_id: ""
   spotify_redirect_uri: ""
   spotify_market: GB
   web_password: ""
 schema:
   data_directory: str
+  cache_directory: str
   spotify_client_id: str?
   spotify_redirect_uri: str?
   spotify_market: str

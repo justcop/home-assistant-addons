@@ -7,7 +7,7 @@ Browse artists, explore their studio albums in release order, add records to you
 ## Install
 
 1. In Home Assistant, refresh the add-on store for the existing repository: `https://github.com/justcop/home-assistant-addons`.
-2. Install **AudioShelf**, version **0.1.0**. Enable the sidebar entry if wanted, then start it.
+2. Install **AudioShelf**, version **0.2.0**. Enable the sidebar entry if wanted, then start it.
 3. Use **Open Web UI** for Home Assistant ingress. The standalone UI is also exposed on port **8098** by default, for your existing external-access system.
 4. Open the Record Store, search for an artist, browse their studio albums, and add one to your shelf. Spotify is not needed to collect records.
 
@@ -30,7 +30,7 @@ External HTTPS and access control are managed by your existing system. An option
 ## Play an original album
 
 1. Open an album. Check its displayed original tracklist once and tap **This tracklist is correct**. If it includes bonus tracks or misses tracks, choose **Album settings → Change original tracklist**, and pick the standard MusicBrainz edition instead.
-2. Tap **Match Spotify tracks**. The best candidate is saved automatically, and other editions are offered. This may take several seconds. Matching compares artist, normalized track title, recording-version labels, duration and sequence. A remaster suffix can be ignored, but live, demo, acoustic, remix, instrumental and edit labels are preserved.
+2. Tap **Match Spotify tracks**. The best complete candidate is saved automatically, preferring the newest explicitly labelled remaster or dated studio mix, and other editions are offered. Recent release dates alone do not prove a new remaster. Spotify search is checked across up to three pages (30 editions), so an unlisted edition can still be selected manually. Existing mappings are kept on upgrade; tap **Find another edition** to rematch an already playable album. Verified manual mappings remain unchanged. This may take several seconds. Matching compares artist, normalized track title, recording-version labels, duration and sequence. A remaster suffix can be ignored, but live, demo, acoustic, generic remix, instrumental and edit labels are preserved. Explicit dated production suffixes such as “2022 Mix” or “2022 Stereo Mix” are allowed, including the type of new mix used on Revolver. Choosing a Spotify edition never changes the original album tracklist.
 3. If necessary, paste a Spotify album link in Album settings. If a track still needs review, use its **Edit** button, paste the correct Spotify track link, and confirm the recording. Individual tracks can come from different Spotify albums. Manual corrections survive automatic rematching.
 4. Open Spotify on your phone or speaker, play a few seconds so the device is active, then return and tap **Play album**. AudioShelf sends an ordered list of verified track URIs, never an album context. Missing or unverified tracks block playback rather than quietly playing a different album.
 
@@ -40,7 +40,7 @@ Shuffle and Repeat are switched off and checked before the playback command. Tur
 
 ## Persistence and backups
 
-The SQLite database lives at `/share/audioshelf/audioshelf.db` by default. It contains your shelf, MusicBrainz catalogue cache, canonical editions and track mappings. Updates and container rebuilds preserve this folder. Changing `data_directory` selects a different database; copy the existing folder first if moving your collection.
+The SQLite database lives at `/share/audioshelf/audioshelf.db` by default. It contains your shelf, browsed album records, canonical editions, track mappings and custom-cover references. Raw API responses are stored separately in the replaceable cache. Updates and container rebuilds preserve this folder. Changing `data_directory` selects a different database; copy the existing folder first if moving your collection.
 
 Use the local Home Assistant `/share` filesystem for the live database, rather than a network-mounted SMB/NFS directory. Only one running AudioShelf instance should use it. Connections are short lived and transactional; canonical edition changes and mapping writes are serialized. Schema version checks prevent an older app silently opening a newer database.
 
@@ -67,8 +67,18 @@ Options can come from `/data/options.json`, another JSON file selected by `AUDIO
 .venv/bin/python -m pytest tests -q
 node --check app/static/app.js
 bash -n run.sh
-docker build --build-arg BUILD_VERSION=0.1.0 --build-arg BUILD_ARCH=amd64 -t audioshelf .
+docker build --build-arg BUILD_VERSION=0.2.0 --build-arg BUILD_ARCH=amd64 -t audioshelf .
 ```
+
+## Artwork and replaceable cache
+
+Covers now load through the add-on, rather than relying on the phone browser following remote artwork redirects. AudioShelf tries the Cover Art Archive release-group cover, the selected MusicBrainz edition, then Spotify artwork when connected. Spotify fallback works before track matching as well as afterwards. Downloads are validated as JPEG, PNG or WebP, limited to 5 MB, and follow redirects only to known artwork hosts. Missing artwork shows a record placeholder and is retried after five minutes, or immediately when Spotify becomes connected or the album gains a mapping.
+
+`cache_directory` defaults to **`/share/audioshelf-cache`**, separate from **`/share/audioshelf`**. It contains `metadata.db` for reproducible MusicBrainz/Spotify API responses and `artwork/` for downloaded images. You manage backup exclusions for this folder yourself. No Home Assistant backup settings are changed. The paths must be separate, with neither containing the other. Any custom path must be accessible inside the add-on; the `/share` filesystem is already mapped. Environment override: `AUDIOSHELF_CACHE_DIRECTORY`.
+
+Downloaded CAA covers refresh after 30 days, and Spotify fallback covers after one day. Artwork storage is capped at 512 MB by evicting the oldest downloaded images. To discard the cache, stop AudioShelf, delete this cache folder, and start it again. Artwork and API data rebuild on demand without changing your shelf or mappings. Upgrading from 0.1.0 removes the old raw-response cache from the collection database and compacts it; your shelf, tracklists, mappings and authorization states survive.
+
+In **Album settings**, upload a JPEG, PNG or WebP cover (up to 5 MB and 16 megapixels), or choose **Restore automatic cover**. Uploaded covers are personal choices, so their original files remain in **`/share/audioshelf/custom-artwork`**, alongside the collection. Include those files in your collection-folder backup. A database-only backup preserves their references but cannot contain image files. Export collection is a JSON catalogue export, not a cover-file export. Cover choice is independent of Spotify playback edition.
 
 The automated suite uses deterministic metadata and player fixtures. Real account authorization, live MusicBrainz catalogue completeness and playback on your own Spotify Connect device must be checked after installation. No real tokens or audio are needed by CI. `/health` checks database connectivity. Settings shows the package version, delivery channel and revision marker; `build.json` records these values. This MVP deliberately has one published main-channel add-on, with no runtime branch-switching code. Development branches can be tested locally before publishing a version bump.
 

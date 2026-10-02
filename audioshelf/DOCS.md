@@ -9,3 +9,5 @@ Open Settings in the AudioShelf UI to connect Spotify. Review the original Music
 Your collection is stored under `/share/audioshelf`. Spotify tokens are stored separately in persistent add-on `/data`. The standalone UI is on port 8098 by default; ingress is also supported. Your existing proxy supplies external HTTPS and access control. You can additionally set a `web_password` for standalone access.
 
 See [the full README](https://github.com/justcop/home-assistant-addons/blob/main/audioshelf/README.md) for edition corrections, backups, phone installation, testing and troubleshooting.
+
+Artwork and reproducible API data are stored separately in `/share/audioshelf-cache`, configurable with `cache_directory`. You manage backup exclusions. Your uploaded covers remain in `/share/audioshelf/custom-artwork`. Automatic playback matching prefers newer labelled remasters or dated studio mixes; tap Find another edition to update existing automatic mappings.
