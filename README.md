@@ -1,3 +1,9 @@
+# Custom Home Assistant add-ons
+
+- [AudioShelf](audioshelf/README.md): a mobile album collection, chronological studio-album Record Store and exact-track Spotify playback. Collection data persists in `/share/audioshelf`.
+- [Work Audit](work_audit/README.md): collect and review work activity in Home Assistant.
+- Vinyl Guardian: audio detection, recognition and vinyl listening diagnostics, described below.
+
 # 🎵 Vinyl Guardian
 
 Vinyl Guardian is a custom Home Assistant Add-on that bridges the gap between your analog record player and your digital smart home. By listening to the audio output of your turntable, Vinyl Guardian automatically detects when the needle drops, records a short snippet, identifies the song using Shazam, and publishes the track metadata natively to Home Assistant via MQTT. It even includes bulletproof, native Last.fm scrobbling that perfectly mimics digital media players.

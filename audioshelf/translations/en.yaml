@@ -1,0 +1,18 @@
+configuration:
+  data_directory:
+    name: Collection folder
+    description: Local persistent folder for the database and backups. Default /share/audioshelf.
+  spotify_client_id:
+    name: Spotify client ID
+    description: From your Spotify developer app. No client secret is needed.
+  spotify_redirect_uri:
+    name: Spotify redirect URI
+    description: Your exact registered HTTPS address ending in /auth/spotify/callback.
+  spotify_market:
+    name: Spotify country
+    description: Two-letter country code, GB by default.
+  web_password:
+    name: Standalone web password
+    description: Optional extra password for the standalone UI. Ingress uses Home Assistant authentication.
+network:
+  8099/tcp: Standalone AudioShelf web interface and Spotify callback

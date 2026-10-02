@@ -1,0 +1,28 @@
+name: AudioShelf checks
+on:
+  push:
+    paths: ["audioshelf/**", ".github/workflows/audioshelf-tests.yml"]
+  pull_request:
+    paths: ["audioshelf/**", ".github/workflows/audioshelf-tests.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install -r audioshelf/requirements.txt pytest==8.4.2 PyYAML==6.0.2
+      - run: python -m pytest audioshelf/tests -q
+      - run: python -m compileall -q audioshelf/app && bash -n audioshelf/run.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: node --check audioshelf/app/static/app.js && node --check audioshelf/app/static/sw.js
+      - run: npm install --no-save playwright@1.62.1 && npx playwright install --with-deps chromium
+      - run: node audioshelf/tests/test_ui.cjs
+      - name: Build add-on container
+        run: docker build --build-arg BUILD_VERSION=0.1.0 --build-arg BUILD_ARCH=amd64 -t audioshelf:test audioshelf
