@@ -1,4 +1,6 @@
 """Deterministic browser fixture, never used by the installed app."""
+import io
+from PIL import Image
 import os
 import sys
 import tempfile
@@ -44,6 +46,9 @@ def spotify_api(method,path,params=None,body=None):
     raise AssertionError(path)
 
 
+cover_buffer=io.BytesIO()
+Image.new('RGB',(50,50),'#486359').save(cover_buffer,format='PNG')
+app.extensions['artwork'].download=lambda url:(cover_buffer.getvalue(),'image/png')
 app.extensions['musicbrainz'].get=mb_get
 app.extensions['spotify'].api=spotify_api
 app.extensions['spotify']._save({'access_token':'fixture-only','refresh_token':'fixture-only','expires_in':3600})

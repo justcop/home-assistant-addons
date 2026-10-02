@@ -10,14 +10,14 @@ from pathlib import Path
 class Store:
     """Short-lived connections, transactional updates and explicit schema versions."""
 
-    def __init__(self, directory):
+    def __init__(self, directory, cache_directory=None):
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
         self.path = self.directory / 'audioshelf.db'
         self.catalogue_lock = threading.RLock()
         with self.connect() as db:
             version = db.execute('PRAGMA user_version').fetchone()[0]
-            if version > 1:
+            if version > 2:
                 raise RuntimeError('This database needs a newer AudioShelf version.')
             db.executescript('''
                 CREATE TABLE IF NOT EXISTS artists (
@@ -39,13 +39,20 @@ class Store:
                     PRIMARY KEY(album_id, position));
                 CREATE TABLE IF NOT EXISTS shelf (
                     album_id TEXT PRIMARY KEY REFERENCES albums(id), added_at REAL NOT NULL);
-                CREATE TABLE IF NOT EXISTS cache (
-                    key TEXT PRIMARY KEY, value TEXT NOT NULL, expires REAL NOT NULL);
+                CREATE TABLE IF NOT EXISTS artwork_overrides (album_id TEXT PRIMARY KEY REFERENCES albums(id), filename TEXT NOT NULL);
+                DROP TABLE IF EXISTS cache;
                 CREATE TABLE IF NOT EXISTS oauth_states (
                     state TEXT PRIMARY KEY, verifier TEXT NOT NULL, expires REAL NOT NULL);
-                PRAGMA user_version=1;
+                PRAGMA user_version=2;
             ''')
+            if version == 1:
+                db.execute('VACUUM')
         os.chmod(self.path, 0o600)
+        self.cache_directory = Path(cache_directory) if cache_directory else self.directory.parent / (self.directory.name+'-cache')
+        self.cache_directory.mkdir(parents=True, exist_ok=True)
+        self.cache_path = self.cache_directory / 'metadata.db'
+        with self.cache_connect() as db:
+            db.execute('CREATE TABLE IF NOT EXISTS cache (key TEXT PRIMARY KEY, value TEXT NOT NULL, expires REAL NOT NULL)')
 
     @contextlib.contextmanager
     def connect(self):
@@ -59,15 +66,36 @@ class Store:
         finally:
             db.close()
 
+    @contextlib.contextmanager
+    def cache_connect(self):
+        db = sqlite3.connect(self.cache_path, timeout=30)
+        try:
+            with db:
+                yield db
+        finally:
+            db.close()
+
     def cache_get(self, key):
-        with self.connect() as db:
+        with self.cache_connect() as db:
             row = db.execute('SELECT value FROM cache WHERE key=? AND expires>?', (key, time.time())).fetchone()
         return json.loads(row[0]) if row else None
 
     def cache_put(self, key, value, ttl=86400):
-        with self.connect() as db:
+        with self.cache_connect() as db:
             db.execute('DELETE FROM cache WHERE expires<?', (time.time(),))
             db.execute('INSERT OR REPLACE INTO cache VALUES (?,?,?)', (key, json.dumps(value), time.time()+ttl))
+
+    def artwork_override(self, album_id):
+        with self.connect() as db:
+            row = db.execute('SELECT filename FROM artwork_overrides WHERE album_id=?', (album_id,)).fetchone()
+        return row[0] if row else None
+
+    def set_artwork_override(self, album_id, filename):
+        with self.connect() as db:
+            if filename:
+                db.execute('INSERT OR REPLACE INTO artwork_overrides VALUES (?,?)', (album_id, filename))
+            else:
+                db.execute('DELETE FROM artwork_overrides WHERE album_id=?', (album_id,))
 
     def catalogue(self, groups):
         with self.connect() as db:

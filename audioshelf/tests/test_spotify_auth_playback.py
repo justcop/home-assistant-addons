@@ -129,3 +129,19 @@ def test_spotify_album_link_formats(value):assert spotify_id(value,'album')=='a'
 
 def test_untrusted_spotify_urls_not_fetched():
     with pytest.raises(AppError):spotify_id('https://evil.example/album/'+'a'*22,'album')
+
+
+def test_candidate_search_reaches_new_remaster_on_next_page(application,monkeypatch):
+    spotify=application.extensions['spotify'];album=application.extensions['store'].album(ALBUM);offsets=[]
+    from conftest import spotify_track
+    def api(method,path,params=None,body=None):
+        offsets.append(params.get('offset',0))
+        if params.get('offset',0)==0:return {'albums':{'items':[{'id':'o'*22}],'next':'next'}}
+        return {'albums':{'items':[{'id':'n'*22}],'next':None}}
+    def source(identifier):
+        new=identifier[0]=='n';suffix=' - 2022 Remaster' if new else ''
+        return {'id':identifier,'name':'The Album'+suffix,'release_date':'2022' if new else '2007',
+            'all_tracks':[spotify_track('Opening'+suffix,'a'*22),spotify_track('Closing'+suffix,'b'*22,240000)]}
+    monkeypatch.setattr(spotify,'api',api);monkeypatch.setattr(spotify,'album',source)
+    assert spotify.candidates(album)[0]['id']=='n'*22
+    assert offsets==[0,10]

@@ -2,6 +2,9 @@ configuration:
   data_directory:
     name: Collection folder
     description: Local persistent folder for the database and backups. Default /share/audioshelf.
+  cache_directory:
+    name: Replaceable cache folder
+    description: Artwork downloads and API metadata, separate from the collection. Can be excluded from backups. Default /share/audioshelf-cache.
   spotify_client_id:
     name: Spotify client ID
     description: From your Spotify developer app. No client secret is needed.
