@@ -512,6 +512,8 @@ def create_app(options=None):
 
     @app.post('/api/albums/<album_id>/play')
     def play(album_id):
+        if not store.setting('preferred_device'):
+            raise AppError('Choose your playback device before starting music.', 409)
         body = request.get_json(silent=True) or {}
         album = store.album(mbid(album_id))
         result = spotify.play(album, disc_number=body.get('disc_number'))

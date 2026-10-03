@@ -7,7 +7,7 @@ Browse artists, explore their studio albums in release order, add records to you
 ## Install
 
 1. In Home Assistant, refresh the add-on store for the existing repository: `https://github.com/justcop/home-assistant-addons`.
-2. Install **AudioShelf**, version **0.5.2**. Enable the sidebar entry if wanted, then start it.
+2. Install **AudioShelf**, version **0.5.3**. Enable the sidebar entry if wanted, then start it.
 3. Use **Open Web UI** for Home Assistant ingress. The standalone UI is also exposed on port **8098** by default, for your existing external-access system.
 4. Open the Record Store, search for an artist, browse their studio albums, and add one to your shelf. Spotify is not needed to collect records.
 
@@ -36,7 +36,7 @@ External HTTPS is supplied by your existing proxy. A `web_password` is required 
 
 Original albums with multiple audio discs keep all those discs. Video discs are excluded. Spotify bonus tracks can occur anywhere in its edition and are skipped by ordered matching. A deluxe release can therefore supply the original songs without its extras becoming part of your shelf.
 
-Shuffle and Repeat are switched off and checked before the playback command. Turn **Autoplay off in Spotify** if you want playback to end in silence. Spotify controls Autoplay, Smart Shuffle and device behaviour; AudioShelf cannot prevent you or another client changing the queue/settings after playback starts. The MVP plays the currently active device and replaces its current playback queue; it does not append an album to an existing queue. Albums over 100 tracks are not supported for playback in this release.
+Shuffle and Repeat are switched off and checked before the playback command. Turn **Autoplay off in Spotify** if you want playback to end in silence. Spotify controls Autoplay, Smart Shuffle and device behaviour; AudioShelf cannot prevent you or another client changing the queue/settings after playback starts. AudioShelf plays your explicitly chosen device and replaces its current playback queue; it does not append an album to an existing queue. Albums over 100 tracks are not supported for playback in this release.
 
 ## Persistence and backups
 
@@ -67,7 +67,7 @@ Options can come from `/data/options.json`, another JSON file selected by `AUDIO
 .venv/bin/python -m pytest tests -q
 node --check app/static/app.js
 bash -n run.sh
-docker build --build-arg BUILD_VERSION=0.5.2 --build-arg BUILD_ARCH=amd64 -t audioshelf .
+docker build --build-arg BUILD_VERSION=0.5.3 --build-arg BUILD_ARCH=amd64 -t audioshelf .
 ```
 
 ## Artwork and replaceable cache
@@ -188,4 +188,4 @@ Choose **Settings → Appearance → Classic** for the original interface, or **
 
 Album settings retains cover selection, original tracklist changes, Spotify editions and diagnostic downloads. The new interface uses the same library and artwork cache rules: uncollected store covers are not saved locally.
 
-Spotify handoff: Open Spotify launches the app without selecting an album or track. AudioShelf sends the synced tracklist through its playback API. If no player is active, AudioShelf activates your preferred device or the only available controllable device. Choose a device when several are available. After pressing Open Spotify in a failed playback dialog, returning to AudioShelf retries the same album or disc for up to one minute. Closing the dialog or navigating away cancels the retry. Your preferred device is never silently replaced by another.
+Spotify handoff: Open Spotify launches the app without selecting an album or track. AudioShelf sends the synced tracklist through its playback API. Choose a device before first playback. AudioShelf remembers it and never substitutes another available device. Change device is available beside Play. If your phone is missing, open Spotify on that phone and return to refresh the chooser. After pressing Open Spotify in a failed playback dialog, returning to AudioShelf retries the same album or disc for up to one minute. Closing the dialog or navigating away cancels the retry. Your preferred device is never silently replaced by another.
