@@ -1,3 +1,9 @@
+# 0.5.2
+
+- Show the selected record and first track immediately when Spotify accepts Play. Recheck rapidly during startup so stale Spotify responses do not put the previous record back on the turntable.
+- Add a song progress bar with elapsed and total time. Advance locally between Spotify checks, freeze for paused or unavailable playback, and resynchronise on seeks and track changes.
+- Keep normal playback checks at 15 seconds while visible. Expect a change after Play and at song boundaries, then recheck quickly until Spotify confirms it. Refresh immediately on returning to the app.
+
 # 0.5.1
 
 - Open Spotify without an album or track deep link, preserving AudioShelf’s synced queue and selected disc. Automatically retry the exact requested tracklist when returning from Spotify, with a one-minute limit and cancellation when the dialog closes or you navigate away.

@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-03T19:27:28+01:00 (Europe/London).
+Reviewed: 2026-10-03T19:32:33+01:00 (Europe/London).
 
-Kept the reviewed playback/device regression coverage. Added failure diagnostics to the existing vinyl playback browser assertion, capturing API completion, page errors and displayed status rather than adding a duplicate test. This investigates the release-blocking vinyl timeout without weakening its expected playing state.
+Reviewed the combined playback changes against merged Spotify handoff main: existing cases now check first-track metadata, progress/duration, relinking and null progress; handoff and exact-queue regressions are retained. All 230 backend cases pass locally. The progress browser flow previously passed for stale startup replies, restart positions, moving/paused progress and song boundaries. After integrating the shared startPlayback path, both combined browser suites and the container build are required in CI; the local Chromium binary currently fails at launch before loading the app. No backend test cases were added for progress.
 
-<!-- inventory: {"reviewed_at": "2026-10-03T19:27:28+01:00", "review_note": "Kept the reviewed playback/device regression coverage. Added failure diagnostics to the existing vinyl playback browser assertion, capturing API completion, page errors and displayed status rather than adding a duplicate test. This investigates the release-blocking vinyl timeout without weakening its expected playing state.", "source_sha256": "fccf4e722759e41b875c3d6a232fcf0986515fd09ce9324d0e4379ed4d895edb"} -->
+<!-- inventory: {"reviewed_at": "2026-10-03T19:32:33+01:00", "review_note": "Reviewed the combined playback changes against merged Spotify handoff main: existing cases now check first-track metadata, progress/duration, relinking and null progress; handoff and exact-queue regressions are retained. All 230 backend cases pass locally. The progress browser flow previously passed for stale startup replies, restart positions, moving/paused progress and song boundaries. After integrating the shared startPlayback path, both combined browser suites and the container build are required in CI; the local Chromium binary currently fails at launch before loading the app. No backend test cases were added for progress.", "source_sha256": "fc481a59ee435a5a3decd6f407d689eea87370d74b3fbf51bca3cd6c00e74f6b"} -->
 
 ## Backend cases (230)
 

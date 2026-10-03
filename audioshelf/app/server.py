@@ -536,7 +536,9 @@ def create_app(options=None):
         return jsonify(active=True, playing=bool(state.get('is_playing')), track=track.get('name', ''),
                        artist=', '.join(a.get('name', '') for a in track.get('artists', [])),
                        album=album['title'] if album else (track.get('album') or {}).get('name', ''),
-                       album_id=album_id, device=(state.get('device') or {}).get('name', 'Spotify'))
+                       album_id=album_id, device=(state.get('device') or {}).get('name', 'Spotify'),
+                       track_ids=[value for value in identifiers if value], progress_ms=state.get('progress_ms'),
+                       duration_ms=track.get('duration_ms'))
 
     @app.get('/api/spotify/devices')
     def devices():

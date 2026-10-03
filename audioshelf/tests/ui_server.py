@@ -89,7 +89,7 @@ def spotify_api(method,path,params=None,body=None):
     if path=='me/player':return {'device':{'id':'phone','name':'Fixture phone'},'shuffle_state':False,'repeat_state':'off',**playback_state}
     if path=='me/player/play':
         play_calls.append(body)
-        playback_state.update(is_playing=True,currently_playing_type='track',item={**source['tracks']['items'][0],'album':{'name':source['name']}})
+        playback_state.update(is_playing=True,progress_ms=0,currently_playing_type='track',item={**source['tracks']['items'][0],'album':{'name':source['name']}})
         return {}
     raise AssertionError(path)
 

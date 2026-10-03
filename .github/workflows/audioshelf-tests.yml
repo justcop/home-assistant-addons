@@ -27,4 +27,4 @@ jobs:
       - run: npm install --no-save playwright@1.62.1 && npx playwright install --with-deps chromium
       - run: node audioshelf/tests/test_ui.cjs && node audioshelf/tests/test_vinyl_ui.cjs
       - name: Build add-on container
-        run: docker build --build-arg BUILD_VERSION=0.5.1 --build-arg BUILD_ARCH=amd64 -t audioshelf:test audioshelf
+        run: docker build --build-arg BUILD_VERSION=0.5.2 --build-arg BUILD_ARCH=amd64 -t audioshelf:test audioshelf

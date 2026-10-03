@@ -71,8 +71,29 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert.equal(await page.getByRole('button',{name:'Add Open Windows to shelf',exact:true}).count(),0);
     await page.getByRole('link',{name:'The Original Album',exact:true}).click();
     await page.getByRole('button',{name:'This tracklist is correct'}).click();
+    // Spotify can briefly return the old song after accepting a new queue.
+    let startupReads=0, confirmStartup;
+    const startupGate=new Promise(resolve=>confirmStartup=resolve);
+    await page.evaluate(()=>playbackChecked=Date.now());
+    await page.route('**/api/spotify/playback',async route=>{
+      startupReads++;
+      if(startupReads===1){await route.fulfill({contentType:'application/json',body:JSON.stringify({active:true,playing:true,track:'Previous song',track_ids:['old-track'],progress_ms:120000,duration_ms:180000,album:'Previous album'})});return;}
+      if(startupReads===2){await route.fulfill({contentType:'application/json',body:JSON.stringify({active:true,playing:true,track:'Opening',track_ids:['a'.repeat(22)],progress_ms:120000,duration_ms:180000,album:'The Original Album'})});return;}
+      await startupGate;await route.continue();
+    });
     await page.getByRole('button',{name:'Play album',exact:false}).click();
-    await waitPlaying();
+    await page.locator('#turntable small b').filter({hasText:'STARTING'}).waitFor();
+    assert.equal(await page.locator('#turntable strong').textContent(),'The Original Album');
+    assert((await page.locator('#turntable .turntable-record').textContent()).includes('Opening'));
+    assert.equal(await page.getByRole('progressbar',{name:'Song progress'}).evaluate(el=>el.value),0);
+    await page.waitForFunction(()=>document.querySelector('#turntable small b')?.textContent==='STARTING');
+    confirmStartup();
+    await page.locator('#turntable small b').filter({hasText:'PLAYING'}).waitFor({timeout:4000});
+    assert(startupReads>=3,'Startup retries must not wait for the normal poll');
+    await page.unroute('**/api/spotify/playback');
+    const initialProgress=await page.getByRole('progressbar',{name:'Song progress'}).evaluate(el=>el.value);
+    await page.waitForFunction(start=>document.querySelector('#turntable progress')?.value>start+500,initialProgress);
+    assert.equal(await page.getByRole('progressbar',{name:'Song progress'}).evaluate(el=>el.max),180000);
     assert.equal(await page.locator('#turntable strong').textContent(),'The Original Album');
     await noOverflow();await shot('album-desktop');
     // A late Play response must never replace the newly inspected sleeve.
@@ -104,13 +125,30 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.locator('[data-nav="store"]').click();
     await page.locator('.store-rack').first().waitFor();
     await noOverflow();await shot('store-mobile');
-    await page.route('**/api/spotify/playback',route=>route.fulfill({contentType:'application/json',body:JSON.stringify({active:true,playing:false,album:'The Original Album',album_id:'f5093c06-23e3-4f01-aeaa-40f72885ee3a',track:'Opening',artist:'The Artist',device:'Phone'})}));
+    await page.route('**/api/spotify/playback',route=>route.fulfill({contentType:'application/json',body:JSON.stringify({active:true,playing:false,album:'The Original Album',album_id:'f5093c06-23e3-4f01-aeaa-40f72885ee3a',track:'Opening',artist:'The Artist',device:'Phone',progress_ms:42000,duration_ms:180000,track_ids:['a'.repeat(22)]})}));
     await page.evaluate(()=>refreshPlayback(true));
     await page.locator('#turntable small b').filter({hasText:'PAUSED'}).waitFor();
+    assert.equal(await page.getByRole('progressbar',{name:'Song progress'}).evaluate(el=>el.value),42000);
+    const progressNode=await page.locator('#turntable progress').elementHandle();
+    await page.waitForFunction(()=>document.querySelector('#turntable [data-elapsed]')?.textContent==='0:42');
+    await page.evaluate(()=>{playbackState.observedAt-=10000;updateTrackProgress();});
+    assert.equal(await progressNode.evaluate(el=>el.value),42000,'Paused progress must not advance');
+    await noOverflow();await shot('progress-mobile');
     await page.unroute('**/api/spotify/playback');
     await page.route('**/api/spotify/playback',route=>route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'Unavailable'})}));
     await page.evaluate(()=>refreshPlayback(true));
     await page.locator('#turntable small b').filter({hasText:'STATUS UNAVAILABLE'}).waitFor();
+    await page.unroute('**/api/spotify/playback');
+    // At a song boundary refresh promptly instead of leaving a full bar and old title.
+    let boundaryReads=0;
+    await page.route('**/api/spotify/playback',route=>{boundaryReads++;return route.fulfill({contentType:'application/json',body:JSON.stringify({active:true,playing:true,track:'Closing',album:'The Original Album',progress_ms:1000,duration_ms:240000,track_ids:['b'.repeat(22)]})});});
+    await page.evaluate(()=>{
+      playbackState={active:true,playing:true,track:'Opening',album:'The Original Album',progress_ms:179900,duration_ms:180000,observedAt:performance.now()};
+      playbackChecked=Date.now()-1100;renderTurntable();
+    });
+    await page.waitForFunction(()=>document.querySelector('#turntable .turntable-record')?.textContent.includes('Closing'),null,{timeout:2500});
+    assert(boundaryReads>0);
+    assert.equal(await page.getByRole('progressbar',{name:'Song progress'}).evaluate(el=>el.max),240000);
     await page.unroute('**/api/spotify/playback');
     await page.getByRole('link',{name:'Open settings'}).click();
     await page.getByRole('button',{name:'Classic The original AudioShelf interface',exact:false}).click();
@@ -126,6 +164,6 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.setViewportSize({width:320,height:740});await noOverflow();
     await page.locator('[data-nav="shelf"]').click();await page.locator('.shelf-rack').first().waitFor();await noOverflow();
     assert.deepEqual(errors,[]);
-    console.log('Vinyl browser checks passed: two rooms, responsive sleeves, browsing restoration, collect in place, live playback independence/pause/outage, album settings, Classic persistence.');
+    console.log('Vinyl browser checks passed: two rooms, responsive sleeves, browsing restoration, collect in place, rapid startup despite stale replies, progress/pause/track boundaries, playback independence/outage, album settings, Classic persistence.');
   }finally{if(browser)await browser.close();server.kill('SIGTERM');}
 })().catch(error=>{console.error(error);console.error(logs.slice(-4000));process.exitCode=1;});

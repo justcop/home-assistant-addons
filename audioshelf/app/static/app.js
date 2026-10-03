@@ -95,8 +95,9 @@ function playbackHandoff(request,message){
   showModal(`<h2>Spotify playback</h2><p>${escapeHtml(message)}</p><div class="actions"><a class="primary" data-action="open-playback-spotify" href="${spotifyAppLink()}">Open Spotify</a><button class="secondary" data-action="play" ${request.disc===null?'':`data-disc="${request.disc}"`}>Retry playback</button><button class="secondary" data-action="playback-devices">Choose device</button></div><p>Open Spotify, then return here. AudioShelf will retry the same ${request.disc===null?'album':'disc'} automatically for up to one minute. Closing this dialog cancels the retry.</p>`);
 }
 async function startPlayback(request,openApp=true){
+  const playbackRequest=++playbackCommand;
   const result=await api(`albums/${id(request.album.id)}/play`,'POST',request.disc===null?{}:{disc_number:request.disc});
-  playbackState={active:true,playing:false,starting:true,album:request.album.title,album_id:request.album.id,artist:request.album.artists.map(a=>a.name).join(', '),track:'Waiting for Spotify status',device:result.device};renderTurntable();refreshPlayback(true);
+  if(playbackRequest===playbackCommand)beginPlayback(request.album,result);
   if(request.generation!==routeGeneration)return;
   pendingPlayback=null;modal.close();toast(`Playing ${result.track_count} tracks on ${result.device}.`);
   if(openApp&&shouldOpenSpotify()){
@@ -209,7 +210,7 @@ document.addEventListener('change',async event=>{
   catch(error){toast(error.message);}finally{select.disabled=false;}
 });
 window.addEventListener('hashchange',event=>{saveBrowsing(new URL(event.oldURL).hash);modal.close();route();});
-window.addEventListener('focus',async()=>{if(statusInfo.authenticated){try{const previousInterface=statusInfo.interface;statusInfo=await api('status');applyTheme(statusInfo.theme);applyInterface(statusInfo.interface);renderTurntable();refreshPlayback();if(previousInterface!==statusInfo.interface&&!unsavedChanges()){await route();return;}if(location.hash==='#settings'&&!settingsDirty){content.innerHTML=settingsPage();applyPermissions(content);}}catch{}}});
+window.addEventListener('focus',async()=>{if(statusInfo.authenticated){try{const previousInterface=statusInfo.interface;statusInfo=await api('status');applyTheme(statusInfo.theme);applyInterface(statusInfo.interface);renderTurntable();refreshPlayback(true);if(previousInterface!==statusInfo.interface&&!unsavedChanges()){await route();return;}if(location.hash==='#settings'&&!settingsDirty){content.innerHTML=settingsPage();applyPermissions(content);}}catch{}}});
 document.addEventListener('input',event=>{if(event.target.closest('#release-filters-form'))settingsDirty=true;});
 document.addEventListener('input',event=>{if(event.target.id==='artist-filter')document.querySelectorAll('.artist-row').forEach(el=>el.hidden=!el.dataset.filter.includes(event.target.value.toLowerCase()));});
 document.addEventListener('submit',async event=>{

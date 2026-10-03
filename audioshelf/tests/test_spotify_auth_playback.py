@@ -76,7 +76,9 @@ def test_playback_sends_only_exact_track_uris_and_turns_off_shuffle_repeat(appli
         calls.append((method,path,params,body))
         return next(states) if method=='GET' else {}
     monkeypatch.setattr(spotify,'api',api);monkeypatch.setattr('app.spotify.time.sleep',lambda _:None)
-    assert spotify.play(album)['track_count']==2
+    result=spotify.play(album)
+    assert result['track_count']==2
+    assert result['first_track']=={'id':'a'*22,'title':album['tracks'][0]['title'],'duration_ms':album['tracks'][0]['duration_ms']}
     assert calls[-1][1]=='me/player/play'
     assert calls[-1][3]=={'uris':['spotify:track:'+'a'*22,'spotify:track:'+'b'*22],'position_ms':0}
     assert [c[1] for c in calls]==['me/player','me/player/shuffle','me/player/repeat','me/player','me/player/play']
