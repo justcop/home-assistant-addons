@@ -12,6 +12,11 @@ from urllib.parse import urlsplit
 
 from flask import Flask, g, jsonify, render_template, request, send_file, session
 from werkzeug.exceptions import HTTPException
+from werkzeug.local import LocalProxy
+from werkzeug.security import check_password_hash
+from types import SimpleNamespace
+
+from .accounts import Accounts
 
 from .artwork import Artwork
 from .errors import AppError
@@ -73,17 +78,39 @@ def create_app(options=None):
     app.extensions['security'] = security
     handoff = PlaybackHandoff(spotify)
     app.extensions['playback_handoff'] = handoff
+    owner_context = SimpleNamespace(handoff=handoff, store=store, musicbrainz=musicbrainz, spotify=spotify, artwork=artwork, security=security)
+    accounts = Accounts(collection, cache, private_dir, options, owner_context)
+    app.extensions['accounts'] = accounts
+    # Every request resolves its own context. No global current-user mutation.
+    store = LocalProxy(lambda: g.context.store)
+    spotify = LocalProxy(lambda: g.context.spotify)
+    musicbrainz = LocalProxy(lambda: g.context.musicbrainz)
+    artwork = LocalProxy(lambda: g.context.artwork)
+    security = LocalProxy(lambda: g.context.security)
+    handoff = LocalProxy(lambda: g.context.handoff)
+
+    @app.before_request
+    def select_account():
+        g.account = accounts.get(session.get('account', 'owner'))
+        g.context = owner_context
+        g.identity = None
+        if g.account and not g.account['disabled']:
+            g.context = accounts.context(g.account['id'])
 
     def ingress():
         # Only the Supervisor's ingress proxy can vouch for HA authentication.
         return request.remote_addr == '172.30.32.2' and bool(request.headers.get('X-Ingress-Path'))
 
     def identity():
-        if ingress():
-            return {'role': 'owner', 'ingress': True}
-        if not password:
+        if not g.account or g.account['disabled']:
             return None
-        return security.identity(session.get('sid'))
+        # Ingress grants implicit access only to the existing owner library.
+        # Explicit sessions take precedence, including when using ingress.
+        if session.get('sid'):
+            return security.identity(session.get('sid'))
+        if ingress() and g.account['id'] == 'owner' and not session.get('require_login'):
+            return {'role': 'owner', 'ingress': True}
+        return None
 
     def authenticated():
         return identity() is not None
@@ -102,12 +129,15 @@ def create_app(options=None):
                 allowed_hosts.add(external.netloc)
             if origin and not ingress() and urlsplit(origin).netloc not in allowed_hosts:
                 raise AppError('Use the same AudioShelf address for this action.', 403)
-        if request.path.startswith('/api/') and request.path not in {'/api/status','/api/login'}:
+        if request.path.startswith('/api/') and request.path not in {'/api/status','/api/login','/api/login/ingress'}:
             g.identity = identity()
             if g.identity is None:
                 raise AppError('Enter your AudioShelf password. If none is set, configure one in Home Assistant or use ingress.', 401)
+            requested_account = request.headers.get('X-AudioShelf-Account')
+            if requested_account and requested_account != g.account['id']:
+                raise AppError('The active account changed. Reload AudioShelf before continuing.', 409)
             if g.identity['role'] != 'owner':
-                forbidden = (request.path.startswith('/api/security') or request.path in {
+                forbidden = (request.path.startswith(('/api/security', '/api/accounts')) or request.path in {
                     '/api/spotify/connect', '/api/spotify/disconnect', '/api/export', '/api/backup'}
                     or request.path.endswith('/diagnostics'))
                 if forbidden or (g.identity['role'] == 'view' and request.method not in {'GET','HEAD'} and request.path != '/api/logout'):
@@ -116,7 +146,7 @@ def create_app(options=None):
     def owner_reauth():
         if not g.identity or g.identity['role'] != 'owner':
             raise AppError('Owner access required.', 403)
-        if ingress():
+        if g.identity.get('ingress'):
             return
         security.throttle(request.remote_addr)
         if not security.owner_credentials(request.json.get('password'), request.json.get('code')):
@@ -124,7 +154,9 @@ def create_app(options=None):
         security.clear_attempts(request.remote_addr)
 
     def owner_session():
+        identifier = g.account['id']
         session.clear()
+        session['account'] = identifier
         session['sid'] = security.create_session()
         session.permanent = True
 
@@ -142,7 +174,7 @@ def create_app(options=None):
     @app.errorhandler(AppError)
     def expected(error):
         parts = request.path.split('/')
-        if len(parts) > 3 and parts[1:3] == ['api', 'albums'] and parts[-1] != 'diagnostics':
+        if g.get('identity') and len(parts) > 3 and parts[1:3] == ['api', 'albums'] and parts[-1] != 'diagnostics':
             store.diagnostic(parts[3], 'request_error', {'action': parts[4:] or ['open'], 'status': error.status, 'message': str(error)})
         return jsonify(error=str(error)), error.status
 
@@ -156,7 +188,7 @@ def create_app(options=None):
             return jsonify(error=error.description), error.code
         LOG.exception('AudioShelf request failed')
         parts = request.path.split('/')
-        if len(parts) > 3 and parts[1:3] == ['api', 'albums'] and parts[-1] != 'diagnostics':
+        if g.get('identity') and len(parts) > 3 and parts[1:3] == ['api', 'albums'] and parts[-1] != 'diagnostics':
             store.diagnostic(parts[3], 'request_error', {'action': parts[4:] or ['open'], 'status': 500,
                 'message': 'AudioShelf could not complete this request. Check the add-on log.'})
         return jsonify(error='AudioShelf could not complete this request. Check the add-on log.'), 500
@@ -170,7 +202,7 @@ def create_app(options=None):
 
     @app.get('/health')
     def health():
-        with store.connect() as db:
+        with owner_context.store.connect() as db:
             db.execute('SELECT 1').fetchone()
         return jsonify(ok=True, version=build['version'])
 
@@ -182,9 +214,9 @@ def create_app(options=None):
 
     @app.get('/api/status')
     def status():
-        result = {'build':build,'authenticated':authenticated(),'password_required':not ingress(), 'password_configured':bool(password), 'two_factor_enabled':bool(security.get('totp'))}
+        result = {'build':build,'authenticated':authenticated(),'password_required':not bool((identity() or {}).get('ingress')), 'password_configured':bool(password) or len(accounts.listing()) > 1, 'two_factor_enabled':bool(security.get('totp')), 'ingress_available':ingress()}
         if authenticated():
-            result.update(role=identity()['role'], spotify_configured=spotify.configured, spotify_connected=spotify.connected,
+            result.update(account={'id':g.account['id'], 'username':g.account['username'], 'admin':g.account['id']=='owner' and identity()['role']=='owner'}, role=identity()['role'], spotify_configured=spotify.configured, spotify_connected=spotify.connected,
                           spotify_redirect_uri=spotify.redirect_uri, data_directory=str(store.directory), cache_directory=str(store.cache_directory), market=spotify.market,
                           release_filters=store.release_filters(), interface=store.setting('interface', 'vinyl'), theme=store.setting('theme', 'record-store'), themes=THEMES, preferred_device=store.setting('preferred_device'))
         return jsonify(result)
@@ -228,33 +260,105 @@ def create_app(options=None):
     @app.post('/api/login')
     def login():
         body = request.json
-        old = session.get('sid')
-        token, role = security.login(body.get('password'), body.get('code'), request.remote_addr,
-                                     request.cookies.get('audioshelf_trusted'))
-        security.logout(old)
-        session.clear(); session['sid'] = token; session.permanent = True
+        account = accounts.find(body.get('username', 'owner'))
+        old_context = g.context
+        if not account or account['disabled']:
+            owner_context.security.throttle(request.remote_addr)
+            check_password_hash(accounts.dummy_hash, str(body.get('password', ''))[:1024])
+            raise AppError('Incorrect username, password or verification code.', 401)
+        g.context = accounts.context(account['id'])
+        if account['id'] != 'owner':
+            owner_context.security.throttle(request.remote_addr)
+        try:
+            token, role = security.login(body.get('password'), body.get('code'), request.remote_addr,
+                                         request.cookies.get('audioshelf_trusted'))
+        except AppError as error:
+            if error.status == 401:
+                raise AppError('Incorrect username, password or verification code.', 401) from None
+            raise
+        owner_context.security.clear_attempts(request.remote_addr)
+        old_context.handoff.cancel_all()
+        old_context.security.logout(session.get('sid'))
+        switching = not g.account or g.account['id'] != account['id']
+        if switching:
+            old_context.security.forget_trust(request.cookies.get('audioshelf_trusted'))
+        session.clear(); session['account'] = account['id']; session['sid'] = token; session.permanent = True
         response = jsonify(ok=True, role=role)
+        if switching:
+            response.delete_cookie('audioshelf_trusted', secure=True, httponly=True, samesite='Lax')
         if role == 'owner' and body.get('remember') is True:
             security.forget_trust(request.cookies.get('audioshelf_trusted'))
             response.set_cookie('audioshelf_trusted', security.trust(), max_age=30*86400,
                                 secure=True, httponly=True, samesite='Lax')
         return response
 
+    @app.post('/api/login/ingress')
+    def ingress_login():
+        if not ingress():
+            raise AppError('Open AudioShelf through Home Assistant to use this login.', 403)
+        handoff.cancel_all()
+        security.logout(session.get('sid'))
+        security.forget_trust(request.cookies.get('audioshelf_trusted'))
+        session.clear()
+        response = jsonify(ok=True)
+        response.delete_cookie('audioshelf_trusted', secure=True, httponly=True, samesite='Lax')
+        return response
+
     @app.post('/api/logout')
     def logout():
+        handoff.cancel_all()
         security.logout(session.get('sid')); security.forget_trust(request.cookies.get('audioshelf_trusted')); session.clear()
+        session['require_login'] = True
+        response = jsonify(ok=True)
+        response.delete_cookie('audioshelf_trusted', secure=True, httponly=True, samesite='Lax')
+        return response
+
+    def require_admin(reauth=False):
+        if g.account['id'] != 'owner' or g.identity['role'] != 'owner':
+            raise AppError('Only the owner can manage AudioShelf accounts.', 403)
+        if reauth:
+            owner_reauth()
+
+    @app.get('/api/accounts')
+    def list_accounts():
+        require_admin()
+        return jsonify(accounts=accounts.listing())
+
+    @app.post('/api/accounts')
+    def create_account():
+        require_admin(reauth=True)
+        account = accounts.create(request.json.get('username'), request.json.get('new_password'))
+        security.event('Account created', account['username'])
+        return jsonify(id=account['id'], username=account['username'], disabled=False), 201
+
+    @app.put('/api/accounts/<identifier>')
+    def update_account(identifier):
+        require_admin(reauth=True)
+        body = request.json
+        if not set(body).intersection({'new_password', 'disabled', 'reset_two_factor'}):
+            raise AppError('Supply a new password or account status.')
+        account = accounts.update(identifier, body.get('new_password'), body.get('disabled'), body.get('reset_two_factor', False))
+        security.event('Account updated', account['username'])
+        return jsonify(id=account['id'], username=account['username'], disabled=bool(account['disabled']))
+
+    @app.post('/api/security/password')
+    def change_password():
+        owner_reauth()
+        accounts.update(g.account['id'], password=request.json.get('new_password'))
+        g.context = accounts.context(g.account['id'])
+        owner_session()
         response = jsonify(ok=True)
         response.delete_cookie('audioshelf_trusted', secure=True, httponly=True, samesite='Lax')
         return response
 
     @app.get('/api/security')
     def security_overview():
-        return jsonify({**security.overview(), 'ingress':ingress()})
+        return jsonify({**security.overview(), 'ingress':bool(g.identity.get('ingress'))})
 
     @app.post('/api/security/totp/start')
     def totp_start():
         owner_reauth()
-        if not password:
+        if not security.password_hash:
             raise AppError('Set a standalone web password in Home Assistant before enabling two-factor authentication.')
         security.throttle(request.remote_addr)
         return jsonify(security.start_totp())
@@ -279,7 +383,7 @@ def create_app(options=None):
     @app.post('/api/security/support')
     def support_create():
         owner_reauth()
-        if not password:
+        if not security.password_hash:
             raise AppError('Set a standalone password before creating support access.')
         return jsonify(security.create_grant(request.json.get('role', 'view'), request.json.get('hours', 1)))
 
@@ -370,6 +474,8 @@ def create_app(options=None):
     @app.get('/api/albums/<album_id>/artwork')
     def album_artwork(album_id):
         album_id = mbid(album_id)
+        if request.args.get('account') not in (None, g.account['id']):
+            raise AppError('This cover belongs to another account. Reload AudioShelf.', 403)
         size = request.args.get('size')
         if size is not None and size not in {'128', '320', '640'}:
             raise AppError('Choose a cover size of 128, 320 or 640 pixels.')
@@ -377,6 +483,7 @@ def create_app(options=None):
         response = send_file(io.BytesIO(data),mimetype=mime,max_age=0,etag=hashlib.sha256(data).hexdigest())
         response.headers['Cache-Control'] = 'private, no-cache' if store.album(album_id)['on_shelf'] else 'no-store'
         response.headers['X-Artwork-Source'] = source
+        response.vary.add('Cookie')
         return response
 
     @app.post('/api/albums/<album_id>/artwork')
@@ -543,9 +650,14 @@ def create_app(options=None):
         spotify.play_tracks(album, disc)  # Validate before accepting background work.
         token = session.get('sid')
         ingress_request = bool(g.identity.get('ingress'))
+        context = g.context  # Capture real objects: workers have no Flask request context.
+        identifier = g.account['id']
+        version = context.security.version()
         def authorized():
-            person = security.identity(token) if not ingress_request else {'role': 'owner'}
-            return bool(person and person['role'] in ('owner', 'control'))
+            account = accounts.get(identifier)
+            person = context.security.identity(token) if not ingress_request else {'role': 'owner'}
+            return bool(account and not account['disabled'] and context.security.version() == version
+                        and person and person['role'] in ('owner', 'control'))
         return jsonify(handoff.start(album, disc, preferred, playback_owner(), authorized)), 202
 
     @app.route('/api/spotify/playback-handoff/<job_id>', methods=['GET', 'DELETE'])
@@ -581,18 +693,23 @@ def create_app(options=None):
 
     @app.post('/api/spotify/connect')
     def connect():
-        return jsonify(url=spotify.authorization())
+        url = spotify.authorization()
+        accounts.bind_oauth(url, g.account['id'])
+        return jsonify(url=url)
 
     @app.post('/api/spotify/disconnect')
     def disconnect():
+        handoff.cancel_all()
         spotify.disconnect()
         return jsonify(ok=True)
 
     @app.get('/auth/spotify/callback')
     def callback():
         try:
+            identifier = accounts.oauth_account(request.args.get('state',''))
+            g.context = accounts.context(identifier)
             spotify.callback(request.args.get('code',''),request.args.get('state',''),bool(request.args.get('error')))
-            message = 'Spotify is connected. Return to AudioShelf and play an album.'
+            message = 'Spotify is connected for '+accounts.get(identifier)['username']+'. Return to that AudioShelf account and play an album.'
             ok = True
         except AppError as error:
             message,ok = str(error),False

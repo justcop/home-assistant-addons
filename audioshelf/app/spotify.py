@@ -83,7 +83,7 @@ class Spotify:
             db.execute('DELETE FROM oauth_states WHERE expires<?', (time.time(),))
             db.execute('INSERT INTO oauth_states VALUES (?,?,?)', (hashlib.sha256(state.encode()).hexdigest(), verifier, time.time()+600))
         params = {'client_id':self.client_id,'response_type':'code','redirect_uri':self.redirect_uri,
-                  'scope':'user-read-playback-state user-modify-playback-state','state':state,
+                  'scope':'user-read-playback-state user-modify-playback-state','state':state,'show_dialog':'true',
                   'code_challenge_method':'S256','code_challenge':challenge}
         return 'https://accounts.spotify.com/authorize?' + urlencode(params)
 

@@ -103,6 +103,24 @@ app.extensions['spotify'].api=spotify_api
 app.extensions['spotify']._save({'access_token':'fixture-only','refresh_token':'fixture-only','expires_in':3600})
 
 
+# New account contexts use deterministic services while retaining independent tokens/data.
+original_context=app.extensions['accounts'].context
+
+def fixture_account_context(identifier):
+    context=original_context(identifier)
+    if identifier!='owner' and not getattr(context,'fixture_ready',False):
+        context.fixture_ready=True
+        context.musicbrainz.get=mb_get
+        context.artwork.download=lambda url:(cover_buffer.getvalue(),'image/png')
+        context.spotify._token_request=lambda body:{'access_token':identifier,'refresh_token':identifier,'expires_in':3600}
+        context.spotify.api=lambda method,path,params=None,body=None: (
+            {'devices':[{'id':identifier,'name':'Personal player','type':'Computer','is_active':True,'is_restricted':False}]}
+            if path=='me/player/devices' else {})
+    return context
+
+app.extensions['accounts'].context=fixture_account_context
+
+
 @app.post('/__test/playback-options')
 def playback_options():
     from flask import request

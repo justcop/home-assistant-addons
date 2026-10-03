@@ -32,10 +32,11 @@ def totp(secret, counter):
 
 
 class Security:
-    def __init__(self, directory, password, enabled=False):
+    def __init__(self, directory, password, enabled=False, password_hash=None):
         self.path = directory / 'security.db'
-        self.password_hash = generate_password_hash(password) if password else None
-        self.password_version = hmac.new(json.loads((directory / 'session.json').read_text())['key'].encode(), password.encode(), hashlib.sha256).hexdigest()
+        self.password_hash = password_hash or (generate_password_hash(password) if password else None)
+        self.account_name = 'Owner'
+        self.password_version = hmac.new(json.loads((directory / 'session.json').read_text())['key'].encode(), (password_hash or password).encode(), hashlib.sha256).hexdigest()
         self.support_enabled = enabled is True
         self.lock = threading.RLock()
         with self.connect() as db:
@@ -192,7 +193,7 @@ class Security:
             raise AppError('Two-factor authentication is already enabled.')
         secret = base64.b32encode(secrets.token_bytes(20)).decode().rstrip('=')
         self.set('pending_totp', {'secret': secret, 'expires': time.time()+600})
-        uri = 'otpauth://totp/'+quote('AudioShelf:Owner')+'?secret='+secret+'&issuer=AudioShelf&digits=6&period=30'
+        uri = 'otpauth://totp/'+quote('AudioShelf:'+self.account_name)+'?secret='+secret+'&issuer=AudioShelf&digits=6&period=30'
         buffer = io.BytesIO()
         qrcode.make(uri).save(buffer, format='PNG')
         return {'secret': secret, 'uri': uri, 'qr': 'data:image/png;base64,'+base64.b64encode(buffer.getvalue()).decode()}
