@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-03T14:41:14+01:00 (Europe/London).
+Reviewed: 2026-10-03T19:27:28+01:00 (Europe/London).
 
-Reviewed playback regressions. Extended the existing browser handoff flow to verify content-free Spotify links before and after playback, automatic return retry, selected disc preservation and cancellation. Added sole-device activation and ambiguous/restricted-device safety cases, reusing existing preferred-device and exact-queue tests rather than duplicating them. All prior recovery and interface tests retained because their requirements remain active.
+Kept the reviewed playback/device regression coverage. Added failure diagnostics to the existing vinyl playback browser assertion, capturing API completion, page errors and displayed status rather than adding a duplicate test. This investigates the release-blocking vinyl timeout without weakening its expected playing state.
 
-<!-- inventory: {"reviewed_at": "2026-10-03T14:41:14+01:00", "review_note": "Reviewed playback regressions. Extended the existing browser handoff flow to verify content-free Spotify links before and after playback, automatic return retry, selected disc preservation and cancellation. Added sole-device activation and ambiguous/restricted-device safety cases, reusing existing preferred-device and exact-queue tests rather than duplicating them. All prior recovery and interface tests retained because their requirements remain active.", "source_sha256": "0d209cb66a4c9cb604b8ca4fd7c795cc068fd15300371f3f8890787a474be274"} -->
+<!-- inventory: {"reviewed_at": "2026-10-03T19:27:28+01:00", "review_note": "Kept the reviewed playback/device regression coverage. Added failure diagnostics to the existing vinyl playback browser assertion, capturing API completion, page errors and displayed status rather than adding a duplicate test. This investigates the release-blocking vinyl timeout without weakening its expected playing state.", "source_sha256": "fccf4e722759e41b875c3d6a232fcf0986515fd09ce9324d0e4379ed4d895edb"} -->
 
 ## Backend cases (230)
 
