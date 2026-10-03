@@ -70,7 +70,7 @@ def test_non_album_series_cannot_be_selected(application, client, monkeypatch):
     ('Dollars & Cents', 'Dollars and Cents', 291000),
 ])
 def test_amnesiac_printed_title_variants_verify_with_artist_and_duration(printed, source, duration):
-    canonical = {'title': printed, 'duration_ms': duration}
+    canonical = {'title': printed, 'duration_ms': duration, 'recording_id': 'linked-recording', 'recording_title': source}
     spotify = {'name': source, 'duration_ms': duration, 'artists': [{'name': 'Radiohead'}]}
     assert track_score(canonical, spotify, ['Radiohead'])[1]
     spotify['duration_ms'] += 60000
@@ -78,12 +78,13 @@ def test_amnesiac_printed_title_variants_verify_with_artist_and_duration(printed
 
 
 def test_amnesiac_alias_cannot_accept_kid_a_morning_bell_or_another_artist():
-    canonical = {'title': 'The Morning Bell Amnesiac', 'duration_ms': 194000}
+    canonical = {'title': 'The Morning Bell Amnesiac', 'duration_ms': 194000,
+                 'recording_id': 'linked-recording', 'recording_title': 'Morning Bell/Amnesiac'}
     spotify = {'name': 'Morning Bell', 'duration_ms': 275000, 'artists': [{'name': 'Radiohead'}]}
     assert track_score(canonical, spotify, ['Radiohead']) == (0, False)
     spotify.update(name='Morning Bell/Amnesiac', duration_ms=194000, artists=[{'name': 'Tribute Band'}])
     assert track_score(canonical, spotify, ['Radiohead']) == (0, False)
-    assert not track_score(canonical, spotify, ['Tribute Band'])[1]
+    assert not track_score({k: v for k, v in canonical.items() if k not in {'recording_id', 'recording_title'}}, spotify, ['Tribute Band'])[1]
 
 
 def test_dated_remix_is_rejected_while_stereo_mix_is_accepted(application):
@@ -128,7 +129,13 @@ def test_diagnostics_are_bounded_and_keep_only_latest_large_assessment(applicati
 def test_cover_selection_preserves_tracks_and_custom_cover_when_download_fails(application, client, monkeypatch):
     store = application.extensions['store']; artwork = application.extensions['artwork']
     before = store.album(ALBUM)['tracks']
-    monkeypatch.setattr(application.extensions['musicbrainz'], 'get', lambda *args, **kwargs: edition())
+    def get(entity, params):
+        assert entity == 'release/'+RELEASE
+        result = edition()
+        if 'media' not in params.get('inc', '').split('+'):
+            result.pop('media')
+        return result
+    monkeypatch.setattr(application.extensions['musicbrainz'], 'get', get)
     monkeypatch.setattr(artwork, 'download', lambda url: (png(), 'image/png'))
     assert post(client, '/api/albums/'+ALBUM+'/artwork-release', {'release_id': RELEASE}).status_code == 200
     assert store.setting('artwork_release:'+ALBUM) == RELEASE

@@ -62,7 +62,9 @@ def release_tracks(release):
             tracks.append({'title': track.get('title') or recording.get('title', 'Untitled'),
                 'disc_number': medium.get('position', 1), 'track_number': track.get('position', len(tracks)+1),
                 'duration_ms': track.get('length') or recording.get('length'),
-                'recording_id': recording.get('id'), 'isrcs': recording.get('isrcs', [])})
+                'recording_id': recording.get('id'), 'isrcs': recording.get('isrcs', []),
+                'recording_title': recording.get('title', ''),
+                'recording_aliases': [a['name'] for a in recording.get('aliases', []) if a.get('name')]})
     return tracks
 
 
@@ -245,3 +247,35 @@ class MusicBrainz:
                 if error.status != 400:
                     raise
         raise AppError('No complete tracklist found. Choose an original MusicBrainz edition in album settings.')
+
+    def enrich_recordings(self, album, positions):
+        """Resolve uncertain names from their exact recording IDs, including old shelves.
+
+        Lookups use the shared rate limiter/cache. Metadata-only writes preserve
+        printed titles, order, review state and every existing Spotify mapping.
+        """
+        changed = False
+        seen = set()
+        for track in album['tracks']:
+            recording_id = track.get('recording_id')
+            if (track['position'] not in positions or not recording_id or recording_id in seen
+                    or (track.get('method') == 'manual' and track.get('verified'))):
+                continue
+            seen.add(recording_id)
+            try:
+                recording = self.get('recording/'+mbid(recording_id), {'inc': 'aliases+isrcs'})
+                if recording.get('id') != recording_id:
+                    continue
+                title = recording.get('title', '')
+                aliases = [a['name'] for a in recording.get('aliases', []) if a.get('name')]
+                isrcs = sorted(set(track.get('isrcs', []) + recording.get('isrcs', [])))
+                if (title, aliases, isrcs) != (track.get('recording_title'), track.get('recording_aliases'), track.get('isrcs')):
+                    self.store.recording_metadata(album['id'], recording_id, title, aliases, isrcs)
+                    changed = True
+            except AppError as error:
+                self.store.diagnostic(album['id'], 'recording_metadata_unavailable',
+                                      {'recording_id': recording_id, 'message': str(error)})
+                # An outage should not multiply into one failed request per track.
+                if error.status >= 500 or error.status == 429:
+                    break
+        return self.store.album(album['id']) if changed else album

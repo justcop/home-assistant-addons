@@ -3,8 +3,9 @@
 - Configurable MusicBrainz country and format priorities: GB, US, worldwide, Europe; vinyl, CD, digital. Optional strict country restriction; cassette excluded by default.
 - Persistent global and per-album country preferences, original-year safeguards and paginated edition selection with retry.
 - Beatles Core Catalogue and reusable MusicBrainz release-group series selection for other artists, with editable include/exclude overrides.
-- Correct Amnesiac printed-title matching, reject generic dated remixes and paginate fallback Spotify searches.
-- Choose covers from other editions without changing mappings; refresh stale edition artwork and handle legacy cassette covers.
+- Match printed-title variants generically using each linked MusicBrainz recording's title, aliases and ISRCs, retaining artist, duration and version safeguards. Enrich existing shelves without replacing tracklists or manual corrections.
+- Reject generic dated remixes and paginate fallback Spotify searches.
+- Choose covers from other editions without changing mappings; request media before filtering cover editions, refresh stale edition artwork and handle legacy cassette covers.
 - Download album diagnostics with matching explanations and bounded recent errors, excluding credentials.
 - Ten persistent visual themes with previews, light/dark palettes, contrast checks and responsive layouts.
 - Preserve existing shelves, tracklists, uploaded covers and manual Spotify corrections on upgrade.

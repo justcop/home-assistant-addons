@@ -20,7 +20,7 @@ class Store:
         self.catalogue_lock = threading.RLock()
         with self.connect() as db:
             version = db.execute('PRAGMA user_version').fetchone()[0]
-            if version > 3:
+            if version > 4:
                 raise RuntimeError('This database needs a newer AudioShelf version.')
             db.executescript('''
                 CREATE TABLE IF NOT EXISTS artists (
@@ -49,8 +49,14 @@ class Store:
                 DROP TABLE IF EXISTS cache;
                 CREATE TABLE IF NOT EXISTS oauth_states (
                     state TEXT PRIMARY KEY, verifier TEXT NOT NULL, expires REAL NOT NULL);
-                PRAGMA user_version=3;
             ''')
+            columns = {row['name'] for row in db.execute('PRAGMA table_info(tracks)')}
+            if 'recording_title' not in columns:
+                db.execute("ALTER TABLE tracks ADD COLUMN recording_title TEXT NOT NULL DEFAULT ''")
+            if 'recording_aliases' not in columns:
+                db.execute("ALTER TABLE tracks ADD COLUMN recording_aliases TEXT NOT NULL DEFAULT '[]'")
+            db.execute('PRAGMA user_version=4')
+            db.commit()
             if version == 1:
                 db.execute('VACUUM')
         os.chmod(self.path, 0o600)
@@ -198,6 +204,7 @@ class Store:
             result['tracks'] = [dict(row) for row in db.execute('SELECT * FROM tracks WHERE album_id=? ORDER BY position', (album_id,))]
             for track in result['tracks']:
                 track['isrcs'] = json.loads(track['isrcs'])
+                track['recording_aliases'] = json.loads(track['recording_aliases'])
         result['playable'] = bool(result['tracks']) and all(t['spotify_id'] and t['verified'] for t in result['tracks'])
         result['release_countries'] = self.release_countries(album_id)
         result['release_filters'] = self.release_filters(album_id)
@@ -207,11 +214,17 @@ class Store:
         with self.connect() as db:
             db.execute('DELETE FROM tracks WHERE album_id=?', (album_id,))
             for position, track in enumerate(tracks, 1):
-                db.execute('INSERT INTO tracks(album_id,position,title,disc_number,track_number,duration_ms,recording_id,isrcs) '
-                           'VALUES (?,?,?,?,?,?,?,?)', (album_id, position, track['title'], track['disc_number'],
-                           track['track_number'], track.get('duration_ms'), track.get('recording_id'), json.dumps(track.get('isrcs', []))))
+                db.execute('INSERT INTO tracks(album_id,position,title,disc_number,track_number,duration_ms,recording_id,isrcs,recording_title,recording_aliases) '
+                           'VALUES (?,?,?,?,?,?,?,?,?,?)', (album_id, position, track['title'], track['disc_number'],
+                           track['track_number'], track.get('duration_ms'), track.get('recording_id'), json.dumps(track.get('isrcs', [])),
+                           track.get('recording_title', ''), json.dumps(track.get('recording_aliases', []))))
             db.execute('UPDATE albums SET release_id=?,release_label=?,canonical_reviewed=?,spotify_album_id=NULL,spotify_album_name=NULL WHERE id=?',
                        (release['id'], release.get('label', release.get('title','')), int(reviewed), album_id))
+
+    def recording_metadata(self, album_id, recording_id, title, aliases, isrcs):
+        with self.connect() as db:
+            db.execute('UPDATE tracks SET recording_title=?,recording_aliases=?,isrcs=? WHERE album_id=? AND recording_id=?',
+                       (title, json.dumps(aliases), json.dumps(isrcs), album_id, recording_id))
 
     def mapping(self, album_id, candidate, manual=False):
         """Replace an edition atomically; automatic resolution preserves hand corrections."""

@@ -18,13 +18,6 @@ def normalize(value, track=False):
     return ' '.join(re.findall(r'\w+', value))
 
 
-# Printed-title variants documented on the Amnesiac cassette entry. Keep these
-# artist-scoped: never turn arbitrary fuzzy titles into automatically verified matches.
-# https://musicbrainz.org/release/0762fd5f-99f2-4501-8b4b-c294e09f90db
-RADIOHEAD_ALIASES = {'pull pulk revolving doors': 'pulk pull revolving doors',
-                    'the morning bell amnesiac': 'morning bell amnesiac'}
-
-
 def track_assessment(canonical, spotify, artist_names):
     if spotify.get('is_playable') is False or spotify.get('restrictions'):
         return {'score': 0, 'verified': False, 'reason': 'unavailable'}
@@ -32,15 +25,20 @@ def track_assessment(canonical, spotify, artist_names):
     if not credited.intersection({normalize(a) for a in artist_names}):
         return {'score': 0, 'verified': False, 'reason': 'artist_mismatch'}
     left, right = normalize(canonical['title'], True), normalize(spotify['name'], True)
-    if 'radiohead' in {normalize(a) for a in artist_names}:
-        left, right = RADIOHEAD_ALIASES.get(left, left), RADIOHEAD_ALIASES.get(right, right)
-    if set(VERSION.findall(left)) != set(VERSION.findall(right)):
+    recording_title = normalize(canonical.get('recording_title') or '', True)
+    # Alternate names are evidence only for this linked recording. An alias must
+    # never erase a live/demo/edit distinction present in either canonical title.
+    versions = set(VERSION.findall(left)) | set(VERSION.findall(recording_title))
+    if versions != set(VERSION.findall(right)):
         return {'score': 0, 'verified': False, 'reason': 'recording_version_mismatch'}
     exact = left == right
+    alternate_titles = {normalize(title, True) for title in
+                        [recording_title, *canonical.get('recording_aliases', [])] if title}
+    recording_match = bool(canonical.get('recording_id') and right in alternate_titles)
     similarity = SequenceMatcher(None, left, right).ratio()
     isrc = spotify.get('external_ids', {}).get('isrc')
     same_isrc = bool(isrc and isrc in canonical.get('isrcs', []))
-    if not exact and not same_isrc and similarity < .85:
+    if not exact and not recording_match and not same_isrc and similarity < .85:
         return {'score': 0, 'verified': False, 'reason': 'title_mismatch', 'canonical_title': left, 'spotify_title': right}
     duration = canonical.get('duration_ms')
     actual = spotify.get('duration_ms')
@@ -48,10 +46,11 @@ def track_assessment(canonical, spotify, artist_names):
     plausible_duration = delta is None or delta <= max(8000, duration*.04)
     if delta is not None and delta > max(30000, duration*.18):
         return {'score': 0, 'verified': False, 'reason': 'duration_mismatch', 'duration_delta_ms': delta}
-    score = (95 if exact or same_isrc else similarity*80) + (5 if delta is not None and delta<2000 else 0)
-    verified = (exact or same_isrc) and plausible_duration
+    score = (95 if exact or recording_match or same_isrc else similarity*80) + (5 if delta is not None and delta<2000 else 0)
+    # Alternate titles require duration corroboration as well as the artist check.
+    verified = (exact or same_isrc or (recording_match and delta is not None)) and plausible_duration
     return {'score': score, 'verified': verified,
-            'reason': ('exact_title' if exact else 'same_isrc') if verified else 'needs_review',
+            'reason': ('exact_title' if exact else 'same_recording_title' if recording_match else 'same_isrc') if verified else 'needs_review',
             'duration_delta_ms': delta, 'canonical_title': left, 'spotify_title': right}
 
 

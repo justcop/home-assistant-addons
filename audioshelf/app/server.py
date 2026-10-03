@@ -270,7 +270,7 @@ def create_app(options=None):
     @app.post('/api/albums/<album_id>/artwork-release')
     def edition_artwork(album_id):
         album_id, release_id = mbid(album_id), mbid(request.json.get('release_id'))
-        release = musicbrainz.get('release/'+release_id, {'inc': 'release-groups'})
+        release = musicbrainz.get('release/'+release_id, {'inc': 'release-groups+media'})
         if release.get('release-group', {}).get('id') != album_id or release.get('status') != 'Official':
             raise AppError('Choose an official edition of this album.')
         if not matches_filters(release, store.release_filters(album_id)):
@@ -335,6 +335,11 @@ def create_app(options=None):
         with store.catalogue_lock:
             album = musicbrainz.ensure_tracks(mbid(album_id))
             candidates = spotify.candidates(album)
+            if candidates:
+                positions = {m['position'] for m in candidates[0]['mappings'] if not m['verified']}
+                enriched = musicbrainz.enrich_recordings(album, positions)
+                if enriched != album:
+                    candidates = spotify.candidates(enriched)
             store.diagnostic(album_id, 'spotify_candidates', {'candidates': [
                 c if n < 3 else {k: v for k, v in c.items() if k != 'mappings'} for n, c in enumerate(candidates[:30])]})
             if not candidates:
@@ -348,6 +353,10 @@ def create_app(options=None):
             album = store.album(mbid(album_id))
             source = spotify.album(request.json.get('spotify_album_id',''))
             choice = candidate(album,source)
+            positions = {m['position'] for m in choice['mappings'] if not m['verified']}
+            enriched = musicbrainz.enrich_recordings(album, positions)
+            if enriched != album:
+                choice = candidate(enriched,source)
             store.diagnostic(album_id, 'spotify_assessment', choice)
             store.mapping(album_id,choice,manual=True)
             return jsonify(album=store.album(album_id),candidate=choice)
