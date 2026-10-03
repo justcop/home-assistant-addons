@@ -31,6 +31,8 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.getByRole('button',{name:'Open AudioShelf',exact:true}).click();
     await page.getByRole('heading',{name:'My shelf.'}).waitFor();
     fixtureCookie=(await page.context().cookies()).map(c=>`${c.name}=${c.value}`).join('; ');
+    await fixtureFetch(base+'/api/settings',{method:'PUT',headers:{'Content-Type':'application/json','X-AudioShelf-Request':'1'},body:JSON.stringify({interface:'classic'})});
+    await page.reload();
     await page.getByRole('heading',{name:'My shelf.'}).waitFor();
     await page.getByRole('heading',{name:'Your first record awaits.'}).waitFor();
     if(screenshotDir){fs.mkdirSync(screenshotDir,{recursive:true});await page.screenshot({path:path.join(screenshotDir,'empty-mobile.png'),fullPage:true});}
@@ -40,7 +42,7 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.locator('.search-result').filter({hasText:'The Artist'}).click();
     await page.getByRole('heading',{name:'The Artist',exact:true}).waitFor();
     await page.getByRole('button',{name:'Add to shelf'}).click();
-    await page.getByRole('button',{name:'On your shelf'}).waitFor();
+    await page.getByRole('button',{name:'The Original Album is on your shelf'}).waitFor();
     await page.locator('.album-title').click();
     await page.getByRole('heading',{name:'The Original Album',exact:true}).waitFor();
     assert.equal(await page.locator('.track-row').count(),2);

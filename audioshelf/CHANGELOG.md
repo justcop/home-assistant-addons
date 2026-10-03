@@ -1,3 +1,12 @@
+# 0.5.0
+
+- New Vinyl interface: dense Record Store racks, artist dividers, and larger front-facing covers on My Shelf ledges. Two covers across on phones.
+- Keep the original interface with Settings → Appearance → Classic. Interface and colour choices are saved with the collection.
+- Inspect a sleeve alongside its tracklist; matching, editions, covers and diagnostics remain available through Album settings. Existing MusicBrainz disc boundaries are preserved.
+- Return to the same browsing position and store search after inspecting an album. Adding a record acknowledges it in place.
+- On the turntable follows Spotify playback, including paused and unavailable states, independently of the album being inspected. It refreshes every 15 seconds while visible.
+- Includes the Home Assistant 2FA recovery options from 0.4.3 and automatic browser update prompts.
+
 # 0.4.3
 
 - Add a one-time 2FA recovery request in Home Assistant add-on configuration. A changed nonblank request disables 2FA and revokes sessions, trusted browsers and support logins on restart. Standalone password protection, Spotify connection and the collection remain intact. Repeated restarts do not repeat the same reset.

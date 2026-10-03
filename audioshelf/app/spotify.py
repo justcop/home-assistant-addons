@@ -277,4 +277,5 @@ class Spotify:
                     raise AppError('Turn Shuffle and Repeat off in Spotify, then try Play Album again.')
             # Explicit ordered URIs, never an album context and never bonus-track slicing.
             self.api('PUT','me/player/play', params, {'uris':uris,'position_ms':0})
+            self.store.set_setting('last_played_album', album['id'])
             return {'started':True,'track_count':len(uris),'device':device.get('name','Spotify')}

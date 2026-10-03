@@ -63,7 +63,7 @@ def create_app(options=None):
     build = json.loads(build_path.read_text()) if build_path.exists() else {'version':'0.1.0','channel':'local','revision':'local'}
     build['version'] = os.environ.get('AUDIOSHELF_VERSION',build['version'])
     assets = Path(__file__).resolve().parent / 'static'
-    digest = hashlib.sha256(b''.join((assets / name).read_bytes() for name in ('app.js', 'style.css', 'sw.js'))).hexdigest()[:16]
+    digest = hashlib.sha256(b''.join((assets / name).read_bytes() for name in ('app.js', 'style.css', 'vinyl.js', 'vinyl.css', 'sw.js'))).hexdigest()[:16]
     build['asset_version'] = build['version']+'-'+digest
     password = options.get('web_password','')
     security = Security(private_dir, password, options.get('allow_support_access', False))
@@ -182,22 +182,25 @@ def create_app(options=None):
         if authenticated():
             result.update(role=identity()['role'], spotify_configured=spotify.configured, spotify_connected=spotify.connected,
                           spotify_redirect_uri=spotify.redirect_uri, data_directory=str(store.directory), cache_directory=str(store.cache_directory), market=spotify.market,
-                          release_filters=store.release_filters(), theme=store.setting('theme', 'record-store'), themes=THEMES, preferred_device=store.setting('preferred_device'))
+                          release_filters=store.release_filters(), interface=store.setting('interface', 'vinyl'), theme=store.setting('theme', 'record-store'), themes=THEMES, preferred_device=store.setting('preferred_device'))
         return jsonify(result)
 
     @app.get('/api/settings')
     def settings():
-        return jsonify(release_filters=store.release_filters(), theme=store.setting('theme', 'record-store'), themes=THEMES, preferred_device=store.setting('preferred_device'))
+        return jsonify(release_filters=store.release_filters(), interface=store.setting('interface', 'vinyl'), theme=store.setting('theme', 'record-store'), themes=THEMES, preferred_device=store.setting('preferred_device'))
 
     @app.put('/api/settings')
     def save_settings():
         body = request.json
-        if not isinstance(body, dict) or not set(body).intersection({'release_filters', 'theme', 'preferred_device'}):
-            raise AppError('Supply release filters, a theme or a preferred device.')
+        if not isinstance(body, dict) or not set(body).intersection({'release_filters', 'theme', 'preferred_device', 'interface'}):
+            raise AppError('Supply release filters, an appearance preference or a preferred device.')
         filters = validate_filters(body['release_filters']) if 'release_filters' in body else None
         theme = body.get('theme')
         if 'theme' in body and (not isinstance(theme, str) or theme not in THEME_IDS):
             raise AppError('Choose one of the available themes.')
+        interface = body.get('interface')
+        if 'interface' in body and interface not in ('vinyl', 'classic'):
+            raise AppError('Choose the Vinyl or Classic interface.')
         preferred = body.get('preferred_device')
         if 'preferred_device' in body and preferred is not None:
             if not isinstance(preferred, dict) or set(preferred) != {'id', 'name', 'type'} or not all(isinstance(v, str) and 0 < len(v) <= 200 for v in preferred.values()):
@@ -208,13 +211,15 @@ def create_app(options=None):
                 raise AppError('That device is unavailable. Refresh devices and try again.')
             preferred = {k: preferred[k] for k in ('id', 'name', 'type')}
         with store.catalogue_lock:
+            if interface is not None:
+                store.set_setting('interface', interface)
             if 'preferred_device' in body:
                 store.set_setting('preferred_device', preferred)
             if filters is not None:
                 store.set_release_filters(filters)
             if theme is not None:
                 store.set_setting('theme', theme)
-        return jsonify(release_filters=store.release_filters(), theme=store.setting('theme', 'record-store'), preferred_device=store.setting('preferred_device'))
+        return jsonify(release_filters=store.release_filters(), interface=store.setting('interface', 'vinyl'), theme=store.setting('theme', 'record-store'), preferred_device=store.setting('preferred_device'))
 
     @app.post('/api/login')
     def login():
@@ -508,7 +513,30 @@ def create_app(options=None):
     @app.post('/api/albums/<album_id>/play')
     def play(album_id):
         body = request.get_json(silent=True) or {}
-        return jsonify(spotify.play(store.album(mbid(album_id)), disc_number=body.get('disc_number')))
+        album = store.album(mbid(album_id))
+        result = spotify.play(album, disc_number=body.get('disc_number'))
+        return jsonify(result)
+
+    @app.get('/api/spotify/playback')
+    def playback():
+        if not spotify.connected:
+            return jsonify(active=False)
+        state = spotify.api('GET', 'me/player')
+        track = state.get('item') or {}
+        if not track or state.get('currently_playing_type') not in (None, 'track'):
+            return jsonify(active=False)
+        identifiers = [track.get('id'), (track.get('linked_from') or {}).get('id')]
+        with store.connect() as db:
+            matches = [row[0] for row in db.execute(
+                'SELECT DISTINCT tracks.album_id FROM tracks JOIN shelf ON shelf.album_id=tracks.album_id '
+                'WHERE verified=1 AND spotify_id IN (?,?)', identifiers)]
+        previous = store.setting('last_played_album')
+        album_id = previous if previous in matches else matches[0] if len(matches) == 1 else None
+        album = store.album(album_id) if album_id else None
+        return jsonify(active=True, playing=bool(state.get('is_playing')), track=track.get('name', ''),
+                       artist=', '.join(a.get('name', '') for a in track.get('artists', [])),
+                       album=album['title'] if album else (track.get('album') or {}).get('name', ''),
+                       album_id=album_id, device=(state.get('device') or {}).get('name', 'Spotify'))
 
     @app.get('/api/spotify/devices')
     def devices():

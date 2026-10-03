@@ -5,7 +5,7 @@ const root = self.registration.scope;
 const asset = file => {const url=new URL('static/'+file,root);url.searchParams.set('v',VERSION);return url.href;};
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(async cache=>{
-    for(const url of [root,asset('app.js'),asset('style.css')]){
+    for(const url of [root,asset('app.js'),asset('style.css'),asset('vinyl.js'),asset('vinyl.css')]){
       const response=await fetch(url,{cache:'no-store'});
       if(!response.ok)throw new Error('Could not load updated AudioShelf shell');
       await cache.put(url,response);

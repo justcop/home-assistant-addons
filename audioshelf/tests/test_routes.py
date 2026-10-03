@@ -10,6 +10,7 @@ def test_shell_assets_share_content_version_and_update_worker_is_not_cached(clie
     version=client.get('/api/status').json['build']['asset_version']
     assert 'data-asset-version="'+version+'"' in html
     assert 'static/app.js?v='+version in html and 'static/style.css?v='+version in html
+    assert 'static/vinyl.js?v='+version in html and 'static/vinyl.css?v='+version in html
     assert client.get('/sw.js').headers['Cache-Control']=='no-store'
     assert client.get('/api/status').headers['Cache-Control']=='no-store'
 
