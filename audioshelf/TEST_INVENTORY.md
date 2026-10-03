@@ -1,12 +1,12 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-03T14:45:38+01:00 (Europe/London).
+Reviewed: 2026-10-03T19:32:33+01:00 (Europe/London).
 
-Extended existing playback regressions without adding duplicate backend cases: confirm first-track metadata, Spotify progress/duration and relinked track IDs, including null progress. Browser checks reproduce stale startup replies for a previous song and a restarted song, verify rapid confirmation, advancing progress, paused progress and resynchronisation at a song boundary, and retain navigation/playback independence and Classic coverage. All 226 backend cases passed before the additional first-track assertion; the affected backend files and both browser suites are verified for this release. CI repeats the full suite and container build.
+Reviewed the combined playback changes against merged Spotify handoff main: existing cases now check first-track metadata, progress/duration, relinking and null progress; handoff and exact-queue regressions are retained. All 230 backend cases pass locally. The progress browser flow previously passed for stale startup replies, restart positions, moving/paused progress and song boundaries. After integrating the shared startPlayback path, both combined browser suites and the container build are required in CI; the local Chromium binary currently fails at launch before loading the app. No backend test cases were added for progress.
 
-<!-- inventory: {"reviewed_at": "2026-10-03T14:45:38+01:00", "review_note": "Extended existing playback regressions without adding duplicate backend cases: confirm first-track metadata, Spotify progress/duration and relinked track IDs, including null progress. Browser checks reproduce stale startup replies for a previous song and a restarted song, verify rapid confirmation, advancing progress, paused progress and resynchronisation at a song boundary, and retain navigation/playback independence and Classic coverage. All 226 backend cases passed before the additional first-track assertion; the affected backend files and both browser suites are verified for this release. CI repeats the full suite and container build.", "source_sha256": "7508ce4f26399a5ae1ea12978a362e9a21adaa68b05ed32b4a82c74d8767c7f9"} -->
+<!-- inventory: {"reviewed_at": "2026-10-03T19:32:33+01:00", "review_note": "Reviewed the combined playback changes against merged Spotify handoff main: existing cases now check first-track metadata, progress/duration, relinking and null progress; handoff and exact-queue regressions are retained. All 230 backend cases pass locally. The progress browser flow previously passed for stale startup replies, restart positions, moving/paused progress and song boundaries. After integrating the shared startPlayback path, both combined browser suites and the container build are required in CI; the local Chromium binary currently fails at launch before loading the app. No backend test cases were added for progress.", "source_sha256": "fc481a59ee435a5a3decd6f407d689eea87370d74b3fbf51bca3cd6c00e74f6b"} -->
 
-## Backend cases (226)
+## Backend cases (230)
 
 1. `audioshelf/tests/test_artwork.py::test_album_cover_then_edition_then_spotify_fallback`
 2. `audioshelf/tests/test_artwork.py::test_artwork_requires_password`
@@ -215,25 +215,29 @@ Extended existing playback regressions without adding duplicate backend cases: c
 205. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[3]`
 206. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[True]`
 207. `audioshelf/tests/test_spotify_auth_playback.py::test_no_active_device_has_actionable_error`
-208. `audioshelf/tests/test_spotify_auth_playback.py::test_partial_mapping_cannot_play`
-209. `audioshelf/tests/test_spotify_auth_playback.py::test_pkce_and_single_use_oauth_state`
-210. `audioshelf/tests/test_spotify_auth_playback.py::test_playback_sends_only_exact_track_uris_and_turns_off_shuffle_repeat`
-211. `audioshelf/tests/test_spotify_auth_playback.py::test_preferred_device_transfer_preserves_exact_disc_queue`
-212. `audioshelf/tests/test_spotify_auth_playback.py::test_preferred_device_transfer_timeout_never_starts_tracks`
-213. `audioshelf/tests/test_spotify_auth_playback.py::test_refresh_preserves_old_refresh_token_and_survives_restart`
-214. `audioshelf/tests/test_spotify_auth_playback.py::test_shuffle_not_acknowledged_does_not_start_album`
-215. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_album_link_formats[aaaaaaaaaaaaaaaaaaaaaa]`
-216. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_album_link_formats[https://open.spotify.com/album/aaaaaaaaaaaaaaaaaaaaaa?si=hello]`
-217. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_album_link_formats[https://open.spotify.com/intl-de/album/aaaaaaaaaaaaaaaaaaaaaa]`
-218. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_album_link_formats[spotify:album:aaaaaaaaaaaaaaaaaaaaaa]`
-219. `audioshelf/tests/test_spotify_auth_playback.py::test_unavailable_or_ambiguous_preference_never_plays_elsewhere[devices0]`
-220. `audioshelf/tests/test_spotify_auth_playback.py::test_unavailable_or_ambiguous_preference_never_plays_elsewhere[devices1]`
-221. `audioshelf/tests/test_spotify_auth_playback.py::test_unavailable_or_ambiguous_preference_never_plays_elsewhere[devices2]`
-222. `audioshelf/tests/test_spotify_auth_playback.py::test_unreviewed_tracklist_cannot_play`
-223. `audioshelf/tests/test_spotify_auth_playback.py::test_untrusted_spotify_urls_not_fetched`
-224. `audioshelf/tests/test_vinyl.py::test_interface_persists_and_invalid_choice_is_atomic`
-225. `audioshelf/tests/test_vinyl.py::test_playback_does_not_misidentify_shared_or_uncollected_tracks`
-226. `audioshelf/tests/test_vinyl.py::test_playback_tracks_spotify_pause_and_relinked_library_track`
+208. `audioshelf/tests/test_spotify_auth_playback.py::test_no_active_player_with_multiple_or_restricted_devices_never_guesses[devices0]`
+209. `audioshelf/tests/test_spotify_auth_playback.py::test_no_active_player_with_multiple_or_restricted_devices_never_guesses[devices1]`
+210. `audioshelf/tests/test_spotify_auth_playback.py::test_only_available_device_activates_and_plays_exact_selected_disc[False]`
+211. `audioshelf/tests/test_spotify_auth_playback.py::test_only_available_device_activates_and_plays_exact_selected_disc[True]`
+212. `audioshelf/tests/test_spotify_auth_playback.py::test_partial_mapping_cannot_play`
+213. `audioshelf/tests/test_spotify_auth_playback.py::test_pkce_and_single_use_oauth_state`
+214. `audioshelf/tests/test_spotify_auth_playback.py::test_playback_sends_only_exact_track_uris_and_turns_off_shuffle_repeat`
+215. `audioshelf/tests/test_spotify_auth_playback.py::test_preferred_device_transfer_preserves_exact_disc_queue`
+216. `audioshelf/tests/test_spotify_auth_playback.py::test_preferred_device_transfer_timeout_never_starts_tracks`
+217. `audioshelf/tests/test_spotify_auth_playback.py::test_refresh_preserves_old_refresh_token_and_survives_restart`
+218. `audioshelf/tests/test_spotify_auth_playback.py::test_shuffle_not_acknowledged_does_not_start_album`
+219. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_album_link_formats[aaaaaaaaaaaaaaaaaaaaaa]`
+220. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_album_link_formats[https://open.spotify.com/album/aaaaaaaaaaaaaaaaaaaaaa?si=hello]`
+221. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_album_link_formats[https://open.spotify.com/intl-de/album/aaaaaaaaaaaaaaaaaaaaaa]`
+222. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_album_link_formats[spotify:album:aaaaaaaaaaaaaaaaaaaaaa]`
+223. `audioshelf/tests/test_spotify_auth_playback.py::test_unavailable_or_ambiguous_preference_never_plays_elsewhere[devices0]`
+224. `audioshelf/tests/test_spotify_auth_playback.py::test_unavailable_or_ambiguous_preference_never_plays_elsewhere[devices1]`
+225. `audioshelf/tests/test_spotify_auth_playback.py::test_unavailable_or_ambiguous_preference_never_plays_elsewhere[devices2]`
+226. `audioshelf/tests/test_spotify_auth_playback.py::test_unreviewed_tracklist_cannot_play`
+227. `audioshelf/tests/test_spotify_auth_playback.py::test_untrusted_spotify_urls_not_fetched`
+228. `audioshelf/tests/test_vinyl.py::test_interface_persists_and_invalid_choice_is_atomic`
+229. `audioshelf/tests/test_vinyl.py::test_playback_does_not_misidentify_shared_or_uncollected_tracks`
+230. `audioshelf/tests/test_vinyl.py::test_playback_tracks_spotify_pause_and_relinked_library_track`
 
 ## Other release checks
 

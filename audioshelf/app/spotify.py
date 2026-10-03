@@ -251,17 +251,22 @@ class Spotify:
                     device = matches[0] if len(matches) == 1 else None
                 if not device or device.get('is_restricted'):
                     raise AppError('Your preferred Spotify device is unavailable. Open Spotify on it, return here and retry, or change the device in Settings.', 409)
-                if state.get('device', {}).get('id') != device['id']:
-                    self.api('PUT', 'me/player', body={'device_ids': [device['id']], 'play': False})
-                    for attempt in range(5):
-                        time.sleep(.3)
-                        state = self.api('GET', 'me/player')
-                        if state.get('device', {}).get('id') == device['id']:
-                            break
-                    else:
-                        raise AppError('Spotify has not activated your preferred device yet. Return here and retry.', 409)
-            if not device.get('id') or device.get('is_restricted'):
-                raise AppError('Open Spotify on the device you want to use, play a few seconds, then try again.', 409)
+            elif not device.get('id') or device.get('is_restricted'):
+                available = [d for d in self.devices() if not d.get('is_restricted')]
+                if len(available) > 1:
+                    raise AppError('Choose a Spotify device to start playback.', 409)
+                if not available:
+                    raise AppError('Open Spotify on the device you want to use, then return here. AudioShelf will retry your selected tracklist.', 409)
+                device = available[0]
+            if state.get('device', {}).get('id') != device['id'] or state.get('device', {}).get('is_restricted'):
+                self.api('PUT', 'me/player', body={'device_ids': [device['id']], 'play': False})
+                for attempt in range(10):
+                    time.sleep(.3)
+                    state = self.api('GET', 'me/player')
+                    if state.get('device', {}).get('id') == device['id'] and not state.get('device', {}).get('is_restricted'):
+                        break
+                else:
+                    raise AppError('Spotify has not activated your device yet. Return here and retry.', 409)
             params = {'device_id':device['id']}
             if state.get('shuffle_state'):
                 self.api('PUT','me/player/shuffle', dict(params,state='false'))

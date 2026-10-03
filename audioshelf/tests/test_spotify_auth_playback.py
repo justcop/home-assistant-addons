@@ -235,3 +235,35 @@ def test_preferred_device_transfer_timeout_never_starts_tracks(application,monke
     monkeypatch.setattr(spotify,'api',api);monkeypatch.setattr('app.spotify.time.sleep',lambda _:None)
     with pytest.raises(AppError,match='activated'):spotify.play(ready_album(application))
     assert 'me/player/play' not in calls
+
+
+@pytest.mark.parametrize('restricted_extra', [False, True])
+def test_only_available_device_activates_and_plays_exact_selected_disc(application,monkeypatch,restricted_extra):
+    spotify=application.extensions['spotify'];album=ready_album(application)
+    album['tracks'][1]['disc_number']=2
+    calls=[];active=False
+    def api(method,path,params=None,body=None):
+        nonlocal active
+        calls.append((method,path,params,body))
+        if path=='me/player/devices':
+            return {'devices':[{'id':'phone','name':'Phone','is_restricted':False}]+([{'id':'blocked','is_restricted':True}] if restricted_extra else [])}
+        if method=='PUT' and path=='me/player':active=True
+        if method=='GET' and path=='me/player':
+            return {'device':{'id':'phone'} if active else {},'shuffle_state':False,'repeat_state':'off'}
+        return {}
+    monkeypatch.setattr(spotify,'api',api);monkeypatch.setattr('app.spotify.time.sleep',lambda _:None)
+    assert spotify.play(album,2)['track_count']==1
+    assert ('PUT','me/player',None,{'device_ids':['phone'],'play':False}) in calls
+    assert calls[-1]==('PUT','me/player/play',{'device_id':'phone'},{'uris':['spotify:track:'+'b'*22],'position_ms':0})
+
+
+@pytest.mark.parametrize('devices', [[{'id':'a'},{'id':'b'}], [{'id':'blocked','is_restricted':True}]])
+def test_no_active_player_with_multiple_or_restricted_devices_never_guesses(application,monkeypatch,devices):
+    spotify=application.extensions['spotify'];calls=[]
+    def api(method,path,params=None,body=None):
+        calls.append(method)
+        return {'devices':devices} if path.endswith('devices') else {}
+    monkeypatch.setattr(spotify,'api',api)
+    with pytest.raises(AppError) as failure:spotify.play(ready_album(application))
+    assert failure.value.status==409
+    assert 'PUT' not in calls

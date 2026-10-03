@@ -17,7 +17,13 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert(ready,logs);
     browser=await chromium.launch({headless:true,executablePath:process.env.AUDIOSHELF_TEST_BROWSER||undefined,args:process.env.AUDIOSHELF_TEST_BROWSER?['--no-sandbox','--disable-dev-shm-usage']:[]});
     const page=await browser.newPage({viewport:{width:1440,height:1000},reducedMotion:'reduce'});
-    const errors=[];page.on('pageerror',e=>errors.push(e.message));
+    const errors=[],requests=[];page.on('pageerror',e=>errors.push(e.message));
+    page.on('request',r=>{if(r.url().includes('/api/'))requests.push('START '+r.method()+' '+new URL(r.url()).pathname);});
+    page.on('response',r=>{if(r.url().includes('/api/'))requests.push('END '+r.status()+' '+new URL(r.url()).pathname);});
+    async function waitPlaying(){
+      try{await page.locator('#turntable small b').filter({hasText:'PLAYING'}).waitFor();}
+      catch(error){console.error(JSON.stringify({errors,requests:requests.slice(-30),state:await page.evaluate(()=>({toast:document.querySelector('#toast').textContent,turntable:document.querySelector('#turntable').textContent,playbackState,playbackBusy,pendingPlayback,checkingPlayback}))}));throw error;}
+    }
     // Synthetic covers keep screenshots reproducible, with no third-party downloads.
     await page.route('**/api/albums/*/artwork?*',async route=>{
       const key=route.request().url().split('/albums/')[1].split('/')[0];
@@ -102,7 +108,7 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     releasePlay();
     await page.unroute('**/api/albums/*/play');
     await page.getByRole('heading',{name:'First Light',exact:true}).waitFor();
-    await page.locator('#turntable small b').filter({hasText:'PLAYING'}).waitFor();
+    await waitPlaying();
     assert.equal(await page.locator('#turntable strong').textContent(),'The Original Album');
     assert.equal(await page.getByRole('heading',{name:'First Light',exact:true}).count(),1);
     await page.getByRole('button',{name:'Album settings'}).click();
