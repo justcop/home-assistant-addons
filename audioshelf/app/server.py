@@ -5,6 +5,7 @@ import logging
 import os
 import secrets
 import time
+import requests
 from datetime import timedelta
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -16,8 +17,10 @@ from .artwork import Artwork
 from .errors import AppError
 from .matching import candidate, track_score
 from .musicbrainz import MusicBrainz, mbid
+from .release_filters import matches_filters, validate_filters
 from .spotify import Spotify, atomic_private_json, spotify_id
 from .storage import Store
+from .themes import THEMES, THEME_IDS
 
 LOG = logging.getLogger('audioshelf')
 
@@ -53,7 +56,7 @@ def create_app(options=None):
                       SESSION_COOKIE_NAME='audioshelf_session', SESSION_COOKIE_HTTPONLY=True,
                       SESSION_COOKIE_SAMESITE='Lax', PERMANENT_SESSION_LIFETIME=timedelta(days=30))
     musicbrainz, spotify = MusicBrainz(store), Spotify(store, options, private_dir)
-    artwork = Artwork(store,spotify)
+    artwork = Artwork(store,spotify,musicbrainz)
     app.extensions.update(store=store, musicbrainz=musicbrainz, spotify=spotify, artwork=artwork)
     build_path = Path(__file__).resolve().parents[1]/'build.json'
     build = json.loads(build_path.read_text()) if build_path.exists() else {'version':'0.1.0','channel':'local','revision':'local'}
@@ -88,6 +91,9 @@ def create_app(options=None):
 
     @app.errorhandler(AppError)
     def expected(error):
+        parts = request.path.split('/')
+        if len(parts) > 3 and parts[1:3] == ['api', 'albums'] and parts[-1] != 'diagnostics':
+            store.diagnostic(parts[3], 'request_error', {'action': parts[4:] or ['open'], 'status': error.status, 'message': str(error)})
         return jsonify(error=str(error)), error.status
 
     @app.errorhandler(KeyError)
@@ -99,6 +105,10 @@ def create_app(options=None):
         if isinstance(error, HTTPException):
             return jsonify(error=error.description), error.code
         LOG.exception('AudioShelf request failed')
+        parts = request.path.split('/')
+        if len(parts) > 3 and parts[1:3] == ['api', 'albums'] and parts[-1] != 'diagnostics':
+            store.diagnostic(parts[3], 'request_error', {'action': parts[4:] or ['open'], 'status': 500,
+                'message': 'AudioShelf could not complete this request. Check the add-on log.'})
         return jsonify(error='AudioShelf could not complete this request. Check the add-on log.'), 500
 
     @app.get('/')
@@ -125,8 +135,29 @@ def create_app(options=None):
         result = {'build':build,'authenticated':authenticated(),'password_required':bool(password) and not ingress()}
         if authenticated():
             result.update(spotify_configured=spotify.configured, spotify_connected=spotify.connected,
-                          spotify_redirect_uri=spotify.redirect_uri, data_directory=str(store.directory), cache_directory=str(store.cache_directory), market=spotify.market)
+                          spotify_redirect_uri=spotify.redirect_uri, data_directory=str(store.directory), cache_directory=str(store.cache_directory), market=spotify.market,
+                          release_filters=store.release_filters(), theme=store.setting('theme', 'record-store'), themes=THEMES)
         return jsonify(result)
+
+    @app.get('/api/settings')
+    def settings():
+        return jsonify(release_filters=store.release_filters(), theme=store.setting('theme', 'record-store'), themes=THEMES)
+
+    @app.put('/api/settings')
+    def save_settings():
+        body = request.json
+        if not isinstance(body, dict) or not set(body).intersection({'release_filters', 'theme'}):
+            raise AppError('Supply release filters or a theme.')
+        filters = validate_filters(body['release_filters']) if 'release_filters' in body else None
+        theme = body.get('theme')
+        if 'theme' in body and (not isinstance(theme, str) or theme not in THEME_IDS):
+            raise AppError('Choose one of the available themes.')
+        with store.catalogue_lock:
+            if filters is not None:
+                store.set_release_filters(filters)
+            if theme is not None:
+                store.set_setting('theme', theme)
+        return jsonify(release_filters=store.release_filters(), theme=store.setting('theme', 'record-store'))
 
     @app.post('/api/login')
     def login():
@@ -174,6 +205,41 @@ def create_app(options=None):
             albums = store.albums(artist_id,owned=True)
         return jsonify(artist=detail,albums=albums)
 
+    @app.get('/api/artists/<artist_id>/catalogue')
+    def artist_catalogue(artist_id):
+        artist_id = mbid(artist_id)
+        return jsonify(albums=musicbrainz.artist_albums(artist_id, manage=True), series_id=store.catalogue_series(artist_id))
+
+    @app.put('/api/artists/<artist_id>/series')
+    def choose_series(artist_id):
+        artist_id = mbid(artist_id)
+        series_id = request.json.get('series_id')
+        if series_id is not None:
+            series_id = mbid(series_id)
+            musicbrainz.series_members(series_id)
+        store.set_setting('series:'+artist_id, series_id)
+        return jsonify(ok=True)
+
+    @app.post('/api/albums/<album_id>/catalogue')
+    def catalogue_override(album_id):
+        album_id = mbid(album_id)
+        store.album(album_id)
+        choice = request.json.get('choice')
+        if choice not in {'include', 'exclude', 'auto'}:
+            raise AppError('Choose Auto, Include or Exclude.')
+        store.set_setting('catalogue:'+album_id, None if choice == 'auto' else choice)
+        return jsonify(ok=True)
+
+    @app.put('/api/albums/<album_id>/release-countries')
+    def album_countries(album_id):
+        album_id = mbid(album_id)
+        store.album(album_id)
+        countries = request.json.get('countries')
+        if countries is not None:
+            countries = validate_filters({'countries': countries, 'formats': ['cd']})['countries']
+        store.set_setting('release_countries:'+album_id, countries)
+        return jsonify(store.album(album_id))
+
     @app.get('/api/albums/<album_id>')
     def album(album_id):
         album_id = mbid(album_id)
@@ -201,6 +267,20 @@ def create_app(options=None):
         artwork.reset(mbid(album_id))
         return jsonify(ok=True)
 
+    @app.post('/api/albums/<album_id>/artwork-release')
+    def edition_artwork(album_id):
+        album_id, release_id = mbid(album_id), mbid(request.json.get('release_id'))
+        release = musicbrainz.get('release/'+release_id, {'inc': 'release-groups+media'})
+        if release.get('release-group', {}).get('id') != album_id or release.get('status') != 'Official':
+            raise AppError('Choose an official edition of this album.')
+        if not matches_filters(release, store.release_filters(album_id)):
+            raise AppError('That cover edition does not match your release filters.')
+        try:
+            artwork.choose_release(album_id, release_id)
+        except (AppError, OSError, requests.RequestException) as error:
+            raise AppError('This edition has no downloadable front cover. Choose another or upload your own.', 502) from error
+        return jsonify(ok=True)
+
     @app.post('/api/albums/<album_id>/shelf')
     def add_shelf(album_id):
         album_id = mbid(album_id)
@@ -217,6 +297,14 @@ def create_app(options=None):
 
     @app.get('/api/albums/<album_id>/releases')
     def releases(album_id):
+        if 'offset' in request.args:
+            try:
+                offset = int(request.args['offset'])
+                if offset < 0 or offset > 100000:
+                    raise ValueError()
+            except ValueError:
+                raise AppError('Invalid release page.') from None
+            return jsonify(musicbrainz.release_page(mbid(album_id), offset))
         return jsonify(releases=musicbrainz.releases(mbid(album_id)))
 
     @app.post('/api/albums/<album_id>/release')
@@ -225,6 +313,16 @@ def create_app(options=None):
             raise AppError('Confirm the edition change. It replaces the canonical tracks and clears Spotify mappings.')
         with store.catalogue_lock:
             return jsonify(musicbrainz.use_release(mbid(album_id),request.json.get('release_id'),True))
+
+    @app.get('/api/albums/<album_id>/diagnostics')
+    def diagnostic_report(album_id):
+        album_id = mbid(album_id)
+        album = store.album(album_id)
+        response = jsonify(format='audioshelf-diagnostics-1', build=build, generated_at=time.time(),
+            album=album, global_release_filters=store.release_filters(), events=store.diagnostics(album_id),
+            artwork=store.cache_get('artwork:'+album_id), has_custom_cover=bool(store.artwork_override(album_id)))
+        response.headers['Content-Disposition'] = 'attachment; filename="audioshelf-'+album_id+'-diagnostics.json"'
+        return response
 
     @app.post('/api/albums/<album_id>/review')
     def review(album_id):
@@ -237,6 +335,13 @@ def create_app(options=None):
         with store.catalogue_lock:
             album = musicbrainz.ensure_tracks(mbid(album_id))
             candidates = spotify.candidates(album)
+            if candidates:
+                positions = {m['position'] for m in candidates[0]['mappings'] if not m['verified']}
+                enriched = musicbrainz.enrich_recordings(album, positions)
+                if enriched != album:
+                    candidates = spotify.candidates(enriched)
+            store.diagnostic(album_id, 'spotify_candidates', {'candidates': [
+                c if n < 3 else {k: v for k, v in c.items() if k != 'mappings'} for n, c in enumerate(candidates[:30])]})
             if not candidates:
                 raise AppError('No Spotify edition found. Paste a Spotify album link in album settings.')
             store.mapping(album_id,candidates[0])
@@ -248,6 +353,11 @@ def create_app(options=None):
             album = store.album(mbid(album_id))
             source = spotify.album(request.json.get('spotify_album_id',''))
             choice = candidate(album,source)
+            positions = {m['position'] for m in choice['mappings'] if not m['verified']}
+            enriched = musicbrainz.enrich_recordings(album, positions)
+            if enriched != album:
+                choice = candidate(enriched,source)
+            store.diagnostic(album_id, 'spotify_assessment', choice)
             store.mapping(album_id,choice,manual=True)
             return jsonify(album=store.album(album_id),candidate=choice)
 

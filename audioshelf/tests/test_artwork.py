@@ -40,7 +40,7 @@ def test_canonical_release_then_spotify_fallback(application,monkeypatch):
         raise requests.HTTPError('404')
     monkeypatch.setattr(artwork,'download',download)
     assert artwork.get(ALBUM)[2]=='spotify'
-    assert '/release-group/' in calls[0] and '/release/' in calls[1]
+    assert '/release/' in calls[0] and '/release-group/' in calls[1]
     assert calls[2]=='https://i.scdn.co/image/test'
 
 

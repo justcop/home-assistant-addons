@@ -28,7 +28,10 @@ def mb_get(entity,params=None):
     if entity=='release-group':return {'release-groups':[group], 'release-group-count':1}
     if entity=='release-group/'+ALBUM:return group
     if entity=='release':return {'releases':[release],'release-count':1}
-    if entity=='release/'+RELEASE:return release
+    if entity=='release/'+RELEASE:
+        if not {'media', 'recordings'}.intersection(params.get('inc', '').split('+')):
+            return {key: value for key, value in release.items() if key != 'media'}
+        return release
     raise AssertionError(entity)
 
 

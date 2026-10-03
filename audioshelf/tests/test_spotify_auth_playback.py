@@ -145,3 +145,22 @@ def test_candidate_search_reaches_new_remaster_on_next_page(application,monkeypa
     monkeypatch.setattr(spotify,'api',api);monkeypatch.setattr(spotify,'album',source)
     assert spotify.candidates(album)[0]['id']=='n'*22
     assert offsets==[0,10]
+
+
+def test_fallback_candidate_search_paginates_when_structured_search_is_empty(application, monkeypatch):
+    spotify = application.extensions['spotify']; album = application.extensions['store'].album(ALBUM)
+    calls = []
+    from conftest import spotify_track
+    def api(method, path, params=None, body=None):
+        calls.append((params['q'], params['offset']))
+        if params['q'].startswith('album:'):
+            return {'albums': {'items': [], 'next': None}}
+        offset = params['offset']
+        return {'albums': {'items': [{'id': ('n' if offset == 20 else 'o')*22}], 'next': 'next' if offset < 20 else None}}
+    def source(identifier):
+        suffix = ' - 2022 Mix' if identifier[0] == 'n' else ''
+        return {'id': identifier, 'name': 'The Album'+suffix, 'release_date': '2007', 'all_tracks': [
+            spotify_track('Opening'+suffix, 'a'*22), spotify_track('Closing'+suffix, 'b'*22, 240000)]}
+    monkeypatch.setattr(spotify, 'api', api); monkeypatch.setattr(spotify, 'album', source)
+    assert spotify.candidates(album)[0]['id'] == 'n'*22
+    assert [offset for _, offset in calls] == [0, 0, 10, 20]

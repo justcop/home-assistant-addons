@@ -6,6 +6,9 @@ import threading
 import time
 from pathlib import Path
 
+from .release_filters import DEFAULT_FILTERS
+from .catalogue_rules import BEATLES, BEATLES_SERIES, MAGICAL_MYSTERY_TOUR
+
 
 class Store:
     """Short-lived connections, transactional updates and explicit schema versions."""
@@ -17,7 +20,7 @@ class Store:
         self.catalogue_lock = threading.RLock()
         with self.connect() as db:
             version = db.execute('PRAGMA user_version').fetchone()[0]
-            if version > 2:
+            if version > 4:
                 raise RuntimeError('This database needs a newer AudioShelf version.')
             db.executescript('''
                 CREATE TABLE IF NOT EXISTS artists (
@@ -40,11 +43,20 @@ class Store:
                 CREATE TABLE IF NOT EXISTS shelf (
                     album_id TEXT PRIMARY KEY REFERENCES albums(id), added_at REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS artwork_overrides (album_id TEXT PRIMARY KEY REFERENCES albums(id), filename TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS diagnostics (
+                    id INTEGER PRIMARY KEY, album_id TEXT, created REAL NOT NULL, event TEXT NOT NULL, details TEXT NOT NULL);
                 DROP TABLE IF EXISTS cache;
                 CREATE TABLE IF NOT EXISTS oauth_states (
                     state TEXT PRIMARY KEY, verifier TEXT NOT NULL, expires REAL NOT NULL);
-                PRAGMA user_version=2;
             ''')
+            columns = {row['name'] for row in db.execute('PRAGMA table_info(tracks)')}
+            if 'recording_title' not in columns:
+                db.execute("ALTER TABLE tracks ADD COLUMN recording_title TEXT NOT NULL DEFAULT ''")
+            if 'recording_aliases' not in columns:
+                db.execute("ALTER TABLE tracks ADD COLUMN recording_aliases TEXT NOT NULL DEFAULT '[]'")
+            db.execute('PRAGMA user_version=4')
+            db.commit()
             if version == 1:
                 db.execute('VACUUM')
         os.chmod(self.path, 0o600)
@@ -79,6 +91,47 @@ class Store:
         with self.cache_connect() as db:
             row = db.execute('SELECT value FROM cache WHERE key=? AND expires>?', (key, time.time())).fetchone()
         return json.loads(row[0]) if row else None
+
+    def setting(self, key, default=None):
+        with self.connect() as db:
+            row = db.execute('SELECT value FROM settings WHERE key=?', (key,)).fetchone()
+        return json.loads(row[0]) if row else default
+
+    def set_setting(self, key, value):
+        with self.connect() as db:
+            db.execute('INSERT OR REPLACE INTO settings VALUES (?,?)', (key, json.dumps(value)))
+
+    def release_filters(self, album_id=None):
+        filters = self.setting('release_filters', {key: list(value) if isinstance(value, list) else value for key, value in DEFAULT_FILTERS.items()})
+        if album_id:
+            countries = self.release_countries(album_id)
+            if countries is not None:
+                filters['countries'] = countries
+        return filters
+
+    def release_countries(self, album_id):
+        return self.setting('release_countries:'+album_id, ['US'] if album_id == MAGICAL_MYSTERY_TOUR else None)
+
+    def catalogue_series(self, artist_id):
+        return self.setting('series:'+artist_id, BEATLES_SERIES if artist_id == BEATLES else None)
+
+    def set_release_filters(self, filters):
+        self.set_setting('release_filters', filters)
+
+    def diagnostic(self, album_id, event, details):
+        with self.connect() as db:
+            if event in {'spotify_candidates', 'spotify_assessment'}:
+                db.execute('DELETE FROM diagnostics WHERE album_id=? AND event=?', (album_id, event))
+            db.execute('INSERT INTO diagnostics(album_id,created,event,details) VALUES (?,?,?,?)',
+                       (album_id, time.time(), event, json.dumps(details)))
+            db.execute('DELETE FROM diagnostics WHERE id NOT IN (SELECT id FROM diagnostics ORDER BY id DESC LIMIT 200)')
+
+    def diagnostics(self, album_id):
+        with self.connect() as db:
+            rows = [dict(r) for r in db.execute('SELECT created,event,details FROM diagnostics WHERE album_id=? ORDER BY id DESC LIMIT 30', (album_id,))]
+        for row in rows:
+            row['details'] = json.loads(row['details'])
+        return rows
 
     def cache_put(self, key, value, ttl=86400):
         with self.cache_connect() as db:
@@ -151,18 +204,27 @@ class Store:
             result['tracks'] = [dict(row) for row in db.execute('SELECT * FROM tracks WHERE album_id=? ORDER BY position', (album_id,))]
             for track in result['tracks']:
                 track['isrcs'] = json.loads(track['isrcs'])
+                track['recording_aliases'] = json.loads(track['recording_aliases'])
         result['playable'] = bool(result['tracks']) and all(t['spotify_id'] and t['verified'] for t in result['tracks'])
+        result['release_countries'] = self.release_countries(album_id)
+        result['release_filters'] = self.release_filters(album_id)
         return result
 
     def set_tracks(self, album_id, release, tracks, reviewed=False):
         with self.connect() as db:
             db.execute('DELETE FROM tracks WHERE album_id=?', (album_id,))
             for position, track in enumerate(tracks, 1):
-                db.execute('INSERT INTO tracks(album_id,position,title,disc_number,track_number,duration_ms,recording_id,isrcs) '
-                           'VALUES (?,?,?,?,?,?,?,?)', (album_id, position, track['title'], track['disc_number'],
-                           track['track_number'], track.get('duration_ms'), track.get('recording_id'), json.dumps(track.get('isrcs', []))))
+                db.execute('INSERT INTO tracks(album_id,position,title,disc_number,track_number,duration_ms,recording_id,isrcs,recording_title,recording_aliases) '
+                           'VALUES (?,?,?,?,?,?,?,?,?,?)', (album_id, position, track['title'], track['disc_number'],
+                           track['track_number'], track.get('duration_ms'), track.get('recording_id'), json.dumps(track.get('isrcs', [])),
+                           track.get('recording_title', ''), json.dumps(track.get('recording_aliases', []))))
             db.execute('UPDATE albums SET release_id=?,release_label=?,canonical_reviewed=?,spotify_album_id=NULL,spotify_album_name=NULL WHERE id=?',
                        (release['id'], release.get('label', release.get('title','')), int(reviewed), album_id))
+
+    def recording_metadata(self, album_id, recording_id, title, aliases, isrcs):
+        with self.connect() as db:
+            db.execute('UPDATE tracks SET recording_title=?,recording_aliases=?,isrcs=? WHERE album_id=? AND recording_id=?',
+                       (title, json.dumps(aliases), json.dumps(isrcs), album_id, recording_id))
 
     def mapping(self, album_id, candidate, manual=False):
         """Replace an edition atomically; automatic resolution preserves hand corrections."""

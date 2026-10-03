@@ -27,7 +27,7 @@ def test_release_pagination_increments_actual_page_size(application,monkeypatch)
     mb=application.extensions['musicbrainz'];offsets=[]
     def get(entity,params=None):
         offsets.append(params['offset'])
-        return {'releases':[{'id':str(params['offset']),'title':'Album','date':'2007','country':'GB'}], 'release-count':3}
+        return {'releases':[{'id':str(params['offset']),'title':'Album','date':'2007','country':'GB','media':[{'format':'CD'}]}], 'release-count':3}
     monkeypatch.setattr(mb,'get',get)
     assert len(mb.releases(ALBUM))==3
     assert offsets==[0,1,2]
@@ -50,8 +50,8 @@ def test_first_tracklist_selection_and_group_validation(application,monkeypatch)
     mb=application.extensions['musicbrainz'];store=application.extensions['store']
     with store.connect() as db:db.execute('DELETE FROM tracks')
     def get(entity,params=None):
-        if entity=='release':return {'releases':[{'id':RELEASE,'title':'Album','date':'2007','country':'GB'}],'release-count':1}
-        return {'id':RELEASE,'title':'Album','status':'Official','release-group':{'id':ALBUM},'media':[
+        if entity=='release':return {'releases':[{'id':RELEASE,'title':'Album','date':'2007','country':'GB','media':[{'format':'CD'}]}],'release-count':1}
+        return {'id':RELEASE,'title':'Album','status':'Official','country':'GB','release-group':{'id':ALBUM},'media':[
             {'position':1,'format':'CD','tracks':[{'title':'Opening','position':1,'length':180000,'recording':{'id':'recording'}}]}]}
     monkeypatch.setattr(mb,'get',get)
     assert mb.ensure_tracks(ALBUM)['tracks'][0]['title']=='Opening'

@@ -6,6 +6,8 @@ import uuid
 import requests
 
 from .errors import AppError
+from .release_filters import VIDEO_FORMATS, filter_description, matches_filters, preference_rank
+from .catalogue_rules import BEATLES_CORE, BEATLES_SERIES
 
 BAD_EDITION = re.compile(r'bonus|deluxe|expanded|anniversary|collector|remaster|special edition|limited edition', re.I)
 EXCLUDED_TYPES = {'Compilation', 'Live', 'Remix', 'Soundtrack', 'Demo', 'DJ-mix', 'Mixtape/Street',
@@ -30,7 +32,7 @@ def studio(group):
     return group.get('primary-type') == 'Album' and not EXCLUDED_TYPES.intersection(group.get('secondary-types', []))
 
 
-def release_rank(release, original_date):
+def release_rank(release, original_date, filters=None):
     """Prefer an unexpanded original-year home-market edition, never the shortest album."""
     date = release.get('date', '')
     original_year = original_date[:4]
@@ -38,6 +40,10 @@ def release_rank(release, original_date):
     description = release.get('title','') + ' ' + release.get('disambiguation','')
     media = release.get('media', [])
     formats = [m.get('format', '') for m in media]
+    if filters is not None:
+        country_rank, format_rank = preference_rank(release, filters)
+        return (bool(BAD_EDITION.search(description)), country_rank, year_gap,
+                format_rank, date or '9999', release['id'])
     return (bool(BAD_EDITION.search(description)), year_gap,
             release.get('country') == 'JP',
             {'GB': 0, 'XW': 1, 'US': 2}.get(release.get('country'), 3),
@@ -47,7 +53,7 @@ def release_rank(release, original_date):
 def release_tracks(release):
     tracks = []
     for medium in sorted(release.get('media', []), key=lambda m: m.get('position', 1)):
-        if medium.get('format') in {'DVD', 'DVD-Video', 'Blu-ray', 'VHS', 'VCD', 'Video'}:
+        if medium.get('format') in VIDEO_FORMATS:
             continue
         for track in sorted(medium.get('tracks', []), key=lambda t: t.get('position', 1)):
             recording = track.get('recording', {})
@@ -56,7 +62,9 @@ def release_tracks(release):
             tracks.append({'title': track.get('title') or recording.get('title', 'Untitled'),
                 'disc_number': medium.get('position', 1), 'track_number': track.get('position', len(tracks)+1),
                 'duration_ms': track.get('length') or recording.get('length'),
-                'recording_id': recording.get('id'), 'isrcs': recording.get('isrcs', [])})
+                'recording_id': recording.get('id'), 'isrcs': recording.get('isrcs', []),
+                'recording_title': recording.get('title', ''),
+                'recording_aliases': [a['name'] for a in recording.get('aliases', []) if a.get('name')]})
     return tracks
 
 
@@ -66,8 +74,41 @@ class MusicBrainz:
         self.lock = threading.Lock()
         self.last_call = 0
         self.session = requests.Session()
-        self.session.headers.update({'User-Agent': 'AudioShelf/0.2.0 (https://github.com/justcop/home-assistant-addons)',
+        self.session.headers.update({'User-Agent': 'AudioShelf/0.3.0 (https://github.com/justcop/home-assistant-addons)',
                                      'Accept': 'application/json'})
+
+    def membership(self, group):
+        override = self.store.setting('catalogue:'+group['id'])
+        if override is not None:
+            return override == 'include'
+        for credit in group.get('artist-credit', []):
+            if isinstance(credit, dict) and 'artist' in credit:
+                series = self.store.catalogue_series(credit['artist']['id'])
+                if series:
+                    return (group['id'] in self.series_members(series) and group.get('primary-type') == 'Album'
+                            and not (EXCLUDED_TYPES-{'Soundtrack'}).intersection(group.get('secondary-types', [])))
+        return studio(group)
+
+    def series_members(self, series_id):
+        key = 'series-members:'+series_id
+        cached = self.store.cache_get(key)
+        if cached is not None:
+            return set(cached)
+        try:
+            detail = self.get('series/'+mbid(series_id), {'inc': 'release-group-rels'})
+            if detail.get('type') not in {'Release group', 'Release group series'}:
+                raise AppError('Choose a MusicBrainz release-group series.')
+            members = {r['release-group']['id'] for r in detail.get('relations', []) if 'release-group' in r}
+            if not members:
+                raise AppError('That series has no album members.')
+            self.store.cache_put(key, sorted(members))
+        except AppError:
+            if series_id != BEATLES_SERIES:
+                raise
+            # Verified snapshot keeps this well-known catalogue usable during MB outages.
+            members = set(BEATLES_CORE)
+            self.store.cache_put(key, sorted(members), ttl=300)
+        return members
 
     def get(self, entity, params=None):
         params = dict(params or {}, fmt='json')
@@ -109,54 +150,85 @@ class MusicBrainz:
         result = self.get('artist' if kind == 'artist' else 'release-group', {'query': expression, 'limit': 30})
         if kind == 'artist':
             return result.get('artists', [])
-        groups = [g for g in result.get('release-groups', []) if studio(g)]
+        groups = [g for g in result.get('release-groups', []) if self.membership(g)]
         self.store.catalogue(groups)
         return [self.store.album(g['id']) for g in groups]
 
-    def artist_albums(self, artist_id):
+    def artist_albums(self, artist_id, manage=False):
         mbid(artist_id)
         offset, groups = 0, []
         while True:
             page = self.get('release-group', {'artist': artist_id, 'type': 'album', 'release-group-status':'website-default',
                                            'inc': 'artist-credits', 'limit':100, 'offset':offset})
             items = page.get('release-groups', [])
-            groups.extend(g for g in items if studio(g))
+            groups.extend(g for g in items if g.get('primary-type') == 'Album')
             offset += len(items)
             if not items or offset >= page.get('release-group-count', offset):
                 break
         self.store.catalogue(groups)
-        return self.store.albums(artist_id)
+        catalogue = {g['id']: g for g in groups}
+        result = []
+        for album in self.store.albums(artist_id):
+            group = catalogue.get(album['id'])
+            if group is None:
+                continue
+            included = self.membership(group)
+            if included or manage:
+                album.update(catalogue_included=included, catalogue_override=self.store.setting('catalogue:'+group['id']),
+                             secondary_types=group.get('secondary-types', []))
+                result.append(album)
+        return result
 
     def ensure_group(self, album_id):
         group = self.get('release-group/'+mbid(album_id), {'inc':'artist-credits'})
-        if not studio(group):
+        if group.get('primary-type') != 'Album' or not self.membership(group):
             raise AppError('The MVP collects studio albums only.')
         self.store.catalogue([group])
         return self.store.album(album_id)
+
+    def release_page(self, album_id, offset=0):
+        album = self.store.album(album_id)
+        page = self.get('release', {'release-group': mbid(album_id), 'status': 'official', 'inc': 'media',
+                                  'limit': 100, 'offset': offset})
+        batch = page.get('releases', [])
+        next_offset = offset+len(batch)
+        filters = self.store.release_filters(album_id)
+        items = sorted(({**r, 'preference_rank': list(release_rank(r, album['release_date'], filters))}
+                        for r in batch if matches_filters(r, filters)),
+                       key=lambda r: release_rank(r, album['release_date'], filters))
+        self.store.diagnostic(album_id, 'release_page', {'offset': offset, 'scanned': len(batch), 'matched': len(items),
+            'filters': filters, 'considered': [{'id': r['id'], 'country': r.get('country'), 'date': r.get('date'),
+                'formats': [m.get('format') for m in r.get('media', [])], 'included': matches_filters(r, filters)} for r in batch]})
+        return {'releases': items, 'next_offset': next_offset if batch and next_offset < page.get('release-count', next_offset) else None,
+                'filters': filters}
 
     def releases(self, album_id):
         album = self.store.album(album_id)
         offset, items = 0, []
         while True:
-            page = self.get('release', {'release-group':mbid(album_id), 'status':'official', 'inc':'media',
-                                        'limit':100, 'offset':offset})
-            batch = page.get('releases', [])
-            items.extend(batch)
-            offset += len(batch)
-            if not batch or offset >= page.get('release-count', offset):
+            page = self.release_page(album_id, offset)
+            items.extend(page['releases'])
+            if page['next_offset'] is None:
                 break
-        return sorted(items, key=lambda r: release_rank(r, album['release_date']))
+            offset = page['next_offset']
+        filters = self.store.release_filters(album_id)
+        return sorted((r for r in items if matches_filters(r, filters)),
+                      key=lambda r: release_rank(r, album['release_date'], filters))
 
     def use_release(self, album_id, release_id, reviewed=False):
         release = self.get('release/'+mbid(release_id), {'inc':'recordings+release-groups+isrcs'})
         if release.get('release-group',{}).get('id') != album_id or release.get('status') != 'Official':
             raise AppError('Choose an official edition of this album.')
+        if not matches_filters(release, self.store.release_filters(album_id)):
+            raise AppError('This edition does not match your MusicBrainz release filters. Change them in Settings first.')
         tracks = release_tracks(release)
         if not tracks:
             raise AppError('This edition has no usable audio tracklist. Please choose another.')
         release['label'] = ' · '.join(filter(None, [release.get('country'),release.get('date'),
             ', '.join(m.get('format','') for m in release.get('media',[])), release.get('disambiguation')]))
         self.store.set_tracks(album_id, release, tracks, reviewed)
+        self.store.diagnostic(album_id, 'selected_release', {'id': release_id, 'label': release['label'],
+            'track_count': len(tracks), 'reviewed': reviewed})
         return self.store.album(album_id)
 
     def ensure_tracks(self, album_id):
@@ -164,10 +236,46 @@ class MusicBrainz:
         if album['tracks']:
             return album
         releases = self.releases(album_id)
+        if not releases:
+            raise AppError('No MusicBrainz editions match your release filters (' +
+                           filter_description(self.store.release_filters(album_id)) + '). Change them in Settings.')
         for release in releases[:8]:
             try:
                 return self.use_release(album_id, release['id'])
             except AppError as error:
+                self.store.diagnostic(album_id, 'unusable_release', {'id': release['id'], 'reason': str(error)})
                 if error.status != 400:
                     raise
         raise AppError('No complete tracklist found. Choose an original MusicBrainz edition in album settings.')
+
+    def enrich_recordings(self, album, positions):
+        """Resolve uncertain names from their exact recording IDs, including old shelves.
+
+        Lookups use the shared rate limiter/cache. Metadata-only writes preserve
+        printed titles, order, review state and every existing Spotify mapping.
+        """
+        changed = False
+        seen = set()
+        for track in album['tracks']:
+            recording_id = track.get('recording_id')
+            if (track['position'] not in positions or not recording_id or recording_id in seen
+                    or (track.get('method') == 'manual' and track.get('verified'))):
+                continue
+            seen.add(recording_id)
+            try:
+                recording = self.get('recording/'+mbid(recording_id), {'inc': 'aliases+isrcs'})
+                if recording.get('id') != recording_id:
+                    continue
+                title = recording.get('title', '')
+                aliases = [a['name'] for a in recording.get('aliases', []) if a.get('name')]
+                isrcs = sorted(set(track.get('isrcs', []) + recording.get('isrcs', [])))
+                if (title, aliases, isrcs) != (track.get('recording_title'), track.get('recording_aliases'), track.get('isrcs')):
+                    self.store.recording_metadata(album['id'], recording_id, title, aliases, isrcs)
+                    changed = True
+            except AppError as error:
+                self.store.diagnostic(album['id'], 'recording_metadata_unavailable',
+                                      {'recording_id': recording_id, 'message': str(error)})
+                # An outage should not multiply into one failed request per track.
+                if error.status >= 500 or error.status == 429:
+                    break
+        return self.store.album(album['id']) if changed else album

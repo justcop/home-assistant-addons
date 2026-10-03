@@ -4,8 +4,8 @@ from difflib import SequenceMatcher
 
 # Remaster labels change editions, while live/acoustic/demo/edit labels change recordings.
 REMASTER = re.compile(r'\s*(?:[-–—]\s*|[\[(])(?:(?:\d{4})\s+)?(?:re-?master(?:ed)?)(?:\s+\d{4})?(?:\s+version)?[\])]?\s*$', re.I)
-PRODUCTION_MIX = re.compile(r'\s*(?:[-–—]\s*|[\[(])(?:(?:new|stereo|mono)\s+)?(?:\d{4}\s+(?:(?:stereo|mono)\s+)?(?:mix|remix)|(?:stereo|mono)\s+mix\s+\d{4})[\])]?\s*$', re.I)
-EDITION_YEAR = re.compile(r'(?:\b(19\d{2}|20\d{2})\s+(?:(?:stereo|mono)\s+)?(?:re-?master(?:ed)?|mix|remix)|(?:re-?master(?:ed)?|mix|remix)\s+(19\d{2}|20\d{2})\b)', re.I)
+PRODUCTION_MIX = re.compile(r'\s*(?:[-–—]\s*|[\[(])(?:(?:new|stereo|mono)\s+)?(?:\d{4}\s+(?:(?:stereo|mono)\s+)?mix|(?:stereo|mono)\s+mix(?:\s+\d{4})?)[\])]?\s*$', re.I)
+EDITION_YEAR = re.compile(r'(?:\b(19\d{2}|20\d{2})\s+(?:(?:stereo|mono)\s+)?(?:re-?master(?:ed)?|mix)\b|\b(?:re-?master(?:ed)?|mix)\s+(19\d{2}|20\d{2})\b)', re.I)
 VERSION = re.compile(r'\b(live|demo|acoustic|instrumental|remix|radio edit|single edit|rerecord(?:ed|ing)|re-record(?:ed|ing))\b', re.I)
 
 
@@ -13,34 +13,50 @@ def normalize(value, track=False):
     value = value.strip()
     if track:
         value = PRODUCTION_MIX.sub('', REMASTER.sub('', value))
-    value = unicodedata.normalize('NFKD', value).casefold()
+    value = unicodedata.normalize('NFKD', value).casefold().replace('&', ' and ')
     value = ''.join(c for c in value if not unicodedata.combining(c))
     return ' '.join(re.findall(r'\w+', value))
 
 
-def track_score(canonical, spotify, artist_names):
+def track_assessment(canonical, spotify, artist_names):
     if spotify.get('is_playable') is False or spotify.get('restrictions'):
-        return 0, False
+        return {'score': 0, 'verified': False, 'reason': 'unavailable'}
     credited = {normalize(a['name']) for a in spotify.get('artists', [])}
     if not credited.intersection({normalize(a) for a in artist_names}):
-        return 0, False
+        return {'score': 0, 'verified': False, 'reason': 'artist_mismatch'}
     left, right = normalize(canonical['title'], True), normalize(spotify['name'], True)
-    if set(VERSION.findall(left)) != set(VERSION.findall(right)):
-        return 0, False
+    recording_title = normalize(canonical.get('recording_title') or '', True)
+    # Alternate names are evidence only for this linked recording. An alias must
+    # never erase a live/demo/edit distinction present in either canonical title.
+    versions = set(VERSION.findall(left)) | set(VERSION.findall(recording_title))
+    if versions != set(VERSION.findall(right)):
+        return {'score': 0, 'verified': False, 'reason': 'recording_version_mismatch'}
     exact = left == right
+    alternate_titles = {normalize(title, True) for title in
+                        [recording_title, *canonical.get('recording_aliases', [])] if title}
+    recording_match = bool(canonical.get('recording_id') and right in alternate_titles)
     similarity = SequenceMatcher(None, left, right).ratio()
     isrc = spotify.get('external_ids', {}).get('isrc')
     same_isrc = bool(isrc and isrc in canonical.get('isrcs', []))
-    if not exact and not same_isrc and similarity < .85:
-        return 0, False
+    if not exact and not recording_match and not same_isrc and similarity < .85:
+        return {'score': 0, 'verified': False, 'reason': 'title_mismatch', 'canonical_title': left, 'spotify_title': right}
     duration = canonical.get('duration_ms')
     actual = spotify.get('duration_ms')
     delta = abs(actual-duration) if duration and actual else None
     plausible_duration = delta is None or delta <= max(8000, duration*.04)
     if delta is not None and delta > max(30000, duration*.18):
-        return 0, False
-    score = (95 if exact or same_isrc else similarity*80) + (5 if delta is not None and delta<2000 else 0)
-    return score, (exact or same_isrc) and plausible_duration
+        return {'score': 0, 'verified': False, 'reason': 'duration_mismatch', 'duration_delta_ms': delta}
+    score = (95 if exact or recording_match or same_isrc else similarity*80) + (5 if delta is not None and delta<2000 else 0)
+    # Alternate titles require duration corroboration as well as the artist check.
+    verified = (exact or same_isrc or (recording_match and delta is not None)) and plausible_duration
+    return {'score': score, 'verified': verified,
+            'reason': ('exact_title' if exact else 'same_recording_title' if recording_match else 'same_isrc') if verified else 'needs_review',
+            'duration_delta_ms': delta, 'canonical_title': left, 'spotify_title': right}
+
+
+def track_score(canonical, spotify, artist_names):
+    assessment = track_assessment(canonical, spotify, artist_names)
+    return assessment['score'], assessment['verified']
 
 
 def align(canonical, spotify_tracks, artist_names):
@@ -83,6 +99,16 @@ def edition_year(source, mappings=None):
 
 def candidate(album, source):
     mappings = align(album['tracks'], source['all_tracks'], [a['name'] for a in album['artists']])
+    artists = [a['name'] for a in album['artists']]
+    by_id = {t['id']: t for t in source['all_tracks']}
+    for track, mapping in zip(album['tracks'], mappings):
+        if mapping['spotify_id']:
+            item = by_id[mapping['spotify_id']]
+            mapping.update(spotify_title=item['name'], assessment=track_assessment(track, item, artists))
+        else:
+            considered = sorted(({'id': t['id'], 'title': t['name'], **track_assessment(track, t, artists)}
+                                for t in source['all_tracks']), key=lambda t: t['score'], reverse=True)
+            mapping.update(assessment={'reason': 'no_ordered_match'}, alternatives=considered[:3])
     verified = sum(m['verified'] for m in mappings)
     matched = sum(bool(m['spotify_id']) for m in mappings)
     clean_title = normalize(album['title']) == normalize(source['name'])

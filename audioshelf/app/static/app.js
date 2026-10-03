@@ -2,7 +2,7 @@
 const content = document.querySelector('#content');
 const modal = document.querySelector('#modal');
 const modalContent = document.querySelector('#modal-content');
-let statusInfo = {}, shelfView = 'artists', searchKind = 'artist', currentAlbum = null, routeGeneration = 0, toastTimer, artworkRevision = Date.now();
+let statusInfo = {}, shelfView = 'artists', searchKind = 'artist', currentAlbum = null, routeGeneration = 0, toastTimer, artworkRevision = Date.now(), releasePicker = null, settingsDirty = false;
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const id = value => encodeURIComponent(value);
 const year = album => escapeHtml(album.release_date?.slice(0,4) || 'Date unknown');
@@ -26,9 +26,24 @@ function loginView(){return `<div class="eyebrow">Welcome back</div><h1>Open you
 function trackRows(album){return `<div class="tracklist">${album.tracks.map(t=>`<div class="track-row"><span class="track-number">${t.position}</span><span>${escapeHtml(t.title)}<br><small class="${t.verified?'mapped':'unmapped'}">${t.verified?(t.method==='manual'?'Manually mapped':'Mapped to Spotify'):(t.spotify_id?'Check this recording':'Not mapped yet')}</small></span><span class="duration">${duration(t.duration_ms)}</span><button class="quiet" data-action="track" data-position="${t.position}" aria-label="Correct Spotify mapping for ${escapeHtml(t.title)}">Edit</button></div>`).join('')}</div>`;}
 function albumPage(album){
   currentAlbum=album;
-  return `<a class="back" href="#artist/${id(album.artists[0]?.id || '')}">← ${artistNames(album)}</a><div class="album-hero">${cover(album,true)}<div><div class="eyebrow">${year(album)} · Studio album</div><h1>${escapeHtml(album.title)}</h1><p class="muted">${artistNames(album)} · ${album.tracks.length} tracks</p><div class="actions">${album.on_shelf?`<button class="primary" data-action="play">▶ Play album</button>`:`<button class="primary" data-action="add" data-id="${escapeHtml(album.id)}">+ Add to shelf</button>`}<button class="secondary" data-action="resolve">${album.playable?'Find another edition':'Match Spotify tracks'}</button></div><button class="quiet" data-action="album-settings">Album settings ↗</button></div></div>${!album.playable?'<div class="note">Match the tracks to Spotify before playing. AudioShelf sends only this tracklist, in this order.</div>':`<div class="note">Ready to play ${album.tracks.length} mapped tracks, without the extras.${album.spotify_album_name?` Playback edition: ${escapeHtml(album.spotify_album_name)}.`:''} Open Spotify on your chosen device first.</div>`}${!album.canonical_reviewed?`<div class="note">Original tracklist selected from MusicBrainz: ${escapeHtml(album.release_label)}. If this includes bonus tracks or misses a track, choose another original edition in Album settings. <button class="quiet" data-action="review">This tracklist is correct ✓</button></div>`:''}${trackRows(album)}<p class="footer-note">Catalogue and artwork: <a href="https://musicbrainz.org/release-group/${id(album.id)}" target="_blank" rel="noopener">MusicBrainz / Cover Art Archive ↗</a>${album.spotify_album_id?` · Playback: <a href="https://open.spotify.com/album/${id(album.spotify_album_id)}" target="_blank" rel="noopener">Spotify ↗</a>`:''}</p>`;
+  return `<a class="back" href="#artist/${id(album.artists[0]?.id || '')}">← ${artistNames(album)}</a><div class="album-hero">${cover(album,true)}<div><div class="eyebrow">${year(album)} · Studio album</div><h1>${escapeHtml(album.title)}</h1><p class="muted">${artistNames(album)} · ${album.tracks.length} tracks</p><div class="actions">${album.on_shelf?`<button class="primary" data-action="play">▶ Play album</button>`:`<button class="primary" data-action="add" data-id="${escapeHtml(album.id)}">+ Add to shelf</button>`}<button class="secondary" data-action="resolve">${album.playable?'Find another edition':'Match Spotify tracks'}</button></div><button class="quiet" data-action="album-settings">Album settings ↗</button></div></div>${!album.playable?'<div class="note">Match the tracks to Spotify before playing. AudioShelf sends only this tracklist, in this order.</div>':`<div class="note">Ready to play ${album.tracks.length} mapped tracks, without the extras.${album.spotify_album_name?` Playback edition: ${escapeHtml(album.spotify_album_name)}.`:''} Open Spotify on your chosen device first.</div>`}${/\bCassette\b/i.test(album.release_label||'')&&!album.release_filters?.formats.includes('cassette')?'<div class="note">This saved tracklist uses a cassette edition outside your current preferences. Album settings lets you choose a vinyl, CD or digital edition. Your current Spotify matches are kept until you replace the tracklist.</div>':''}${!album.canonical_reviewed?`<div class="note">Original tracklist selected from MusicBrainz: ${escapeHtml(album.release_label)}. If this includes bonus tracks or misses a track, choose another original edition in Album settings. <button class="quiet" data-action="review">This tracklist is correct ✓</button></div>`:''}${trackRows(album)}<p class="footer-note">Catalogue and artwork: <a href="https://musicbrainz.org/release-group/${id(album.id)}" target="_blank" rel="noopener">MusicBrainz / Cover Art Archive ↗</a>${album.spotify_album_id?` · Playback: <a href="https://open.spotify.com/album/${id(album.spotify_album_id)}" target="_blank" rel="noopener">Spotify ↗</a>`:''}</p>`;
 }
-function settingsPage(){return `<div class="eyebrow">Make yourself at home</div><h1>Settings.</h1><section class="settings-block"><h2>Spotify</h2><p>${statusInfo.spotify_connected?'Your Spotify account is connected. Playback uses the currently active device.':'Connect your Spotify Premium account to match and play albums.'}</p>${!statusInfo.spotify_configured?'<div class="note">In Home Assistant, open AudioShelf configuration and set <code>spotify_client_id</code> and <code>spotify_redirect_uri</code>. Use your HTTPS address followed by <code>/auth/spotify/callback</code>, and add the exact same redirect URL to your Spotify developer app. No client secret is needed.</div>':''}<div class="actions"><button class="primary" data-action="connect">${statusInfo.spotify_connected?'Reconnect Spotify':'Connect Spotify'}</button>${statusInfo.spotify_connected?'<button class="quiet" data-action="disconnect">Disconnect</button>':''}<button class="quiet" data-action="refresh-status">Refresh connection status</button></div><p class="muted">Catalogue market: ${escapeHtml(statusInfo.market || 'GB')}. Turn Autoplay off in Spotify if you want silence when the album finishes. AudioShelf switches Shuffle and Repeat off before starting an album.</p></section><section class="settings-block"><h2>Your collection</h2><p>Your shelf belongs to AudioShelf. Adding or removing a record here does not change your saved Spotify albums.</p><div class="actions"><a class="secondary" href="api/export" download>Export collection</a><button class="secondary" data-action="backup">Download database backup</button></div><p class="muted">Library: <code>${escapeHtml(statusInfo.data_directory)}</code>. Back up this folder as well as your add-on data.</p><p class="muted">Replaceable artwork and metadata cache: <code>${escapeHtml(statusInfo.cache_directory)}</code>. You can exclude this separate folder from backups. It rebuilds automatically.</p></section><section class="settings-block"><h2>About AudioShelf</h2><p>Albums, in their original order. No singles, compilation appearances or anniversary clutter.</p><p class="muted">Version ${escapeHtml(statusInfo.build?.version)} · ${escapeHtml(statusInfo.build?.channel)} · ${escapeHtml(statusInfo.build?.revision)}</p>${statusInfo.password_required?'<button class="quiet" data-action="logout">Lock AudioShelf</button>':''}<p class="footer-note">Install AudioShelf from your phone browser using Add to Home Screen at your standalone HTTPS address.</p></section>`;}
+const themeIds=['record-store','midnight','paper','forest','ocean','sunset','plum','monochrome','amber','high-contrast'];
+function applyTheme(value){
+  const theme=themeIds.includes(value)?value:'record-store';
+  document.documentElement.dataset.theme=theme;
+  document.querySelector('meta[name="theme-color"]').content=getComputedStyle(document.documentElement).getPropertyValue('--paper').trim();
+  try{localStorage.setItem('audioshelf-theme',theme);}catch{}
+}
+try{applyTheme(localStorage.getItem('audioshelf-theme'));}catch{applyTheme('record-store');}
+function themeSettings(){return `<section class="settings-block"><h2>Appearance</h2><p>Choose a theme. It is saved with your collection and used on your other devices.</p><div class="theme-grid">${(statusInfo.themes||[]).map(theme=>`<button class="theme-choice" data-theme="${escapeHtml(theme.id)}" data-action="theme" data-id="${escapeHtml(theme.id)}" aria-label="Use ${escapeHtml(theme.name)} theme" aria-pressed="${theme.id===statusInfo.theme}"><span class="theme-sample" aria-hidden="true"><span class="sample-record"></span><span class="sample-lines"><i></i><i></i><i></i></span></span><strong>${escapeHtml(theme.name)}</strong><small>${escapeHtml(theme.description)}</small></button>`).join('')}</div></section>`;}
+function releaseFilterSettings(){
+  const filters=statusInfo.release_filters || {countries:['GB','US','XW','XE'],formats:['vinyl','cd','digital'],strict_countries:false};
+  const labels={vinyl:'Vinyl',cd:'CD',digital:'Digital',cassette:'Cassette',other:'Other audio formats'};
+  const order=[...filters.formats,...Object.keys(labels).filter(f=>!filters.formats.includes(f))];
+  return `<section class="settings-block"><h2>MusicBrainz releases</h2><p>Prefer original standard editions. Choose country and format priorities for tracklists and the edition picker.</p><form id="release-filters-form"><label for="release-countries">Country preference order</label><input id="release-countries" name="countries" value="${escapeHtml(filters.countries.join(', '))}" placeholder="GB, US, XW, XE" aria-describedby="country-help"><p id="country-help" class="muted">First choice first: GB is the UK, US is the USA, XW is worldwide and XE is Europe. Other countries are fallbacks unless restricted below. Leave blank for no country preference.</p><label class="check-option"><input type="checkbox" name="strict_countries" ${filters.strict_countries?'checked':''}> Only use these countries</label><fieldset class="format-options"><legend>Audio formats, in preference order</legend>${order.map(value=>`<div class="format-row" data-format-row><label class="check-option"><input type="checkbox" name="formats" value="${value}" ${filters.formats.includes(value)?'checked':''}> ${labels[value]}</label><button type="button" class="quiet" data-action="format-up" aria-label="Move ${labels[value]} earlier">↑</button><button type="button" class="quiet" data-action="format-down" aria-label="Move ${labels[value]} later">↓</button></div>`).join('')}</fieldset><p class="muted">Defaults: prefer GB, then US, worldwide and Europe; vinyl, CD and digital are enabled in that order. Earlier original-year editions beat later reissues within a country. Cassette is excluded. Saving keeps existing tracklists and Spotify mappings. To replace one, use Album settings.</p><button class="primary">Save release filters</button></form></section>`;
+}
+function settingsPage(){return `<div class="eyebrow">Make yourself at home</div><h1>Settings.</h1><section class="settings-block"><h2>Spotify</h2><p>${statusInfo.spotify_connected?'Your Spotify account is connected. Playback uses the currently active device.':'Connect your Spotify Premium account to match and play albums.'}</p>${!statusInfo.spotify_configured?'<div class="note">In Home Assistant, open AudioShelf configuration and set <code>spotify_client_id</code> and <code>spotify_redirect_uri</code>. Use your HTTPS address followed by <code>/auth/spotify/callback</code>, and add the exact same redirect URL to your Spotify developer app. No client secret is needed.</div>':''}<div class="actions"><button class="primary" data-action="connect">${statusInfo.spotify_connected?'Reconnect Spotify':'Connect Spotify'}</button>${statusInfo.spotify_connected?'<button class="quiet" data-action="disconnect">Disconnect</button>':''}<button class="quiet" data-action="refresh-status">Refresh connection status</button></div><p class="muted">Catalogue market: ${escapeHtml(statusInfo.market || 'GB')}. Turn Autoplay off in Spotify if you want silence when the album finishes. AudioShelf switches Shuffle and Repeat off before starting an album.</p></section>${themeSettings()}${releaseFilterSettings()}<section class="settings-block"><h2>Your collection</h2><p>Your shelf belongs to AudioShelf. Adding or removing a record here does not change your saved Spotify albums.</p><div class="actions"><a class="secondary" href="api/export" download>Export collection</a><button class="secondary" data-action="backup">Download database backup</button></div><p class="muted">Library: <code>${escapeHtml(statusInfo.data_directory)}</code>. Back up this folder as well as your add-on data.</p><p class="muted">Replaceable artwork and metadata cache: <code>${escapeHtml(statusInfo.cache_directory)}</code>. You can exclude this separate folder from backups. It rebuilds automatically.</p></section><section class="settings-block"><h2>About AudioShelf</h2><p>Albums, in their original order. No singles, compilation appearances or anniversary clutter.</p><p class="muted">Version ${escapeHtml(statusInfo.build?.version)} · ${escapeHtml(statusInfo.build?.channel)} · ${escapeHtml(statusInfo.build?.revision)}</p>${statusInfo.password_required?'<button class="quiet" data-action="logout">Lock AudioShelf</button>':''}<p class="footer-note">Install AudioShelf from your phone browser using Add to Home Screen at your standalone HTTPS address.</p></section>`;}
 async function route(){
   const generation=++routeGeneration;
   const parts=(location.hash.slice(1)||'shelf').split('/');
@@ -37,7 +52,7 @@ async function route(){
   document.querySelectorAll('[data-nav]').forEach(el=>el.classList.toggle('active',el.dataset.nav===(isStore?'store':'shelf')));
   content.innerHTML=loading(view==='album'?'Finding the original album tracklist…':'Opening your collection…');
   try {
-    statusInfo=await api('status');
+    statusInfo=await api('status');if(statusInfo.authenticated)applyTheme(statusInfo.theme);
     if(generation!==routeGeneration)return;
     if(!statusInfo.authenticated){content.innerHTML=loginView();return;}
     let html;
@@ -52,7 +67,7 @@ async function route(){
       html=`<div class="eyebrow">A proper record store</div><h1>Find your next record.</h1><p class="intro">Explore the studio albums. Collect what you love.</p><div class="segmented"><button class="${searchKind==='artist'?'active':''}" data-action="search-kind" data-kind="artist">Artists</button><button class="${searchKind==='album'?'active':''}" data-action="search-kind" data-kind="album">Albums</button></div><form id="search-form" class="search-form"><input name="q" type="search" placeholder="${searchKind==='artist'?'Search artists, e.g. Radiohead':'Search albums, e.g. In Rainbows'}" aria-label="Search record store" required><button class="primary">Search</button></form><p class="search-hint">Original releases, in chronological order. Singles, live albums and compilations stay outside.</p><div id="search-results">${shelf.artists.length?`<h2>More from your artists</h2>${shelf.artists.map(a=>`<a class="search-result" href="#artist/${id(a.id)}/store"><strong>${escapeHtml(a.name)}</strong><small>Browse their studio albums ↗</small></a>`).join('')}`:'<p class="muted">Start with an artist you love.</p>'}</div>`;
     }else if(view==='artist'){
       const result=await api(`artists/${id(key)}${mode==='store'?'?store=1':''}`);
-      html=`<a class="back" href="#${mode==='store'?'store':'shelf'}">← ${mode==='store'?'Record store':'My shelf'}</a><div class="eyebrow">${mode==='store'?'Studio discography':'On your shelf'}</div><h1>${escapeHtml(result.artist.name)}</h1><div class="toolbar"><span class="count">${result.albums.length} records · oldest first</span><a class="secondary" href="#artist/${id(key)}${mode==='store'?'':'/store'}">${mode==='store'?'View my shelf':'Visit record store ↗'}</a></div>${result.albums.length?cards(result.albums):empty('There’s room for more.','Browse this artist’s record store to add their studio albums.')}`;
+      html=`<a class="back" href="#${mode==='store'?'store':'shelf'}">← ${mode==='store'?'Record store':'My shelf'}</a><div class="eyebrow">${mode==='store'?'Studio discography':'On your shelf'}</div><h1>${escapeHtml(result.artist.name)}</h1><div class="toolbar"><span class="count">${result.albums.length} records · oldest first</span><a class="secondary" href="#artist/${id(key)}${mode==='store'?'':'/store'}">${mode==='store'?'View my shelf':'Visit record store ↗'}</a>${mode==='store'?`<button class="quiet" data-action="catalogue" data-id="${escapeHtml(key)}">Manage catalogue</button>`:''}</div>${result.albums.length?cards(result.albums):empty('There’s room for more.','Browse this artist’s record store to add their studio albums.')}`;
     }else if(view==='album'){
       const album=await api('albums/'+id(key));
       if(generation!==routeGeneration)return;
@@ -61,27 +76,69 @@ async function route(){
     else if(view==='settings')html=settingsPage();
     else {location.hash='shelf';return;}
     if(generation!==routeGeneration)return;
-    content.innerHTML=html;
-  }catch(error){if(generation===routeGeneration)content.innerHTML=`<div class="error-panel"><h2>Couldn’t open this page.</h2><p>${escapeHtml(error.message)}</p><button class="secondary" data-action="retry">Try again</button> <a class="quiet" href="#settings">Settings</a></div>`;}
+    content.innerHTML=html;settingsDirty=false;
+  }catch(error){if(generation===routeGeneration)content.innerHTML=`<div class="error-panel"><h2>Couldn’t open this page.</h2><p>${escapeHtml(error.message)}</p><button class="secondary" data-action="retry">Try again</button> <a class="quiet" href="#settings">Settings</a>${view==='album'?` <a class="secondary" href="api/albums/${id(key)}/diagnostics" download>Download diagnostic report</a>`:''}</div>`;}
 }
 function showModal(html){modalContent.innerHTML=html;if(!modal.open)modal.showModal();}
 async function albumSettings(){
   const a=currentAlbum;
-  showModal(`<h2>Album settings</h2><p><strong>${escapeHtml(a.title)}</strong><br>Original edition: ${escapeHtml(a.release_label)}</p><button class="secondary" data-action="releases">Change original tracklist</button><p>Changing the original edition clears all Spotify mappings for this album.</p><h3>Album cover</h3><p>Downloaded covers are cached separately. A cover you upload is saved with your collection.</p><form id="artwork-form"><input type="file" name="image" accept="image/jpeg,image/png,image/webp" aria-label="Choose album cover" required><button class="secondary">Save cover</button></form><button class="quiet" data-action="reset-artwork">Restore automatic cover</button><h3>Spotify playback edition</h3><p>Automatic matching prefers the newest labelled remaster or dated studio mix with a complete matching tracklist. Your manual choices are kept. Paste any Spotify edition. AudioShelf maps just the original tracks and ignores the extras.</p><form id="mapping-form"><input name="album" placeholder="https://open.spotify.com/album/…" aria-label="Spotify album link" required><button class="primary">Use this Spotify edition</button></form>${a.on_shelf?'<div class="actions"><button class="quiet" data-action="remove">Remove from my shelf</button></div>':''}`);
+  showModal(`<h2>Album settings</h2><p><strong>${escapeHtml(a.title)}</strong><br>Original edition: ${escapeHtml(a.release_label)}</p><button class="secondary" data-action="releases">Change original tracklist</button><form id="album-countries-form"><label for="album-countries">Country preference for this album</label><input id="album-countries" name="countries" value="${escapeHtml((a.release_countries||[]).join(', '))}" placeholder="GB, US, XW, XE"><label class="check-option"><input type="checkbox" name="inherit" ${a.release_countries===null?'checked':''}> Use global country preferences</label><p>Magical Mystery Tour defaults to US first for its original LP. Format preferences come from Settings.</p><button class="secondary">Save album preferences</button></form><p>Changing the original edition clears all Spotify mappings for this album.</p><h3>Album cover</h3><button class="secondary" data-action="cover-editions">Choose cover from another edition</button><p>Downloaded covers are cached separately. A cover you upload is saved with your collection.</p><form id="artwork-form"><input type="file" name="image" accept="image/jpeg,image/png,image/webp" aria-label="Choose album cover" required><button class="secondary">Save cover</button></form><button class="quiet" data-action="reset-artwork">Restore automatic cover</button><h3>Spotify playback edition</h3><p>Automatic matching prefers the newest labelled remaster or dated studio mix with a complete matching tracklist. Your manual choices are kept. Paste any Spotify edition. AudioShelf maps just the original tracks and ignores the extras.</p><form id="mapping-form"><input name="album" placeholder="https://open.spotify.com/album/…" aria-label="Spotify album link" required><button class="primary">Use this Spotify edition</button></form><h3>Report a problem</h3><p>Download this album’s tracklist, matching decisions, edition filters and recent errors. Reproduce the problem first, then send the JSON file for investigation. It contains no account credentials.</p><a class="secondary" href="api/albums/${id(a.id)}/diagnostics" download>Download diagnostic report</a>${a.on_shelf?'<div class="actions"><button class="quiet" data-action="remove">Remove from my shelf</button></div>':''}`);
 }
 document.addEventListener('error',event=>{if(event.target instanceof HTMLImageElement)event.target.classList.add('failed');},true);
 document.querySelector('.close-modal').addEventListener('click',()=>modal.close());
 modal.addEventListener('click',event=>{if(event.target===modal)modal.close();});
+function releasePickerHtml(state,error=''){
+  const coverMode=state.mode==='cover';
+  return `<h2>${coverMode?'Choose album cover':'Choose the original edition'}</h2><p>${coverMode?'Choose a front cover without changing your tracklist or Spotify mappings. If a cover is unavailable, try another edition or upload one.':'Prefer the original standard release, without bonus tracks. Your choice replaces the tracklist and clears Spotify mappings.'}</p><p class="muted">Using this album’s country and format preferences. <a href="#settings">Global Settings ↗</a>. More editions may be on later pages.</p>${state.items.map(r=>`<button class="choice ${coverMode?'cover-choice':''}" data-action="${coverMode?'choose-cover':'choose-release'}" data-id="${escapeHtml(r.id)}">${coverMode?`<img src="https://coverartarchive.org/release/${id(r.id)}/front-250" alt="Front cover preview" loading="lazy">`:''}<span>${escapeHtml(r.title)}<small>${escapeHtml([r.country,r.date,...(r.media||[]).map(m=>`${m.format||'Audio'}: ${m['track-count']||'?'} tracks`),r.disambiguation].filter(Boolean).join(' · '))}</small></span></button>`).join('')}${!state.items.length&&!error?`<div class="note">${state.next!==null?'No matching editions on this page. Load more to check the remaining editions.':'No editions match your release filters. Change the formats or restrictions in Settings.'}</div>`:''}${error?`<div class="note">${escapeHtml(error)}</div>`:''}${state.next!==null||error?`<button class="secondary" data-action="load-releases">${error?'Retry edition search':'Load more editions'}</button>`:''}`;
+}
+async function loadReleasePage(){
+  const state=releasePicker,generation=routeGeneration;
+  try{
+    const result=await api(`albums/${id(state.album)}/releases?offset=${state.next??state.offset}`);
+    if(generation!==routeGeneration||releasePicker!==state||!modal.open)return;
+    state.offset=state.next??state.offset;state.next=result.next_offset;
+    const seen=new Set(state.items.map(r=>r.id));state.items.push(...result.releases.filter(r=>!seen.has(r.id)));
+    state.items.sort((a,b)=>{for(let n=0;n<(a.preference_rank||[]).length;n++){if(a.preference_rank[n]<b.preference_rank[n])return -1;if(a.preference_rank[n]>b.preference_rank[n])return 1;}return 0;});
+    modalContent.innerHTML=releasePickerHtml(state);
+  }catch(error){if(generation===routeGeneration&&releasePicker===state&&modal.open)modalContent.innerHTML=releasePickerHtml(state,error.message);}
+}
+document.addEventListener('change',async event=>{
+  const select=event.target;if(!select.matches('[data-catalogue-choice]'))return;
+  select.disabled=true;
+  try{await api(`albums/${id(select.dataset.id)}/catalogue`,'POST',{choice:select.value});await route();toast('Catalogue rule saved.');}
+  catch(error){toast(error.message);}finally{select.disabled=false;}
+});
 window.addEventListener('hashchange',()=>{modal.close();route();window.scrollTo(0,0);});
-window.addEventListener('focus',async()=>{if(statusInfo.authenticated){try{statusInfo=await api('status');if(location.hash==='#settings')content.innerHTML=settingsPage();}catch{}}});
+window.addEventListener('focus',async()=>{if(statusInfo.authenticated){try{statusInfo=await api('status');applyTheme(statusInfo.theme);if(location.hash==='#settings'&&!settingsDirty)content.innerHTML=settingsPage();}catch{}}});
+document.addEventListener('input',event=>{if(event.target.closest('#release-filters-form'))settingsDirty=true;});
 document.addEventListener('input',event=>{if(event.target.id==='artist-filter')document.querySelectorAll('.artist-row').forEach(el=>el.hidden=!el.dataset.filter.includes(event.target.value.toLowerCase()));});
 document.addEventListener('submit',async event=>{
-  const form=event.target;if(!['search-form','login-form','mapping-form','track-form','artwork-form'].includes(form.id))return;
+  const form=event.target;if(!['search-form','login-form','mapping-form','track-form','artwork-form','release-filters-form','album-countries-form','catalogue-series-form'].includes(form.id))return;
   event.preventDefault();const button=form.querySelector('button');button.disabled=true;
   const generation=routeGeneration;
   try {
     const data=new FormData(form);
     if(form.id==='login-form'){await api('login','POST',{password:data.get('password')});await route();}
+    if(form.id==='release-filters-form'){
+      const countries=String(data.get('countries')).split(',').map(c=>c.trim()).filter(Boolean);
+      const result=await api('settings','PUT',{release_filters:{countries,formats:data.getAll('formats'),strict_countries:data.has('strict_countries')}});
+      statusInfo.release_filters=result.release_filters;
+      if(generation!==routeGeneration)return;
+      content.innerHTML=settingsPage();settingsDirty=false;toast('Release filters saved.');
+    }
+    if(form.id==='album-countries-form'){
+      const countries=data.has('inherit')?null:String(data.get('countries')).split(',').map(c=>c.trim()).filter(Boolean);
+      if(countries&&!countries.length)throw new Error('Enter a country preference or use the global preferences.');
+      currentAlbum=await api(`albums/${id(currentAlbum.id)}/release-countries`,'PUT',{countries});
+      if(generation!==routeGeneration)return;
+      await albumSettings();toast('Album preferences saved.');
+    }
+    if(form.id==='catalogue-series-form'){
+      const text=String(data.get('series')).trim();
+      const series_id=text?text.replace(/\/$/,'').split('/').pop():null;
+      await api(`artists/${id(form.dataset.artist)}/series`,'PUT',{series_id});
+      modal.close();await route();toast('Curated catalogue saved.');
+    }
     if(form.id==='search-form'){
       const resultEl=document.querySelector('#search-results');
       resultEl.innerHTML=loading('Looking through the record store…');
@@ -148,11 +205,33 @@ document.addEventListener('click',async event=>{
     }
     if(action==='album-settings')await albumSettings();
     if(action==='review'){await api(`albums/${id(currentAlbum.id)}/review`,'POST');if(generation!==routeGeneration)return;currentAlbum.canonical_reviewed=1;content.innerHTML=albumPage(currentAlbum);toast('Original tracklist confirmed.');}
-    if(action==='releases'){
-      showModal('<h2>Choose the original edition</h2>'+loading('Finding MusicBrainz editions…'));
-      const result=await api(`albums/${id(currentAlbum.id)}/releases`);
+    if(action==='theme'){
+      const result=await api('settings','PUT',{theme:button.dataset.id});
+      statusInfo.theme=result.theme;applyTheme(result.theme);
       if(generation!==routeGeneration)return;
-      modalContent.innerHTML=`<h2>Choose the original edition</h2><p>Prefer the original standard release, without bonus tracks. Your choice replaces the tracklist and clears Spotify mappings.</p>${result.releases.map(r=>`<button class="choice" data-action="choose-release" data-id="${escapeHtml(r.id)}">${escapeHtml(r.title)}<small>${escapeHtml([r.country,r.date,...(r.media||[]).map(m=>`${m.format||'Audio'}: ${m['track-count']||'?'} tracks`),r.disambiguation].filter(Boolean).join(' · '))}</small></button>`).join('')}`;
+      document.querySelectorAll('.theme-choice').forEach(choice=>choice.setAttribute('aria-pressed',String(choice.dataset.id===result.theme)));toast('Theme saved.');
+    }
+    if(action==='format-up'||action==='format-down'){
+      settingsDirty=true;const row=button.closest('[data-format-row]');
+      if(action==='format-up'&&row.previousElementSibling?.matches('[data-format-row]'))row.parentNode.insertBefore(row,row.previousElementSibling);
+      if(action==='format-down'&&row.nextElementSibling)row.parentNode.insertBefore(row.nextElementSibling,row);
+    }
+    if(action==='catalogue'){
+      showModal('<h2>Manage catalogue</h2>'+loading('Loading album classifications…'));
+      const result=await api(`artists/${id(button.dataset.id)}/catalogue`);
+      if(generation!==routeGeneration)return;
+      modalContent.innerHTML=`<h2>Manage catalogue</h2><p>Use a curated MusicBrainz release-group series when available, or the normal studio-album rules. Individual overrides take precedence. Your shelf is kept.</p><form id="catalogue-series-form" data-artist="${escapeHtml(button.dataset.id)}"><label for="catalogue-series">MusicBrainz series link or ID</label><input id="catalogue-series" name="series" value="${escapeHtml(result.series_id||'')}" placeholder="https://musicbrainz.org/series/…"><button class="secondary">Save curated series</button></form><p>Leave blank for the normal rules. Series members marked live, compilation or other excluded types stay outside; original soundtrack albums can be included. You can override an individual album below.</p>${result.albums.map(a=>`<div class="catalogue-row"><span><strong>${escapeHtml(a.title)}</strong><small>${year(a)} · ${escapeHtml(a.secondary_types.join(', ')||'Album')} · ${a.catalogue_included?'Included':'Excluded'}</small></span><select data-catalogue-choice data-id="${escapeHtml(a.id)}" aria-label="Catalogue rule for ${escapeHtml(a.title)}">${[['auto','Auto'],['include','Include'],['exclude','Exclude']].map(([value,label])=>`<option value="${value}" ${value===(a.catalogue_override||'auto')?'selected':''}>${label}</option>`).join('')}</select></div>`).join('')}`;
+    }
+    if(action==='releases'||action==='cover-editions'){
+      releasePicker={album:currentAlbum.id,mode:action==='cover-editions'?'cover':'tracks',items:[],offset:0,next:0};
+      showModal(`<h2>${releasePicker.mode==='cover'?'Choose album cover':'Choose the original edition'}</h2>`+loading('Finding MusicBrainz editions…'));
+      await loadReleasePage();
+    }
+    if(action==='load-releases')await loadReleasePage();
+    if(action==='choose-cover'){
+      await api(`albums/${id(currentAlbum.id)}/artwork-release`,'POST',{release_id:button.dataset.id});
+      if(generation!==routeGeneration)return;
+      artworkRevision=Date.now();modal.close();content.innerHTML=albumPage(currentAlbum);toast('Edition cover saved.');
     }
     if(action==='choose-release'){
       if(!confirm('Replace the original tracklist with this edition and clear its Spotify mappings?'))return;
