@@ -7,7 +7,7 @@ Browse artists, explore their studio albums in release order, add records to you
 ## Install
 
 1. In Home Assistant, refresh the add-on store for the existing repository: `https://github.com/justcop/home-assistant-addons`.
-2. Install **AudioShelf**, version **0.3.0**. Enable the sidebar entry if wanted, then start it.
+2. Install **AudioShelf**, version **0.3.1**. Enable the sidebar entry if wanted, then start it.
 3. Use **Open Web UI** for Home Assistant ingress. The standalone UI is also exposed on port **8098** by default, for your existing external-access system.
 4. Open the Record Store, search for an artist, browse their studio albums, and add one to your shelf. Spotify is not needed to collect records.
 
@@ -67,7 +67,7 @@ Options can come from `/data/options.json`, another JSON file selected by `AUDIO
 .venv/bin/python -m pytest tests -q
 node --check app/static/app.js
 bash -n run.sh
-docker build --build-arg BUILD_VERSION=0.3.0 --build-arg BUILD_ARCH=amd64 -t audioshelf .
+docker build --build-arg BUILD_VERSION=0.3.1 --build-arg BUILD_ARCH=amd64 -t audioshelf .
 ```
 
 ## Artwork and replaceable cache
@@ -97,9 +97,13 @@ MusicBrainz requests have a shared one-request-per-second limiter, persistent me
 
 In **Settings → MusicBrainz releases**, country preferences default to **GB, US, XW, XE**, followed by any other country. Audio formats default to **vinyl, CD, digital**, in that order; cassette and other formats are excluded unless enabled. Change country order by editing the comma-separated codes, and format order with the arrows. **Only use these countries** turns the country preference into a strict filter. Unexpanded standard editions win first, then preferred country, closeness to the original release year, preferred format and earliest date. This avoids a later unlabelled vinyl reissue beating an original-year CD in the same country. All audio media in an edition must use an enabled format; video discs are skipped. Spotify playback still prefers the latest suitable labelled remaster or dated studio mix.
 
-The edition picker loads one MusicBrainz page at a time. Use **Load more editions** to inspect later pages. A failed page offers **Retry edition search** and keeps editions already loaded. If no edition matches a strict restriction or allowed format, adjust Settings. Saving preferences keeps all existing tracklists and manual Spotify corrections. **Album settings → Change original tracklist** explicitly replaces an edition and clears its mappings after confirmation. **Country preference for this album** can override the global country order; Magical Mystery Tour starts with the US LP preference, and can be changed to use global preferences.
+The edition picker loads one MusicBrainz page at a time. Use **Load more editions** to inspect later pages. A failed page offers **Retry edition search** and keeps editions already loaded. If no edition matches a strict restriction or allowed format, adjust Settings. Saving preferences keeps all existing tracklists and manual Spotify corrections. **Album settings → Change original tracklist** explicitly replaces an edition and clears its mappings after confirmation. **Country preference for this album** can override the global country order for any album. No album has a built-in regional exception.
 
-Artist discography membership is independent of edition countries and formats. The Beatles use [MusicBrainz's Core Catalogue series](https://musicbrainz.org/series/255a357a-909a-4437-9b7a-bfbb814bde77): the 13 original albums, including A Hard Day’s Night, Help!, Magical Mystery Tour and Yellow Submarine. Past Masters stays excluded as a compilation. A verified snapshot keeps this catalogue usable when the series endpoint is temporarily unavailable. Artist Record Store pages have **Manage catalogue**: choose a MusicBrainz release-group series for any artist, or include/exclude individual release-group IDs. Clearing the series restores the generic studio-album rules. Explicit album overrides take precedence and do not remove anything already on your shelf. MusicBrainz standardises series entities and relationships, but does not require every artist to have a canonical discography series.
+Artist discography membership is independent of edition countries and formats. On any artist's Record Store page, open **Manage catalogue → Find catalogues** to search for MusicBrainz release-group series. Search starts with the artist's name; you can enter another catalogue name or paste a series link. Results are suggestions, not automatically selected rules: a series may describe a core catalogue, regional releases, reissues or a thematic collection. Review its purpose, choose it, then **Save curated series**. The selected series must contain at least one known album credited to that artist.
+
+The same rules apply to every artist. Series membership narrows the catalogue and can admit original soundtrack albums; live albums, compilations, remixes and other excluded types remain outside unless individually overridden. Catalogue classifications alone cannot reliably distinguish an artist’s core albums from regional repackagings. A user-selected series supplies that membership evidence without relying on artist names or bundled album lists. Clearing the series restores generic studio-album rules. Individual include/exclude overrides take precedence, and browsing collaborative albums uses the catalogue of the artist being viewed.
+
+Every successful series lookup retains a last successful membership snapshot with the collection. Series membership remains available if the series endpoint temporarily fails, including after a restart or replaceable-cache deletion. Other uncached MusicBrainz requests still need the service to be reachable. Existing explicit catalogue and country preferences are preserved, and no catalogue change removes records already on your shelf or replaces tracklists and mappings.
 
 ## Themes
 
@@ -109,8 +113,40 @@ Artist discography membership is independent of edition countries and formats. T
 
 Use **Album settings → Download diagnostic report** after reproducing an issue. Send that JSON file with a description of what went wrong. It includes build information, the saved tracklist and mapping methods, country/format settings, edition decisions, the latest Spotify candidates and matching explanations, artwork source and recent album errors. It excludes OAuth tokens, account credentials, cookies and private configuration. The database retains at most 200 diagnostic events across albums and one latest detailed automatic/manual matching assessment per album. The download includes that album's latest 30 events. API response caches and downloaded artwork remain in the separate replaceable cache folder.
 
-Track matching uses the printed track title and the title of its linked MusicBrainz recording. If a track remains uncertain, AudioShelf looks up that exact recording ID for its title, aliases and ISRCs, then checks the Spotify candidates again. This applies to every artist, including Amnesiac's printed-title variations, with no Radiohead-specific substitutions. Alternate recording names require a matching artist and a corroborating duration; live, demo, acoustic, edit and remix distinctions remain protected. Kid A's different Morning Bell remains distinct. Metadata is retained with the collection, and lookups use the shared MusicBrainz cache and rate limiter. A lookup failure leaves the track available for manual review and appears in diagnostics.
+Track matching uses the printed track title and the title of its linked MusicBrainz recording. If a track remains uncertain, AudioShelf looks up that exact recording ID for its title, aliases and ISRCs, then checks the Spotify candidates again. Printed titles and recording names can differ. Matching uses evidence attached to the exact recording rather than a list of title substitutions. Alternate recording names require a matching artist and a corroborating duration; live, demo, acoustic, edit and remix distinctions remain protected. Recordings with similar names but different durations or versions remain distinct. Metadata is retained with the collection, and lookups use the shared MusicBrainz cache and rate limiter. A lookup failure leaves the track available for manual review and appears in diagnostics.
 
 Existing albums gain this recording metadata when **Match Spotify tracks** or **Find another edition** is used, without replacing their printed titles, track order or review status. Automatic rematching preserves confirmed manual corrections. Dated generic remixes remain rejected; dated Mix labels and explicit Stereo/Mono Mix labels can match the original studio recording. Both structured and fallback Spotify searches inspect up to 30 editions.
 
 Legacy cassette tracklists are flagged for review rather than silently replaced. Automatic artwork tries an eligible edition for these albums, while keeping the saved tracklist and matches. **Choose cover from another edition** changes only the image; covers download into the replaceable cache and the chosen edition ID is saved with the collection. A failed cover download preserves a working custom upload. **Restore automatic cover** clears both edition-cover and uploaded-cover overrides. The selected tracklist's front cover is otherwise preferred before the release-group cover and Spotify fallback, and cached artwork is refreshed when the selected edition changes.
+
+Multi-disc albums show a Play disc button for each disc in the selected original edition. Only that disc’s verified tracks are sent to Spotify, in order. Turn Spotify Autoplay off for silence afterwards. Disc boundaries follow the chosen MusicBrainz edition, so a vinyl and CD edition may divide an album differently.
+
+In Settings, choose a preferred Spotify playback device. Open Spotify on that device first if it does not appear, then refresh the device list. AudioShelf remembers the selection and does not switch to another device when it is unavailable. Enable “Open Spotify after pressing Play on this browser” on your phone to try opening the Spotify app after playback starts. A visible Open Spotify link is provided if the browser blocks automatic app opening. When the device is unavailable, open Spotify, return to AudioShelf and choose Retry playback.
+
+## Checks and test maintenance
+
+Tests are in [tests/](tests/). GitHub publishes results under the repository's **Actions → AudioShelf checks**, and on each pull request's **Checks** tab.
+
+| Area | What it protects |
+| --- | --- |
+| Catalogue and release filters | Shared catalogue rules, regional editions, country and format preferences, pagination |
+| Recording matching | Alternate recording names, artist and version distinctions, ordered tracks and bonus-track exclusion |
+| Storage and routes | Collection persistence, upgrades, manual corrections, authentication and input validation |
+| Spotify playback | Exact album or disc queues, device selection, unavailable devices and playback controls |
+| Artwork and transport | Covers, caching, API failures and retries |
+| Browser flows | Shelf, settings, catalogue selection, edition picker and playback retry |
+| Container build | Add-on packaging |
+
+List every backend test case without running it:
+
+```sh
+python -m pytest audioshelf/tests --collect-only -q
+```
+
+Run the backend suite with readable test names:
+
+```sh
+python -m pytest audioshelf/tests -v
+```
+
+Keep tests that protect an observable requirement or a meaningful past failure. Real album examples are fixtures for shared behaviour, never production exceptions. Consolidate duplicate scenarios where they protect the same behaviour. When removing a feature, remove tests for its obsolete behaviour; retain migration or rejection tests only where old data or calls still need handling. Test count is not a quality target. Run relevant checks during editing and the complete suite before publication; repeat only after changes or failures justify it. Release summaries should state which check groups passed, failed or were not run, and identify remaining live-device checks.

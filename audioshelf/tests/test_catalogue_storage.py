@@ -15,7 +15,7 @@ def test_discography_excludes_minor_and_nonstudio_releases(secondary):
     assert not studio({'primary-type':'EP','secondary-types':[]})
 
 
-def test_original_standard_preferred_over_japanese_bonus_and_reissue():
+def test_default_country_order_and_standard_edition_preference():
     standard={'id':'s','title':'Album','date':'2007-04-23','country':'GB','media':[{'format':'CD'}]}
     japan={**standard,'id':'j','country':'JP','date':'2007-04-18'}
     deluxe={**standard,'id':'d','disambiguation':'deluxe edition','date':'2007-04-23'}

@@ -220,19 +220,48 @@ class Spotify:
                 candidates.append(candidate(album, self.album(source['id'])))
         return sorted(candidates, key=lambda c:c['score'], reverse=True)
 
-    def play(self, album):
+    def devices(self):
+        return [{k: d.get(k) for k in ('id', 'name', 'type', 'is_active', 'is_restricted')}
+                for d in self.api('GET', 'me/player/devices').get('devices', []) if d.get('id')]
+
+    def play(self, album, disc_number=None):
         if not album['canonical_reviewed']:
             raise AppError('Review the MusicBrainz tracklist and choose “This tracklist is correct” before first playback. This prevents a regional bonus edition becoming your original album.')
-        if not album['playable']:
+        tracks = album['tracks']
+        if disc_number is not None:
+            if type(disc_number) is not int or disc_number < 1:
+                raise AppError('Choose a valid disc number.')
+            tracks = [t for t in tracks if (t.get('disc_number') or 1) == disc_number]
+            if not tracks:
+                raise AppError('That disc does not exist on this edition.')
+        if (disc_number is None and not album['playable']) or not all(t.get('verified') and t.get('spotify_id') for t in tracks):
             raise AppError('Every canonical track needs a verified Spotify mapping before this album can play.')
-        uris = ['spotify:track:'+spotify_id(t['spotify_id'],'track') for t in album['tracks']]
+        uris = ['spotify:track:'+spotify_id(t['spotify_id'],'track') for t in tracks]
         if len(uris) > 100:
             raise AppError('This album exceeds the MVP limit of 100 tracks.')
         with self.playback_lock:
             state = self.api('GET','me/player')
             device = state.get('device',{})
+            preferred = self.store.setting('preferred_device')
+            if preferred:
+                devices = self.devices()
+                device = next((d for d in devices if d['id'] == preferred['id']), None)
+                if device is None:
+                    matches = [d for d in devices if d['name'] == preferred['name'] and d['type'] == preferred['type']]
+                    device = matches[0] if len(matches) == 1 else None
+                if not device or device.get('is_restricted'):
+                    raise AppError('Your preferred Spotify device is unavailable. Open Spotify on it, return here and retry, or change the device in Settings.', 409)
+                if state.get('device', {}).get('id') != device['id']:
+                    self.api('PUT', 'me/player', body={'device_ids': [device['id']], 'play': False})
+                    for attempt in range(5):
+                        time.sleep(.3)
+                        state = self.api('GET', 'me/player')
+                        if state.get('device', {}).get('id') == device['id']:
+                            break
+                    else:
+                        raise AppError('Spotify has not activated your preferred device yet. Return here and retry.', 409)
             if not device.get('id') or device.get('is_restricted'):
-                raise AppError('Open Spotify on the device you want to use, play a few seconds, then try again.')
+                raise AppError('Open Spotify on the device you want to use, play a few seconds, then try again.', 409)
             params = {'device_id':device['id']}
             if state.get('shuffle_state'):
                 self.api('PUT','me/player/shuffle', dict(params,state='false'))
@@ -242,7 +271,7 @@ class Spotify:
                 for attempt in range(5):
                     time.sleep(.3)
                     state = self.api('GET','me/player')
-                    if state.get('shuffle_state') is False and state.get('repeat_state') == 'off':
+                    if state.get('device', {}).get('id') == device['id'] and state.get('shuffle_state') is False and state.get('repeat_state') == 'off':
                         break
                 else:
                     raise AppError('Turn Shuffle and Repeat off in Spotify, then try Play Album again.')

@@ -3,7 +3,7 @@ import base64
 import pytest
 import requests
 
-from app.catalogue_rules import BEATLES, BEATLES_CORE, BEATLES_SERIES, MAGICAL_MYSTERY_TOUR
+from catalogue_examples import BEATLES, BEATLES_CORE, BEATLES_SERIES, MAGICAL_MYSTERY_TOUR
 from app.errors import AppError
 from app.matching import candidate, track_score, edition_year
 from app.storage import Store
@@ -15,6 +15,7 @@ from test_artwork import png
 
 def test_beatles_core_catalogue_includes_soundtracks_excludes_regional_and_compilation(application, monkeypatch):
     mb = application.extensions['musicbrainz']
+    application.extensions['store'].set_setting('series:'+BEATLES, BEATLES_SERIES)
     groups = [{'id': identifier, 'title': title, 'primary-type': 'Album', 'first-release-date': '1967',
         'secondary-types': ['Soundtrack'] if title in {'Help!', 'Yellow Submarine', 'Magical Mystery Tour', 'A Hard Day’s Night'} else [],
         'artist-credit': [{'artist': {'id': BEATLES, 'name': 'The Beatles'}}]} for identifier, title in BEATLES_CORE.items()]
@@ -27,15 +28,20 @@ def test_beatles_core_catalogue_includes_soundtracks_excludes_regional_and_compi
     monkeypatch.setattr(mb, 'get', get)
     assert {a['id'] for a in mb.artist_albums(BEATLES)} == set(BEATLES_CORE)
     assert len(mb.artist_albums(BEATLES, manage=True)) == 15
-    assert application.extensions['store'].release_filters(MAGICAL_MYSTERY_TOUR)['countries'][0] == 'US'
+    assert application.extensions['store'].release_filters(MAGICAL_MYSTERY_TOUR)['countries'][0] == 'GB'
 
 
-def test_verified_beatles_snapshot_survives_series_outage(application, monkeypatch):
+def test_successful_series_snapshot_survives_outage_for_any_artist(application, monkeypatch):
     mb = application.extensions['musicbrainz']
+    monkeypatch.setattr(mb, 'get', lambda *args: {'name': 'A core catalogue', 'type': 'Release group',
+        'relations': [{'release-group': {'id': ALBUM}}]})
+    assert mb.series_members(RELEASE) == {ALBUM}
+    with application.extensions['store'].cache_connect() as db:
+        db.execute('DELETE FROM cache')
     monkeypatch.setattr(mb, 'get', lambda *args, **kwargs: (_ for _ in ()).throw(AppError('Unavailable', 502)))
-    assert mb.series_members(BEATLES_SERIES) == set(BEATLES_CORE)
+    assert mb.series_members(RELEASE) == {ALBUM}
     with pytest.raises(AppError):
-        mb.series_members(RELEASE)
+        mb.series_members(BEATLES_SERIES)
 
 
 def test_series_and_individual_overrides_work_for_other_artists_and_keep_shelf(application, client, monkeypatch):

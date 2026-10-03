@@ -58,3 +58,16 @@ def test_export_contains_library_without_tokens_or_oauth(application,client):
 def test_callback_bad_state_does_not_connect(client,application):
     assert client.get('/auth/spotify/callback?code=fake&state=fake').status_code==400
     assert not application.extensions['spotify'].connected
+
+
+def test_preferred_device_settings_validation_and_clear(application,client,monkeypatch):
+    device={'id':'phone','name':'Phone','type':'Smartphone','is_restricted':False,'is_active':True}
+    monkeypatch.setattr(application.extensions['spotify'],'devices',lambda:[device])
+    headers={'X-AudioShelf-Request':'1'}
+    assert client.get('/api/spotify/devices').json['devices']==[device]
+    assert client.put('/api/settings',json={'preferred_device':{'id':'missing','name':'Phone','type':'Smartphone'}},headers=headers).status_code==400
+    preferred={k:device[k] for k in ('id','name','type')}
+    assert client.put('/api/settings',json={'preferred_device':preferred},headers=headers).json['preferred_device']==preferred
+    assert client.get('/api/status').json['preferred_device']==preferred
+    assert client.put('/api/settings',json={'preferred_device':None},headers=headers).json['preferred_device'] is None
+    assert client.put('/api/settings',json={'preferred_device':'phone'},headers=headers).status_code==400

@@ -7,7 +7,6 @@ import time
 from pathlib import Path
 
 from .release_filters import DEFAULT_FILTERS
-from .catalogue_rules import BEATLES, BEATLES_SERIES, MAGICAL_MYSTERY_TOUR
 
 
 class Store:
@@ -110,10 +109,10 @@ class Store:
         return filters
 
     def release_countries(self, album_id):
-        return self.setting('release_countries:'+album_id, ['US'] if album_id == MAGICAL_MYSTERY_TOUR else None)
+        return self.setting('release_countries:'+album_id)
 
     def catalogue_series(self, artist_id):
-        return self.setting('series:'+artist_id, BEATLES_SERIES if artist_id == BEATLES else None)
+        return self.setting('series:'+artist_id)
 
     def set_release_filters(self, filters):
         self.set_setting('release_filters', filters)

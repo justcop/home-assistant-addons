@@ -136,28 +136,39 @@ def create_app(options=None):
         if authenticated():
             result.update(spotify_configured=spotify.configured, spotify_connected=spotify.connected,
                           spotify_redirect_uri=spotify.redirect_uri, data_directory=str(store.directory), cache_directory=str(store.cache_directory), market=spotify.market,
-                          release_filters=store.release_filters(), theme=store.setting('theme', 'record-store'), themes=THEMES)
+                          release_filters=store.release_filters(), theme=store.setting('theme', 'record-store'), themes=THEMES, preferred_device=store.setting('preferred_device'))
         return jsonify(result)
 
     @app.get('/api/settings')
     def settings():
-        return jsonify(release_filters=store.release_filters(), theme=store.setting('theme', 'record-store'), themes=THEMES)
+        return jsonify(release_filters=store.release_filters(), theme=store.setting('theme', 'record-store'), themes=THEMES, preferred_device=store.setting('preferred_device'))
 
     @app.put('/api/settings')
     def save_settings():
         body = request.json
-        if not isinstance(body, dict) or not set(body).intersection({'release_filters', 'theme'}):
-            raise AppError('Supply release filters or a theme.')
+        if not isinstance(body, dict) or not set(body).intersection({'release_filters', 'theme', 'preferred_device'}):
+            raise AppError('Supply release filters, a theme or a preferred device.')
         filters = validate_filters(body['release_filters']) if 'release_filters' in body else None
         theme = body.get('theme')
         if 'theme' in body and (not isinstance(theme, str) or theme not in THEME_IDS):
             raise AppError('Choose one of the available themes.')
+        preferred = body.get('preferred_device')
+        if 'preferred_device' in body and preferred is not None:
+            if not isinstance(preferred, dict) or set(preferred) != {'id', 'name', 'type'} or not all(isinstance(v, str) and 0 < len(v) <= 200 for v in preferred.values()):
+                raise AppError('Choose an available Spotify device.')
+            available = spotify.devices()
+            preferred = next((d for d in available if d['id'] == preferred['id'] and not d['is_restricted']), None)
+            if preferred is None:
+                raise AppError('That device is unavailable. Refresh devices and try again.')
+            preferred = {k: preferred[k] for k in ('id', 'name', 'type')}
         with store.catalogue_lock:
+            if 'preferred_device' in body:
+                store.set_setting('preferred_device', preferred)
             if filters is not None:
                 store.set_release_filters(filters)
             if theme is not None:
                 store.set_setting('theme', theme)
-        return jsonify(release_filters=store.release_filters(), theme=store.setting('theme', 'record-store'))
+        return jsonify(release_filters=store.release_filters(), theme=store.setting('theme', 'record-store'), preferred_device=store.setting('preferred_device'))
 
     @app.post('/api/login')
     def login():
@@ -208,7 +219,14 @@ def create_app(options=None):
     @app.get('/api/artists/<artist_id>/catalogue')
     def artist_catalogue(artist_id):
         artist_id = mbid(artist_id)
-        return jsonify(albums=musicbrainz.artist_albums(artist_id, manage=True), series_id=store.catalogue_series(artist_id))
+        albums = musicbrainz.artist_albums(artist_id, manage=True)
+        series_id = store.catalogue_series(artist_id)
+        return jsonify(albums=albums, series_id=series_id,
+                       series_snapshot=store.setting('series_snapshot:'+series_id) if series_id else None)
+
+    @app.get('/api/artists/<artist_id>/catalogue-series')
+    def catalogue_series_search(artist_id):
+        return jsonify(musicbrainz.catalogue_candidates(mbid(artist_id), request.args.get('q')))
 
     @app.put('/api/artists/<artist_id>/series')
     def choose_series(artist_id):
@@ -216,7 +234,12 @@ def create_app(options=None):
         series_id = request.json.get('series_id')
         if series_id is not None:
             series_id = mbid(series_id)
-            musicbrainz.series_members(series_id)
+            members = musicbrainz.series_members(series_id)
+            known = store.albums(artist_id)
+            if not known:
+                known = musicbrainz.artist_albums(artist_id, manage=True)
+            if not members.intersection(a['id'] for a in known):
+                raise AppError('That series contains none of this artist’s known albums. Choose another catalogue.')
         store.set_setting('series:'+artist_id, series_id)
         return jsonify(ok=True)
 
@@ -387,7 +410,12 @@ def create_app(options=None):
 
     @app.post('/api/albums/<album_id>/play')
     def play(album_id):
-        return jsonify(spotify.play(store.album(mbid(album_id))))
+        body = request.get_json(silent=True) or {}
+        return jsonify(spotify.play(store.album(mbid(album_id)), disc_number=body.get('disc_number')))
+
+    @app.get('/api/spotify/devices')
+    def devices():
+        return jsonify(devices=spotify.devices())
 
     @app.post('/api/spotify/connect')
     def connect():

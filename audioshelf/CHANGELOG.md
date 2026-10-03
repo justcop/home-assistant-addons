@@ -1,3 +1,17 @@
+# 0.3.1
+
+- Remove stale album-specific interface instructions and examples. Use the same preference-based edition ranking in all paths, without a separate country penalty.
+
+- Remember a preferred Spotify Connect device, activate it before playback, and offer an Open Spotify and retry flow when unavailable. Optional app opening is saved separately for each browser.
+
+- Group multi-disc tracklists by their original MusicBrainz disc boundaries and play any disc independently, keeping whole-album playback.
+
+- Remove artist-specific catalogue lists, automatic series selection and album-country defaults from production. Existing explicit user preferences remain intact.
+- Find MusicBrainz release-group series for any artist directly in Manage catalogue. Search results are suggestions; saving validates that the series contains albums credited to the artist.
+- Retain successful catalogue membership snapshots for any series across restarts and cache deletion, with temporary-outage fallback.
+- Apply catalogue selections to the artist being browsed and handle collaborative album credits without depending on credit order.
+- Keep the Beatles as a regression example for soundtrack albums, regional repackagings and compilations.
+
 # 0.3.0
 
 - Configurable MusicBrainz country and format priorities: GB, US, worldwide, Europe; vinyl, CD, digital. Optional strict country restriction; cassette excluded by default.
