@@ -7,7 +7,7 @@ Browse artists, explore their studio albums in release order, add records to you
 ## Install
 
 1. In Home Assistant, refresh the add-on store for the existing repository: `https://github.com/justcop/home-assistant-addons`.
-2. Install **AudioShelf**, version **0.5.0**. Enable the sidebar entry if wanted, then start it.
+2. Install **AudioShelf**, version **0.5.1**. Enable the sidebar entry if wanted, then start it.
 3. Use **Open Web UI** for Home Assistant ingress. The standalone UI is also exposed on port **8098** by default, for your existing external-access system.
 4. Open the Record Store, search for an artist, browse their studio albums, and add one to your shelf. Spotify is not needed to collect records.
 
@@ -67,7 +67,7 @@ Options can come from `/data/options.json`, another JSON file selected by `AUDIO
 .venv/bin/python -m pytest tests -q
 node --check app/static/app.js
 bash -n run.sh
-docker build --build-arg BUILD_VERSION=0.5.0 --build-arg BUILD_ARCH=amd64 -t audioshelf .
+docker build --build-arg BUILD_VERSION=0.5.1 --build-arg BUILD_ARCH=amd64 -t audioshelf .
 ```
 
 ## Artwork and replaceable cache
@@ -187,3 +187,5 @@ Choose **Settings → Appearance → Classic** for the original interface, or **
 **On the turntable** follows the connected Spotify account every 15 seconds while AudioShelf is visible. It distinguishes playing, paused and unavailable status. Opening another album does not change playback. Library tracks link back to their sleeve when the mapping identifies the album; ambiguous or external tracks show Spotify’s album name without claiming a library match. No additional Spotify scopes are required.
 
 Album settings retains cover selection, original tracklist changes, Spotify editions and diagnostic downloads. The new interface uses the same library and artwork cache rules: uncollected store covers are not saved locally.
+
+Spotify handoff: Open Spotify launches the app without selecting an album or track. AudioShelf sends the synced tracklist through its playback API. If no player is active, AudioShelf activates your preferred device or the only available controllable device. Choose a device when several are available. After pressing Open Spotify in a failed playback dialog, returning to AudioShelf retries the same album or disc for up to one minute. Closing the dialog or navigating away cancels the retry. Your preferred device is never silently replaced by another.
