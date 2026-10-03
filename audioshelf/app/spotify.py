@@ -224,7 +224,7 @@ class Spotify:
         return [{k: d.get(k) for k in ('id', 'name', 'type', 'is_active', 'is_restricted')}
                 for d in self.api('GET', 'me/player/devices').get('devices', []) if d.get('id')]
 
-    def play(self, album, disc_number=None):
+    def play_tracks(self, album, disc_number=None):
         if not album['canonical_reviewed']:
             raise AppError('Review the MusicBrainz tracklist and choose “This tracklist is correct” before first playback. This prevents a regional bonus edition becoming your original album.')
         tracks = album['tracks']
@@ -239,10 +239,16 @@ class Spotify:
         uris = ['spotify:track:'+spotify_id(t['spotify_id'],'track') for t in tracks]
         if len(uris) > 100:
             raise AppError('This album exceeds the MVP limit of 100 tracks.')
+        return tracks, uris
+
+    def play(self, album, disc_number=None, preferred_device=None, guard=None, dispatch=None):
+        tracks, uris = self.play_tracks(album, disc_number)
         with self.playback_lock:
+            if guard:
+                guard()
             state = self.api('GET','me/player')
             device = state.get('device',{})
-            preferred = self.store.setting('preferred_device')
+            preferred = preferred_device or self.store.setting('preferred_device')
             if preferred:
                 devices = self.devices()
                 device = next((d for d in devices if d['id'] == preferred['id']), None)
@@ -250,10 +256,12 @@ class Spotify:
                     matches = [d for d in devices if d['name'] == preferred['name'] and d['type'] == preferred['type']]
                     device = matches[0] if len(matches) == 1 else None
                 if not device or device.get('is_restricted'):
-                    raise AppError('Your preferred Spotify device is unavailable. Open Spotify on it, return here and retry, or change the device in Settings.', 409)
+                    raise AppError('Your preferred Spotify device is unavailable. Open Spotify on it, or choose another device.', 409)
             elif not device.get('id') or device.get('is_restricted'):
                 raise AppError('Choose your playback device. Open Spotify on your phone if it is missing, then refresh the device list.', 409)
             if state.get('device', {}).get('id') != device['id'] or state.get('device', {}).get('is_restricted'):
+                if guard:
+                    guard()
                 self.api('PUT', 'me/player', body={'device_ids': [device['id']], 'play': False})
                 for attempt in range(10):
                     time.sleep(.3)
@@ -263,6 +271,8 @@ class Spotify:
                 else:
                     raise AppError('Spotify has not activated your device yet. Return here and retry.', 409)
             params = {'device_id':device['id']}
+            if guard:
+                guard()
             if state.get('shuffle_state'):
                 self.api('PUT','me/player/shuffle', dict(params,state='false'))
             if state.get('repeat_state') != 'off':
@@ -276,7 +286,11 @@ class Spotify:
                 else:
                     raise AppError('Turn Shuffle and Repeat off in Spotify, then try Play Album again.')
             # Explicit ordered URIs, never an album context and never bonus-track slicing.
-            self.api('PUT','me/player/play', params, {'uris':uris,'position_ms':0})
+            if guard:
+                guard()
+            def send():
+                return self.api('PUT','me/player/play', params, {'uris':uris,'position_ms':0})
+            dispatch(send) if dispatch else send()
             self.store.set_setting('last_played_album', album['id'])
-            return {'started':True,'track_count':len(uris),'device':device.get('name','Spotify'),
+            return {'started':True,'started_at':time.time(),'track_count':len(uris),'device':device.get('name','Spotify'),
                     'first_track':{'id':tracks[0]['spotify_id'],'title':tracks[0]['title'],'duration_ms':tracks[0].get('duration_ms')}}

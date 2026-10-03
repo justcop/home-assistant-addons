@@ -89,26 +89,24 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.getByRole('heading',{name:'Choose playback device',exact:true}).waitFor();
     await page.getByRole('button',{name:'Fixture phone',exact:false}).click();
     await page.locator('#toast').filter({hasText:'Playing 2 tracks on Fixture phone.'}).waitFor();
-    let unavailable=true,phoneAvailable=false;
-    await page.route('**/api/spotify/devices',route=>route.fulfill({contentType:'application/json',body:JSON.stringify({devices:phoneAvailable?[{id:'phone',name:'Fixture phone',type:'Smartphone',is_active:true,is_restricted:false}]:[{id:'speaker',name:'Speaker',type:'Speaker',is_active:true,is_restricted:false}]})}));
-    await page.route('**/api/albums/*/play',async route=>{
-      if(unavailable){unavailable=false;return route.fulfill({status:409,contentType:'application/json',body:JSON.stringify({error:'Open Spotify on your phone, then retry.'})});}
-      await route.continue();
-    });
+    const fixtureOptions=body=>fixtureFetch(base+'/__test/playback-options',{method:'POST',headers:{'Content-Type':'application/json','X-AudioShelf-Request':'1'},body:JSON.stringify(body)});
+    await fixtureOptions({phone_available:false});
     await page.getByRole('button',{name:'Play album'}).click();
-    await page.getByRole('heading',{name:'Spotify playback',exact:true}).waitFor();
+    await page.getByRole('heading',{name:'Waiting for Fixture phone',exact:true}).waitFor();
     assert.equal(await page.getByRole('link',{name:'Open Spotify',exact:true}).getAttribute('href'),'spotify:');
     await page.evaluate(()=>document.addEventListener('click',event=>{if(event.target.closest('a[href="spotify:"]'))event.preventDefault();},true));
     await page.getByRole('link',{name:'Open Spotify',exact:true}).click();
-    await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
-    await wait(1800);
+    await page.evaluate(()=>Object.defineProperty(document,'hidden',{configurable:true,get:()=>true}));
+    await wait(2200);
     assert.equal((await (await fixtureFetch(base+'/__test/play-calls')).json()).calls.length,1,'An available speaker must not replace the chosen phone');
-    assert.equal(await page.locator('#modal').evaluate(el=>el.open),true);
-    phoneAvailable=true;
-    await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
+    await fixtureOptions({phone_available:true});
+    for(let attempt=0;attempt<30;attempt++){
+      if((await (await fixtureFetch(base+'/__test/play-calls')).json()).calls.length===2)break;
+      await wait(200);
+    }
+    assert.equal((await (await fixtureFetch(base+'/__test/play-calls')).json()).calls.length,2,'Server must finish playback while AudioShelf is hidden');
+    await page.evaluate(()=>{delete document.hidden;window.dispatchEvent(new Event('focus'));});
     await page.waitForFunction(()=>!document.querySelector('#modal').open);
-    await page.unroute('**/api/spotify/devices');
-    await page.unroute('**/api/albums/*/play');
     const calls=await (await fixtureFetch(base+'/__test/play-calls')).json();
     assert.equal(calls.calls.length,2);
     for(const call of calls.calls)assert.deepEqual(call,{uris:['spotify:track:'+'a'.repeat(22),'spotify:track:'+'b'.repeat(22)],position_ms:0});
@@ -124,28 +122,33 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert.equal(await page.getByRole('link',{name:'Open Spotify',exact:true}).getAttribute('href'),'spotify:');
     await page.getByRole('button',{name:'Close',exact:true}).click();
     await page.evaluate(()=>localStorage.removeItem('audioshelf-open-spotify'));
-    // Automatic handoff preserves disc 2 and starts it exactly once.
+    // Background handoff preserves the selected disc and queues it once.
+    await fixtureOptions({phone_available:false,disc:2});
     await page.evaluate(()=>{currentAlbum.tracks[1].disc_number=2;content.innerHTML=albumPage(currentAlbum);});
-    const discRequests=[];
-    await page.route('**/api/albums/*/play',async route=>{
-      discRequests.push(route.request().postDataJSON());
-      await route.fulfill({status:discRequests.length===1?409:200,contentType:'application/json',body:JSON.stringify(discRequests.length===1?{error:'Open Spotify, then return.'}:{started:true,track_count:1,device:'Fixture phone'})});
-    });
     await page.getByRole('button',{name:'Play disc 2'}).click();
+    await page.getByRole('heading',{name:'Waiting for Fixture phone',exact:true}).waitFor();
     await page.getByRole('link',{name:'Open Spotify',exact:true}).click();
-    await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
+    await fixtureOptions({phone_available:true});
     await page.waitForFunction(()=>!document.querySelector('#modal').open);
-    assert.deepEqual(discRequests,[{disc_number:2},{disc_number:2}]);
-    await page.unroute('**/api/albums/*/play');
-    let cancelledCalls=0;
-    await page.route('**/api/albums/*/play',async route=>{cancelledCalls++;await route.fulfill({status:409,contentType:'application/json',body:JSON.stringify({error:'Open Spotify, then return.'})});});
+    const discCalls=(await (await fixtureFetch(base+'/__test/play-calls')).json()).calls;
+    assert.equal(discCalls.length,4);
+    assert.deepEqual(discCalls[3],{uris:['spotify:track:'+'b'.repeat(22)],position_ms:0});
+    await fixtureOptions({phone_available:false});
     await page.getByRole('button',{name:'Play disc 2'}).click();
-    await page.getByRole('link',{name:'Open Spotify',exact:true}).click();
+    await page.getByRole('heading',{name:'Waiting for Fixture phone',exact:true}).waitFor();
+    const cancelledJob=await page.evaluate(()=>pendingPlayback.job);
     await page.getByRole('button',{name:'Close',exact:true}).click();
-    await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
-    await wait(1700);
-    assert.equal(cancelledCalls,1);
-    await page.unroute('**/api/albums/*/play');
+    await page.waitForFunction(()=>pendingPlayback===null);
+    let cancelledState;
+    for(let attempt=0;attempt<30;attempt++){
+      cancelledState=(await (await fixtureFetch(base+'/api/spotify/playback-handoff/'+cancelledJob)).json()).state;
+      if(cancelledState==='cancelled')break;
+      await wait(100);
+    }
+    assert.equal(cancelledState,'cancelled');
+    await fixtureOptions({phone_available:true,disc:1});
+    await wait(2200);
+    assert.equal((await (await fixtureFetch(base+'/__test/play-calls')).json()).calls.length,4);
     await page.evaluate(()=>{currentAlbum.tracks[1].disc_number=1;content.innerHTML=albumPage(currentAlbum);});
     assert.equal(await page.locator('.track-row').count(),2);
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'Album page overflows phone viewport');

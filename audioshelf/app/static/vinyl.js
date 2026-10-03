@@ -81,15 +81,21 @@ function updateTrackProgress(){
   progress.setAttribute('aria-valuetext',`${playbackTime(position)} of ${playbackTime(playbackState.duration_ms)}`);
   document.querySelector('#turntable [data-elapsed]').textContent=playbackTime(position);
 }
-function beginPlayback(album,result){
+function beginPlayback(album,result,awaiting=false){
   const first=result.first_track;
-  // Invalidate reads started before this accepted Play command.
+  const elapsed=result.started_at?Math.max(0,Date.now()-result.started_at*1000):0;
+  // Invalidate reads started before this Play command.
   playbackEpoch++;playbackBusy=false;
-  playbackStart=first?{id:first.id,observedAt:performance.now(),expires:Date.now()+8000}:null;
+  playbackStart=first&&(awaiting||elapsed<8000)?{id:first.id,observedAt:performance.now()-elapsed,expires:awaiting?Infinity:Date.now()+8000-elapsed,awaiting}:null;
   playbackState={active:true,playing:false,starting:true,album:album.title,album_id:album.id,
     artist:album.artists.map(a=>a.name).join(', '),track:first?.title||'Waiting for Spotify status',
     duration_ms:first?.duration_ms,progress_ms:0,observedAt:performance.now(),device:result.device};
-  renderTurntable();refreshPlayback(true);
+  renderTurntable();if(!awaiting)refreshPlayback(true);
+}
+function failPlaybackStart(){
+  if(!playbackStart)return;
+  playbackEpoch++;playbackBusy=false;playbackStart=null;
+  playbackState=null;renderTurntable();refreshPlayback(true);
 }
 function renderTurntable(){
   const panel=document.querySelector('#turntable');if(!panel)return;
@@ -105,7 +111,7 @@ function renderTurntable(){
 async function refreshPlayback(force=false){
   const position=trackProgress();
   const interval=playbackStart?500:position!==null&&playbackState.playing&&position>=playbackState.duration_ms-500?1000:15000;
-  if(!isVinyl()||!statusInfo.authenticated||!statusInfo.spotify_connected||document.hidden||(!force&&Date.now()-playbackChecked<interval))return;
+  if(playbackStart?.awaiting||!isVinyl()||!statusInfo.authenticated||!statusInfo.spotify_connected||document.hidden||(!force&&Date.now()-playbackChecked<interval))return;
   if(playbackBusy&&!force)return;
   const epoch=++playbackEpoch;playbackBusy=true;playbackChecked=Date.now();
   try{

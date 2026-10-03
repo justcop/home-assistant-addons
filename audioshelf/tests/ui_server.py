@@ -77,19 +77,20 @@ def mb_get(entity,params=None):
 
 play_calls=[]
 playback_state={}
+phone_available=True
 album_id='s'*22
 source={'id':album_id,'name':'The Original Album (Deluxe Edition)','release_date':'2007-04-23','tracks':{'next':None,'items':[
     spotify_track('Opening','a'*22),spotify_track('Closing','b'*22,240000),spotify_track('Japanese bonus track','c'*22)]}}
 
 
 def spotify_api(method,path,params=None,body=None):
-    if path=='me/player/devices':return {'devices':[{'id':'phone','name':'Fixture phone','type':'Smartphone','is_active':True,'is_restricted':False}]}
+    if path=='me/player/devices':return {'devices':[{'id':'phone','name':'Fixture phone','type':'Smartphone','is_active':True,'is_restricted':False}] if phone_available else [{'id':'speaker','name':'Speaker','type':'Speaker','is_active':True,'is_restricted':False}]}
     if path=='search':return {'albums':{'items':[{'id':album_id}]}}
     if path=='albums/'+album_id:return source
     if path=='me/player':return {'device':{'id':'phone','name':'Fixture phone'},'shuffle_state':False,'repeat_state':'off',**playback_state}
     if path=='me/player/play':
         play_calls.append(body)
-        playback_state.update(is_playing=True,progress_ms=0,currently_playing_type='track',item={**source['tracks']['items'][0],'album':{'name':source['name']}})
+        playback_state.update(is_playing=True,progress_ms=0,currently_playing_type='track',item={**next(t for t in source['tracks']['items'] if 'spotify:track:'+t['id']==body['uris'][0]),'album':{'name':source['name']}})
         return {}
     raise AssertionError(path)
 
@@ -100,6 +101,17 @@ app.extensions['artwork'].download=lambda url:(cover_buffer.getvalue(),'image/pn
 app.extensions['musicbrainz'].get=mb_get
 app.extensions['spotify'].api=spotify_api
 app.extensions['spotify']._save({'access_token':'fixture-only','refresh_token':'fixture-only','expires_in':3600})
+
+
+@app.post('/__test/playback-options')
+def playback_options():
+    from flask import request
+    global phone_available
+    phone_available=request.json.get('phone_available',phone_available)
+    if 'disc' in request.json:
+        with app.extensions['store'].connect() as db:
+            db.execute('UPDATE tracks SET disc_number=? WHERE album_id=? AND position=2', (request.json['disc'],ALBUM))
+    return {'ok':True}
 
 
 @app.get('/__test/current-code')
