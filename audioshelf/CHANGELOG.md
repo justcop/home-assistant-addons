@@ -1,3 +1,10 @@
+# 0.5.5
+
+- Wait for your chosen Spotify device on the server, so playback can start while AudioShelf is hidden and you stay in Spotify.
+- Keep the exact synced album or selected disc and chosen device fixed throughout the one-minute wait. Cancel waiting work on dialog close, navigation, a new request, or revoked access.
+- Show the requested first track as Starting immediately, before Spotify activation completes. Confirm Playing using fresh Spotify status.
+- Replace browser-owned retry checks with server handoff checks, including hidden-page playback and cancellation during activation.
+
 # 0.5.4
 
 - Serve responsive WebP covers at 128, 320 and 640 pixels without enlarging small originals. Cache derived covers only for shelf albums, invalidate by source content, include them in cache limits and evict them with removed albums. Use authenticated private ETag revalidation for repeat visits.

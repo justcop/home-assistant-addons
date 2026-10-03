@@ -85,28 +85,45 @@ let spotifyDevices=[];
 function shouldOpenSpotify(){try{return localStorage.getItem('audioshelf-open-spotify')==='true';}catch{return false;}}
 function spotifyAppLink(){return 'spotify:';}
 let pendingPlayback=null, checkingPlayback=false;
+function cancelPendingPlayback(){
+  const request=pendingPlayback;pendingPlayback=null;
+  if(request?.job)api(`spotify/playback-handoff/${id(request.job)}`,'DELETE').catch(()=>{});
+  if(request&&!request.chooseOnly)failPlaybackStart();
+}
 function playbackSettings(){
   const preferred=statusInfo.preferred_device;
-  return `<section class="settings-block"><h2>Playback device</h2><p>Preferred device: ${preferred?escapeHtml(preferred.name):'Choose a device before playback'}. This choice is shared across AudioShelf.</p><button class="secondary" data-action="devices">Choose Spotify device</button><label class="check-option"><input type="checkbox" id="open-spotify" ${shouldOpenSpotify()?'checked':''}> Open Spotify after pressing Play on this browser</label><p class="muted">Opening Spotify does not change your selected playback device. If your device is unavailable, open Spotify and return here for automatic retry. Your browser may ask permission to open the app.</p></section>`;
+  return `<section class="settings-block"><h2>Playback device</h2><p>Preferred device: ${preferred?escapeHtml(preferred.name):'Choose a device before playback'}. This choice is shared across AudioShelf.</p><button class="secondary" data-action="devices">Choose Spotify device</button><label class="check-option"><input type="checkbox" id="open-spotify" ${shouldOpenSpotify()?'checked':''}> Open Spotify after pressing Play on this browser</label><p class="muted">Opening Spotify does not change your selected playback device. If your device is unavailable, open Spotify and stay there while AudioShelf waits for it. Your browser may ask permission to open the app.</p></section>`;
 }
 function devicePicker(){
   showModal(`<h2>Choose playback device</h2><p>Choose where your synced tracklist should play. Open Spotify if your device is missing.</p><button class="choice" data-action="device" data-index="-1">Clear preferred device</button>${spotifyDevices.map((d,index)=>`<button class="choice" data-action="device" data-index="${index}" ${d.is_restricted?'disabled':''}>${escapeHtml(d.name)}<small>${escapeHtml(d.type)}${d.is_active?' · Active':''}${d.is_restricted?' · Cannot be controlled':''}</small></button>`).join('')}${spotifyDevices.length?'':'<p>No devices are available yet.</p>'}<div class="actions"><a class="secondary" href="spotify:">Open Spotify</a><button class="secondary" data-action="devices">Refresh devices</button></div>`);
 }
 async function playbackDevicePicker(request){
   pendingPlayback=request;
+  if(request.job){await api(`spotify/playback-handoff/${id(request.job)}`,'DELETE');request.job=null;failPlaybackStart();}
   request.until=null;
   const result=await api('spotify/devices');
   if(pendingPlayback!==request||request.generation!==routeGeneration)return;
   spotifyDevices=result.devices;
   showModal(`<h2>Choose playback device</h2><p>${statusInfo.preferred_device?`Chosen device: ${escapeHtml(statusInfo.preferred_device.name)}.`:'Choose where you want to listen. AudioShelf remembers your choice.'} If your phone is missing, open Spotify on this phone, then return here. Playback waits for your choice.</p>${spotifyDevices.map((d,index)=>`<button class="choice" data-action="playback-device" data-index="${index}" ${d.is_restricted?'disabled':''}>${escapeHtml(d.name)}<small>${escapeHtml(d.type)}${d.is_active?' · Active':''}</small></button>`).join('')||'<p>No devices are available yet.</p>'}<div class="actions"><a class="primary" data-action="open-playback-spotify" href="${spotifyAppLink()}">Open Spotify</a><button class="secondary" data-action="playback-devices">Refresh devices</button></div>`);
 }
-function playbackHandoff(request,message){
+async function playbackHandoff(request,message){
   pendingPlayback=request;
-  showModal(`<h2>Spotify playback</h2><p>${escapeHtml(message)}</p><div class="actions"><a class="primary" data-action="open-playback-spotify" href="${spotifyAppLink()}">Open Spotify</a><button class="secondary" data-action="play" ${request.disc===null?'':`data-disc="${request.disc}"`}>Retry playback</button><button class="secondary" data-action="playback-devices">Change device</button></div><p>Open Spotify, then return here. AudioShelf will retry the same ${request.disc===null?'album':'disc'} automatically for up to one minute. Closing this dialog cancels the retry.</p>`);
+  let job;
+  try{job=await api(`albums/${id(request.album.id)}/playback-handoff`,'POST',request.disc===null?{}:{disc_number:request.disc});}
+  catch(error){if(pendingPlayback===request){pendingPlayback=null;failPlaybackStart();}throw error;}
+  request.job=job.id;
+  if(pendingPlayback!==request||request.generation!==routeGeneration){await api(`spotify/playback-handoff/${id(job.id)}`,'DELETE');return;}
+  showModal(`<h2>Waiting for ${escapeHtml(statusInfo.preferred_device.name)}</h2><p>${escapeHtml(message)}</p><div class="actions"><a class="primary" data-action="open-playback-spotify" href="${spotifyAppLink()}">Open Spotify</a><button class="secondary" data-action="play" ${request.disc===null?'':`data-disc="${request.disc}"`}>Retry playback</button><button class="secondary" data-action="playback-devices">Change device</button></div><p>You can stay in Spotify. AudioShelf waits up to one minute and sends this synced ${request.disc===null?'album':'disc'} to your chosen device. Closing this dialog cancels the request.</p>`);
+  retryPendingPlayback();
 }
 async function startPlayback(request,openApp=true){
+  cancelPendingPlayback();
   const playbackRequest=++playbackCommand;
-  const result=await api(`albums/${id(request.album.id)}/play`,'POST',request.disc===null?{}:{disc_number:request.disc});
+  const first=request.album.tracks.find(t=>request.disc===null||(t.disc_number||1)===request.disc);
+  beginPlayback(request.album,{first_track:{id:first.spotify_id,title:first.title,duration_ms:first.duration_ms},device:statusInfo.preferred_device?.name},true);
+  let result;
+  try{result=await api(`albums/${id(request.album.id)}/play`,'POST',request.disc===null?{}:{disc_number:request.disc});}
+  catch(error){if(playbackRequest===playbackCommand&&error.status!==409&&error.status!==404)failPlaybackStart();throw error;}
   if(playbackRequest===playbackCommand)beginPlayback(request.album,result);
   if(request.generation!==routeGeneration)return;
   pendingPlayback=null;modal.close();toast(`Playing ${result.track_count} tracks on ${result.device}.`);
@@ -117,25 +134,31 @@ async function startPlayback(request,openApp=true){
 }
 async function retryPendingPlayback(){
   const request=pendingPlayback;
-  if(!request?.until||checkingPlayback||document.hidden)return;
-  if(request.until<Date.now()){request.until=null;toast('Spotify is still unavailable. Open it on your chosen device, then retry playback.');return;}
-  if(request.generation!==routeGeneration||!modal.open){pendingPlayback=null;return;}
+  if(!request||checkingPlayback||document.hidden)return;
+  if(request.generation!==routeGeneration||!modal.open){cancelPendingPlayback();return;}
   checkingPlayback=true;
   try{
-    const {devices}=await api('spotify/devices');
-    if(pendingPlayback!==request||!modal.open||request.generation!==routeGeneration)return;
-    const usable=devices.filter(d=>!d.is_restricted),preferred=statusInfo.preferred_device;
-    if(!preferred||request.chooseOnly){await playbackDevicePicker(request);return;}
-    const ready=usable.some(d=>d.id===preferred.id)||(usable.filter(d=>d.name===preferred.name&&d.type===preferred.type).length===1);
-    if(!ready)return;
-    await startPlayback(request,false);
-  }catch(error){if(error.status!==409&&error.status!==404){if(pendingPlayback===request)request.until=null;toast(error.message);}}
+    if(!request.job){
+      if(request.until){request.until=null;await playbackDevicePicker(request);}
+      return;
+    }
+    const job=await api(`spotify/playback-handoff/${id(request.job)}`);
+    if(pendingPlayback!==request)return;
+    if(job.state==='waiting')return;
+    pendingPlayback=null;
+    if(job.state==='started'){
+      beginPlayback(request.album,job.result);modal.close();toast(`Playing ${job.result.track_count} tracks on ${job.result.device}.`);
+    }else{
+      failPlaybackStart();
+      showModal(`<h2>Spotify did not start</h2><p>${escapeHtml(job.error||'Playback request cancelled.')}</p><div class="actions"><a class="secondary" href="${spotifyAppLink()}">Open Spotify</a><button class="primary" data-action="play" ${request.disc===null?'':`data-disc="${request.disc}"`}>Retry playback</button><button class="secondary" data-action="playback-devices">Change device</button></div>`);
+    }
+  }catch(error){if(pendingPlayback===request){cancelPendingPlayback();toast(error.message);}}
   finally{checkingPlayback=false;}
 }
 window.addEventListener('focus',retryPendingPlayback);
 document.addEventListener('visibilitychange',retryPendingPlayback);
 setInterval(retryPendingPlayback,2000);
-modal.addEventListener('close',()=>{pendingPlayback=null;});
+modal.addEventListener('close',cancelPendingPlayback);
 document.addEventListener('change',event=>{if(event.target.id==='open-spotify'){try{localStorage.setItem('audioshelf-open-spotify',String(event.target.checked));}catch{event.target.checked=false;toast('This browser could not save the preference.');}}});
 let securityInfo=null;
 function reauthFields(){return securityInfo?.ingress?'<p>Authorised by your Home Assistant login.</p>':`<label>Confirm owner password<input type="password" name="password" autocomplete="current-password" required></label>${securityInfo?.two_factor?'<label>Fresh authenticator or recovery code<input name="code" autocomplete="one-time-code" required></label>':''}`;}
@@ -146,7 +169,7 @@ async function securitySettings(){
 }
 function settingsPage(){return `<div class="eyebrow">Make yourself at home</div><h1>Settings.</h1><section class="settings-block"><h2>Spotify</h2><p>${statusInfo.spotify_connected?'Your Spotify account is connected. Playback uses your chosen device. Unavailable devices are never replaced automatically.':'Connect your Spotify Premium account to match and play albums.'}</p>${!statusInfo.spotify_configured?'<div class="note">In Home Assistant, open AudioShelf configuration and set <code>spotify_client_id</code> and <code>spotify_redirect_uri</code>. Use your HTTPS address followed by <code>/auth/spotify/callback</code>, and add the exact same redirect URL to your Spotify developer app. No client secret is needed.</div>':''}<div class="actions">${statusInfo.role==='owner'?`<button class="primary" data-action="connect">${statusInfo.spotify_connected?'Reconnect Spotify':'Connect Spotify'}</button>${statusInfo.spotify_connected?'<button class="quiet" data-action="disconnect">Disconnect</button>':''}`:''}<button class="quiet" data-action="refresh-status">Refresh connection status</button></div><p class="muted">Catalogue market: ${escapeHtml(statusInfo.market || 'GB')}. Turn Autoplay off in Spotify if you want silence when the album finishes. AudioShelf switches Shuffle and Repeat off before starting an album.</p></section>${statusInfo.role==='owner'?'<section class="settings-block"><h2>Security</h2><p>Manage two-factor authentication, trusted browsers and temporary support logins.</p><button class="secondary" data-action="security">Open Security settings</button></section>':'<div class="note">Temporary support login. Access is limited and expires automatically.</div>'}${playbackSettings()}${themeSettings()}${releaseFilterSettings()}<section class="settings-block"><h2>Your collection</h2><p>Your shelf belongs to AudioShelf. Adding or removing a record here does not change your saved Spotify albums.</p>${statusInfo.role==='owner'?'<div class="actions"><a class="secondary" href="api/export" download>Export collection</a><button class="secondary" data-action="backup">Download database backup</button></div>':''}<p class="muted">Library: <code>${escapeHtml(statusInfo.data_directory)}</code>. Back up this folder as well as your add-on data.</p><p class="muted">Replaceable artwork and metadata cache: <code>${escapeHtml(statusInfo.cache_directory)}</code>. You can exclude this separate folder from backups. It rebuilds automatically.</p></section><section class="settings-block"><h2>About AudioShelf</h2><p>Albums, in their original order. No singles, compilation appearances or anniversary clutter.</p><p class="muted">Version ${escapeHtml(statusInfo.build?.version)} · ${escapeHtml(statusInfo.build?.channel)} · ${escapeHtml(statusInfo.build?.revision)}</p>${statusInfo.password_required?'<button class="quiet" data-action="logout">Lock AudioShelf</button>':''}<p class="footer-note">Install AudioShelf from your phone browser using Add to Home Screen at your standalone HTTPS address.</p></section>`;}
 async function route(){
-  pendingPlayback=null;
+  cancelPendingPlayback();
   const generation=++routeGeneration;
   const parts=(location.hash.slice(1)||'shelf').split('/');
   const [view,key,mode]=parts;
@@ -335,7 +358,7 @@ document.addEventListener('click',async event=>{
       if(!request||!selected)return;
       const result=await api('settings','PUT',{preferred_device:{id:selected.id,name:selected.name,type:selected.type}});statusInfo.preferred_device=result.preferred_device;
       if(request.chooseOnly){pendingPlayback=null;modal.close();toast('Playback device saved.');return;}
-      try{await startPlayback(request,false);}catch(error){if(error.status===409||error.status===404)playbackHandoff(request,error.message);else throw error;}
+      try{await startPlayback(request,false);}catch(error){if(error.status===409||error.status===404)await playbackHandoff(request,error.message);else throw error;}
     }
     if(action==='device'){
       const selected=spotifyDevices[Number(button.dataset.index)];
@@ -351,10 +374,10 @@ document.addEventListener('click',async event=>{
       const selectedTracks=currentAlbum.tracks.filter(t=>disc===null||(t.disc_number||1)===disc);
       if(!selectedTracks.every(t=>t.verified&&t.spotify_id)){toast('Matching Spotify tracks first…');const result=await api(`albums/${id(currentAlbum.id)}/resolve`,'POST');if(generation!==routeGeneration)return;currentAlbum=result.album;content.innerHTML=albumPage(currentAlbum);}
       const request={album:currentAlbum,disc,generation};
-      pendingPlayback=null;
+      cancelPendingPlayback();
       if(!statusInfo.preferred_device){await playbackDevicePicker(request);return;}
       try{await startPlayback(request);}
-      catch(error){if(generation!==routeGeneration){toast(error.message);return;}if(error.status===409||error.status===404)playbackHandoff(request,error.message);else throw error;}
+      catch(error){if(generation!==routeGeneration){toast(error.message);return;}if(error.status===409||error.status===404)await playbackHandoff(request,error.message);else throw error;}
     }
     if(action==='resolve'){
       if(!statusInfo.spotify_connected)throw new Error('Connect Spotify in Settings first.');

@@ -7,7 +7,7 @@ Browse artists, explore their studio albums in release order, add records to you
 ## Install
 
 1. In Home Assistant, refresh the add-on store for the existing repository: `https://github.com/justcop/home-assistant-addons`.
-2. Install **AudioShelf**, version **0.5.4**. Enable the sidebar entry if wanted, then start it.
+2. Install **AudioShelf**, version **0.5.5**. Enable the sidebar entry if wanted, then start it.
 3. Use **Open Web UI** for Home Assistant ingress. The standalone UI is also exposed on port **8098** by default, for your existing external-access system.
 4. Open the Record Store, search for an artist, browse their studio albums, and add one to your shelf. Spotify is not needed to collect records.
 
@@ -32,7 +32,7 @@ External HTTPS is supplied by your existing proxy. A `web_password` is required 
 1. Open an album. Check its displayed original tracklist once and tap **This tracklist is correct**. If it includes bonus tracks or misses tracks, choose **Album settings → Change original tracklist**, and pick the standard MusicBrainz edition instead.
 2. Tap **Match Spotify tracks**. The best complete candidate is saved automatically, preferring the newest explicitly labelled remaster or dated studio mix, and other editions are offered. Recent release dates alone do not prove a new remaster. Spotify search is checked across up to three pages (30 editions), so an unlisted edition can still be selected manually. Existing mappings are kept on upgrade; tap **Find another edition** to rematch an already playable album. Verified manual mappings remain unchanged. This may take several seconds. Matching compares artist, normalized track title, recording-version labels, duration and sequence. A remaster suffix can be ignored, but live, demo, acoustic, generic remix, instrumental and edit labels are preserved. Explicit dated production suffixes such as “2022 Mix” or “2022 Stereo Mix” are allowed, including the type of new mix used on Revolver. Choosing a Spotify edition never changes the original album tracklist.
 3. If necessary, paste a Spotify album link in Album settings. If a track still needs review, use its **Edit** button, paste the correct Spotify track link, and confirm the recording. Individual tracks can come from different Spotify albums. Manual corrections survive automatic rematching.
-4. Open Spotify on your phone or speaker, play a few seconds so the device is active, then return and tap **Play album**. AudioShelf sends an ordered list of verified track URIs, never an album context. Missing or unverified tracks block playback rather than quietly playing a different album.
+4. Tap **Play album** and choose your phone or speaker on first use. If the chosen device is unavailable, tap **Open Spotify**. You can stay in Spotify while AudioShelf waits for that device and starts playback. AudioShelf sends an ordered list of verified track URIs, never an album context. Missing or unverified tracks block playback rather than quietly playing a different album.
 
 Original albums with multiple audio discs keep all those discs. Video discs are excluded. Spotify bonus tracks can occur anywhere in its edition and are skipped by ordered matching. A deluxe release can therefore supply the original songs without its extras becoming part of your shelf.
 
@@ -67,7 +67,7 @@ Options can come from `/data/options.json`, another JSON file selected by `AUDIO
 .venv/bin/python -m pytest tests -q
 node --check app/static/app.js
 bash -n run.sh
-docker build --build-arg BUILD_VERSION=0.5.4 --build-arg BUILD_ARCH=amd64 -t audioshelf .
+docker build --build-arg BUILD_VERSION=0.5.5 --build-arg BUILD_ARCH=amd64 -t audioshelf .
 ```
 
 ## Artwork and replaceable cache
@@ -123,7 +123,7 @@ Legacy cassette tracklists are flagged for review rather than silently replaced.
 
 Multi-disc albums show a Play disc button for each disc in the selected original edition. Only that disc’s verified tracks are sent to Spotify, in order. Turn Spotify Autoplay off for silence afterwards. Disc boundaries follow the chosen MusicBrainz edition, so a vinyl and CD edition may divide an album differently.
 
-In Settings, choose a preferred Spotify playback device. Open Spotify on that device first if it does not appear, then refresh the device list. AudioShelf remembers the selection and does not switch to another device when it is unavailable. Enable “Open Spotify after pressing Play on this browser” on your phone to try opening the Spotify app after playback starts. A visible Open Spotify link is provided if the browser blocks automatic app opening. When the device is unavailable, open Spotify, return to AudioShelf and choose Retry playback.
+In Settings, choose a preferred Spotify playback device. Open Spotify on that device first if it does not appear, then refresh the device list. AudioShelf remembers the selection and does not switch to another device when it is unavailable. Enable “Open Spotify after pressing Play on this browser” on your phone to try opening the Spotify app after playback starts. A visible Open Spotify link is provided if the browser blocks automatic app opening. When the device is unavailable, tap Open Spotify. You can stay there: the server waits up to one minute and sends the synced tracklist when the chosen device appears.
 
 ## Checks and test maintenance
 
@@ -188,6 +188,6 @@ Choose **Settings → Appearance → Classic** for the original interface, or **
 
 Album settings retains cover selection, original tracklist changes, Spotify editions and diagnostic downloads. The new interface uses the same library and artwork cache rules: uncollected store covers are not saved locally.
 
-Spotify handoff: Open Spotify launches the app without selecting an album or track. AudioShelf sends the synced tracklist through its playback API. Choose a device before first playback. AudioShelf remembers it and never substitutes another available device. Change device is available beside Play. If your phone is missing, open Spotify on that phone and return to refresh the chooser. After pressing Open Spotify in a failed playback dialog, returning to AudioShelf retries the same album or disc for up to one minute. Closing the dialog or navigating away cancels the retry. Your preferred device is never silently replaced by another.
+Spotify handoff: Open Spotify launches the app without selecting an album or track. AudioShelf sends the synced tracklist through its playback API. Choose a device before first playback. AudioShelf remembers it and never substitutes another available device. Change device is available beside Play. If your phone is missing, open Spotify on that phone and return to refresh the chooser. If the chosen device is unavailable, the server waits up to one minute for it and sends the same synced album or selected disc. Open Spotify and stay there; the AudioShelf page can be hidden. Now Playing shows the requested first track as Starting immediately and confirms Playing with fresh Spotify status. Closing the dialog or navigating away cancels the retry. Your preferred device is never silently replaced by another.
 
 Mobile covers: the browser selects 128, 320 or 640 pixel WebP images for the displayed size and screen density. Small originals are not enlarged. Shelf variants share the replaceable artwork cache and are evicted with removed albums; store-only browsing and edition previews do not persist derived images. Uploaded originals remain durable. Private ETag revalidation saves repeat image transfers while requiring authentication and checking for cover changes. The update prompt is a sticky contrasting banner; its Reload button still protects unsaved edits and in-flight changes.

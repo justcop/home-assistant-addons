@@ -22,6 +22,7 @@ from .spotify import Spotify, atomic_private_json, spotify_id
 from .storage import Store
 from .themes import THEMES, THEME_IDS
 from .security import Security
+from .playback import PlaybackHandoff
 
 LOG = logging.getLogger('audioshelf')
 
@@ -70,6 +71,8 @@ def create_app(options=None):
     if security.recover_from_options(options.get('two_factor_reset_request', '')):
         LOG.warning('Home Assistant configuration reset two-factor authentication and revoked existing access. The standalone password is still required.')
     app.extensions['security'] = security
+    handoff = PlaybackHandoff(spotify)
+    app.extensions['playback_handoff'] = handoff
 
     def ingress():
         # Only the Supervisor's ingress proxy can vouch for HA authentication.
@@ -523,8 +526,31 @@ def create_app(options=None):
             raise AppError('Choose your playback device before starting music.', 409)
         body = request.get_json(silent=True) or {}
         album = store.album(mbid(album_id))
+        handoff.cancel_all()
         result = spotify.play(album, disc_number=body.get('disc_number'))
         return jsonify(result)
+
+    def playback_owner():
+        return 'ingress' if g.identity.get('ingress') else g.identity['token']
+
+    @app.post('/api/albums/<album_id>/playback-handoff')
+    def queue_playback(album_id):
+        preferred = store.setting('preferred_device')
+        if not preferred:
+            raise AppError('Choose your playback device first.', 409)
+        album = store.album(mbid(album_id))
+        disc = request.json.get('disc_number')
+        spotify.play_tracks(album, disc)  # Validate before accepting background work.
+        token = session.get('sid')
+        ingress_request = bool(g.identity.get('ingress'))
+        def authorized():
+            person = security.identity(token) if not ingress_request else {'role': 'owner'}
+            return bool(person and person['role'] in ('owner', 'control'))
+        return jsonify(handoff.start(album, disc, preferred, playback_owner(), authorized)), 202
+
+    @app.route('/api/spotify/playback-handoff/<job_id>', methods=['GET', 'DELETE'])
+    def playback_job(job_id):
+        return jsonify(handoff.status(job_id, playback_owner(), cancel=request.method == 'DELETE'))
 
     @app.get('/api/spotify/playback')
     def playback():
