@@ -1,5 +1,28 @@
 # AudioShelf
 
+An album-first collection for your phone. MusicBrainz supplies artists, studio albums and original tracklists. Spotify supplies playback.
+
+## Separate accounts (0.6.0)
+
+Your current library and Spotify connection belong to **owner** after updating. Sign in with username `owner` and the existing `web_password`, or use Home Assistant ingress as before.
+
+In **Settings → Your account → Manage accounts**, the owner can create additional accounts with a username and a password of at least 12 characters. New users start with an empty shelf and connect their own Spotify account in Settings. Everyone uses the same configured Spotify developer client and redirect URI; each AudioShelf account stores its own authorization tokens. Spotify developer app user restrictions still apply to each Spotify account.
+
+Use **Switch account / Sign out** to change libraries. This also works through ingress. After signing out inside ingress, **Use Home Assistant owner account** returns to owner using Home Assistant authentication, including when no standalone owner password is configured. Explicitly signed-in additional users must verify their own password and authenticator for security changes, even through ingress.
+
+Each account has its own collection, track mappings, uploaded covers, artwork cache, catalogue rules, Spotify device choice, interface and theme. Two-factor authentication, recovery codes, trusted browsers and temporary support logins are scoped to that account. A support login uses its account’s username and its temporary support password. The owner manages accounts; other users cannot list or manage them. Users can change their own password in Security settings. The owner password continues to come from Home Assistant configuration.
+
+The owner can disable accounts without deleting their libraries or Spotify tokens. Disabling, password resets and password changes revoke that account’s sessions and trusted browsers. Password resets preserve two-factor authentication unless the owner explicitly checks the recovery option. There is no public registration or automatic sharing between shelves.
+
+Existing owner paths stay unchanged. Additional users have opaque account IDs and these locations:
+
+- Collection and uploaded covers: `<data_directory>/users/<account-id>/`.
+- Replaceable artwork and metadata: `<cache_directory>/users/<account-id>/`.
+- Spotify credentials and authentication: `/data/audioshelf-private/users/<account-id>/`.
+- Private account registry: `/data/audioshelf-private/accounts.db`.
+
+Back up the complete collection directory and add-on private data to restore all accounts, usernames and Spotify connections. A collection export or database backup downloaded by a user contains only their own library; it excludes account credentials and the other libraries. Pending Spotify authorization requests from before the upgrade need to be started again.
+
 An album-first collection for your phone. MusicBrainz supplies artists, studio albums and original tracklists. Spotify supplies playback. Your shelf belongs to AudioShelf and starts empty.
 
 Browse artists, explore their studio albums in release order, add records to your shelf, and play their original tracks. Generic catalogue rules exclude singles, compilations, live albums and remixes; a curated series or explicit album override can include an original soundtrack album. Reissues within the same MusicBrainz release group appear as one album. Genuine collaborative albums appear under each credited artist.
@@ -7,7 +30,7 @@ Browse artists, explore their studio albums in release order, add records to you
 ## Install
 
 1. In Home Assistant, refresh the add-on store for the existing repository: `https://github.com/justcop/home-assistant-addons`.
-2. Install **AudioShelf**, version **0.5.5**. Enable the sidebar entry if wanted, then start it.
+2. Install **AudioShelf**, version **0.6.0**. Enable the sidebar entry if wanted, then start it.
 3. Use **Open Web UI** for Home Assistant ingress. The standalone UI is also exposed on port **8098** by default, for your existing external-access system.
 4. Open the Record Store, search for an artist, browse their studio albums, and add one to your shelf. Spotify is not needed to collect records.
 
@@ -67,7 +90,7 @@ Options can come from `/data/options.json`, another JSON file selected by `AUDIO
 .venv/bin/python -m pytest tests -q
 node --check app/static/app.js
 bash -n run.sh
-docker build --build-arg BUILD_VERSION=0.5.5 --build-arg BUILD_ARCH=amd64 -t audioshelf .
+docker build --build-arg BUILD_VERSION=0.6.0 --build-arg BUILD_ARCH=amd64 -t audioshelf .
 ```
 
 ## Artwork and replaceable cache

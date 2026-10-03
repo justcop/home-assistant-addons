@@ -1,3 +1,14 @@
+# 0.6.0
+
+- Separate AudioShelf logins with independent libraries, Spotify connections, devices, track mappings, cover choices, catalogue filters and appearance settings.
+- Existing library, Spotify credentials and two-factor settings remain with the `owner` account; no collection moves or copying on upgrade.
+- Owner account management in Settings: create users, reset passwords and explicitly recover two-factor access, or disable/enable accounts while preserving collections.
+- Personal password changes, two-factor authentication and trusted browsers for each account; account management requires owner access and fresh verification outside implicit Home Assistant ingress.
+- Switch accounts inside Home Assistant or standalone. Ingress can explicitly return to the owner account after signing out.
+- Spotify callbacks bind to the account that started authorization, including callbacks arriving without the original browser session.
+- Prevent stale browser tabs and cached covers from crossing accounts. User databases, private credentials and replaceable caches have separate locations.
+
+
 # 0.5.5
 
 - Wait for your chosen Spotify device on the server, so playback can start while AudioShelf is hidden and you stay in Spotify.

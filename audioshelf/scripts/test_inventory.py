@@ -53,7 +53,7 @@ def main():
         INVENTORY.write_text('# AudioShelf test inventory\n\nReviewed: '+stamp+' (Europe/London).\n\n'
             +args.review_note.strip()+'\n\n<!-- inventory: '+json.dumps(metadata)+' -->\n\n'
             +f'## Backend cases ({len(names)})\n\n'+cases+'\n\n'
-            +'## Other release checks\n\n1. Browser flows: `tests/test_ui.cjs` and `tests/test_vinyl_ui.cjs`.\n'
+            +'## Other release checks\n\n1. Browser flows: `tests/test_ui.cjs`, `tests/test_vinyl_ui.cjs` and `tests/test_accounts_ui.cjs`.\n'
             +'2. Python compilation and launcher shell syntax.\n3. Browser JavaScript syntax.\n'
             +'4. Add-on container build.\n5. Test inventory freshness, including changed test bodies and CI configuration.\n\n'
             +'CI verifies completeness and freshness, not whether a human judgement about redundancy is correct. '
