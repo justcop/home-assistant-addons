@@ -16,6 +16,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r audioshelf/requirements.txt pytest==8.4.2 PyYAML==6.0.2
+      - name: Check reviewed test inventory
+        run: python audioshelf/scripts/test_inventory.py
       - run: python -m pytest audioshelf/tests -q
       - run: python -m compileall -q audioshelf/app && bash -n audioshelf/run.sh
       - uses: actions/setup-node@v4
