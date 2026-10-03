@@ -2,7 +2,7 @@
 const content = document.querySelector('#content');
 const modal = document.querySelector('#modal');
 const modalContent = document.querySelector('#modal-content');
-let statusInfo = {}, shelfView = 'artists', searchKind = 'artist', currentAlbum = null, routeGeneration = 0, toastTimer, artworkRevision = Date.now(), releasePicker = null, settingsDirty = false;
+let statusInfo = {}, shelfView = 'artists', searchKind = 'artist', currentAlbum = null, routeGeneration = 0, toastTimer, artworkRevision = 0, releasePicker = null, settingsDirty = false;
 const loadedAssets = document.documentElement.dataset.assetVersion;
 let workerRegistration, pendingChanges = 0;
 function noticeUpdate(build){
@@ -46,7 +46,9 @@ async function api(path, method='GET', body={}) {
   if(response.headers.get('Content-Type')?.includes('application/json')) {const result=await response.json();if(path==='status')noticeUpdate(result.build);return result;}
   return response;
 }
-function cover(album,large=false){return `<a class="cover-wrap" href="#album/${id(album.id)}" aria-label="Open ${escapeHtml(album.title)}"><img class="cover" src="api/albums/${id(album.id)}/artwork?v=${artworkRevision}" alt="${escapeHtml(album.title)} album cover" ${large?'':'loading="lazy"'}></a>`;}
+function coverUrl(albumId,size){return `api/albums/${id(albumId)}/artwork?size=${size}&v=${artworkRevision}`;}
+function cover(album,large=false){return `<a class="cover-wrap" href="#album/${id(album.id)}" aria-label="Open ${escapeHtml(album.title)}"><img class="cover" src="${coverUrl(album.id,large?640:320)}" srcset="${[128,320,640].map(size=>`${coverUrl(album.id,size)} ${size}w`).join(', ')}" sizes="${large?'(max-width: 700px) 85vw, 480px':'(max-width: 700px) 44vw, 260px'}" decoding="async" alt="${escapeHtml(album.title)} album cover" ${large?'fetchpriority="high"':'loading="lazy"'}></a>`;}
+
 function cards(albums){if(isVinyl())return vinylCards(albums);return `<div class="album-grid">${albums.map(a=>`<article class="album-card">${cover(a)}${a.on_shelf?'<span class="badge">On your shelf</span>':''}<a class="album-title" href="#album/${id(a.id)}">${escapeHtml(a.title)}</a><div class="album-meta">${artistNames(a)}<br>${year(a)}</div>${a.on_shelf?'':`<button class="card-action" data-action="add" data-id="${escapeHtml(a.id)}">+ Add to shelf</button>`}</article>`).join('')}</div>`;}
 function empty(title,message){return `<div class="empty"><div class="vinyl" aria-hidden="true"></div><h2>${title}</h2><p>${message}</p><a class="primary" href="#store">Visit the record store ↗</a></div>`;}
 function loginView(){return `<div class="eyebrow">Welcome back</div><h1>Open your shelf.</h1>${!statusInfo.password_configured?'<div class="note">Standalone access is locked. Set a web password in Home Assistant add-on configuration, or open AudioShelf through Home Assistant.</div>':`<p class="intro">Enter your AudioShelf password or temporary support password.</p><form id="login-form"><label for="login-password">Password</label><input id="login-password" type="password" name="password" autocomplete="current-password" required>${statusInfo.two_factor_enabled?'<label for="login-code">Authenticator or recovery code</label><input id="login-code" name="code" autocomplete="one-time-code" placeholder="Support logins can leave this blank">':''}<label class="check-option"><input type="checkbox" name="remember"> Trust this browser for 30 days</label><p class="muted">Trusted browsers skip the owner verification code, but still require your password when the 12-hour session expires. Use HTTPS.</p><button class="primary">Open AudioShelf</button></form>`}`;}

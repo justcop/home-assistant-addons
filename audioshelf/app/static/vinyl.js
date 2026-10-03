@@ -98,7 +98,7 @@ function renderTurntable(){
   const p=playbackState;
   if(!statusInfo.spotify_connected){panel.innerHTML='<span class="turntable-disc" aria-hidden="true"></span><div><small>ON THE TURNTABLE</small><strong>Ready when you are.</strong></div><a href="#settings" class="quiet">Connect Spotify ↗</a>';return;}
   if(!p?.active){panel.innerHTML=`<span class="turntable-disc" aria-hidden="true"></span><div><small>ON THE TURNTABLE</small><strong>${p?.unavailable?'Spotify status unavailable':'Pick a record. Press play.'}</strong><span>${p?.unavailable?'Open Spotify to check playback.':'Your next full-album listen starts here.'}</span></div>`;return;}
-  const inner=`${p.album_id?`<img src="api/albums/${id(p.album_id)}/artwork?v=${artworkRevision}" alt="">`:'<span class="turntable-disc" aria-hidden="true"></span>'}<div><small>ON THE TURNTABLE <b>${p.stale?'STATUS UNAVAILABLE':p.starting?'STARTING':p.playing?'PLAYING':'PAUSED'}</b></small><strong>${escapeHtml(p.album||p.track)}</strong><span>${escapeHtml(p.track)} · ${escapeHtml(p.artist)}</span>${progressHtml(p)}</div>`;
+  const inner=`${p.album_id?`<img src="${coverUrl(p.album_id,128)}" alt="">`:'<span class="turntable-disc" aria-hidden="true"></span>'}<div><small>ON THE TURNTABLE <b>${p.stale?'STATUS UNAVAILABLE':p.starting?'STARTING':p.playing?'PLAYING':'PAUSED'}</b></small><strong>${escapeHtml(p.album||p.track)}</strong><span>${escapeHtml(p.track)} · ${escapeHtml(p.artist)}</span>${progressHtml(p)}</div>`;
   panel.innerHTML=`${p.album_id?`<a class="turntable-record" href="#album/${id(p.album_id)}">${inner}</a>`:`<div class="turntable-record">${inner}</div>`}<span class="turntable-device">${escapeHtml(p.device)}</span>`;
   updateTrackProgress();
 }

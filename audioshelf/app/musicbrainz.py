@@ -66,7 +66,7 @@ class MusicBrainz:
         self.lock = threading.Lock()
         self.last_call = 0
         self.session = requests.Session()
-        self.session.headers.update({'User-Agent': 'AudioShelf/0.5.3 (https://github.com/justcop/home-assistant-addons)',
+        self.session.headers.update({'User-Agent': 'AudioShelf/0.5.4 (https://github.com/justcop/home-assistant-addons)',
                                      'Accept': 'application/json'})
 
     def membership(self, group, artist_id=None):

@@ -1,3 +1,9 @@
+# 0.5.4
+
+- Serve responsive WebP covers at 128, 320 and 640 pixels without enlarging small originals. Cache derived covers only for shelf albums, invalidate by source content, include them in cache limits and evict them with removed albums. Use authenticated private ETag revalidation for repeat visits.
+- Resize edition previews to 128 pixels without caching them. Load shelf covers lazily and prioritize the album detail cover.
+- Make the reload alert a prominent sticky banner with contrasting colours and a larger Reload button, retaining edit and in-flight action safeguards.
+
 # 0.5.3
 
 - Ask for a playback device before first playback and remember the choice. Never select the only available speaker as a replacement for an unavailable phone. Add Change device beside Play in both frontends and in the recovery dialog.

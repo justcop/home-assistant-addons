@@ -7,7 +7,7 @@ Browse artists, explore their studio albums in release order, add records to you
 ## Install
 
 1. In Home Assistant, refresh the add-on store for the existing repository: `https://github.com/justcop/home-assistant-addons`.
-2. Install **AudioShelf**, version **0.5.3**. Enable the sidebar entry if wanted, then start it.
+2. Install **AudioShelf**, version **0.5.4**. Enable the sidebar entry if wanted, then start it.
 3. Use **Open Web UI** for Home Assistant ingress. The standalone UI is also exposed on port **8098** by default, for your existing external-access system.
 4. Open the Record Store, search for an artist, browse their studio albums, and add one to your shelf. Spotify is not needed to collect records.
 
@@ -67,7 +67,7 @@ Options can come from `/data/options.json`, another JSON file selected by `AUDIO
 .venv/bin/python -m pytest tests -q
 node --check app/static/app.js
 bash -n run.sh
-docker build --build-arg BUILD_VERSION=0.5.3 --build-arg BUILD_ARCH=amd64 -t audioshelf .
+docker build --build-arg BUILD_VERSION=0.5.4 --build-arg BUILD_ARCH=amd64 -t audioshelf .
 ```
 
 ## Artwork and replaceable cache
@@ -189,3 +189,5 @@ Choose **Settings → Appearance → Classic** for the original interface, or **
 Album settings retains cover selection, original tracklist changes, Spotify editions and diagnostic downloads. The new interface uses the same library and artwork cache rules: uncollected store covers are not saved locally.
 
 Spotify handoff: Open Spotify launches the app without selecting an album or track. AudioShelf sends the synced tracklist through its playback API. Choose a device before first playback. AudioShelf remembers it and never substitutes another available device. Change device is available beside Play. If your phone is missing, open Spotify on that phone and return to refresh the chooser. After pressing Open Spotify in a failed playback dialog, returning to AudioShelf retries the same album or disc for up to one minute. Closing the dialog or navigating away cancels the retry. Your preferred device is never silently replaced by another.
+
+Mobile covers: the browser selects 128, 320 or 640 pixel WebP images for the displayed size and screen density. Small originals are not enlarged. Shelf variants share the replaceable artwork cache and are evicted with removed albums; store-only browsing and edition previews do not persist derived images. Uploaded originals remain durable. Private ETag revalidation saves repeat image transfers while requiring authentication and checking for cover changes. The update prompt is a sticky contrasting banner; its Reload button still protects unsaved edits and in-flight changes.
