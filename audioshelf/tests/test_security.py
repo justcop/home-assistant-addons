@@ -218,3 +218,54 @@ def test_trusted_browser_credential_is_revoked_on_logout(secured):
     assert app.extensions['security'].trusted_valid(token)
     post(client,'/api/logout')
     assert not app.extensions['security'].trusted_valid(token)
+
+
+def test_ha_option_recovers_lost_factor_and_preserves_password_spotify_and_collection(secured):
+    app,client,options=secured
+    owner(client);access=grant(client)
+    _,codes=provision(app,client)
+    login(client,code=codes[0],remember=True)
+    with client.session_transaction() as session:old_session=session['sid']
+    old_trust=client.get_cookie('audioshelf_trusted').value
+    app.extensions['store'].set_setting('sentinel','kept')
+    app.extensions['spotify']._save({'access_token':'fixture-only','refresh_token':'fixture-only','expires_in':3600})
+    app.extensions['security'].throttle('an-address')
+    recovered=create_app({**options,'two_factor_reset_request':'reset-1'})
+    security=recovered.extensions['security']
+    assert not security.get('totp') and security.get('recovery')==[] and security.get('pending_totp') is None
+    assert security.identity(old_session) is None and not security.trusted_valid(old_trust)
+    assert login(recovered.test_client(),access['password']).status_code==401
+    assert login(recovered.test_client(),'').status_code==401
+    assert login(recovered.test_client()).status_code==200
+    assert recovered.extensions['store'].setting('sentinel')=='kept'
+    assert recovered.extensions['spotify'].tokens['access_token']=='fixture-only'
+    assert any('reset from Home Assistant' in event['event'] for event in security.overview()['events'])
+
+
+def test_ha_reset_is_once_per_changed_value_even_after_clearing_and_reenrolling(secured):
+    _,_,options=secured
+    app=create_app({**options,'two_factor_reset_request':'reset-1'})
+    client=app.test_client();_,codes=provision(app,client)
+    for value in ('reset-1','', ' reset-1 '):
+        app=create_app({**options,'two_factor_reset_request':value})
+        assert app.extensions['security'].get('totp')
+        assert login(app.test_client()).status_code==401
+    reset=create_app({**options,'two_factor_reset_request':'reset-2'})
+    assert not reset.extensions['security'].get('totp')
+    assert login(reset.test_client()).status_code==200
+
+
+def test_blank_reset_option_does_not_disable_enrolled_factor(secured):
+    app,client,options=secured
+    provision(app,client)
+    for value in ('', '   ', None):
+        restarted=create_app({**options,'two_factor_reset_request':value})
+        assert restarted.extensions['security'].get('totp')
+
+
+@pytest.mark.parametrize('value',[True,123,'x'*121])
+def test_reset_option_rejects_invalid_configuration_without_disabling_factor(secured,value):
+    app,client,options=secured;provision(app,client)
+    with pytest.raises(RuntimeError,match='short text'):
+        create_app({**options,'two_factor_reset_request':value})
+    assert app.extensions['security'].get('totp')

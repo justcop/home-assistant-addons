@@ -20,5 +20,8 @@ configuration:
   allow_support_access:
     name: Allow temporary support access (advanced)
     description: Off by default. Enables owner-created expiring logins under AudioShelf Settings → Security. Turning this off revokes all support logins.
+  two_factor_reset_request:
+    name: 2FA recovery request (advanced)
+    description: To recover a lost authenticator, enter a new value such as reset-1, save and restart. Processed once per changed value. Disables 2FA and revokes sessions, trusted browsers and support logins. Your web password remains required. Use a different value for a future reset.
 network:
   8099/tcp: Standalone AudioShelf web interface and Spotify callback

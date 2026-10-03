@@ -222,6 +222,33 @@ class Security:
         self.set('totp', None); self.set('recovery', []); self.set('pending_totp', None)
         self.invalidate(); self.event('Two-factor authentication disabled')
 
+    def recover_from_options(self, request_id):
+        """Consume a changed HA configuration request once, in one transaction."""
+        if request_id is None or request_id == '':
+            return False
+        if not isinstance(request_id, str) or len(request_id) > 120:
+            raise RuntimeError('two_factor_reset_request must be a short text value.')
+        request_id = request_id.strip()
+        if not request_id:
+            return False
+        fingerprint = digest(request_id)
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            previous = db.execute("SELECT value FROM settings WHERE key='ha_reset_request'").fetchone()
+            if previous and json.loads(previous[0]) == fingerprint:
+                return False
+            epoch = db.execute("SELECT value FROM settings WHERE key='epoch'").fetchone()
+            values = {'totp': None, 'recovery': [], 'pending_totp': None, 'last_counter': -1,
+                      'epoch': (json.loads(epoch[0]) if epoch else 0)+1,
+                      'ha_reset_request': fingerprint}
+            db.executemany('INSERT OR REPLACE INTO settings VALUES (?,?)',
+                           [(key, json.dumps(value)) for key, value in values.items()])
+            db.execute('DELETE FROM sessions'); db.execute('DELETE FROM trusted')
+            db.execute('UPDATE grants SET revoked=1'); db.execute('DELETE FROM attempts')
+            db.execute('INSERT INTO events VALUES (?,?,?)',
+                       (time.time(), 'Two-factor authentication reset from Home Assistant configuration', ''))
+        return True
+
     def create_grant(self, role, hours):
         if not self.support_enabled:
             raise AppError('Enable temporary support access in Home Assistant configuration first.', 403)
