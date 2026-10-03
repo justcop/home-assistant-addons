@@ -12,6 +12,8 @@
   <link rel="apple-touch-icon" href="static/icon-192.png">
   <link rel="manifest" href="static/manifest.webmanifest">
   <link rel="stylesheet" href="static/style.css?v={{ asset_version }}">
+  <link rel="stylesheet" href="static/vinyl.css?v={{ asset_version }}">
+  <script src="static/vinyl.js?v={{ asset_version }}" defer></script>
   <script src="static/app.js?v={{ asset_version }}" defer></script>
 </head>
 <body>
@@ -21,6 +23,7 @@
   </header>
   <aside id="app-update" class="note" role="status" hidden><span>Update available. Finish any edits before reloading.</span> <button type="button" class="secondary" id="reload-update">Reload AudioShelf</button></aside>
   <main id="content" tabindex="-1"><div class="loading">Opening your shelf…</div></main>
+  <aside id="turntable" aria-label="On the turntable" hidden></aside>
   <nav class="bottom-nav" aria-label="Main navigation"><a href="#shelf" data-nav="shelf"><span aria-hidden="true">▤</span> My shelf</a><a href="#store" data-nav="store"><span aria-hidden="true">⊕</span> Record store</a></nav>
   <div id="toast" role="status" aria-live="polite"></div>
   <dialog id="modal"><div id="modal-content"></div><button type="button" class="quiet close-modal">Close</button></dialog>

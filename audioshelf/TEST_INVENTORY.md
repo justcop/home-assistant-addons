@@ -1,12 +1,12 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-03T13:08:01+01:00 (Europe/London).
+Reviewed: 2026-10-03T14:18:12+01:00 (Europe/London).
 
-Reviewed add-on recovery coverage: password and Spotify preservation, invalidation of all existing access, changed-value one-time processing across clearing and re-enrolment, blank values and malformed options cover distinct recovery risks. Kept ingress and single-use recovery-code checks because they exercise separate recovery routes. Retained browser update tests from 0.4.2; no feature-removal or duplicate tests added.
+Reviewed the three new backend cases for interface persistence and atomic validation, Spotify playback with relinking and pauses, and ambiguous or uncollected track identity. Extended the existing asset-version test. Classic browser coverage is retained; the Vinyl browser flow covers responsive racks, search and scroll restoration, collecting in place, navigation during a delayed Play response, playback pause/outage status and switching back to Classic. Both browser suites and all 226 backend cases passed locally; synthetic artwork makes visual checks deterministic. Container build is checked in CI.
 
-<!-- inventory: {"reviewed_at": "2026-10-03T13:08:01+01:00", "review_note": "Reviewed add-on recovery coverage: password and Spotify preservation, invalidation of all existing access, changed-value one-time processing across clearing and re-enrolment, blank values and malformed options cover distinct recovery risks. Kept ingress and single-use recovery-code checks because they exercise separate recovery routes. Retained browser update tests from 0.4.2; no feature-removal or duplicate tests added.", "source_sha256": "a081fe77e4121e416aaa712037acecb8ebfe4db82ab1e1f18d4994d302e7648c"} -->
+<!-- inventory: {"reviewed_at": "2026-10-03T14:18:12+01:00", "review_note": "Reviewed the three new backend cases for interface persistence and atomic validation, Spotify playback with relinking and pauses, and ambiguous or uncollected track identity. Extended the existing asset-version test. Classic browser coverage is retained; the Vinyl browser flow covers responsive racks, search and scroll restoration, collecting in place, navigation during a delayed Play response, playback pause/outage status and switching back to Classic. Both browser suites and all 226 backend cases passed locally; synthetic artwork makes visual checks deterministic. Container build is checked in CI.", "source_sha256": "de7a96447af21372879dcedd3d64b8e08454c8e5df22559aaedc07595ff44909"} -->
 
-## Backend cases (223)
+## Backend cases (226)
 
 1. `audioshelf/tests/test_artwork.py::test_album_cover_then_edition_then_spotify_fallback`
 2. `audioshelf/tests/test_artwork.py::test_artwork_requires_password`
@@ -231,10 +231,13 @@ Reviewed add-on recovery coverage: password and Spotify preservation, invalidati
 221. `audioshelf/tests/test_spotify_auth_playback.py::test_unavailable_or_ambiguous_preference_never_plays_elsewhere[devices2]`
 222. `audioshelf/tests/test_spotify_auth_playback.py::test_unreviewed_tracklist_cannot_play`
 223. `audioshelf/tests/test_spotify_auth_playback.py::test_untrusted_spotify_urls_not_fetched`
+224. `audioshelf/tests/test_vinyl.py::test_interface_persists_and_invalid_choice_is_atomic`
+225. `audioshelf/tests/test_vinyl.py::test_playback_does_not_misidentify_shared_or_uncollected_tracks`
+226. `audioshelf/tests/test_vinyl.py::test_playback_tracks_spotify_pause_and_relinked_library_track`
 
 ## Other release checks
 
-1. Browser flows: `tests/test_ui.cjs`.
+1. Browser flows: `tests/test_ui.cjs` and `tests/test_vinyl_ui.cjs`.
 2. Python compilation and launcher shell syntax.
 3. Browser JavaScript syntax.
 4. Add-on container build.
