@@ -2,7 +2,7 @@
 
 - Show the selected record and first track immediately when Spotify accepts Play. Recheck rapidly during startup so stale Spotify responses do not put the previous record back on the turntable.
 - Add a song progress bar with elapsed and total time. Advance locally between Spotify checks, freeze for paused or unavailable playback, and resynchronise on seeks and track changes.
-- Refresh playback every five seconds while visible, with quicker checks at song boundaries and an immediate refresh on returning to the app.
+- Keep normal playback checks at 15 seconds while visible. Expect a change after Play and at song boundaries, then recheck quickly until Spotify confirms it. Refresh immediately on returning to the app.
 
 # 0.5.0
 
