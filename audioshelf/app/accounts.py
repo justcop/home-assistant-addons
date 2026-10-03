@@ -62,6 +62,13 @@ class Accounts:
             row = db.execute('SELECT * FROM accounts WHERE id=?', (identifier,)).fetchone()
         return dict(row) if row else None
 
+    def enabled(self, identifier):
+        # Workers may hold the playback lock. Avoid reversing the lock order
+        # used by account updates (registry, then playback cancellation).
+        with sqlite3.connect(self.path, timeout=30) as db:
+            row = db.execute('SELECT disabled FROM accounts WHERE id=?', (identifier,)).fetchone()
+        return bool(row and not row[0])
+
     def listing(self):
         with self.connect() as db:
             return [dict(r) for r in db.execute("SELECT id,username,disabled FROM accounts ORDER BY id!='owner',username")]

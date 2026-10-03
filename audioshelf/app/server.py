@@ -262,6 +262,7 @@ def create_app(options=None):
         body = request.json
         account = accounts.find(body.get('username', 'owner'))
         old_context = g.context
+        previous_identity = identity()
         if not account or account['disabled']:
             owner_context.security.throttle(request.remote_addr)
             check_password_hash(accounts.dummy_hash, str(body.get('password', ''))[:1024])
@@ -277,7 +278,8 @@ def create_app(options=None):
                 raise AppError('Incorrect username, password or verification code.', 401) from None
             raise
         owner_context.security.clear_attempts(request.remote_addr)
-        old_context.handoff.cancel_all()
+        if previous_identity:
+            old_context.handoff.cancel_all()
         old_context.security.logout(session.get('sid'))
         switching = not g.account or g.account['id'] != account['id']
         if switching:
@@ -296,7 +298,8 @@ def create_app(options=None):
     def ingress_login():
         if not ingress():
             raise AppError('Open AudioShelf through Home Assistant to use this login.', 403)
-        handoff.cancel_all()
+        if identity():
+            handoff.cancel_all()
         security.logout(session.get('sid'))
         security.forget_trust(request.cookies.get('audioshelf_trusted'))
         session.clear()
@@ -654,9 +657,9 @@ def create_app(options=None):
         identifier = g.account['id']
         version = context.security.version()
         def authorized():
-            account = accounts.get(identifier)
+            enabled = accounts.enabled(identifier)
             person = context.security.identity(token) if not ingress_request else {'role': 'owner'}
-            return bool(account and not account['disabled'] and context.security.version() == version
+            return bool(enabled and context.security.version() == version
                         and person and person['role'] in ('owner', 'control'))
         return jsonify(handoff.start(album, disc, preferred, playback_owner(), authorized)), 202
 

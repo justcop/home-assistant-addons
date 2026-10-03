@@ -300,6 +300,8 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await disableForm.getByLabel('Fresh authenticator or recovery code').fill(recoveryCodes[0]);
     await disableForm.getByRole('button',{name:'Disable two-factor authentication'}).click();
     await page.getByRole('button',{name:'Set up authenticator'}).waitFor();
+    // Disabling 2FA rotates the session; status mocks must retain current identity.
+    fixtureCookie=(await page.context().cookies()).map(c=>`${c.name}=${c.value}`).join('; ');
     assert.deepEqual(errors,[],'Browser security flow errors');
     await page.getByRole('button',{name:'Close',exact:true}).click();
     await page.goto(base+'/#settings');

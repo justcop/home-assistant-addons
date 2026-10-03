@@ -368,3 +368,33 @@ def test_support_access_cannot_create_or_manage_accounts(users,role):
     assert support.get('/api/accounts').status_code==403
     assert post(support,'/api/accounts',{'username':'outsider','new_password':ALICE}).status_code==403
     assert post(support,'/api/accounts/'+ids['alice'],{'disabled':True},method='PUT').status_code==403
+
+
+def test_new_login_or_disabled_old_session_cannot_cancel_owner_playback(users,monkeypatch):
+    from unittest.mock import Mock
+    app,owner,alice,_,ids,_=users
+    cancel=Mock();monkeypatch.setattr(app.extensions['accounts'].owner.handoff,'cancel_all',cancel)
+    assert signin(app.test_client(),'bob',BOB).status_code==200
+    cancel.assert_not_called()
+    assert post(owner,'/api/accounts/'+ids['alice'],{'password':OWNER,'disabled':True},method='PUT').status_code==200
+    assert signin(alice,'bob',BOB).status_code==200
+    cancel.assert_not_called()
+
+
+def test_playback_authorization_does_not_wait_on_account_management_lock(users,monkeypatch):
+    import threading
+    app,_,alice,_,ids,_=users
+    accounts=app.extensions['accounts'];ctx=accounts.context(ids['alice']);seed(ctx,'alice')
+    ctx.store.set_setting('preferred_device',{'id':'alice','name':'alice','type':'Computer'})
+    with ctx.store.connect() as db: db.execute('UPDATE tracks SET verified=1,spotify_id=?', ('a'*22,))
+    ready=threading.Event();sent=threading.Event()
+    monkeypatch.setattr(ctx.spotify,'devices',lambda:[{'id':'alice','name':'alice','type':'Computer'}] if ready.is_set() else [])
+    monkeypatch.setattr(ctx.spotify,'play',lambda *args,**kwargs:(sent.set() or {'ok':True}))
+    ctx.handoff.interval=.005
+    assert post(alice,f'/api/albums/{ALBUM}/playback-handoff').status_code==202
+    try:
+        with accounts.lock:
+            ready.set()
+            assert sent.wait(1), 'Background authorization was blocked by account administration'
+    finally:
+        ctx.handoff.cancel_all()
