@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-03T12:10:41+01:00 (Europe/London).
+Reviewed: 2026-10-03T12:15:11+01:00 (Europe/London).
 
-Reviewed added security cases and browser flows against the authentication requirements: locked standalone access, trusted HA recovery, session expiry/revocation, TOTP replay and recovery codes, trusted-device revocation, persistent throttling and scoped support permissions. Retained existing catalogue and matching regressions. Test fixture authentication is explicit; no production bypass was introduced. No duplicate scenarios identified in the added cases.
+Reviewed security test coverage and browser flows. Corrected the read-only playback button selector to include its visible play icon. Cases protect requirements, recovery, expiry, throttling and privilege boundaries; fixture-only helpers are excluded from installed application code.
 
-<!-- inventory: {"reviewed_at": "2026-10-03T12:10:41+01:00", "review_note": "Reviewed added security cases and browser flows against the authentication requirements: locked standalone access, trusted HA recovery, session expiry/revocation, TOTP replay and recovery codes, trusted-device revocation, persistent throttling and scoped support permissions. Retained existing catalogue and matching regressions. Test fixture authentication is explicit; no production bypass was introduced. No duplicate scenarios identified in the added cases.", "source_sha256": "496845a1a6195294061f9f68d846229de7f44a553db850b44f23defd341b7fda"} -->
+<!-- inventory: {"reviewed_at": "2026-10-03T12:15:11+01:00", "review_note": "Reviewed security test coverage and browser flows. Corrected the read-only playback button selector to include its visible play icon. Cases protect requirements, recovery, expiry, throttling and privilege boundaries; fixture-only helpers are excluded from installed application code.", "source_sha256": "215824ff6bf6f04944de79872940447a4ee7b9060b345c180d40a3eb0c5fea17"} -->
 
 ## Backend cases (207)
 

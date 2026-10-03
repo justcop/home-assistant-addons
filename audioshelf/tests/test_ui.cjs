@@ -208,7 +208,7 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await supportPage.getByRole('heading',{name:'My shelf.'}).waitFor();
     await supportPage.goto(base+'/#album/f5093c06-23e3-4f01-aeaa-40f72885ee3a');
     await supportPage.getByRole('heading',{name:'The Original Album',exact:true}).waitFor();
-    assert.equal(await supportPage.getByRole('button',{name:'Play album',exact:true}).isDisabled(),true);
+    assert.equal(await supportPage.getByRole('button',{name:'Play album'}).isDisabled(),true);
     await page.getByRole('button',{name:'Back to Security'}).click();
     const revokeForm=page.locator('[data-operation$="/revoke"]').first();
     await revokeForm.getByLabel('Confirm owner password').fill('fixture-owner-password');
