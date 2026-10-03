@@ -61,7 +61,7 @@ class Artwork:
         self.download_slots = threading.Semaphore(3)
         self.prune_lock = threading.Lock()
         self.session = requests.Session()
-        self.session.headers['User-Agent'] = 'AudioShelf/0.4.1 (https://github.com/justcop/home-assistant-addons)'
+        self.session.headers['User-Agent'] = 'AudioShelf/0.4.3 (https://github.com/justcop/home-assistant-addons)'
         self.prune_uncollected()
 
     def evict(self, album_id):

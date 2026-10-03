@@ -62,6 +62,9 @@ def create_app(options=None):
     build_path = Path(__file__).resolve().parents[1]/'build.json'
     build = json.loads(build_path.read_text()) if build_path.exists() else {'version':'0.1.0','channel':'local','revision':'local'}
     build['version'] = os.environ.get('AUDIOSHELF_VERSION',build['version'])
+    assets = Path(__file__).resolve().parent / 'static'
+    digest = hashlib.sha256(b''.join((assets / name).read_bytes() for name in ('app.js', 'style.css', 'sw.js'))).hexdigest()[:16]
+    build['asset_version'] = build['version']+'-'+digest
     password = options.get('web_password','')
     security = Security(private_dir, password, options.get('allow_support_access', False))
     if security.recover_from_options(options.get('two_factor_reset_request', '')):
@@ -159,7 +162,7 @@ def create_app(options=None):
         prefix = request.headers.get('X-Ingress-Path','') if ingress() else ''
         if not prefix.startswith('/') or any(c in prefix for c in ['<','>','"',"'",'\\']) or prefix.startswith('//'):
             prefix = ''
-        return render_template('index.html', base=prefix.rstrip('/')+'/')
+        return render_template('index.html', base=prefix.rstrip('/')+'/', asset_version=build['asset_version'])
 
     @app.get('/health')
     def health():
@@ -170,7 +173,7 @@ def create_app(options=None):
     @app.get('/sw.js')
     def service_worker():
         response = app.send_static_file('sw.js')
-        response.headers['Cache-Control'] = 'no-cache'
+        response.headers['Cache-Control'] = 'no-store'
         return response
 
     @app.get('/api/status')

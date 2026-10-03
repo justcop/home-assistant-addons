@@ -1,12 +1,12 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-03T13:03:06+01:00 (Europe/London).
+Reviewed: 2026-10-03T13:08:01+01:00 (Europe/London).
 
-Reviewed Home Assistant configuration recovery cases: reset preserves password protection, Spotify and collection; revokes old credentials; consumes each request once; does not repeat after reenrolment or clearing; rejects invalid configuration without resetting the factor. Retained the existing ingress and recovery-code checks because they protect separate recovery paths.
+Reviewed add-on recovery coverage: password and Spotify preservation, invalidation of all existing access, changed-value one-time processing across clearing and re-enrolment, blank values and malformed options cover distinct recovery risks. Kept ingress and single-use recovery-code checks because they exercise separate recovery routes. Retained browser update tests from 0.4.2; no feature-removal or duplicate tests added.
 
-<!-- inventory: {"reviewed_at": "2026-10-03T13:03:06+01:00", "review_note": "Reviewed Home Assistant configuration recovery cases: reset preserves password protection, Spotify and collection; revokes old credentials; consumes each request once; does not repeat after reenrolment or clearing; rejects invalid configuration without resetting the factor. Retained the existing ingress and recovery-code checks because they protect separate recovery paths.", "source_sha256": "b1d8920e1a274395df50e2a7892c437f823fd078a6dabd5b9fef541831eda490"} -->
+<!-- inventory: {"reviewed_at": "2026-10-03T13:08:01+01:00", "review_note": "Reviewed add-on recovery coverage: password and Spotify preservation, invalidation of all existing access, changed-value one-time processing across clearing and re-enrolment, blank values and malformed options cover distinct recovery risks. Kept ingress and single-use recovery-code checks because they exercise separate recovery routes. Retained browser update tests from 0.4.2; no feature-removal or duplicate tests added.", "source_sha256": "a081fe77e4121e416aaa712037acecb8ebfe4db82ab1e1f18d4994d302e7648c"} -->
 
-## Backend cases (222)
+## Backend cases (223)
 
 1. `audioshelf/tests/test_artwork.py::test_album_cover_then_edition_then_spotify_fallback`
 2. `audioshelf/tests/test_artwork.py::test_artwork_requires_password`
@@ -177,59 +177,60 @@ Reviewed Home Assistant configuration recovery cases: reset preserves password p
 167. `audioshelf/tests/test_routes.py::test_mutations_require_same_origin_custom_header`
 168. `audioshelf/tests/test_routes.py::test_password_protection_and_spoofed_ingress_header`
 169. `audioshelf/tests/test_routes.py::test_preferred_device_settings_validation_and_clear`
-170. `audioshelf/tests/test_routes.py::test_shell_health_and_empty_shelf`
-171. `audioshelf/tests/test_security.py::test_blank_password_locks_standalone_but_ingress_still_works`
-172. `audioshelf/tests/test_security.py::test_blank_reset_option_does_not_disable_enrolled_factor`
-173. `audioshelf/tests/test_security.py::test_cross_origin_mutation_is_rejected`
-174. `audioshelf/tests/test_security.py::test_ha_option_recovers_lost_factor_and_preserves_password_spotify_and_collection`
-175. `audioshelf/tests/test_security.py::test_ha_reset_is_once_per_changed_value_even_after_clearing_and_reenrolling`
-176. `audioshelf/tests/test_security.py::test_home_assistant_can_recover_totp_without_factor_but_spoofed_header_cannot`
-177. `audioshelf/tests/test_security.py::test_login_throttle_survives_restart_and_ignores_forwarded_ip`
-178. `audioshelf/tests/test_security.py::test_password_change_invalidates_existing_sessions`
-179. `audioshelf/tests/test_security.py::test_reset_option_rejects_invalid_configuration_without_disabling_factor[123]`
-180. `audioshelf/tests/test_security.py::test_reset_option_rejects_invalid_configuration_without_disabling_factor[True]`
-181. `audioshelf/tests/test_security.py::test_reset_option_rejects_invalid_configuration_without_disabling_factor[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]`
-182. `audioshelf/tests/test_security.py::test_security_changes_require_fresh_owner_factor_even_on_trusted_browser`
-183. `audioshelf/tests/test_security.py::test_sessions_and_factor_setup_survive_restarts_and_setup_expires`
-184. `audioshelf/tests/test_security.py::test_setup_bruteforce_and_expiry_are_limited`
-185. `audioshelf/tests/test_security.py::test_standard_sessions_are_secure_expire_and_logout_revokes`
-186. `audioshelf/tests/test_security.py::test_support_disabled_by_default_and_secrets_not_in_collection`
-187. `audioshelf/tests/test_security.py::test_support_master_toggle_revokes_existing_and_prevents_resurrection`
-188. `audioshelf/tests/test_security.py::test_support_permissions_expiry_and_revocation_are_server_enforced[control]`
-189. `audioshelf/tests/test_security.py::test_support_permissions_expiry_and_revocation_are_server_enforced[view]`
-190. `audioshelf/tests/test_security.py::test_totp_matches_rfc_vector`
-191. `audioshelf/tests/test_security.py::test_totp_requires_factor_rejects_replay_and_recovery_is_single_use`
-192. `audioshelf/tests/test_security.py::test_trusted_browser_credential_is_revoked_on_logout`
-193. `audioshelf/tests/test_security.py::test_trusted_browser_still_needs_password_and_is_revocable`
-194. `audioshelf/tests/test_spotify_auth_playback.py::test_album_tracks_pagination_is_complete`
-195. `audioshelf/tests/test_spotify_auth_playback.py::test_api_401_refreshes_once`
-196. `audioshelf/tests/test_spotify_auth_playback.py::test_candidate_search_reaches_new_remaster_on_next_page`
-197. `audioshelf/tests/test_spotify_auth_playback.py::test_disc_playback_excludes_other_discs_and_allows_unmapped_other_disc`
-198. `audioshelf/tests/test_spotify_auth_playback.py::test_expired_oauth_is_consumed_without_exchange`
-199. `audioshelf/tests/test_spotify_auth_playback.py::test_fallback_candidate_search_paginates_when_structured_search_is_empty`
-200. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[-1]`
-201. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[0]`
-202. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[1.5]`
-203. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[1]`
-204. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[3]`
-205. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[True]`
-206. `audioshelf/tests/test_spotify_auth_playback.py::test_no_active_device_has_actionable_error`
-207. `audioshelf/tests/test_spotify_auth_playback.py::test_partial_mapping_cannot_play`
-208. `audioshelf/tests/test_spotify_auth_playback.py::test_pkce_and_single_use_oauth_state`
-209. `audioshelf/tests/test_spotify_auth_playback.py::test_playback_sends_only_exact_track_uris_and_turns_off_shuffle_repeat`
-210. `audioshelf/tests/test_spotify_auth_playback.py::test_preferred_device_transfer_preserves_exact_disc_queue`
-211. `audioshelf/tests/test_spotify_auth_playback.py::test_preferred_device_transfer_timeout_never_starts_tracks`
-212. `audioshelf/tests/test_spotify_auth_playback.py::test_refresh_preserves_old_refresh_token_and_survives_restart`
-213. `audioshelf/tests/test_spotify_auth_playback.py::test_shuffle_not_acknowledged_does_not_start_album`
-214. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_album_link_formats[aaaaaaaaaaaaaaaaaaaaaa]`
-215. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_album_link_formats[https://open.spotify.com/album/aaaaaaaaaaaaaaaaaaaaaa?si=hello]`
-216. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_album_link_formats[https://open.spotify.com/intl-de/album/aaaaaaaaaaaaaaaaaaaaaa]`
-217. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_album_link_formats[spotify:album:aaaaaaaaaaaaaaaaaaaaaa]`
-218. `audioshelf/tests/test_spotify_auth_playback.py::test_unavailable_or_ambiguous_preference_never_plays_elsewhere[devices0]`
-219. `audioshelf/tests/test_spotify_auth_playback.py::test_unavailable_or_ambiguous_preference_never_plays_elsewhere[devices1]`
-220. `audioshelf/tests/test_spotify_auth_playback.py::test_unavailable_or_ambiguous_preference_never_plays_elsewhere[devices2]`
-221. `audioshelf/tests/test_spotify_auth_playback.py::test_unreviewed_tracklist_cannot_play`
-222. `audioshelf/tests/test_spotify_auth_playback.py::test_untrusted_spotify_urls_not_fetched`
+170. `audioshelf/tests/test_routes.py::test_shell_assets_share_content_version_and_update_worker_is_not_cached`
+171. `audioshelf/tests/test_routes.py::test_shell_health_and_empty_shelf`
+172. `audioshelf/tests/test_security.py::test_blank_password_locks_standalone_but_ingress_still_works`
+173. `audioshelf/tests/test_security.py::test_blank_reset_option_does_not_disable_enrolled_factor`
+174. `audioshelf/tests/test_security.py::test_cross_origin_mutation_is_rejected`
+175. `audioshelf/tests/test_security.py::test_ha_option_recovers_lost_factor_and_preserves_password_spotify_and_collection`
+176. `audioshelf/tests/test_security.py::test_ha_reset_is_once_per_changed_value_even_after_clearing_and_reenrolling`
+177. `audioshelf/tests/test_security.py::test_home_assistant_can_recover_totp_without_factor_but_spoofed_header_cannot`
+178. `audioshelf/tests/test_security.py::test_login_throttle_survives_restart_and_ignores_forwarded_ip`
+179. `audioshelf/tests/test_security.py::test_password_change_invalidates_existing_sessions`
+180. `audioshelf/tests/test_security.py::test_reset_option_rejects_invalid_configuration_without_disabling_factor[123]`
+181. `audioshelf/tests/test_security.py::test_reset_option_rejects_invalid_configuration_without_disabling_factor[True]`
+182. `audioshelf/tests/test_security.py::test_reset_option_rejects_invalid_configuration_without_disabling_factor[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]`
+183. `audioshelf/tests/test_security.py::test_security_changes_require_fresh_owner_factor_even_on_trusted_browser`
+184. `audioshelf/tests/test_security.py::test_sessions_and_factor_setup_survive_restarts_and_setup_expires`
+185. `audioshelf/tests/test_security.py::test_setup_bruteforce_and_expiry_are_limited`
+186. `audioshelf/tests/test_security.py::test_standard_sessions_are_secure_expire_and_logout_revokes`
+187. `audioshelf/tests/test_security.py::test_support_disabled_by_default_and_secrets_not_in_collection`
+188. `audioshelf/tests/test_security.py::test_support_master_toggle_revokes_existing_and_prevents_resurrection`
+189. `audioshelf/tests/test_security.py::test_support_permissions_expiry_and_revocation_are_server_enforced[control]`
+190. `audioshelf/tests/test_security.py::test_support_permissions_expiry_and_revocation_are_server_enforced[view]`
+191. `audioshelf/tests/test_security.py::test_totp_matches_rfc_vector`
+192. `audioshelf/tests/test_security.py::test_totp_requires_factor_rejects_replay_and_recovery_is_single_use`
+193. `audioshelf/tests/test_security.py::test_trusted_browser_credential_is_revoked_on_logout`
+194. `audioshelf/tests/test_security.py::test_trusted_browser_still_needs_password_and_is_revocable`
+195. `audioshelf/tests/test_spotify_auth_playback.py::test_album_tracks_pagination_is_complete`
+196. `audioshelf/tests/test_spotify_auth_playback.py::test_api_401_refreshes_once`
+197. `audioshelf/tests/test_spotify_auth_playback.py::test_candidate_search_reaches_new_remaster_on_next_page`
+198. `audioshelf/tests/test_spotify_auth_playback.py::test_disc_playback_excludes_other_discs_and_allows_unmapped_other_disc`
+199. `audioshelf/tests/test_spotify_auth_playback.py::test_expired_oauth_is_consumed_without_exchange`
+200. `audioshelf/tests/test_spotify_auth_playback.py::test_fallback_candidate_search_paginates_when_structured_search_is_empty`
+201. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[-1]`
+202. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[0]`
+203. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[1.5]`
+204. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[1]`
+205. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[3]`
+206. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[True]`
+207. `audioshelf/tests/test_spotify_auth_playback.py::test_no_active_device_has_actionable_error`
+208. `audioshelf/tests/test_spotify_auth_playback.py::test_partial_mapping_cannot_play`
+209. `audioshelf/tests/test_spotify_auth_playback.py::test_pkce_and_single_use_oauth_state`
+210. `audioshelf/tests/test_spotify_auth_playback.py::test_playback_sends_only_exact_track_uris_and_turns_off_shuffle_repeat`
+211. `audioshelf/tests/test_spotify_auth_playback.py::test_preferred_device_transfer_preserves_exact_disc_queue`
+212. `audioshelf/tests/test_spotify_auth_playback.py::test_preferred_device_transfer_timeout_never_starts_tracks`
+213. `audioshelf/tests/test_spotify_auth_playback.py::test_refresh_preserves_old_refresh_token_and_survives_restart`
+214. `audioshelf/tests/test_spotify_auth_playback.py::test_shuffle_not_acknowledged_does_not_start_album`
+215. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_album_link_formats[aaaaaaaaaaaaaaaaaaaaaa]`
+216. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_album_link_formats[https://open.spotify.com/album/aaaaaaaaaaaaaaaaaaaaaa?si=hello]`
+217. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_album_link_formats[https://open.spotify.com/intl-de/album/aaaaaaaaaaaaaaaaaaaaaa]`
+218. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_album_link_formats[spotify:album:aaaaaaaaaaaaaaaaaaaaaa]`
+219. `audioshelf/tests/test_spotify_auth_playback.py::test_unavailable_or_ambiguous_preference_never_plays_elsewhere[devices0]`
+220. `audioshelf/tests/test_spotify_auth_playback.py::test_unavailable_or_ambiguous_preference_never_plays_elsewhere[devices1]`
+221. `audioshelf/tests/test_spotify_auth_playback.py::test_unavailable_or_ambiguous_preference_never_plays_elsewhere[devices2]`
+222. `audioshelf/tests/test_spotify_auth_playback.py::test_unreviewed_tracklist_cannot_play`
+223. `audioshelf/tests/test_spotify_auth_playback.py::test_untrusted_spotify_urls_not_fetched`
 
 ## Other release checks
 

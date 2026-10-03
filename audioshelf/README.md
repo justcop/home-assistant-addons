@@ -7,7 +7,7 @@ Browse artists, explore their studio albums in release order, add records to you
 ## Install
 
 1. In Home Assistant, refresh the add-on store for the existing repository: `https://github.com/justcop/home-assistant-addons`.
-2. Install **AudioShelf**, version **0.4.1**. Enable the sidebar entry if wanted, then start it.
+2. Install **AudioShelf**, version **0.4.3**. Enable the sidebar entry if wanted, then start it.
 3. Use **Open Web UI** for Home Assistant ingress. The standalone UI is also exposed on port **8098** by default, for your existing external-access system.
 4. Open the Record Store, search for an artist, browse their studio albums, and add one to your shelf. Spotify is not needed to collect records.
 
@@ -67,7 +67,7 @@ Options can come from `/data/options.json`, another JSON file selected by `AUDIO
 .venv/bin/python -m pytest tests -q
 node --check app/static/app.js
 bash -n run.sh
-docker build --build-arg BUILD_VERSION=0.4.1 --build-arg BUILD_ARCH=amd64 -t audioshelf .
+docker build --build-arg BUILD_VERSION=0.4.3 --build-arg BUILD_ARCH=amd64 -t audioshelf .
 ```
 
 ## Artwork and replaceable cache
@@ -175,3 +175,5 @@ Authentication secrets, recovery-code hashes, support-password hashes, server se
 If you lose your authenticator and recovery codes, open **Home Assistant → Settings → Apps (or Add-ons) → AudioShelf → Configuration**. Set **2FA recovery request (advanced)** (`two_factor_reset_request`) to a new value, such as `reset-1`. Save and restart AudioShelf. This disables 2FA, removes its recovery codes and pending setup, revokes sessions, trusted browsers and temporary support logins, and clears login throttling. Your normal standalone web password is still required. Spotify connection and your collection are preserved.
 
 Log in over HTTPS with your web password and enrol a new authenticator under **AudioShelf → Settings → Security**. You may clear the recovery-request field afterwards. Each changed nonblank value is processed only once; leaving it set does not disable your new authenticator on later restarts. For a future reset, use a different value, such as `reset-2`. No AudioShelf login is required to use the Home Assistant configuration recovery option.
+
+Browser updates: JavaScript and CSS URLs include the release and content fingerprint. The service worker fetches fresh shell files, activates automatically and removes older shell caches. An open app checks for updates every minute and when brought back into focus; use Reload AudioShelf when prompted. Edited forms and open dialogs require confirmation before reload, and in-flight changes block reload. Ingress uses the same update prompt without registering a service worker. The first upgrade from an older build may still need one normal browser reload to install this mechanism.

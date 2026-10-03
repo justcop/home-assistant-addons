@@ -247,6 +247,42 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await disableForm.getByRole('button',{name:'Disable two-factor authentication'}).click();
     await page.getByRole('button',{name:'Set up authenticator'}).waitFor();
     assert.deepEqual(errors,[],'Browser security flow errors');
+    await page.getByRole('button',{name:'Close',exact:true}).click();
+    await page.goto(base+'/#settings');
+    await page.getByRole('heading',{name:'Settings.'}).waitFor();
+    await page.getByLabel('Country preference order').fill('US, GB');
+    const initialVersion=await page.evaluate(()=>document.documentElement.dataset.assetVersion);
+    await page.route('**/api/status',async route=>{
+      const response=await fixtureFetch(base+'/api/status');const body=await response.json();
+      body.build.asset_version='future-build-test';
+      await route.fulfill({contentType:'application/json',body:JSON.stringify(body)});
+    });
+    await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
+    await page.getByRole('button',{name:'Reload AudioShelf'}).waitFor();
+    assert.equal(await page.getByLabel('Country preference order').inputValue(),'US, GB');
+    page.once('dialog',dialog=>dialog.dismiss());
+    await page.getByRole('button',{name:'Reload AudioShelf'}).click();
+    assert.equal(await page.evaluate(()=>document.documentElement.dataset.assetVersion),initialVersion);
+    assert.equal(await page.getByLabel('Country preference order').inputValue(),'US, GB');
+    await page.unroute('**/api/status');
+    page.once('dialog',dialog=>dialog.accept());
+    await page.getByRole('button',{name:'Reload AudioShelf'}).click();
+    await page.getByRole('heading',{name:'Settings.'}).waitFor();
+    assert.equal(await page.locator('#app-update').isVisible(),false);
+    const workerState=await page.evaluate(async()=>{
+      await navigator.serviceWorker.ready;
+      await caches.open('audioshelf-shell-obsolete-test');
+      const tag=document.documentElement.dataset.assetVersion+'-worker-test';
+      const registration=await navigator.serviceWorker.register(new URL('sw.js?v='+tag,document.baseURI),{updateViaCache:'none'});
+      for(let attempt=0;attempt<100;attempt++){
+        const keys=await caches.keys();
+        if(registration.active?.scriptURL.endsWith(tag)&&!keys.includes('audioshelf-shell-obsolete-test'))return {keys,tag};
+        await new Promise(resolve=>setTimeout(resolve,100));
+      }
+      throw new Error('Updated service worker did not activate and remove stale cache');
+    });
+    assert(workerState.keys.includes('audioshelf-shell-'+workerState.tag));
+
     console.log('Browser checks passed: collection, artwork selection, edition retry, track review and playback, release preferences, all 10 themes and contrast, catalogue overrides, diagnostics, desktop and ingress.');
   }finally{if(browser)await browser.close();server.kill('SIGTERM');}
 })().catch(error=>{console.error(error);process.exitCode=1;});
