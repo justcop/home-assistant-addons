@@ -83,8 +83,11 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.getByRole('heading',{name:'Spotify editions'}).waitFor();
     await page.getByRole('button',{name:'Close',exact:true}).click();
     await page.getByRole('button',{name:'Play album'}).click();
+    await page.getByRole('heading',{name:'Choose playback device',exact:true}).waitFor();
+    await page.getByRole('button',{name:'Fixture phone',exact:false}).click();
     await page.locator('#toast').filter({hasText:'Playing 2 tracks on Fixture phone.'}).waitFor();
-    let unavailable=true;
+    let unavailable=true,phoneAvailable=false;
+    await page.route('**/api/spotify/devices',route=>route.fulfill({contentType:'application/json',body:JSON.stringify({devices:phoneAvailable?[{id:'phone',name:'Fixture phone',type:'Smartphone',is_active:true,is_restricted:false}]:[{id:'speaker',name:'Speaker',type:'Speaker',is_active:true,is_restricted:false}]})}));
     await page.route('**/api/albums/*/play',async route=>{
       if(unavailable){unavailable=false;return route.fulfill({status:409,contentType:'application/json',body:JSON.stringify({error:'Open Spotify on your phone, then retry.'})});}
       await route.continue();
@@ -95,11 +98,22 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.evaluate(()=>document.addEventListener('click',event=>{if(event.target.closest('a[href="spotify:"]'))event.preventDefault();},true));
     await page.getByRole('link',{name:'Open Spotify',exact:true}).click();
     await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
+    await wait(1800);
+    assert.equal((await (await fixtureFetch(base+'/__test/play-calls')).json()).calls.length,1,'An available speaker must not replace the chosen phone');
+    assert.equal(await page.locator('#modal').evaluate(el=>el.open),true);
+    phoneAvailable=true;
+    await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
     await page.waitForFunction(()=>!document.querySelector('#modal').open);
+    await page.unroute('**/api/spotify/devices');
     await page.unroute('**/api/albums/*/play');
     const calls=await (await fixtureFetch(base+'/__test/play-calls')).json();
     assert.equal(calls.calls.length,2);
     for(const call of calls.calls)assert.deepEqual(call,{uris:['spotify:track:'+'a'.repeat(22),'spotify:track:'+'b'.repeat(22)],position_ms:0});
+    await page.getByRole('button',{name:'Change device',exact:true}).click();
+    await page.getByRole('heading',{name:'Choose playback device',exact:true}).waitFor();
+    await page.getByRole('button',{name:'Fixture phone',exact:false}).click();
+    await page.waitForFunction(()=>!document.querySelector('#modal').open);
+    assert.equal((await (await fixtureFetch(base+'/__test/play-calls')).json()).calls.length,2,'Changing the preferred device alone must not restart music');
     // Success handoff also opens the app without selecting Spotify content.
     await page.evaluate(()=>localStorage.setItem('audioshelf-open-spotify','true'));
     await page.getByRole('button',{name:'Play album'}).click();

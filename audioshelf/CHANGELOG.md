@@ -1,3 +1,8 @@
+# 0.5.3
+
+- Ask for a playback device before first playback and remember the choice. Never select the only available speaker as a replacement for an unavailable phone. Add Change device beside Play in both frontends and in the recovery dialog.
+- Opening Spotify with no chosen device refreshes the chooser without starting music. With a chosen device, retry only that device and preserve the synced album or disc.
+
 # 0.5.2
 
 - Show the selected record and first track immediately when Spotify accepts Play. Recheck rapidly during startup so stale Spotify responses do not put the previous record back on the turntable.

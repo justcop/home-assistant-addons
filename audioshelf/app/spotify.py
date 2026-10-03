@@ -252,12 +252,7 @@ class Spotify:
                 if not device or device.get('is_restricted'):
                     raise AppError('Your preferred Spotify device is unavailable. Open Spotify on it, return here and retry, or change the device in Settings.', 409)
             elif not device.get('id') or device.get('is_restricted'):
-                available = [d for d in self.devices() if not d.get('is_restricted')]
-                if len(available) > 1:
-                    raise AppError('Choose a Spotify device to start playback.', 409)
-                if not available:
-                    raise AppError('Open Spotify on the device you want to use, then return here. AudioShelf will retry your selected tracklist.', 409)
-                device = available[0]
+                raise AppError('Choose your playback device. Open Spotify on your phone if it is missing, then refresh the device list.', 409)
             if state.get('device', {}).get('id') != device['id'] or state.get('device', {}).get('is_restricted'):
                 self.api('PUT', 'me/player', body={'device_ids': [device['id']], 'play': False})
                 for attempt in range(10):

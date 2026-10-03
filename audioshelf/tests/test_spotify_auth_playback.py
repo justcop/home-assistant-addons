@@ -101,7 +101,7 @@ def test_partial_mapping_cannot_play(application,monkeypatch):
 def test_no_active_device_has_actionable_error(application,monkeypatch):
     spotify=application.extensions['spotify']
     monkeypatch.setattr(spotify,'api',lambda *args:{})
-    with pytest.raises(AppError,match='Open Spotify'):spotify.play(ready_album(application))
+    with pytest.raises(AppError,match='Choose your playback device'):spotify.play(ready_album(application))
 
 
 def test_shuffle_not_acknowledged_does_not_start_album(application,monkeypatch):
@@ -237,27 +237,7 @@ def test_preferred_device_transfer_timeout_never_starts_tracks(application,monke
     assert 'me/player/play' not in calls
 
 
-@pytest.mark.parametrize('restricted_extra', [False, True])
-def test_only_available_device_activates_and_plays_exact_selected_disc(application,monkeypatch,restricted_extra):
-    spotify=application.extensions['spotify'];album=ready_album(application)
-    album['tracks'][1]['disc_number']=2
-    calls=[];active=False
-    def api(method,path,params=None,body=None):
-        nonlocal active
-        calls.append((method,path,params,body))
-        if path=='me/player/devices':
-            return {'devices':[{'id':'phone','name':'Phone','is_restricted':False}]+([{'id':'blocked','is_restricted':True}] if restricted_extra else [])}
-        if method=='PUT' and path=='me/player':active=True
-        if method=='GET' and path=='me/player':
-            return {'device':{'id':'phone'} if active else {},'shuffle_state':False,'repeat_state':'off'}
-        return {}
-    monkeypatch.setattr(spotify,'api',api);monkeypatch.setattr('app.spotify.time.sleep',lambda _:None)
-    assert spotify.play(album,2)['track_count']==1
-    assert ('PUT','me/player',None,{'device_ids':['phone'],'play':False}) in calls
-    assert calls[-1]==('PUT','me/player/play',{'device_id':'phone'},{'uris':['spotify:track:'+'b'*22],'position_ms':0})
-
-
-@pytest.mark.parametrize('devices', [[{'id':'a'},{'id':'b'}], [{'id':'blocked','is_restricted':True}]])
+@pytest.mark.parametrize('devices', [[{'id':'speaker','name':'Speaker'}], [{'id':'a'},{'id':'b'}], [{'id':'blocked','is_restricted':True}]])
 def test_no_active_player_with_multiple_or_restricted_devices_never_guesses(application,monkeypatch,devices):
     spotify=application.extensions['spotify'];calls=[]
     def api(method,path,params=None,body=None):
@@ -267,3 +247,12 @@ def test_no_active_player_with_multiple_or_restricted_devices_never_guesses(appl
     with pytest.raises(AppError) as failure:spotify.play(ready_album(application))
     assert failure.value.status==409
     assert 'PUT' not in calls
+
+
+def test_play_route_requires_choice_even_when_a_speaker_is_active(application,client,monkeypatch):
+    ready_album(application)
+    api=Mock(return_value={'device':{'id':'speaker','name':'Speaker'}})
+    monkeypatch.setattr(application.extensions['spotify'],'api',api)
+    response=client.post('/api/albums/'+ALBUM+'/play',json={},headers={'X-AudioShelf-Request':'1'})
+    assert response.status_code==409 and 'Choose' in response.json['error']
+    api.assert_not_called()

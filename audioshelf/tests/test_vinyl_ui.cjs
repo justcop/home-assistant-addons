@@ -82,6 +82,8 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
       await startupGate;await route.continue();
     });
     await page.getByRole('button',{name:'Play album',exact:false}).click();
+    await page.getByRole('heading',{name:'Choose playback device',exact:true}).waitFor();
+    await page.getByRole('button',{name:'Fixture phone',exact:false}).click();
     await page.locator('#turntable small b').filter({hasText:'STARTING'}).waitFor();
     assert.equal(await page.locator('#turntable strong').textContent(),'The Original Album');
     assert((await page.locator('#turntable .turntable-record').textContent()).includes('Opening'));

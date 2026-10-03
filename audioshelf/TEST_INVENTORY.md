@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-03T19:32:33+01:00 (Europe/London).
+Reviewed: 2026-10-03T19:43:37+01:00 (Europe/London).
 
-Reviewed the combined playback changes against merged Spotify handoff main: existing cases now check first-track metadata, progress/duration, relinking and null progress; handoff and exact-queue regressions are retained. All 230 backend cases pass locally. The progress browser flow previously passed for stale startup replies, restart positions, moving/paused progress and song boundaries. After integrating the shared startPlayback path, both combined browser suites and the container build are required in CI; the local Chromium binary currently fails at launch before loading the app. No backend test cases were added for progress.
+Removed obsolete tests that required automatic sole-device playback, replacing them with no-guess coverage for a single speaker and a route guard requiring an explicit choice. Extended both existing frontend playback flows to select the phone first. Extended the existing handoff regression to hold a speaker available while the chosen phone is missing, then retry only when the phone appears. Checked Change device saves without restarting music. Other exact-queue, disc, cancellation and preferred-device regressions remain distinct.
 
-<!-- inventory: {"reviewed_at": "2026-10-03T19:32:33+01:00", "review_note": "Reviewed the combined playback changes against merged Spotify handoff main: existing cases now check first-track metadata, progress/duration, relinking and null progress; handoff and exact-queue regressions are retained. All 230 backend cases pass locally. The progress browser flow previously passed for stale startup replies, restart positions, moving/paused progress and song boundaries. After integrating the shared startPlayback path, both combined browser suites and the container build are required in CI; the local Chromium binary currently fails at launch before loading the app. No backend test cases were added for progress.", "source_sha256": "fc481a59ee435a5a3decd6f407d689eea87370d74b3fbf51bca3cd6c00e74f6b"} -->
+<!-- inventory: {"reviewed_at": "2026-10-03T19:43:37+01:00", "review_note": "Removed obsolete tests that required automatic sole-device playback, replacing them with no-guess coverage for a single speaker and a route guard requiring an explicit choice. Extended both existing frontend playback flows to select the phone first. Extended the existing handoff regression to hold a speaker available while the chosen phone is missing, then retry only when the phone appears. Checked Change device saves without restarting music. Other exact-queue, disc, cancellation and preferred-device regressions remain distinct.", "source_sha256": "7013eac8994f97d6a0bdb15842482025a5ba8d4a9a6c5b74af701062426b6169"} -->
 
 ## Backend cases (230)
 
@@ -217,10 +217,10 @@ Reviewed the combined playback changes against merged Spotify handoff main: exis
 207. `audioshelf/tests/test_spotify_auth_playback.py::test_no_active_device_has_actionable_error`
 208. `audioshelf/tests/test_spotify_auth_playback.py::test_no_active_player_with_multiple_or_restricted_devices_never_guesses[devices0]`
 209. `audioshelf/tests/test_spotify_auth_playback.py::test_no_active_player_with_multiple_or_restricted_devices_never_guesses[devices1]`
-210. `audioshelf/tests/test_spotify_auth_playback.py::test_only_available_device_activates_and_plays_exact_selected_disc[False]`
-211. `audioshelf/tests/test_spotify_auth_playback.py::test_only_available_device_activates_and_plays_exact_selected_disc[True]`
-212. `audioshelf/tests/test_spotify_auth_playback.py::test_partial_mapping_cannot_play`
-213. `audioshelf/tests/test_spotify_auth_playback.py::test_pkce_and_single_use_oauth_state`
+210. `audioshelf/tests/test_spotify_auth_playback.py::test_no_active_player_with_multiple_or_restricted_devices_never_guesses[devices2]`
+211. `audioshelf/tests/test_spotify_auth_playback.py::test_partial_mapping_cannot_play`
+212. `audioshelf/tests/test_spotify_auth_playback.py::test_pkce_and_single_use_oauth_state`
+213. `audioshelf/tests/test_spotify_auth_playback.py::test_play_route_requires_choice_even_when_a_speaker_is_active`
 214. `audioshelf/tests/test_spotify_auth_playback.py::test_playback_sends_only_exact_track_uris_and_turns_off_shuffle_repeat`
 215. `audioshelf/tests/test_spotify_auth_playback.py::test_preferred_device_transfer_preserves_exact_disc_queue`
 216. `audioshelf/tests/test_spotify_auth_playback.py::test_preferred_device_transfer_timeout_never_starts_tracks`
