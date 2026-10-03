@@ -26,3 +26,12 @@
 
 :root[data-interface=vinyl]{scroll-padding-bottom:190px;scroll-padding-top:24px}
 @media(max-width:700px){.store-ticket .card-action{min-height:44px}}
+
+#turntable .turntable-record>div{flex:1}
+#turntable .track-progress{display:flex;align-items:center;gap:9px;margin-top:9px;max-width:540px}
+#turntable .track-progress span{font-size:9px;color:var(--muted);font-variant-numeric:tabular-nums;flex-shrink:0}
+#turntable progress{display:block;flex:1;min-width:0;width:100%;height:4px;border:0;border-radius:2px;overflow:hidden;background:var(--soft);color:var(--wine);accent-color:var(--wine)}
+#turntable progress::-webkit-progress-bar{background:var(--soft)}
+#turntable progress::-webkit-progress-value{background:var(--wine)}
+#turntable progress::-moz-progress-bar{background:var(--wine)}
+@media(max-width:700px){#turntable .track-progress{margin-top:7px;gap:7px}[data-interface=vinyl] #toast{bottom:175px}}

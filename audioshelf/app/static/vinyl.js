@@ -1,7 +1,7 @@
 'use strict';
 // The two rooms share the catalogue, actions and permissions with Classic.
 let albumOrigin='', storeSearch={kind:'artist',query:'',results:null}, shelfFilter='';
-let playbackState=null, playbackBusy=false, playbackChecked=0, playbackEpoch=0;
+let playbackState=null, playbackBusy=false, playbackChecked=0, playbackEpoch=0, playbackCommand=0, playbackStart=null;
 const browsingPositions=new Map();
 if('scrollRestoration' in history)history.scrollRestoration='manual';
 function isVinyl(){return document.documentElement.dataset.interface==='vinyl';}
@@ -64,6 +64,33 @@ document.addEventListener('click',event=>{
   const link=event.target.closest('a[href^="#album/"]');
   if(link&&!location.hash.startsWith('#album/'))albumOrigin=location.hash||'#shelf';
 },true);
+function playbackTime(ms){return duration(ms)||'0:00';}
+function trackProgress(p=playbackState){
+  if(!p?.active||!Number.isFinite(p.duration_ms)||p.duration_ms<=0||!Number.isFinite(p.progress_ms))return null;
+  const elapsed=p.playing&&!p.stale&&!p.starting?Math.max(0,performance.now()-(p.observedAt??performance.now())):0;
+  return Math.min(p.duration_ms,Math.max(0,p.progress_ms+elapsed));
+}
+function progressHtml(p){
+  if(trackProgress(p)===null)return '';
+  return `<div class="track-progress"><span data-elapsed>0:00</span><progress max="${p.duration_ms}" value="0" aria-label="Song progress"></progress><span>${playbackTime(p.duration_ms)}</span></div>`;
+}
+function updateTrackProgress(){
+  const progress=document.querySelector('#turntable progress'), position=trackProgress();
+  if(!progress||position===null)return;
+  progress.value=position;
+  progress.setAttribute('aria-valuetext',`${playbackTime(position)} of ${playbackTime(playbackState.duration_ms)}`);
+  document.querySelector('#turntable [data-elapsed]').textContent=playbackTime(position);
+}
+function beginPlayback(album,result){
+  const first=result.first_track;
+  // Invalidate reads started before this accepted Play command.
+  playbackEpoch++;playbackBusy=false;
+  playbackStart=first?{id:first.id,observedAt:performance.now(),expires:Date.now()+8000}:null;
+  playbackState={active:true,playing:false,starting:true,album:album.title,album_id:album.id,
+    artist:album.artists.map(a=>a.name).join(', '),track:first?.title||'Waiting for Spotify status',
+    duration_ms:first?.duration_ms,progress_ms:0,observedAt:performance.now(),device:result.device};
+  renderTurntable();refreshPlayback(true);
+}
 function renderTurntable(){
   const panel=document.querySelector('#turntable');if(!panel)return;
   panel.hidden=!isVinyl()||!statusInfo.authenticated;
@@ -71,16 +98,32 @@ function renderTurntable(){
   const p=playbackState;
   if(!statusInfo.spotify_connected){panel.innerHTML='<span class="turntable-disc" aria-hidden="true"></span><div><small>ON THE TURNTABLE</small><strong>Ready when you are.</strong></div><a href="#settings" class="quiet">Connect Spotify ↗</a>';return;}
   if(!p?.active){panel.innerHTML=`<span class="turntable-disc" aria-hidden="true"></span><div><small>ON THE TURNTABLE</small><strong>${p?.unavailable?'Spotify status unavailable':'Pick a record. Press play.'}</strong><span>${p?.unavailable?'Open Spotify to check playback.':'Your next full-album listen starts here.'}</span></div>`;return;}
-  const inner=`${p.album_id?`<img src="api/albums/${id(p.album_id)}/artwork?v=${artworkRevision}" alt="">`:'<span class="turntable-disc" aria-hidden="true"></span>'}<div><small>ON THE TURNTABLE <b>${p.stale?'STATUS UNAVAILABLE':p.starting?'STARTING':p.playing?'PLAYING':'PAUSED'}</b></small><strong>${escapeHtml(p.album||p.track)}</strong><span>${escapeHtml(p.track)} · ${escapeHtml(p.artist)}</span></div>`;
+  const inner=`${p.album_id?`<img src="api/albums/${id(p.album_id)}/artwork?v=${artworkRevision}" alt="">`:'<span class="turntable-disc" aria-hidden="true"></span>'}<div><small>ON THE TURNTABLE <b>${p.stale?'STATUS UNAVAILABLE':p.starting?'STARTING':p.playing?'PLAYING':'PAUSED'}</b></small><strong>${escapeHtml(p.album||p.track)}</strong><span>${escapeHtml(p.track)} · ${escapeHtml(p.artist)}</span>${progressHtml(p)}</div>`;
   panel.innerHTML=`${p.album_id?`<a class="turntable-record" href="#album/${id(p.album_id)}">${inner}</a>`:`<div class="turntable-record">${inner}</div>`}<span class="turntable-device">${escapeHtml(p.device)}</span>`;
+  updateTrackProgress();
 }
 async function refreshPlayback(force=false){
-  if(!isVinyl()||!statusInfo.authenticated||!statusInfo.spotify_connected||document.hidden||(!force&&Date.now()-playbackChecked<15000))return;
+  const position=trackProgress();
+  const interval=playbackStart?500:position!==null&&playbackState.playing&&position>=playbackState.duration_ms-500?1000:5000;
+  if(!isVinyl()||!statusInfo.authenticated||!statusInfo.spotify_connected||document.hidden||(!force&&Date.now()-playbackChecked<interval))return;
   if(playbackBusy&&!force)return;
   const epoch=++playbackEpoch;playbackBusy=true;playbackChecked=Date.now();
-  try{const state=await api('spotify/playback');if(epoch===playbackEpoch)playbackState=state;}
-  catch{if(epoch===playbackEpoch)playbackState=playbackState?.active?{...playbackState,stale:true,playing:false}:{unavailable:true};}
+  try{
+    const state=await api('spotify/playback');
+    if(epoch!==playbackEpoch)return;
+    if(playbackStart&&Date.now()<playbackStart.expires){
+      const freshPosition=!Number.isFinite(state.progress_ms)||state.progress_ms<=performance.now()-playbackStart.observedAt+2000;
+      if(!state.playing||!state.track_ids?.includes(playbackStart.id)||!freshPosition)return;
+    }
+    playbackStart=null;playbackState={...state,observedAt:performance.now()};
+  }catch{
+    if(epoch===playbackEpoch){
+      playbackStart=null;
+      const position=trackProgress();
+      playbackState=playbackState?.active?{...playbackState,progress_ms:position,stale:true,playing:false}:{unavailable:true};
+    }
+  }
   finally{if(epoch===playbackEpoch){playbackBusy=false;renderTurntable();}}
 }
-document.addEventListener('visibilitychange',()=>refreshPlayback());
-setInterval(()=>refreshPlayback(),15000);
+document.addEventListener('visibilitychange',()=>refreshPlayback(true));
+setInterval(()=>{if(!document.hidden&&isVinyl()){updateTrackProgress();refreshPlayback();}},500);

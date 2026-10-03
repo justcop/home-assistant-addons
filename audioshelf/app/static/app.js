@@ -179,7 +179,7 @@ document.addEventListener('change',async event=>{
   catch(error){toast(error.message);}finally{select.disabled=false;}
 });
 window.addEventListener('hashchange',event=>{saveBrowsing(new URL(event.oldURL).hash);modal.close();route();});
-window.addEventListener('focus',async()=>{if(statusInfo.authenticated){try{const previousInterface=statusInfo.interface;statusInfo=await api('status');applyTheme(statusInfo.theme);applyInterface(statusInfo.interface);renderTurntable();refreshPlayback();if(previousInterface!==statusInfo.interface&&!unsavedChanges()){await route();return;}if(location.hash==='#settings'&&!settingsDirty){content.innerHTML=settingsPage();applyPermissions(content);}}catch{}}});
+window.addEventListener('focus',async()=>{if(statusInfo.authenticated){try{const previousInterface=statusInfo.interface;statusInfo=await api('status');applyTheme(statusInfo.theme);applyInterface(statusInfo.interface);renderTurntable();refreshPlayback(true);if(previousInterface!==statusInfo.interface&&!unsavedChanges()){await route();return;}if(location.hash==='#settings'&&!settingsDirty){content.innerHTML=settingsPage();applyPermissions(content);}}catch{}}});
 document.addEventListener('input',event=>{if(event.target.closest('#release-filters-form'))settingsDirty=true;});
 document.addEventListener('input',event=>{if(event.target.id==='artist-filter')document.querySelectorAll('.artist-row').forEach(el=>el.hidden=!el.dataset.filter.includes(event.target.value.toLowerCase()));});
 document.addEventListener('submit',async event=>{
@@ -295,13 +295,13 @@ document.addEventListener('click',async event=>{
     if(action==='play'){
       if(!statusInfo.spotify_connected)throw new Error('Connect Spotify in Settings first.');
       if(!currentAlbum.canonical_reviewed)throw new Error('Check the displayed original tracklist, then choose “This tracklist is correct” before first playback.');
-      const playingAlbum=currentAlbum;
+      const playingAlbum=currentAlbum, playbackRequest=++playbackCommand;
       const disc=button.dataset.disc?Number(button.dataset.disc):null;
       const selectedTracks=currentAlbum.tracks.filter(t=>disc===null||(t.disc_number||1)===disc);
       if(!selectedTracks.every(t=>t.verified&&t.spotify_id)){toast('Matching Spotify tracks first…');const result=await api(`albums/${id(currentAlbum.id)}/resolve`,'POST');if(generation!==routeGeneration)return;currentAlbum=result.album;content.innerHTML=albumPage(currentAlbum);}
       try{
         const result=await api(`albums/${id(playingAlbum.id)}/play`,'POST',disc===null?{}:{disc_number:disc});
-        playbackState={active:true,playing:false,starting:true,album:playingAlbum.title,album_id:playingAlbum.id,artist:playingAlbum.artists.map(a=>a.name).join(', '),track:'Waiting for Spotify status',device:result.device};renderTurntable();refreshPlayback(true);
+        if(playbackRequest===playbackCommand)beginPlayback(playingAlbum,result);
         if(generation!==routeGeneration)return;
         modal.close();toast(`Playing ${result.track_count} tracks on ${result.device}.`);
         if(shouldOpenSpotify()){

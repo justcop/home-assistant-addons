@@ -22,14 +22,18 @@ def test_playback_tracks_spotify_pause_and_relinked_library_track(application, c
     store.shelf(ALBUM, True)
     with store.connect() as db:
         db.execute('UPDATE tracks SET spotify_id=?,verified=1 WHERE album_id=? AND position=1', ('a'*22, ALBUM))
-    state = {'is_playing': True, 'item': {'id': 'relinked', 'linked_from': {'id': 'a'*22}, 'name': 'Opening',
+    state = {'is_playing': True, 'progress_ms': 42000, 'item': {'duration_ms': 180000, 'id': 'relinked', 'linked_from': {'id': 'a'*22}, 'name': 'Opening',
              'artists': [{'name': 'The Artist'}], 'album': {'name': 'A Different Spotify Edition'}}, 'device': {'name': 'Kitchen'}}
     monkeypatch.setattr(spotify, 'api', lambda *args: state)
     result = client.get('/api/spotify/playback').json
     assert result['album_id'] == ALBUM and result['album'] == 'The Album'
     assert result['playing'] and result['device'] == 'Kitchen'
+    assert result['progress_ms'] == 42000 and result['duration_ms'] == 180000
+    assert result['track_ids'] == ['relinked', 'a'*22]
     state['is_playing'] = False
     assert client.get('/api/spotify/playback').json['playing'] is False
+    state['progress_ms'] = None
+    assert client.get('/api/spotify/playback').json['progress_ms'] is None
     state.clear()
     assert client.get('/api/spotify/playback').json == {'active': False}
 

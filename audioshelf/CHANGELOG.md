@@ -1,3 +1,9 @@
+# 0.5.1
+
+- Show the selected record and first track immediately when Spotify accepts Play. Recheck rapidly during startup so stale Spotify responses do not put the previous record back on the turntable.
+- Add a song progress bar with elapsed and total time. Advance locally between Spotify checks, freeze for paused or unavailable playback, and resynchronise on seeks and track changes.
+- Refresh playback every five seconds while visible, with quicker checks at song boundaries and an immediate refresh on returning to the app.
+
 # 0.5.0
 
 - New Vinyl interface: dense Record Store racks, artist dividers, and larger front-facing covers on My Shelf ledges. Two covers across on phones.
