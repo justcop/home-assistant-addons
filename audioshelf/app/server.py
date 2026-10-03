@@ -67,6 +67,8 @@ def create_app(options=None):
     build['asset_version'] = build['version']+'-'+digest
     password = options.get('web_password','')
     security = Security(private_dir, password, options.get('allow_support_access', False))
+    if security.recover_from_options(options.get('two_factor_reset_request', '')):
+        LOG.warning('Home Assistant configuration reset two-factor authentication and revoked existing access. The standalone password is still required.')
     app.extensions['security'] = security
 
     def ingress():
