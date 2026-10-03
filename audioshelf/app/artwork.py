@@ -61,7 +61,7 @@ class Artwork:
         self.download_slots = threading.Semaphore(3)
         self.prune_lock = threading.Lock()
         self.session = requests.Session()
-        self.session.headers['User-Agent'] = 'AudioShelf/0.3.0 (https://github.com/justcop/home-assistant-addons)'
+        self.session.headers['User-Agent'] = 'AudioShelf/0.3.1 (https://github.com/justcop/home-assistant-addons)'
 
     def download(self, url):
         # Follow only known artwork hosts, including Cover Art Archive's Internet Archive redirects.

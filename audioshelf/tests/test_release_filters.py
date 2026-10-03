@@ -186,3 +186,20 @@ def test_album_country_preference_does_not_change_other_albums(application, clie
     assert store.album(ALBUM)['tracks'] == before
     post(client, '/api/albums/'+ALBUM+'/release-countries', {'countries': None}, method='PUT')
     assert store.release_filters(ALBUM) == store.release_filters()
+
+
+@pytest.mark.parametrize('preferred_country', ['JP', 'AU', 'US'])
+def test_any_country_can_be_preferred_without_hidden_country_penalties(preferred_country):
+    preferred = edition(preferred_country, identifier='preferred')
+    gb = edition('GB', identifier='gb')
+    filters = {**DEFAULT_FILTERS, 'countries': [preferred_country, 'GB']}
+    assert min([gb, preferred], key=lambda r: release_rank(r, '2007', filters))['id'] == 'preferred'
+
+
+def test_no_country_preference_uses_date_and_format_equally_for_all_countries():
+    japanese = edition('JP', identifier='jp', date='2007-04-18')
+    australian = edition('AU', identifier='au', date='2007-04-23')
+    filters = {**DEFAULT_FILTERS, 'countries': []}
+    assert min([australian, japanese], key=lambda r: release_rank(r, '2007', filters))['id'] == 'jp'
+    for release in (japanese, australian):
+        assert release_rank(release, '2007') == release_rank(release, '2007', DEFAULT_FILTERS)

@@ -6,8 +6,7 @@ import uuid
 import requests
 
 from .errors import AppError
-from .release_filters import VIDEO_FORMATS, filter_description, matches_filters, preference_rank
-from .catalogue_rules import BEATLES_CORE, BEATLES_SERIES
+from .release_filters import DEFAULT_FILTERS, VIDEO_FORMATS, filter_description, matches_filters, preference_rank
 
 BAD_EDITION = re.compile(r'bonus|deluxe|expanded|anniversary|collector|remaster|special edition|limited edition', re.I)
 EXCLUDED_TYPES = {'Compilation', 'Live', 'Remix', 'Soundtrack', 'Demo', 'DJ-mix', 'Mixtape/Street',
@@ -33,21 +32,14 @@ def studio(group):
 
 
 def release_rank(release, original_date, filters=None):
-    """Prefer an unexpanded original-year home-market edition, never the shortest album."""
+    """Rank standard editions by shared country, original-year and format preferences."""
     date = release.get('date', '')
     original_year = original_date[:4]
     year_gap = abs(int(date[:4])-int(original_year)) if date[:4].isdigit() and original_year.isdigit() else 9999
     description = release.get('title','') + ' ' + release.get('disambiguation','')
-    media = release.get('media', [])
-    formats = [m.get('format', '') for m in media]
-    if filters is not None:
-        country_rank, format_rank = preference_rank(release, filters)
-        return (bool(BAD_EDITION.search(description)), country_rank, year_gap,
-                format_rank, date or '9999', release['id'])
-    return (bool(BAD_EDITION.search(description)), year_gap,
-            release.get('country') == 'JP',
-            {'GB': 0, 'XW': 1, 'US': 2}.get(release.get('country'), 3),
-            date or '9999', 'CD' not in formats, release['id'])
+    country_rank, format_rank = preference_rank(release, DEFAULT_FILTERS if filters is None else filters)
+    return (bool(BAD_EDITION.search(description)), country_rank, year_gap,
+            format_rank, date or '9999', release['id'])
 
 
 def release_tracks(release):
@@ -74,25 +66,33 @@ class MusicBrainz:
         self.lock = threading.Lock()
         self.last_call = 0
         self.session = requests.Session()
-        self.session.headers.update({'User-Agent': 'AudioShelf/0.3.0 (https://github.com/justcop/home-assistant-addons)',
+        self.session.headers.update({'User-Agent': 'AudioShelf/0.3.1 (https://github.com/justcop/home-assistant-addons)',
                                      'Accept': 'application/json'})
 
-    def membership(self, group):
+    def membership(self, group, artist_id=None):
         override = self.store.setting('catalogue:'+group['id'])
         if override is not None:
             return override == 'include'
+        selections = []
         for credit in group.get('artist-credit', []):
             if isinstance(credit, dict) and 'artist' in credit:
+                if artist_id and credit['artist']['id'] != artist_id:
+                    continue
                 series = self.store.catalogue_series(credit['artist']['id'])
                 if series:
-                    return (group['id'] in self.series_members(series) and group.get('primary-type') == 'Album'
-                            and not (EXCLUDED_TYPES-{'Soundtrack'}).intersection(group.get('secondary-types', [])))
+                    selections.append(group['id'] in self.series_members(series))
+        if selections:
+            return (any(selections) and group.get('primary-type') == 'Album'
+                    and not (EXCLUDED_TYPES-{'Soundtrack'}).intersection(group.get('secondary-types', [])))
         return studio(group)
 
     def series_members(self, series_id):
         key = 'series-members:'+series_id
         cached = self.store.cache_get(key)
         if cached is not None:
+            if not self.store.setting('series_snapshot:'+series_id):
+                self.store.set_setting('series_snapshot:'+series_id,
+                    {'id': series_id, 'name': 'Curated catalogue', 'members': cached, 'saved_at': time.time()})
             return set(cached)
         try:
             detail = self.get('series/'+mbid(series_id), {'inc': 'release-group-rels'})
@@ -102,13 +102,27 @@ class MusicBrainz:
             if not members:
                 raise AppError('That series has no album members.')
             self.store.cache_put(key, sorted(members))
-        except AppError:
-            if series_id != BEATLES_SERIES:
+            # Keep a last successful snapshot for every chosen catalogue, rather
+            # than shipping artist-specific album lists. It survives cache deletion.
+            self.store.set_setting('series_snapshot:'+series_id,
+                {'id': series_id, 'name': detail.get('name', 'Curated catalogue'),
+                 'members': sorted(members), 'saved_at': time.time()})
+        except AppError as error:
+            saved = self.store.setting('series_snapshot:'+series_id)
+            if not saved or error.status < 500 and error.status != 429:
                 raise
-            # Verified snapshot keeps this well-known catalogue usable during MB outages.
-            members = set(BEATLES_CORE)
+            members = set(saved['members'])
             self.store.cache_put(key, sorted(members), ttl=300)
         return members
+
+    def catalogue_candidates(self, artist_id, query=None):
+        """Discover release-group series without treating a name as a canonical rule."""
+        detail = self.get('artist/'+mbid(artist_id))
+        query = (query or detail['name']).strip()[:160]
+        result = self.get('series', {'query': 'series:'+literal(query), 'limit': 30})
+        return {'query': query, 'series': [
+            {key: s.get(key, '') for key in ('id', 'name', 'type', 'disambiguation')}
+            for s in result.get('series', []) if s.get('type') in {'Release group', 'Release group series'}]}
 
     def get(self, entity, params=None):
         params = dict(params or {}, fmt='json')
@@ -172,7 +186,7 @@ class MusicBrainz:
             group = catalogue.get(album['id'])
             if group is None:
                 continue
-            included = self.membership(group)
+            included = self.membership(group, artist_id)
             if included or manage:
                 album.update(catalogue_included=included, catalogue_override=self.store.setting('catalogue:'+group['id']),
                              secondary_types=group.get('secondary-types', []))

@@ -25,6 +25,9 @@ release={'id':RELEASE,'title':'The Original Album','status':'Official','date':'2
 def mb_get(entity,params=None):
     if entity=='artist':return {'artists':[{'id':ARTIST,'name':'The Artist','type':'Group','country':'GB'}]}
     if entity=='artist/'+ARTIST:return {'id':ARTIST,'name':'The Artist'}
+    if entity=='series':return {'series':[{'id':RELEASE,'name':'The Artist core catalogue','type':'Release group'}]}
+    if entity=='series/'+RELEASE:return {'id':RELEASE,'name':'The Artist core catalogue','type':'Release group',
+        'relations':[{'release-group':{'id':ALBUM}}]}
     if entity=='release-group':return {'release-groups':[group], 'release-group-count':1}
     if entity=='release-group/'+ALBUM:return group
     if entity=='release':return {'releases':[release],'release-count':1}
@@ -42,6 +45,7 @@ source={'id':album_id,'name':'The Original Album (Deluxe Edition)','release_date
 
 
 def spotify_api(method,path,params=None,body=None):
+    if path=='me/player/devices':return {'devices':[{'id':'phone','name':'Fixture phone','type':'Smartphone','is_active':True,'is_restricted':False}]}
     if path=='search':return {'albums':{'items':[{'id':album_id}]}}
     if path=='albums/'+album_id:return source
     if path=='me/player':return {'device':{'id':'phone','name':'Fixture phone'},'shuffle_state':False,'repeat_state':'off'}

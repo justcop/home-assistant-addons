@@ -164,3 +164,72 @@ def test_fallback_candidate_search_paginates_when_structured_search_is_empty(app
     monkeypatch.setattr(spotify, 'api', api); monkeypatch.setattr(spotify, 'album', source)
     assert spotify.candidates(album)[0]['id'] == 'n'*22
     assert [offset for _, offset in calls] == [0, 0, 10, 20]
+
+
+def test_disc_playback_excludes_other_discs_and_allows_unmapped_other_disc(application,monkeypatch):
+    spotify=application.extensions['spotify'];album=ready_album(application)
+    album['tracks'][0]['disc_number']=1
+    album['tracks'][1].update(disc_number=2,verified=False,spotify_id=None)
+    album['playable']=False
+    calls=[]
+    def api(method,path,params=None,body=None):
+        calls.append((path,body))
+        return {'device':{'id':'device'},'shuffle_state':False,'repeat_state':'off'}
+    monkeypatch.setattr(spotify,'api',api)
+    assert spotify.play(album,disc_number=1)['track_count']==1
+    assert calls[-1]==('me/player/play',{'uris':['spotify:track:'+'a'*22],'position_ms':0})
+    calls.clear()
+    with pytest.raises(AppError,match='verified'):spotify.play(album,disc_number=2)
+    assert calls==[]
+
+
+@pytest.mark.parametrize('disc',[0,-1,True,'1',1.5,3])
+def test_invalid_disc_never_starts_playback(application,monkeypatch,disc):
+    spotify=application.extensions['spotify'];api=Mock()
+    monkeypatch.setattr(spotify,'api',api)
+    with pytest.raises(AppError):spotify.play(ready_album(application),disc_number=disc)
+    api.assert_not_called()
+
+
+def test_preferred_device_transfer_preserves_exact_disc_queue(application,monkeypatch):
+    spotify=application.extensions['spotify'];store=application.extensions['store']
+    album=ready_album(application);album['tracks'][1]['disc_number']=2
+    store.set_setting('preferred_device',{'id':'old-id','name':'Phone','type':'Smartphone'})
+    states=iter([{'device':{'id':'speaker'},'shuffle_state':True,'repeat_state':'context'},
+                 {'device':{'id':'new-id'},'shuffle_state':False,'repeat_state':'off'}])
+    calls=[]
+    def api(method,path,params=None,body=None):
+        calls.append((method,path,params,body))
+        if path=='me/player/devices':return {'devices':[{'id':'new-id','name':'Phone','type':'Smartphone','is_restricted':False}]}
+        if method=='GET':return next(states)
+        return {}
+    monkeypatch.setattr(spotify,'api',api);monkeypatch.setattr('app.spotify.time.sleep',lambda _:None)
+    result=spotify.play(album,disc_number=2)
+    assert result['device']=='Phone'
+    assert ('PUT','me/player',None,{'device_ids':['new-id'],'play':False}) in calls
+    assert calls[-1]==('PUT','me/player/play',{'device_id':'new-id'},{'uris':['spotify:track:'+'b'*22],'position_ms':0})
+
+
+@pytest.mark.parametrize('devices', [[],[{'id':'phone','name':'Phone','type':'Smartphone','is_restricted':True}],
+    [{'id':'a','name':'Phone','type':'Smartphone'},{'id':'b','name':'Phone','type':'Smartphone'}]])
+def test_unavailable_or_ambiguous_preference_never_plays_elsewhere(application,monkeypatch,devices):
+    spotify=application.extensions['spotify'];application.extensions['store'].set_setting('preferred_device',{'id':'phone','name':'Phone','type':'Smartphone'})
+    calls=[]
+    def api(method,path,params=None,body=None):
+        calls.append(method)
+        return {'devices':devices} if path.endswith('devices') else {'device':{'id':'speaker'}}
+    monkeypatch.setattr(spotify,'api',api)
+    with pytest.raises(AppError) as failure:spotify.play(ready_album(application))
+    assert failure.value.status==409
+    assert 'PUT' not in calls
+
+
+def test_preferred_device_transfer_timeout_never_starts_tracks(application,monkeypatch):
+    spotify=application.extensions['spotify'];application.extensions['store'].set_setting('preferred_device',{'id':'phone','name':'Phone','type':'Smartphone'})
+    calls=[]
+    def api(method,path,params=None,body=None):
+        calls.append(path)
+        return {'devices':[{'id':'phone','name':'Phone','type':'Smartphone'}]} if path.endswith('devices') else {'device':{'id':'speaker'}}
+    monkeypatch.setattr(spotify,'api',api);monkeypatch.setattr('app.spotify.time.sleep',lambda _:None)
+    with pytest.raises(AppError,match='activated'):spotify.play(ready_album(application))
+    assert 'me/player/play' not in calls
