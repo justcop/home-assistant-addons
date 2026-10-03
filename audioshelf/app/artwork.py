@@ -61,7 +61,42 @@ class Artwork:
         self.download_slots = threading.Semaphore(3)
         self.prune_lock = threading.Lock()
         self.session = requests.Session()
-        self.session.headers['User-Agent'] = 'AudioShelf/0.3.1 (https://github.com/justcop/home-assistant-addons)'
+        self.session.headers['User-Agent'] = 'AudioShelf/0.4.1 (https://github.com/justcop/home-assistant-addons)'
+        self.prune_uncollected()
+
+    def evict(self, album_id):
+        with self.locks[hash(album_id)%len(self.locks)]:
+            (self.directory/(album_id+'.img')).unlink(missing_ok=True)
+            with self.store.cache_connect() as db:
+                db.execute('DELETE FROM cache WHERE key LIKE ?', ('artwork:'+album_id+'%',))
+
+    def prune_uncollected(self):
+        owned = {album['id'] for album in self.store.albums(owned=True)}
+        for path in self.directory.glob('*.img'):
+            if path.stem not in owned:
+                path.unlink(missing_ok=True)
+        with self.store.cache_connect() as db:
+            keys = [row[0] for row in db.execute("SELECT key FROM cache WHERE key LIKE 'artwork:%'")]
+            db.executemany('DELETE FROM cache WHERE key=?', [(key,) for key in keys if key.split(':')[1] not in owned])
+
+    def preview(self, release_id):
+        # Preview requests never write images or metadata to disk.
+        try:
+            with self.download_slots:
+                data, mime = self.download(f'https://coverartarchive.org/release/{release_id}/front-250')
+                return data, mime, 'cover-art-archive'
+        except (requests.RequestException, AppError, OSError):
+            return PLACEHOLDER, 'image/svg+xml', 'placeholder'
+
+    def _save(self, album_id, data, metadata):
+        if not self.store.album(album_id)['on_shelf']:
+            return
+        path = self.directory/(album_id+'.img')
+        temporary = path.with_suffix('.tmp')
+        temporary.write_bytes(data)
+        os.replace(temporary, path)
+        self.store.cache_put('artwork:'+album_id, metadata, ttl=86400 if metadata['source']=='spotify' else 30*86400)
+        self._prune()
 
     def download(self, url):
         # Follow only known artwork hosts, including Cover Art Archive's Internet Archive redirects.
@@ -114,9 +149,31 @@ class Artwork:
                 path.unlink(missing_ok=True)
                 total -= stat.st_size
 
+    def _sources(self, album, chosen_release):
+        if chosen_release:
+            yield 'cover-art-archive', f'https://coverartarchive.org/release/{chosen_release}/front-500'
+        yield 'cover-art-archive', f'https://coverartarchive.org/release-group/{album["id"]}/front-500'
+        # Only look up edition alternatives if the album-level cover is missing.
+        cover_release = album.get('release_id')
+        if ('cassette' in (album.get('release_label') or '').lower()
+                and 'cassette' not in self.store.release_filters(album['id'])['formats']):
+            cover_release = None
+            if self.musicbrainz:
+                try:
+                    page = self.musicbrainz.release_page(album['id'])
+                    if page['releases']:
+                        cover_release = page['releases'][0]['id']
+                except AppError:
+                    pass
+        if cover_release and cover_release != chosen_release:
+            yield 'cover-art-archive', f'https://coverartarchive.org/release/{cover_release}/front-500'
+        yield 'spotify', None
+
     def get(self, album_id):
-        album = self.store.album(album_id)
         with self.locks[hash(album_id)%len(self.locks)]:
+            album = self.store.album(album_id)
+            if not album['on_shelf']:
+                self.evict(album_id)
             override = self.store.artwork_override(album_id)
             if override:
                 path = self.custom_directory / Path(override).name
@@ -127,7 +184,7 @@ class Artwork:
             key = 'artwork:'+album_id
             metadata = self.store.cache_get(key)
             chosen_release = self.store.setting('artwork_release:'+album_id)
-            identity = {'release': album.get('release_id'), 'chosen': chosen_release}
+            identity = {'release': album.get('release_id'), 'chosen': chosen_release, 'default': 'release-group'}
             if metadata and metadata.get('identity') == identity and path.exists():
                 try:
                     data = path.read_bytes()
@@ -139,37 +196,18 @@ class Artwork:
             if self.store.cache_get(negative):
                 return PLACEHOLDER, 'image/svg+xml', 'placeholder'
             with self.download_slots:
-                urls = []
-                cover_release = album.get('release_id')
-                if ('cassette' in (album.get('release_label') or '').lower()
-                        and 'cassette' not in self.store.release_filters(album_id)['formats']):
-                    cover_release = None
-                    if self.musicbrainz and not chosen_release:
-                        try:
-                            page = self.musicbrainz.release_page(album_id)
-                            if page['releases']:
-                                cover_release = page['releases'][0]['id']
-                        except AppError:
-                            pass
-                for release_id in dict.fromkeys([chosen_release, cover_release]):
-                    if release_id:
-                        urls.append(('cover-art-archive',f'https://coverartarchive.org/release/{release_id}/front-500'))
-                urls.append(('cover-art-archive',f'https://coverartarchive.org/release-group/{album_id}/front-500'))
-                for source,url in urls + [('spotify',None)]:
+                for source,url in self._sources(album, chosen_release):
                     try:
                         url = url or self._spotify_url(album)
                         if not url:
                             continue
                         data,mime = self.download(url)
-                        temporary = path.with_suffix('.tmp')
-                        temporary.write_bytes(data)
-                        os.replace(temporary,path)
-                        self.store.cache_put(key,{'source':source, 'identity':identity, 'url':url},ttl=86400 if source=='spotify' else 30*86400)
-                        self._prune()
+                        self._save(album_id, data, {'source':source, 'identity':identity, 'url':url})
                         return data,mime,source
                     except (requests.RequestException, AppError, OSError):
                         LOG.debug('Artwork source unavailable for %s (%s)',album_id,source)
-                self.store.cache_put(negative,True,ttl=300)
+                if self.store.album(album_id)['on_shelf']:
+                    self.store.cache_put(negative,True,ttl=300)
                 return PLACEHOLDER, 'image/svg+xml', 'placeholder'
 
     def upload(self, album_id, encoded):
@@ -207,12 +245,7 @@ class Artwork:
             self.reset(album_id)
             self.store.set_setting('artwork_release:'+album_id, release_id)
             album = self.store.album(album_id)
-            path = self.directory/(album_id+'.img')
-            temporary = path.with_suffix('.tmp')
-            temporary.write_bytes(data)
-            os.replace(temporary, path)
-            self.store.cache_put('artwork:'+album_id, {'source': 'cover-art-archive',
-                'identity': {'release': album.get('release_id'), 'chosen': release_id},
-                'url': f'https://coverartarchive.org/release/{release_id}/front-500'}, ttl=30*86400)
-            self._prune()
+            self._save(album_id, data, {'source': 'cover-art-archive',
+                'identity': {'release': album.get('release_id'), 'chosen': release_id, 'default': 'release-group'},
+                'url': f'https://coverartarchive.org/release/{release_id}/front-500'})
         return mime
