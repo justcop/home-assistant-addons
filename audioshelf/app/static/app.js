@@ -3,6 +3,31 @@ const content = document.querySelector('#content');
 const modal = document.querySelector('#modal');
 const modalContent = document.querySelector('#modal-content');
 let statusInfo = {}, shelfView = 'artists', searchKind = 'artist', currentAlbum = null, routeGeneration = 0, toastTimer, artworkRevision = Date.now(), releasePicker = null, settingsDirty = false;
+const loadedAssets = document.documentElement.dataset.assetVersion;
+let workerRegistration, pendingChanges = 0;
+function noticeUpdate(build){
+  if(build?.asset_version && build.asset_version!==loadedAssets)document.querySelector('#app-update').hidden=false;
+}
+async function checkForUpdates(){
+  if(document.hidden)return;
+  try{const response=await fetch(new URL('api/status',document.baseURI),{credentials:'same-origin',cache:'no-store'});if(response.ok)noticeUpdate((await response.json()).build);}catch{}
+  workerRegistration?.update().catch(()=>{});
+}
+function unsavedChanges(){
+  return settingsDirty || modal.open || [...document.querySelectorAll('form input, form textarea, form select')].some(field=>{
+    if(field.type==='checkbox'||field.type==='radio')return field.checked!==field.defaultChecked;
+    if(field.tagName==='SELECT')return field.selectedIndex!==Math.max(0,[...field.options].findIndex(option=>option.defaultSelected));
+    return field.value!==field.defaultValue;
+  });
+}
+document.querySelector('#reload-update').addEventListener('click',()=>{
+  if(pendingChanges){toast('Wait for the current action to finish before reloading.');return;}
+  if(unsavedChanges()&&!window.confirm('Reloading will discard unsaved edits or close the open dialog. Reload now?'))return;
+  window.location.reload();
+});
+window.addEventListener('focus',checkForUpdates);
+document.addEventListener('visibilitychange',checkForUpdates);
+setInterval(checkForUpdates,60000);
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const id = value => encodeURIComponent(value);
 const year = album => escapeHtml(album.release_date?.slice(0,4) || 'Date unknown');
@@ -11,12 +36,14 @@ const duration = ms => ms ? `${Math.floor(ms/60000)}:${String(Math.floor(ms%6000
 const loading = message => `<div class="loading">${escapeHtml(message)}</div>`;
 function toast(message) {const el=document.querySelector('#toast');el.textContent=message;el.classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('visible'),6500);}
 async function api(path, method='GET', body={}) {
-  const options = {method,credentials:'same-origin'};
+  const options = {method,credentials:'same-origin',cache:'no-store'};
   if(method!=='GET'){options.headers={'Content-Type':'application/json','X-AudioShelf-Request':'1'};options.body=JSON.stringify(body);}
   let response;
+  if(method!=='GET')pendingChanges++;
   try {response=await fetch(new URL('api/'+path,document.baseURI),options);} catch {throw new Error('AudioShelf is offline. Check your connection and the add-on.');}
+  finally{if(method!=='GET')pendingChanges--;}
   if(!response.ok){const error=await response.json().catch(()=>({error:'The request failed.'}));const failure=new Error(error.error);failure.status=response.status;throw failure;}
-  if(response.headers.get('Content-Type')?.includes('application/json')) return response.json();
+  if(response.headers.get('Content-Type')?.includes('application/json')) {const result=await response.json();if(path==='status')noticeUpdate(result.build);return result;}
   return response;
 }
 function cover(album,large=false){return `<a class="cover-wrap" href="#album/${id(album.id)}" aria-label="Open ${escapeHtml(album.title)}"><img class="cover" src="api/albums/${id(album.id)}/artwork?v=${artworkRevision}" alt="${escapeHtml(album.title)} album cover" ${large?'':'loading="lazy"'}></a>`;}
@@ -341,5 +368,7 @@ document.addEventListener('click',async event=>{
 });
 route();
 if('serviceWorker' in navigator && !document.baseURI.includes('/hassio_ingress/')) {
-  navigator.serviceWorker.register(new URL('sw.js',document.baseURI)).catch(()=>{});
+  const workerURL=new URL('sw.js',document.baseURI);workerURL.searchParams.set('v',loadedAssets);
+  navigator.serviceWorker.register(workerURL,{updateViaCache:'none'}).then(registration=>{workerRegistration=registration;registration.update().catch(()=>{});}).catch(()=>{});
+  navigator.serviceWorker.addEventListener('message',event=>{if(event.data?.type==='audioshelf-update')checkForUpdates();});
 }

@@ -4,6 +4,16 @@ from app.server import create_app
 from conftest import ALBUM,post
 
 
+def test_shell_assets_share_content_version_and_update_worker_is_not_cached(client):
+    # Inspect the generated URLs rather than asserting a hardcoded release number.
+    html=client.get('/').text
+    version=client.get('/api/status').json['build']['asset_version']
+    assert 'data-asset-version="'+version+'"' in html
+    assert 'static/app.js?v='+version in html and 'static/style.css?v='+version in html
+    assert client.get('/sw.js').headers['Cache-Control']=='no-store'
+    assert client.get('/api/status').headers['Cache-Control']=='no-store'
+
+
 def test_shell_health_and_empty_shelf(client):
     assert client.get('/').status_code==200
     assert client.get('/health').json['ok']
@@ -34,7 +44,7 @@ def test_password_protection_and_spoofed_ingress_header(tmp_path):
 def test_ingress_assets_and_urls_are_prefixed(client):
     response=client.get('/',headers={'X-Ingress-Path':'/api/hassio_ingress/token'},environ_base={'REMOTE_ADDR':'172.30.32.2'})
     assert b'<base href="/api/hassio_ingress/token/">' in response.data
-    assert b'href="static/style.css"' in response.data
+    assert b'href="static/style.css?v=' in response.data
 
 
 def test_invalid_ids_rejected_without_remote_request(client):
