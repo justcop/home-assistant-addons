@@ -29,7 +29,19 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
       const response=await page.request.fetch(base+'/api/'+endpoint,{method,data:body,headers:{'X-AudioShelf-Request':'1'}});
       assert(response.ok(),await response.text());return response.json();
     }
-    await page.goto(base);await login('owner','fixture-owner-password');
+    await page.goto(base);
+    // Account fields must remain a vertical form on phones and wide screens.
+    for(const width of [390,1440]){
+      await page.setViewportSize({width,height:844});
+      const boxes=await page.locator('#login-form > input, #login-form > .primary').evaluateAll(elements=>elements.map(el=>{const r=el.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,bottom:r.bottom};}));
+      assert.equal(boxes.length,4);
+      for(let n=1;n<boxes.length;n++)assert(boxes[n].y>=boxes[n-1].bottom,'Sign-in fields overlap or flow sideways');
+      assert(boxes.every(b=>Math.abs(b.x-boxes[0].x)<1&&Math.abs(b.width-boxes[0].width)<1));
+      assert(boxes[0].width<=440);
+      assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+      assert((await page.locator('#login-form input[type="checkbox"]').boundingBox()).width<=20);
+    }
+    await page.setViewportSize({width:390,height:844});await login('owner','fixture-owner-password');
     assert.equal((await api('shelf')).albums.length,14);
     await settings();await page.getByRole('button',{name:'Manage accounts',exact:true}).click();
     const creation=page.locator('[data-account-form][data-operation="create"]');
