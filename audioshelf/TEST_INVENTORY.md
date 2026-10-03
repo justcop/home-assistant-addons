@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-03T20:11:37+01:00 (Europe/London).
+Reviewed: 2026-10-03T20:15:15+01:00 (Europe/London).
 
-Reviewed responsive artwork coverage: the three size cases share one aspect-ratio, cache reuse, byte-reduction and authenticated revalidation test. One lifecycle test covers no-upscale, source change, removal and durable upload retention. One invalid-size case prevents unbounded transformations. Extended existing browser cover and update flows for srcset selection and sticky prominent reload alert, retaining their edit safeguards. No obsolete feature-removal checks added.
+Reviewed responsive cover sizes, byte reduction, authentication, revalidation and cache lifecycle coverage. Browser cover assertion now decodes the selected response bitmap to check actual fixture pixels, since naturalWidth is density-corrected with srcset. Retained the responsive URL assertion and sticky reload banner/edit safeguards in existing browser flows.
 
-<!-- inventory: {"reviewed_at": "2026-10-03T20:11:37+01:00", "review_note": "Reviewed responsive artwork coverage: the three size cases share one aspect-ratio, cache reuse, byte-reduction and authenticated revalidation test. One lifecycle test covers no-upscale, source change, removal and durable upload retention. One invalid-size case prevents unbounded transformations. Extended existing browser cover and update flows for srcset selection and sticky prominent reload alert, retaining their edit safeguards. No obsolete feature-removal checks added.", "source_sha256": "51a0f9f9421b7d72c1636b4c0adf9ec118b7abf56397120e8be63ee809b2b982"} -->
+<!-- inventory: {"reviewed_at": "2026-10-03T20:15:15+01:00", "review_note": "Reviewed responsive cover sizes, byte reduction, authentication, revalidation and cache lifecycle coverage. Browser cover assertion now decodes the selected response bitmap to check actual fixture pixels, since naturalWidth is density-corrected with srcset. Retained the responsive URL assertion and sticky reload banner/edit safeguards in existing browser flows.", "source_sha256": "c0a07e460228badfd43572fb7d27841caa32547686e6392030930b20b151c884"} -->
 
 ## Backend cases (235)
 

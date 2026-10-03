@@ -47,7 +47,7 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.getByRole('heading',{name:'The Original Album',exact:true}).waitFor();
     assert.equal(await page.locator('.track-row').count(),2);
     await page.locator('.cover').evaluate(image=>image.decode());
-    assert.equal(await page.locator('.cover').evaluate(image=>image.naturalWidth),50);
+    assert.equal(await page.locator('.cover').evaluate(async image=>{const bitmap=await createImageBitmap(await (await fetch(image.currentSrc)).blob());const width=bitmap.width;bitmap.close();return width;}),50);
     assert((await page.locator('.cover').getAttribute('src')).startsWith('api/albums/'));
     assert((await page.locator('.cover').getAttribute('srcset')).includes('640w'));
     assert((await page.locator('.cover').evaluate(img=>img.currentSrc)).includes('size='));
