@@ -2,12 +2,12 @@
 
 An album-first collection for your phone. MusicBrainz supplies artists, studio albums and original tracklists. Spotify supplies playback. Your shelf belongs to AudioShelf and starts empty.
 
-Browse artists, explore their studio albums in release order, add records to your shelf, and play their original tracks. Singles, compilations, live albums, remixes and soundtracks are excluded. Reissues within the same MusicBrainz release group appear as one album. Genuine collaborative albums appear under each credited artist.
+Browse artists, explore their studio albums in release order, add records to your shelf, and play their original tracks. Generic catalogue rules exclude singles, compilations, live albums and remixes; a curated series or explicit album override can include an original soundtrack album. Reissues within the same MusicBrainz release group appear as one album. Genuine collaborative albums appear under each credited artist.
 
 ## Install
 
 1. In Home Assistant, refresh the add-on store for the existing repository: `https://github.com/justcop/home-assistant-addons`.
-2. Install **AudioShelf**, version **0.2.0**. Enable the sidebar entry if wanted, then start it.
+2. Install **AudioShelf**, version **0.3.0**. Enable the sidebar entry if wanted, then start it.
 3. Use **Open Web UI** for Home Assistant ingress. The standalone UI is also exposed on port **8098** by default, for your existing external-access system.
 4. Open the Record Store, search for an artist, browse their studio albums, and add one to your shelf. Spotify is not needed to collect records.
 
@@ -40,7 +40,7 @@ Shuffle and Repeat are switched off and checked before the playback command. Tur
 
 ## Persistence and backups
 
-The SQLite database lives at `/share/audioshelf/audioshelf.db` by default. It contains your shelf, browsed album records, canonical editions, track mappings and custom-cover references. Raw API responses are stored separately in the replaceable cache. Updates and container rebuilds preserve this folder. Changing `data_directory` selects a different database; copy the existing folder first if moving your collection.
+The SQLite database lives at `/share/audioshelf/audioshelf.db` by default. It contains your shelf, browsed album records, canonical editions, track mappings, settings, catalogue overrides, cover references and bounded diagnostic events. Raw API responses are stored separately in the replaceable cache. Updates and container rebuilds preserve this folder. Changing `data_directory` selects a different database; copy the existing folder first if moving your collection.
 
 Use the local Home Assistant `/share` filesystem for the live database, rather than a network-mounted SMB/NFS directory. Only one running AudioShelf instance should use it. Connections are short lived and transactional; canonical edition changes and mapping writes are serialized. Schema version checks prevent an older app silently opening a newer database.
 
@@ -67,12 +67,12 @@ Options can come from `/data/options.json`, another JSON file selected by `AUDIO
 .venv/bin/python -m pytest tests -q
 node --check app/static/app.js
 bash -n run.sh
-docker build --build-arg BUILD_VERSION=0.2.0 --build-arg BUILD_ARCH=amd64 -t audioshelf .
+docker build --build-arg BUILD_VERSION=0.3.0 --build-arg BUILD_ARCH=amd64 -t audioshelf .
 ```
 
 ## Artwork and replaceable cache
 
-Covers now load through the add-on, rather than relying on the phone browser following remote artwork redirects. AudioShelf tries the Cover Art Archive release-group cover, the selected MusicBrainz edition, then Spotify artwork when connected. Spotify fallback works before track matching as well as afterwards. Downloads are validated as JPEG, PNG or WebP, limited to 5 MB, and follow redirects only to known artwork hosts. Missing artwork shows a record placeholder and is retried after five minutes, or immediately when Spotify becomes connected or the album gains a mapping.
+Covers now load through the add-on, rather than relying on the phone browser following remote artwork redirects. AudioShelf tries the selected MusicBrainz edition’s front cover, the release-group cover, then Spotify artwork when connected. Spotify fallback works before track matching as well as afterwards. Downloads are validated as JPEG, PNG or WebP, limited to 5 MB, and follow redirects only to known artwork hosts. Missing artwork shows a record placeholder and is retried after five minutes, or immediately when Spotify becomes connected or the album gains a mapping.
 
 `cache_directory` defaults to **`/share/audioshelf-cache`**, separate from **`/share/audioshelf`**. It contains `metadata.db` for reproducible MusicBrainz/Spotify API responses and `artwork/` for downloaded images. You manage backup exclusions for this folder yourself. No Home Assistant backup settings are changed. The paths must be separate, with neither containing the other. Any custom path must be accessible inside the add-on; the `/share` filesystem is already mapped. Environment override: `AUDIOSHELF_CACHE_DIRECTORY`.
 
@@ -92,3 +92,23 @@ MusicBrainz requests have a shared one-request-per-second limiter, persistent me
 - <https://developer.spotify.com/documentation/web-api/tutorials/february-2026-migration-guide>
 - <https://developer.spotify.com/documentation/web-api/reference/start-a-users-playback>
 - <https://developers.home-assistant.io/docs/apps/configuration/>
+
+## Edition preferences and curated catalogues
+
+In **Settings → MusicBrainz releases**, country preferences default to **GB, US, XW, XE**, followed by any other country. Audio formats default to **vinyl, CD, digital**, in that order; cassette and other formats are excluded unless enabled. Change country order by editing the comma-separated codes, and format order with the arrows. **Only use these countries** turns the country preference into a strict filter. Unexpanded standard editions win first, then preferred country, closeness to the original release year, preferred format and earliest date. This avoids a later unlabelled vinyl reissue beating an original-year CD in the same country. All audio media in an edition must use an enabled format; video discs are skipped. Spotify playback still prefers the latest suitable labelled remaster or dated studio mix.
+
+The edition picker loads one MusicBrainz page at a time. Use **Load more editions** to inspect later pages. A failed page offers **Retry edition search** and keeps editions already loaded. If no edition matches a strict restriction or allowed format, adjust Settings. Saving preferences keeps all existing tracklists and manual Spotify corrections. **Album settings → Change original tracklist** explicitly replaces an edition and clears its mappings after confirmation. **Country preference for this album** can override the global country order; Magical Mystery Tour starts with the US LP preference, and can be changed to use global preferences.
+
+Artist discography membership is independent of edition countries and formats. The Beatles use [MusicBrainz's Core Catalogue series](https://musicbrainz.org/series/255a357a-909a-4437-9b7a-bfbb814bde77): the 13 original albums, including A Hard Day’s Night, Help!, Magical Mystery Tour and Yellow Submarine. Past Masters stays excluded as a compilation. A verified snapshot keeps this catalogue usable when the series endpoint is temporarily unavailable. Artist Record Store pages have **Manage catalogue**: choose a MusicBrainz release-group series for any artist, or include/exclude individual release-group IDs. Clearing the series restores the generic studio-album rules. Explicit album overrides take precedence and do not remove anything already on your shelf. MusicBrainz standardises series entities and relationships, but does not require every artist to have a canonical discography series.
+
+## Themes
+
+**Settings → Appearance** offers ten themes: Record Store, Midnight, Paper, Forest, Ocean, Sunset, Plum, Monochrome, Amber and High Contrast. Each has a preview. The choice is stored in the collection database and reused on other devices. A browser-local copy applies it promptly on reopening. Colour palettes include light and dark choices; typography and corner styles vary. Browser checks cover all ten palettes, text/button contrast and phone layout.
+
+## Problem reports and known matching corrections
+
+Use **Album settings → Download diagnostic report** after reproducing an issue. Send that JSON file with a description of what went wrong. It includes build information, the saved tracklist and mapping methods, country/format settings, edition decisions, the latest Spotify candidates and matching explanations, artwork source and recent album errors. It excludes OAuth tokens, account credentials, cookies and private configuration. The database retains at most 200 diagnostic events across albums and one latest detailed automatic/manual matching assessment per album. The download includes that album's latest 30 events. API response caches and downloaded artwork remain in the separate replaceable cache folder.
+
+Amnesiac's documented printed cassette-title variations are recognised without broadly trusting fuzzy titles: “Pull Pulk Revolving Doors”, “The Morning Bell Amnesiac” and “Dollars & Cents” can match the corresponding Radiohead recordings when artist and duration agree. Kid A's different Morning Bell remains distinct. Dated generic remixes remain rejected; dated Mix labels and explicit Stereo/Mono Mix labels can match the original studio recording. Both structured and fallback Spotify searches inspect up to 30 editions. Existing manual corrections remain intact.
+
+Legacy cassette tracklists are flagged for review rather than silently replaced. Automatic artwork tries an eligible edition for these albums, while keeping the saved tracklist and matches. **Choose cover from another edition** changes only the image; covers download into the replaceable cache and the chosen edition ID is saved with the collection. A failed cover download preserves a working custom upload. **Restore automatic cover** clears both edition-cover and uploaded-cover overrides. The selected tracklist's front cover is otherwise preferred before the release-group cover and Spotify fallback, and cached artwork is refreshed when the selected edition changes.

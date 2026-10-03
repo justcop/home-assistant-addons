@@ -11,3 +11,7 @@ Your collection is stored under `/share/audioshelf`. Spotify tokens are stored s
 See [the full README](https://github.com/justcop/home-assistant-addons/blob/main/audioshelf/README.md) for edition corrections, backups, phone installation, testing and troubleshooting.
 
 Artwork and reproducible API data are stored separately in `/share/audioshelf-cache`, configurable with `cache_directory`. You manage backup exclusions. Your uploaded covers remain in `/share/audioshelf/custom-artwork`. Automatic playback matching prefers newer labelled remasters or dated studio mixes; tap Find another edition to update existing automatic mappings.
+
+MusicBrainz country preferences default to GB, US, worldwide and Europe, with other countries available as fallbacks. Vinyl, CD and digital are enabled in that order; cassette is excluded. Change priority and optional strict country restrictions under **Settings → MusicBrainz releases**. Artist Record Store pages offer **Manage catalogue** to use a curated MusicBrainz series or individual inclusion/exclusion overrides. The Beatles default to the 13-album Core Catalogue, excluding Past Masters.
+
+Choose from ten themes under **Settings → Appearance**. In **Album settings**, choose artwork from another eligible edition or download a diagnostic report after reproducing an issue. Existing tracklists and manual mappings survive settings changes; changing the original tracklist explicitly clears its mappings after confirmation.

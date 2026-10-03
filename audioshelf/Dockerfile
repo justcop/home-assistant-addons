@@ -1,5 +1,5 @@
 FROM ghcr.io/home-assistant/base:3.22
-ARG BUILD_VERSION=0.2.0
+ARG BUILD_VERSION=0.3.0
 ARG BUILD_ARCH
 LABEL io.hass.version="${BUILD_VERSION}" io.hass.type="addon" io.hass.arch="${BUILD_ARCH}"
 ENV LANG=C.UTF-8 PYTHONUNBUFFERED=1 AUDIOSHELF_VERSION=${BUILD_VERSION}

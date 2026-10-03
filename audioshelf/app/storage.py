@@ -6,6 +6,9 @@ import threading
 import time
 from pathlib import Path
 
+from .release_filters import DEFAULT_FILTERS
+from .catalogue_rules import BEATLES, BEATLES_SERIES, MAGICAL_MYSTERY_TOUR
+
 
 class Store:
     """Short-lived connections, transactional updates and explicit schema versions."""
@@ -17,7 +20,7 @@ class Store:
         self.catalogue_lock = threading.RLock()
         with self.connect() as db:
             version = db.execute('PRAGMA user_version').fetchone()[0]
-            if version > 2:
+            if version > 3:
                 raise RuntimeError('This database needs a newer AudioShelf version.')
             db.executescript('''
                 CREATE TABLE IF NOT EXISTS artists (
@@ -40,10 +43,13 @@ class Store:
                 CREATE TABLE IF NOT EXISTS shelf (
                     album_id TEXT PRIMARY KEY REFERENCES albums(id), added_at REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS artwork_overrides (album_id TEXT PRIMARY KEY REFERENCES albums(id), filename TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS diagnostics (
+                    id INTEGER PRIMARY KEY, album_id TEXT, created REAL NOT NULL, event TEXT NOT NULL, details TEXT NOT NULL);
                 DROP TABLE IF EXISTS cache;
                 CREATE TABLE IF NOT EXISTS oauth_states (
                     state TEXT PRIMARY KEY, verifier TEXT NOT NULL, expires REAL NOT NULL);
-                PRAGMA user_version=2;
+                PRAGMA user_version=3;
             ''')
             if version == 1:
                 db.execute('VACUUM')
@@ -79,6 +85,47 @@ class Store:
         with self.cache_connect() as db:
             row = db.execute('SELECT value FROM cache WHERE key=? AND expires>?', (key, time.time())).fetchone()
         return json.loads(row[0]) if row else None
+
+    def setting(self, key, default=None):
+        with self.connect() as db:
+            row = db.execute('SELECT value FROM settings WHERE key=?', (key,)).fetchone()
+        return json.loads(row[0]) if row else default
+
+    def set_setting(self, key, value):
+        with self.connect() as db:
+            db.execute('INSERT OR REPLACE INTO settings VALUES (?,?)', (key, json.dumps(value)))
+
+    def release_filters(self, album_id=None):
+        filters = self.setting('release_filters', {key: list(value) if isinstance(value, list) else value for key, value in DEFAULT_FILTERS.items()})
+        if album_id:
+            countries = self.release_countries(album_id)
+            if countries is not None:
+                filters['countries'] = countries
+        return filters
+
+    def release_countries(self, album_id):
+        return self.setting('release_countries:'+album_id, ['US'] if album_id == MAGICAL_MYSTERY_TOUR else None)
+
+    def catalogue_series(self, artist_id):
+        return self.setting('series:'+artist_id, BEATLES_SERIES if artist_id == BEATLES else None)
+
+    def set_release_filters(self, filters):
+        self.set_setting('release_filters', filters)
+
+    def diagnostic(self, album_id, event, details):
+        with self.connect() as db:
+            if event in {'spotify_candidates', 'spotify_assessment'}:
+                db.execute('DELETE FROM diagnostics WHERE album_id=? AND event=?', (album_id, event))
+            db.execute('INSERT INTO diagnostics(album_id,created,event,details) VALUES (?,?,?,?)',
+                       (album_id, time.time(), event, json.dumps(details)))
+            db.execute('DELETE FROM diagnostics WHERE id NOT IN (SELECT id FROM diagnostics ORDER BY id DESC LIMIT 200)')
+
+    def diagnostics(self, album_id):
+        with self.connect() as db:
+            rows = [dict(r) for r in db.execute('SELECT created,event,details FROM diagnostics WHERE album_id=? ORDER BY id DESC LIMIT 30', (album_id,))]
+        for row in rows:
+            row['details'] = json.loads(row['details'])
+        return rows
 
     def cache_put(self, key, value, ttl=86400):
         with self.cache_connect() as db:
@@ -152,6 +199,8 @@ class Store:
             for track in result['tracks']:
                 track['isrcs'] = json.loads(track['isrcs'])
         result['playable'] = bool(result['tracks']) and all(t['spotify_id'] and t['verified'] for t in result['tracks'])
+        result['release_countries'] = self.release_countries(album_id)
+        result['release_filters'] = self.release_filters(album_id)
         return result
 
     def set_tracks(self, album_id, release, tracks, reviewed=False):

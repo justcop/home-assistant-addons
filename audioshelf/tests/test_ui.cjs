@@ -51,6 +51,20 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.getByRole('button',{name:'Album settings'}).click();
     await page.getByRole('button',{name:'Restore automatic cover'}).click();
     await page.locator('#toast').filter({hasText:'Automatic artwork restored.'}).waitFor();
+    await page.getByRole('button',{name:'Album settings'}).click();
+    let failEditionRequest=true;
+    await page.route('**/api/albums/*/releases?offset=*',async route=>{
+      if(failEditionRequest){failEditionRequest=false;await route.fulfill({status:502,contentType:'application/json',body:JSON.stringify({error:'Fixture MusicBrainz failure'})});}
+      else await route.continue();
+    });
+    await page.getByRole('button',{name:'Change original tracklist'}).click();
+    await page.getByRole('button',{name:'Retry edition search'}).click();
+    await page.locator('[data-action="choose-release"]').first().waitFor();
+    await page.getByRole('button',{name:'Close',exact:true}).click();
+    await page.getByRole('button',{name:'Album settings'}).click();
+    await page.getByRole('button',{name:'Choose cover from another edition'}).click();
+    await page.locator('[data-action="choose-cover"]').first().click();
+    await page.locator('#toast').filter({hasText:'Edition cover saved.'}).waitFor();
     await page.getByRole('button',{name:'This tracklist is correct'}).click();
     await page.getByRole('button',{name:'Match Spotify tracks'}).click();
     await page.getByRole('heading',{name:'Spotify editions'}).waitFor();
@@ -74,7 +88,64 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     if(screenshotDir)await page.screenshot({path:path.join(screenshotDir,'shelf-desktop.png'),fullPage:true});
     await page.getByRole('link',{name:'Open settings'}).click();
     await page.getByRole('heading',{name:'Settings.'}).waitFor();
-    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+    const filterForm=page.locator('#release-filters-form');
+    assert.equal(await page.getByLabel('Country preference order').inputValue(),'GB, US, XW, XE');
+    assert.equal(await page.getByLabel('Only use these countries').isChecked(),false);
+    assert.equal(await filterForm.getByLabel('Cassette',{exact:true}).isChecked(),false);
+    await page.getByLabel('Country preference order').fill('GB, US');
+    await page.getByRole('button',{name:'Move CD earlier',exact:true}).click();
+    await page.getByRole('button',{name:'Save release filters'}).click();
+    await page.locator('#toast').filter({hasText:'Release filters saved.'}).waitFor();
+    assert.deepEqual((await (await fetch(base+'/api/settings')).json()).release_filters,
+      {countries:['GB','US'],formats:['cd','vinyl','digital'],strict_countries:false});
+    const themes=(await (await fetch(base+'/api/settings')).json()).themes;
+    assert.equal(await page.locator('.theme-choice').count(),10);
+    await page.setViewportSize({width:390,height:844});
+    const backgrounds=new Set();
+    for(const theme of themes){
+      await page.getByRole('button',{name:`Use ${theme.name} theme`,exact:true}).click();
+      await page.locator(`.theme-choice[data-id="${theme.id}"][aria-pressed="true"]`).waitFor();
+      const palette=await page.evaluate(()=>{
+        const root=getComputedStyle(document.documentElement);
+        const get=key=>root.getPropertyValue('--'+key).trim();
+        return {theme:document.documentElement.dataset.theme,paper:get('paper'),ink:get('ink'),muted:get('muted'),accent:get('wine'),onAccent:get('on-accent')};
+      });
+      assert.equal(palette.theme,theme.id);backgrounds.add(palette.paper);
+      const previewBackgrounds=await page.locator('.theme-choice').evaluateAll(choices=>choices.map(choice=>getComputedStyle(choice).backgroundColor));
+      assert.equal(new Set(previewBackgrounds).size,10,'Theme previews must retain their own palettes');
+      const luminance=hex=>{const channels=hex.slice(1).match(/../g).map(value=>parseInt(value,16)/255).map(value=>value<=.04045?value/12.92:((value+.055)/1.055)**2.4);return .2126*channels[0]+.7152*channels[1]+.0722*channels[2];};
+      const contrast=(a,b)=>{const values=[luminance(a),luminance(b)].sort((a,b)=>b-a);return (values[0]+.05)/(values[1]+.05);};
+      assert(contrast(palette.ink,palette.paper)>=4.5,`${theme.name} text contrast`);
+      assert(contrast(palette.muted,palette.paper)>=4.5,`${theme.name} muted text contrast`);
+      assert(contrast(palette.accent,palette.onAccent)>=4.5,`${theme.name} button contrast`);
+      assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,`${theme.name} settings overflow`);
+      if(screenshotDir)await page.screenshot({path:path.join(screenshotDir,`theme-${theme.id}-mobile.png`),fullPage:true});
+      await page.goto(base+'/#album/f5093c06-23e3-4f01-aeaa-40f72885ee3a');
+      await page.getByRole('heading',{name:'The Original Album',exact:true}).waitFor();
+      assert.equal(await page.locator('.track-row').count(),2);
+      assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,`${theme.name} album overflow`);
+      if(screenshotDir&&(theme.id==='midnight'||theme.id==='high-contrast'))await page.screenshot({path:path.join(screenshotDir,`album-${theme.id}-mobile.png`),fullPage:true});
+      await page.goto(base+'/#settings');await page.getByRole('heading',{name:'Settings.'}).waitFor();
+
+    }
+    assert.equal(backgrounds.size,10);
+    await page.reload();await page.getByRole('heading',{name:'Settings.'}).waitFor();
+    assert.equal(await page.evaluate(()=>document.documentElement.dataset.theme),'high-contrast');
+    await page.getByRole('button',{name:'Use Record Store theme',exact:true}).click();
+    await page.locator('.theme-choice[data-id="record-store"][aria-pressed="true"]').waitFor();
+    if(screenshotDir){await page.setViewportSize({width:1280,height:900});await page.screenshot({path:path.join(screenshotDir,'settings-themes-desktop.png'),fullPage:true});}
+    await page.goto(base+'/#artist/f181961b-20f7-459e-89de-920ef03c7ed0/store');
+    await page.getByRole('button',{name:'Manage catalogue'}).click();
+    await page.getByLabel('Catalogue rule for The Original Album').selectOption('exclude');
+    await page.locator('#toast').filter({hasText:'Catalogue rule saved.'}).waitFor();
+    assert.equal(await page.locator('.album-card').count(),0);
+    await page.getByLabel('Catalogue rule for The Original Album').selectOption('auto');
+    await page.locator('.album-card').waitFor();
+    await page.getByRole('button',{name:'Close',exact:true}).click();
+    const report=await (await fetch(base+'/api/albums/f5093c06-23e3-4f01-aeaa-40f72885ee3a/diagnostics')).json();
+    assert.equal(report.format,'audioshelf-diagnostics-1');
+    assert(report.events.some(event=>event.event==='spotify_candidates'));
+    assert(!JSON.stringify(report).includes('fixture-only'));
     assert.deepEqual(errors,[],'Browser JavaScript errors');
     const ingressPage=await browser.newPage({viewport:{width:390,height:844}});
     await ingressPage.route('**/api/hassio_ingress/fixture/**',async route=>{
@@ -88,6 +159,6 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await ingressPage.goto(base+'/api/hassio_ingress/fixture/');
     await ingressPage.getByRole('heading',{name:'My shelf.'}).waitFor();
     await ingressPage.locator('.artist-row').waitFor();
-    console.log('Browser checks passed: phone collection, search, add, canonical review, deluxe matching, exact playback, filter, desktop, ingress paths.');
+    console.log('Browser checks passed: collection, artwork selection, edition retry, track review and playback, release preferences, all 10 themes and contrast, catalogue overrides, diagnostics, desktop and ingress.');
   }finally{if(browser)await browser.close();server.kill('SIGTERM');}
 })().catch(error=>{console.error(error);process.exitCode=1;});

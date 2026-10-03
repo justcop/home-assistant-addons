@@ -201,19 +201,18 @@ class Spotify:
             raise AppError('This album has no MusicBrainz artist credit. Choose another catalogue entry.')
         title = album['title'].replace('"','')
         artist = artists[0].replace('"','')
-        search = self.api('GET','search', {'q':f'album:"{title}" artist:"{artist}"','type':'album','limit':10,'market':self.market})
-        sources = list(search.get('albums',{}).get('items',[]))
-        # Search subsequent pages too: an older standard edition may occupy the first ten results.
-        page = search.get('albums',{})
-        for offset in (10,20):
-            if not page.get('next'):
-                break
-            extra = self.api('GET','search', {'q':f'album:"{title}" artist:"{artist}"','type':'album','limit':10,'offset':offset,'market':self.market})
-            page = extra.get('albums',{})
-            sources.extend(page.get('items',[]))
+        def search_pages(query):
+            sources = []
+            for offset in (0, 10, 20):
+                result = self.api('GET', 'search', {'q': query, 'type': 'album', 'limit': 10,
+                    'offset': offset, 'market': self.market}).get('albums', {})
+                sources.extend(result.get('items', []))
+                if not result.get('next'):
+                    break
+            return sources
+        sources = search_pages(f'album:"{title}" artist:"{artist}"')
         if not sources:
-            search = self.api('GET','search', {'q':f'{title} {artist}','type':'album','limit':10,'market':self.market})
-            sources = search.get('albums',{}).get('items',[])
+            sources = search_pages(f'{title} {artist}')
         candidates, seen = [], set()
         for source in sources:
             if source['id'] not in seen:
