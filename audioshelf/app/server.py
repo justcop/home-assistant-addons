@@ -285,6 +285,15 @@ def create_app(options=None):
         artwork.upload(mbid(album_id),request.json.get('image',''))
         return jsonify(ok=True)
 
+    @app.get('/api/albums/<album_id>/artwork-preview/<release_id>')
+    def artwork_preview(album_id, release_id):
+        store.album(mbid(album_id))
+        data, mime, source = artwork.preview(mbid(release_id))
+        response = send_file(io.BytesIO(data), mimetype=mime, max_age=0)
+        response.headers['X-Artwork-Source'] = source
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+
     @app.delete('/api/albums/<album_id>/artwork')
     def reset_artwork(album_id):
         artwork.reset(mbid(album_id))
@@ -315,7 +324,10 @@ def create_app(options=None):
 
     @app.delete('/api/albums/<album_id>/shelf')
     def remove_shelf(album_id):
-        store.shelf(mbid(album_id),False)
+        album_id = mbid(album_id)
+        with artwork.locks[hash(album_id)%len(artwork.locks)]:
+            store.shelf(album_id,False)
+            artwork.evict(album_id)
         return jsonify(ok=True)
 
     @app.get('/api/albums/<album_id>/releases')

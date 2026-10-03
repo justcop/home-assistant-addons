@@ -19,6 +19,7 @@ def png():
 
 
 def test_downloaded_artwork_is_cached_outside_collection(application,client,monkeypatch):
+    application.extensions['store'].shelf(ALBUM,True)
     artwork=application.extensions['artwork'];download=Mock(return_value=(png(),'image/png'))
     monkeypatch.setattr(artwork,'download',download)
     first=client.get(f'/api/albums/{ALBUM}/artwork')
@@ -30,7 +31,7 @@ def test_downloaded_artwork_is_cached_outside_collection(application,client,monk
     assert list(artwork.directory.glob('*.img'))
 
 
-def test_canonical_release_then_spotify_fallback(application,monkeypatch):
+def test_album_cover_then_edition_then_spotify_fallback(application,monkeypatch):
     artwork=application.extensions['artwork'];spotify=application.extensions['spotify'];calls=[]
     spotify.tokens={'refresh_token':'test'}
     monkeypatch.setattr(spotify,'api',lambda *args:{'albums':{'items':[{'images':[{'url':'https://i.scdn.co/image/test','width':640}]}]}})
@@ -40,7 +41,7 @@ def test_canonical_release_then_spotify_fallback(application,monkeypatch):
         raise requests.HTTPError('404')
     monkeypatch.setattr(artwork,'download',download)
     assert artwork.get(ALBUM)[2]=='spotify'
-    assert '/release/' in calls[0] and '/release-group/' in calls[1]
+    assert '/release-group/' in calls[0] and '/release/' in calls[1]
     assert calls[2]=='https://i.scdn.co/image/test'
 
 
@@ -78,6 +79,8 @@ def test_invalid_artwork_upload_leaves_previous_cover(application,client):
 def test_artwork_requires_password(tmp_path):
     app=create_app({'data_directory':str(tmp_path/'s'),'private_directory':str(tmp_path/'p'),'web_password':'test'})
     assert app.test_client().get(f'/api/albums/{ALBUM}/artwork').status_code==401
+    from conftest import RELEASE
+    assert app.test_client().get(f'/api/albums/{ALBUM}/artwork-preview/{RELEASE}').status_code==401
 
 
 def test_download_hosts_and_size_are_restricted():
@@ -121,3 +124,106 @@ def test_cache_can_be_rebuilt_without_losing_collection(application):
 def test_cache_cannot_live_inside_collection(tmp_path):
     with pytest.raises(RuntimeError,match='separate'):
         create_app({'data_directory':str(tmp_path/'s'),'cache_directory':str(tmp_path/'s/cache')})
+
+
+def test_store_browsing_never_saves_artwork(application,client,monkeypatch):
+    artwork=application.extensions['artwork'];store=application.extensions['store']
+    monkeypatch.setattr(artwork,'download',lambda url:(png(),'image/png'))
+    response=client.get(f'/api/albums/{ALBUM}/artwork')
+    assert response.data==png() and response.headers['Cache-Control']=='no-store'
+    assert not list(artwork.directory.glob('*.img'))
+    assert store.cache_get('artwork:'+ALBUM) is None
+
+
+def test_removal_evicts_download_and_keeps_uploaded_cover(application,client,monkeypatch):
+    artwork=application.extensions['artwork'];store=application.extensions['store']
+    store.shelf(ALBUM,True)
+    monkeypatch.setattr(artwork,'download',lambda url:(png(),'image/png'))
+    artwork.get(ALBUM)
+    artwork.upload(ALBUM,base64.b64encode(png()).decode())
+    assert post(client,f'/api/albums/{ALBUM}/shelf',method='DELETE').status_code==200
+    assert not list(artwork.directory.glob('*.img'))
+    assert store.cache_get('artwork:'+ALBUM) is None
+    assert store.artwork_override(ALBUM)
+
+
+def test_startup_purges_store_only_artwork(application,monkeypatch):
+    artwork=application.extensions['artwork'];store=application.extensions['store']
+    store.shelf(ALBUM,True)
+    monkeypatch.setattr(artwork,'download',lambda url:(png(),'image/png'))
+    artwork.get(ALBUM)
+    artwork.prune_uncollected()
+    assert list(artwork.directory.glob('*.img'))
+    store.shelf(ALBUM,False)
+    create_app({'data_directory':str(store.directory),'cache_directory':str(store.cache_directory),
+        'private_directory':str(store.directory.parent/'private')})
+    assert not list(artwork.directory.glob('*.img'))
+    assert store.cache_get('artwork:'+ALBUM) is None
+
+
+@pytest.mark.parametrize('missing',[False,True])
+def test_cover_preview_uses_fixed_source_and_never_caches(application,client,monkeypatch,missing):
+    from conftest import RELEASE
+    artwork=application.extensions['artwork'];calls=[]
+    def download(url):
+        calls.append(url)
+        if missing: raise requests.HTTPError('404')
+        return png(),'image/png'
+    monkeypatch.setattr(artwork,'download',download)
+    response=client.get(f'/api/albums/{ALBUM}/artwork-preview/{RELEASE}')
+    assert response.status_code==200 and response.headers['Cache-Control']=='no-store'
+    assert response.headers['X-Artwork-Source']==('placeholder' if missing else 'cover-art-archive')
+    assert calls==[f'https://coverartarchive.org/release/{RELEASE}/front-250']
+    assert not list(artwork.directory.glob('*.img'))
+    with application.extensions['store'].cache_connect() as db:
+        assert not db.execute("SELECT key FROM cache WHERE key LIKE 'artwork:%'").fetchone()
+
+
+def test_selected_cover_is_cached_only_after_album_joins_shelf(application,monkeypatch):
+    from conftest import RELEASE
+    artwork=application.extensions['artwork'];store=application.extensions['store']
+    download=Mock(return_value=(png(),'image/png'))
+    monkeypatch.setattr(artwork,'download',download)
+    artwork.choose_release(ALBUM,RELEASE)
+    assert store.setting('artwork_release:'+ALBUM)==RELEASE
+    assert not list(artwork.directory.glob('*.img'))
+    store.shelf(ALBUM,True)
+    artwork.get(ALBUM);artwork.get(ALBUM)
+    assert download.call_count==2
+    assert store.cache_get('artwork:'+ALBUM)['identity']['chosen']==RELEASE
+    artwork.preview(RELEASE)
+    assert len(list(artwork.directory.glob('*.img')))==1
+
+
+def test_invalid_preview_identifier_never_reaches_downloader(application,client,monkeypatch):
+    download=Mock()
+    monkeypatch.setattr(application.extensions['artwork'],'download',download)
+    assert client.get(f'/api/albums/{ALBUM}/artwork-preview/not-an-id').status_code==400
+    download.assert_not_called()
+
+
+def test_default_album_cover_ignores_tracklist_edition_and_refreshes_old_cache(application,monkeypatch):
+    from conftest import RELEASE
+    artwork=application.extensions['artwork'];store=application.extensions['store']
+    store.shelf(ALBUM,True)
+    old=io.BytesIO();Image.new('RGB',(20,20),'blue').save(old,format='PNG')
+    (artwork.directory/(ALBUM+'.img')).write_bytes(old.getvalue())
+    store.cache_put('artwork:'+ALBUM,{'source':'cover-art-archive','identity':{'release':RELEASE,'chosen':None}})
+    download=Mock(return_value=(png(),'image/png'))
+    monkeypatch.setattr(artwork,'download',download)
+    before=store.album(ALBUM)['tracks']
+    assert artwork.get(ALBUM)[0]==png()
+    assert artwork.get(ALBUM)[0]==png()
+    download.assert_called_once_with(f'https://coverartarchive.org/release-group/{ALBUM}/front-500')
+    assert store.album(ALBUM)['tracks']==before
+
+
+def test_explicit_cover_precedes_album_default_without_library_cache(application,monkeypatch):
+    from conftest import RELEASE
+    artwork=application.extensions['artwork'];store=application.extensions['store']
+    store.set_setting('artwork_release:'+ALBUM,RELEASE)
+    download=Mock(return_value=(png(),'image/png'))
+    monkeypatch.setattr(artwork,'download',download)
+    assert artwork.get(ALBUM)[0]==png()
+    download.assert_called_once_with(f'https://coverartarchive.org/release/{RELEASE}/front-500')
+    assert not list(artwork.directory.glob('*.img'))

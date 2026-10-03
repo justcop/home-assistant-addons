@@ -1,5 +1,5 @@
 'use strict';
-const CACHE = 'audioshelf-shell-0.3.1';
+const CACHE = 'audioshelf-shell-0.3.2';
 const root = self.registration.scope;
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll([

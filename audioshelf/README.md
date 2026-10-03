@@ -7,7 +7,7 @@ Browse artists, explore their studio albums in release order, add records to you
 ## Install
 
 1. In Home Assistant, refresh the add-on store for the existing repository: `https://github.com/justcop/home-assistant-addons`.
-2. Install **AudioShelf**, version **0.3.1**. Enable the sidebar entry if wanted, then start it.
+2. Install **AudioShelf**, version **0.3.2**. Enable the sidebar entry if wanted, then start it.
 3. Use **Open Web UI** for Home Assistant ingress. The standalone UI is also exposed on port **8098** by default, for your existing external-access system.
 4. Open the Record Store, search for an artist, browse their studio albums, and add one to your shelf. Spotify is not needed to collect records.
 
@@ -67,12 +67,14 @@ Options can come from `/data/options.json`, another JSON file selected by `AUDIO
 .venv/bin/python -m pytest tests -q
 node --check app/static/app.js
 bash -n run.sh
-docker build --build-arg BUILD_VERSION=0.3.1 --build-arg BUILD_ARCH=amd64 -t audioshelf .
+docker build --build-arg BUILD_VERSION=0.3.2 --build-arg BUILD_ARCH=amd64 -t audioshelf .
 ```
 
 ## Artwork and replaceable cache
 
-Covers now load through the add-on, rather than relying on the phone browser following remote artwork redirects. AudioShelf tries the selected MusicBrainz edition’s front cover, the release-group cover, then Spotify artwork when connected. Spotify fallback works before track matching as well as afterwards. Downloads are validated as JPEG, PNG or WebP, limited to 5 MB, and follow redirects only to known artwork hosts. Missing artwork shows a record placeholder and is retried after five minutes, or immediately when Spotify becomes connected or the album gains a mapping.
+Downloaded artwork is retained only for albums on your shelf. Browsing the store and cover picker does not save image files; removing an album evicts its downloaded cover. Older store-only artwork caches are removed on startup. Uploaded covers remain durable. Edition thumbnails use authenticated same-origin preview URLs, return a placeholder when unavailable, and are never cached.
+
+Covers load through the add-on, including edition thumbnails. AudioShelf defaults to the album-level MusicBrainz release-group cover, then a suitable edition cover, then Spotify artwork when connected. An explicitly chosen edition cover or uploaded image takes priority. Spotify fallback works before track matching as well as afterwards. Downloads are validated as JPEG, PNG or WebP, limited to 5 MB, and follow redirects only to known artwork hosts. Missing artwork shows a record placeholder. Shelf albums retry after five minutes, or immediately when Spotify becomes connected or the album gains a mapping; store artwork and previews retry on the next request.
 
 `cache_directory` defaults to **`/share/audioshelf-cache`**, separate from **`/share/audioshelf`**. It contains `metadata.db` for reproducible MusicBrainz/Spotify API responses and `artwork/` for downloaded images. You manage backup exclusions for this folder yourself. No Home Assistant backup settings are changed. The paths must be separate, with neither containing the other. Any custom path must be accessible inside the add-on; the `/share` filesystem is already mapped. Environment override: `AUDIOSHELF_CACHE_DIRECTORY`.
 
@@ -117,7 +119,7 @@ Track matching uses the printed track title and the title of its linked MusicBra
 
 Existing albums gain this recording metadata when **Match Spotify tracks** or **Find another edition** is used, without replacing their printed titles, track order or review status. Automatic rematching preserves confirmed manual corrections. Dated generic remixes remain rejected; dated Mix labels and explicit Stereo/Mono Mix labels can match the original studio recording. Both structured and fallback Spotify searches inspect up to 30 editions.
 
-Legacy cassette tracklists are flagged for review rather than silently replaced. Automatic artwork tries an eligible edition for these albums, while keeping the saved tracklist and matches. **Choose cover from another edition** changes only the image; covers download into the replaceable cache and the chosen edition ID is saved with the collection. A failed cover download preserves a working custom upload. **Restore automatic cover** clears both edition-cover and uploaded-cover overrides. The selected tracklist's front cover is otherwise preferred before the release-group cover and Spotify fallback, and cached artwork is refreshed when the selected edition changes.
+Legacy cassette tracklists are flagged for review rather than silently replaced. Automatic artwork tries an eligible edition for these albums, while keeping the saved tracklist and matches. **Choose cover from another edition** changes only the image; covers download into the replaceable cache and the chosen edition ID is saved with the collection. A failed cover download preserves a working custom upload. **Restore automatic cover** clears both edition-cover and uploaded-cover overrides. The MusicBrainz release-group cover is the automatic default, followed by a suitable edition cover and Spotify fallback, and cached artwork is refreshed when the selected edition changes.
 
 Multi-disc albums show a Play disc button for each disc in the selected original edition. Only that disc’s verified tracks are sent to Spotify, in order. Turn Spotify Autoplay off for silence afterwards. Disc boundaries follow the chosen MusicBrainz edition, so a vinyl and CD edition may divide an album differently.
 
