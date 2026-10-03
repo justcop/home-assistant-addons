@@ -27,7 +27,9 @@ def application(tmp_path):
 
 @pytest.fixture
 def client(application):
-    return application.test_client()
+    client=application.test_client()
+    client.environ_base.update(REMOTE_ADDR='172.30.32.2', HTTP_X_INGRESS_PATH='/api/hassio_ingress/test')
+    return client
 
 
 def spotify_track(name, identifier, duration=180000):

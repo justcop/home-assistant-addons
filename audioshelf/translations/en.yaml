@@ -16,6 +16,9 @@ configuration:
     description: Two-letter country code, GB by default.
   web_password:
     name: Standalone web password
-    description: Optional extra password for the standalone UI. Ingress uses Home Assistant authentication.
+    description: Required for standalone access. Use a long unique password and HTTPS. Ingress uses Home Assistant authentication.
+  allow_support_access:
+    name: Allow temporary support access (advanced)
+    description: Off by default. Enables owner-created expiring logins under AudioShelf Settings → Security. Turning this off revokes all support logins.
 network:
   8099/tcp: Standalone AudioShelf web interface and Spotify callback

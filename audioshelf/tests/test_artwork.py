@@ -60,7 +60,7 @@ def test_uploaded_cover_survives_restart_and_reset(application,client,monkeypatc
     original=application.extensions['store']
     restarted=create_app({'data_directory':str(original.directory),'cache_directory':str(original.cache_directory),
         'private_directory':str(original.directory.parent/'private')})
-    assert restarted.test_client().get(f'/api/albums/{ALBUM}/artwork').data==png()
+    assert restarted.test_client().get(f'/api/albums/{ALBUM}/artwork',headers={'X-Ingress-Path':'/api/hassio_ingress/test'},environ_base={'REMOTE_ADDR':'172.30.32.2'}).data==png()
     assert list((original.directory/'custom-artwork').glob('*.img'))
     assert post(client,f'/api/albums/{ALBUM}/artwork',method='DELETE').status_code==200
     assert original.artwork_override(ALBUM) is None

@@ -10,7 +10,7 @@ from datetime import timedelta
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from flask import Flask, jsonify, render_template, request, send_file, session
+from flask import Flask, g, jsonify, render_template, request, send_file, session
 from werkzeug.exceptions import HTTPException
 
 from .artwork import Artwork
@@ -21,6 +21,7 @@ from .release_filters import matches_filters, validate_filters
 from .spotify import Spotify, atomic_private_json, spotify_id
 from .storage import Store
 from .themes import THEMES, THEME_IDS
+from .security import Security
 
 LOG = logging.getLogger('audioshelf')
 
@@ -54,7 +55,7 @@ def create_app(options=None):
     app = Flask(__name__)
     app.config.update(SECRET_KEY=json.loads(secret_path.read_text())['key'], MAX_CONTENT_LENGTH=7*1024*1024,
                       SESSION_COOKIE_NAME='audioshelf_session', SESSION_COOKIE_HTTPONLY=True,
-                      SESSION_COOKIE_SAMESITE='Lax', PERMANENT_SESSION_LIFETIME=timedelta(days=30))
+                      SESSION_COOKIE_SAMESITE='Lax', SESSION_COOKIE_SECURE=True, PERMANENT_SESSION_LIFETIME=timedelta(hours=12))
     musicbrainz, spotify = MusicBrainz(store), Spotify(store, options, private_dir)
     artwork = Artwork(store,spotify,musicbrainz)
     app.extensions.update(store=store, musicbrainz=musicbrainz, spotify=spotify, artwork=artwork)
@@ -62,23 +63,62 @@ def create_app(options=None):
     build = json.loads(build_path.read_text()) if build_path.exists() else {'version':'0.1.0','channel':'local','revision':'local'}
     build['version'] = os.environ.get('AUDIOSHELF_VERSION',build['version'])
     password = options.get('web_password','')
-    fingerprint = hashlib.sha256((app.config['SECRET_KEY']+password).encode()).hexdigest()
-    login_attempts = {}
+    security = Security(private_dir, password, options.get('allow_support_access', False))
+    app.extensions['security'] = security
 
     def ingress():
-        # The ingress header alone cannot bypass the standalone password.
+        # Only the Supervisor's ingress proxy can vouch for HA authentication.
         return request.remote_addr == '172.30.32.2' and bool(request.headers.get('X-Ingress-Path'))
 
+    def identity():
+        if ingress():
+            return {'role': 'owner', 'ingress': True}
+        if not password:
+            return None
+        return security.identity(session.get('sid'))
+
     def authenticated():
-        return not password or ingress() or secrets.compare_digest(session.get('auth',''), fingerprint)
+        return identity() is not None
 
     @app.before_request
     def protect():
         if request.method in {'POST','PUT','PATCH','DELETE'}:
             if request.headers.get('X-AudioShelf-Request') != '1' or not request.is_json:
                 raise AppError('Please perform this action from AudioShelf.', 403)
-        if request.path.startswith('/api/') and request.path not in {'/api/status','/api/login'} and not authenticated():
-            raise AppError('Enter your AudioShelf password.', 401)
+            if not isinstance(request.get_json(silent=True), dict):
+                raise AppError('Supply a JSON object.', 400)
+            origin = request.headers.get('Origin')
+            allowed_hosts = {request.host}
+            external = urlsplit(options.get('spotify_redirect_uri', ''))
+            if external.scheme == 'https' and external.netloc:
+                allowed_hosts.add(external.netloc)
+            if origin and not ingress() and urlsplit(origin).netloc not in allowed_hosts:
+                raise AppError('Use the same AudioShelf address for this action.', 403)
+        if request.path.startswith('/api/') and request.path not in {'/api/status','/api/login'}:
+            g.identity = identity()
+            if g.identity is None:
+                raise AppError('Enter your AudioShelf password. If none is set, configure one in Home Assistant or use ingress.', 401)
+            if g.identity['role'] != 'owner':
+                forbidden = (request.path.startswith('/api/security') or request.path in {
+                    '/api/spotify/connect', '/api/spotify/disconnect', '/api/export', '/api/backup'}
+                    or request.path.endswith('/diagnostics'))
+                if forbidden or (g.identity['role'] == 'view' and request.method not in {'GET','HEAD'} and request.path != '/api/logout'):
+                    raise AppError('This temporary login does not permit that action.', 403)
+
+    def owner_reauth():
+        if not g.identity or g.identity['role'] != 'owner':
+            raise AppError('Owner access required.', 403)
+        if ingress():
+            return
+        security.throttle(request.remote_addr)
+        if not security.owner_credentials(request.json.get('password'), request.json.get('code')):
+            raise AppError('Confirm your owner password and a fresh authenticator or recovery code.', 401)
+        security.clear_attempts(request.remote_addr)
+
+    def owner_session():
+        session.clear()
+        session['sid'] = security.create_session()
+        session.permanent = True
 
     @app.after_request
     def headers(response):
@@ -87,6 +127,7 @@ def create_app(options=None):
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['Referrer-Policy'] = 'no-referrer'
         response.headers['Content-Security-Policy'] = "default-src 'self'; img-src 'self' https://coverartarchive.org https://*.archive.org https://*.scdn.co data:; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'"
+        response.headers['X-Frame-Options'] = 'SAMEORIGIN'
         return response
 
     @app.errorhandler(AppError)
@@ -132,9 +173,9 @@ def create_app(options=None):
 
     @app.get('/api/status')
     def status():
-        result = {'build':build,'authenticated':authenticated(),'password_required':bool(password) and not ingress()}
+        result = {'build':build,'authenticated':authenticated(),'password_required':not ingress(), 'password_configured':bool(password), 'two_factor_enabled':bool(security.get('totp'))}
         if authenticated():
-            result.update(spotify_configured=spotify.configured, spotify_connected=spotify.connected,
+            result.update(role=identity()['role'], spotify_configured=spotify.configured, spotify_connected=spotify.connected,
                           spotify_redirect_uri=spotify.redirect_uri, data_directory=str(store.directory), cache_directory=str(store.cache_directory), market=spotify.market,
                           release_filters=store.release_filters(), theme=store.setting('theme', 'record-store'), themes=THEMES, preferred_device=store.setting('preferred_device'))
         return jsonify(result)
@@ -172,26 +213,65 @@ def create_app(options=None):
 
     @app.post('/api/login')
     def login():
-        address = request.remote_addr
-        now = time.monotonic()
-        for key in list(login_attempts):
-            login_attempts[key] = [t for t in login_attempts[key] if now-t<300]
-            if not login_attempts[key]:
-                del login_attempts[key]
-        attempts = login_attempts.setdefault(address, [])
-        if len(attempts) >= 10:
-            raise AppError('Too many password attempts. Try again in five minutes.',429)
-        if password and not secrets.compare_digest(str(request.json.get('password','')).encode(),password.encode()):
-            attempts.append(now)
-            raise AppError('Incorrect AudioShelf password.',401)
-        session['auth'] = fingerprint
-        session.permanent = True
-        login_attempts.pop(address,None)
-        return jsonify(ok=True)
+        body = request.json
+        old = session.get('sid')
+        token, role = security.login(body.get('password'), body.get('code'), request.remote_addr,
+                                     request.cookies.get('audioshelf_trusted'))
+        security.logout(old)
+        session.clear(); session['sid'] = token; session.permanent = True
+        response = jsonify(ok=True, role=role)
+        if role == 'owner' and body.get('remember') is True:
+            security.forget_trust(request.cookies.get('audioshelf_trusted'))
+            response.set_cookie('audioshelf_trusted', security.trust(), max_age=30*86400,
+                                secure=True, httponly=True, samesite='Lax')
+        return response
 
     @app.post('/api/logout')
     def logout():
-        session.clear()
+        security.logout(session.get('sid')); security.forget_trust(request.cookies.get('audioshelf_trusted')); session.clear()
+        response = jsonify(ok=True)
+        response.delete_cookie('audioshelf_trusted', secure=True, httponly=True, samesite='Lax')
+        return response
+
+    @app.get('/api/security')
+    def security_overview():
+        return jsonify({**security.overview(), 'ingress':ingress()})
+
+    @app.post('/api/security/totp/start')
+    def totp_start():
+        owner_reauth()
+        if not password:
+            raise AppError('Set a standalone web password in Home Assistant before enabling two-factor authentication.')
+        security.throttle(request.remote_addr)
+        return jsonify(security.start_totp())
+
+    @app.post('/api/security/totp/confirm')
+    def totp_confirm():
+        owner_reauth(); security.throttle((request.remote_addr or '')+':setup')
+        codes = security.confirm_totp(request.json.get('setup_code'))
+        security.clear_attempts((request.remote_addr or '')+':setup'); owner_session()
+        return jsonify(recovery_codes=codes)
+
+    @app.post('/api/security/totp/disable')
+    def totp_disable():
+        owner_reauth(); security.disable_totp(); owner_session()
+        return jsonify(ok=True)
+
+    @app.post('/api/security/revoke-sessions')
+    def revoke_sessions():
+        owner_reauth(); security.invalidate(); owner_session()
+        return jsonify(ok=True)
+
+    @app.post('/api/security/support')
+    def support_create():
+        owner_reauth()
+        if not password:
+            raise AppError('Set a standalone password before creating support access.')
+        return jsonify(security.create_grant(request.json.get('role', 'view'), request.json.get('hours', 1)))
+
+    @app.post('/api/security/support/<grant_id>/revoke')
+    def support_revoke(grant_id):
+        owner_reauth(); security.revoke_grant(grant_id)
         return jsonify(ok=True)
 
     @app.get('/api/shelf')

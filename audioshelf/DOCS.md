@@ -6,7 +6,7 @@ For playback, set your Spotify **client ID** and **exact HTTPS redirect URI** in
 
 Open Settings in the AudioShelf UI to connect Spotify. Review the original MusicBrainz tracklist, match the Spotify tracks, and open Spotify on your chosen device before pressing Play Album.
 
-Your collection is stored under `/share/audioshelf`. Spotify tokens are stored separately in persistent add-on `/data`. The standalone UI is on port 8098 by default; ingress is also supported. Your existing proxy supplies external HTTPS and access control. You can additionally set a `web_password` for standalone access.
+Your collection is stored under `/share/audioshelf`. Spotify tokens are stored separately in persistent add-on `/data`. The standalone UI is on port 8098 by default; ingress is also supported. Your existing proxy supplies external HTTPS and access control. Set a long unique `web_password` for standalone access, which is locked without one. Use HTTPS. Optional authenticator setup, trusted browsers and temporary support access are under Settings → Security; see README for setup and recovery.
 
 See [the full README](https://github.com/justcop/home-assistant-addons/blob/main/audioshelf/README.md) for edition corrections, backups, phone installation, testing and troubleshooting.
 

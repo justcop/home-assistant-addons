@@ -1,5 +1,5 @@
 name: AudioShelf
-version: "0.3.2"
+version: "0.4.1"
 slug: audioshelf
 description: Your album collection, with original tracklists and Spotify playback.
 url: https://github.com/justcop/home-assistant-addons/tree/main/audioshelf
@@ -17,7 +17,7 @@ panel_title: AudioShelf
 ports:
   8099/tcp: 8098
 ports_description:
-  8099/tcp: Standalone mobile UI and Spotify callback. Protect external access with your proxy or web password.
+  8099/tcp: Standalone mobile UI and Spotify callback. Standalone access requires a web password and HTTPS.
 map:
   - type: share
     read_only: false
@@ -28,6 +28,7 @@ options:
   spotify_redirect_uri: ""
   spotify_market: GB
   web_password: ""
+  allow_support_access: false
 schema:
   data_directory: str
   cache_directory: str
@@ -35,3 +36,4 @@ schema:
   spotify_redirect_uri: str?
   spotify_market: str
   web_password: password?
+  allow_support_access: bool
