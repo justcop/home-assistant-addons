@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-03T19:43:37+01:00 (Europe/London).
+Reviewed: 2026-10-03T19:47:42+01:00 (Europe/London).
 
-Removed obsolete tests that required automatic sole-device playback, replacing them with no-guess coverage for a single speaker and a route guard requiring an explicit choice. Extended both existing frontend playback flows to select the phone first. Extended the existing handoff regression to hold a speaker available while the chosen phone is missing, then retry only when the phone appears. Checked Change device saves without restarting music. Other exact-queue, disc, cancellation and preferred-device regressions remain distinct.
+Retained the reviewed device-choice regressions and replaced obsolete sole-device autoplay checks. Browser flows now wait for the tracklist-confirmation response to remove the review control before pressing Play, eliminating a race between two separate mutations without relaxing playback assertions. Speaker-only handoff, later phone appearance, first choice in both frontends and Change device remain covered by existing flows.
 
-<!-- inventory: {"reviewed_at": "2026-10-03T19:43:37+01:00", "review_note": "Removed obsolete tests that required automatic sole-device playback, replacing them with no-guess coverage for a single speaker and a route guard requiring an explicit choice. Extended both existing frontend playback flows to select the phone first. Extended the existing handoff regression to hold a speaker available while the chosen phone is missing, then retry only when the phone appears. Checked Change device saves without restarting music. Other exact-queue, disc, cancellation and preferred-device regressions remain distinct.", "source_sha256": "7013eac8994f97d6a0bdb15842482025a5ba8d4a9a6c5b74af701062426b6169"} -->
+<!-- inventory: {"reviewed_at": "2026-10-03T19:47:42+01:00", "review_note": "Retained the reviewed device-choice regressions and replaced obsolete sole-device autoplay checks. Browser flows now wait for the tracklist-confirmation response to remove the review control before pressing Play, eliminating a race between two separate mutations without relaxing playback assertions. Speaker-only handoff, later phone appearance, first choice in both frontends and Change device remain covered by existing flows.", "source_sha256": "429b372c1afad4f8de1b3bb14c78837b31a9223b0a7d5dae35963cc1f5bc7594"} -->
 
 ## Backend cases (230)
 

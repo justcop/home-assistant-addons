@@ -71,6 +71,7 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert.equal(await page.getByRole('button',{name:'Add Open Windows to shelf',exact:true}).count(),0);
     await page.getByRole('link',{name:'The Original Album',exact:true}).click();
     await page.getByRole('button',{name:'This tracklist is correct'}).click();
+    await page.getByRole('button',{name:'This tracklist is correct'}).waitFor({state:'hidden'});
     // Spotify can briefly return the old song after accepting a new queue.
     let startupReads=0, confirmStartup;
     const startupGate=new Promise(resolve=>confirmStartup=resolve);
