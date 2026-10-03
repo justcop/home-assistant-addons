@@ -42,3 +42,5 @@ input[type="checkbox"],dialog input[type="checkbox"]{width:18px;height:18px;padd
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;scroll-behavior:auto!important}}
 
 .theme-choice[data-theme="record-store"]{--paper:#f5f0e6;--ink:#282b27;--muted:#606257;--line:#c8c3b5;--wine:#742f38;--cream:#fffdf7;--green:#3d6552;--soft:#e7e1d2;--error:#eee0d8;--warning:#865130;--focus:#8c6725;--on-accent:#fffdf7;--display-font:Georgia,serif;--radius:5px;color-scheme:light;}
+
+.totp-qr{display:block;width:240px;max-width:100%;height:auto;margin:1rem auto;background:white}.settings-block textarea,#modal textarea{width:100%;max-width:100%;box-sizing:border-box}#modal form label{display:block;margin:.8rem 0}#modal code{overflow-wrap:anywhere}
