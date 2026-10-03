@@ -2,6 +2,7 @@
 import base64
 import binascii
 import io
+import hashlib
 import logging
 import os
 import threading
@@ -12,7 +13,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import requests
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 from .errors import AppError
 
@@ -61,19 +62,21 @@ class Artwork:
         self.download_slots = threading.Semaphore(3)
         self.prune_lock = threading.Lock()
         self.session = requests.Session()
-        self.session.headers['User-Agent'] = 'AudioShelf/0.5.3 (https://github.com/justcop/home-assistant-addons)'
+        self.session.headers['User-Agent'] = 'AudioShelf/0.5.4 (https://github.com/justcop/home-assistant-addons)'
         self.prune_uncollected()
 
     def evict(self, album_id):
         with self.locks[hash(album_id)%len(self.locks)]:
             (self.directory/(album_id+'.img')).unlink(missing_ok=True)
+            for variant in self.directory.glob(album_id+'-*.webp'):
+                variant.unlink(missing_ok=True)
             with self.store.cache_connect() as db:
                 db.execute('DELETE FROM cache WHERE key LIKE ?', ('artwork:'+album_id+'%',))
 
     def prune_uncollected(self):
         owned = {album['id'] for album in self.store.albums(owned=True)}
-        for path in self.directory.glob('*.img'):
-            if path.stem not in owned:
+        for path in [*self.directory.glob('*.img'), *self.directory.glob('*.webp')]:
+            if path.name[:36] not in owned:
                 path.unlink(missing_ok=True)
         with self.store.cache_connect() as db:
             keys = [row[0] for row in db.execute("SELECT key FROM cache WHERE key LIKE 'artwork:%'")]
@@ -137,7 +140,7 @@ class Artwork:
     def _prune(self):
         with self.prune_lock:
             files = []
-            for path in self.directory.glob('*.img'):
+            for path in [*self.directory.glob('*.img'), *self.directory.glob('*.webp')]:
                 try:
                     files.append((path,path.stat()))
                 except FileNotFoundError:
@@ -210,6 +213,41 @@ class Artwork:
                     self.store.cache_put(negative,True,ttl=300)
                 return PLACEHOLDER, 'image/svg+xml', 'placeholder'
 
+    @staticmethod
+    def resize(data, mime, size):
+        if mime == 'image/svg+xml':
+            return data, mime
+        with Image.open(io.BytesIO(data)) as original:
+            image = ImageOps.exif_transpose(original)
+            image.thumbnail((size, size), Image.Resampling.LANCZOS)
+            image = image.convert('RGBA' if 'A' in image.getbands() or 'transparency' in image.info else 'RGB')
+            output = io.BytesIO()
+            image.save(output, format='WEBP', quality=82, method=4)
+        return output.getvalue(), 'image/webp'
+
+    def sized(self, album_id, size):
+        # The source hash invalidates all derived sizes when a cover changes.
+        with self.locks[hash(album_id)%len(self.locks)]:
+            data, mime, source = self.get(album_id)
+            if mime == 'image/svg+xml':
+                return data, mime, source
+            path = self.directory / (album_id+'-'+str(size)+'-'+hashlib.sha256(data).hexdigest()[:24]+'.webp')
+            owned = self.store.album(album_id)['on_shelf']
+            if owned and path.exists():
+                return path.read_bytes(), 'image/webp', source
+            data, mime = self.resize(data, mime, size)
+            if owned:
+                for old in self.directory.glob(album_id+'-'+str(size)+'-*.webp'):
+                    old.unlink(missing_ok=True)
+                temporary = path.with_suffix('.'+uuid.uuid4().hex+'.tmp')
+                try:
+                    temporary.write_bytes(data)
+                    os.replace(temporary, path)
+                finally:
+                    temporary.unlink(missing_ok=True)
+                self._prune()
+            return data, mime, source
+
     def upload(self, album_id, encoded):
         self.store.album(album_id)
         try:
@@ -235,6 +273,8 @@ class Artwork:
             if previous:
                 (self.custom_directory/Path(previous).name).unlink(missing_ok=True)
             (self.directory/(album_id+'.img')).unlink(missing_ok=True)
+            for variant in self.directory.glob(album_id+'-*.webp'):
+                variant.unlink(missing_ok=True)
             with self.store.cache_connect() as db:
                 db.execute('DELETE FROM cache WHERE key LIKE ?',('artwork:'+album_id+'%',))
 

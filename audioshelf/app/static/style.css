@@ -45,4 +45,4 @@ input[type="checkbox"],dialog input[type="checkbox"]{width:18px;height:18px;padd
 
 .totp-qr{display:block;width:240px;max-width:100%;height:auto;margin:1rem auto;background:white}.settings-block textarea,#modal textarea{width:100%;max-width:100%;box-sizing:border-box}#modal form label{display:block;margin:.8rem 0}#modal code{overflow-wrap:anywhere}
 
-#app-update{max-width:1040px;margin:20px auto 0;padding:16px 24px}#app-update button{margin:8px 0 0 12px}
+#app-update{position:sticky;top:0;z-index:50;display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:16px;padding:20px 24px;background:var(--wine);color:var(--on-accent);border-bottom:3px solid var(--on-accent);box-shadow:0 6px 20px #0004}#app-update[hidden]{display:none}#app-update strong{display:block;font-size:1.2rem}#app-update span{display:block;margin-top:4px}#app-update button{background:var(--on-accent);color:var(--wine);border:2px solid currentColor;font-weight:800;min-height:48px;margin:0}

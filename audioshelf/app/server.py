@@ -127,7 +127,8 @@ def create_app(options=None):
 
     @app.after_request
     def headers(response):
-        if request.path.startswith(('/api/','/auth/')) or request.path == '/':
+        cover_response = request.endpoint == 'album_artwork' and request.method == 'GET' and response.status_code in (200, 304)
+        if not cover_response and (request.path.startswith(('/api/','/auth/')) or request.path == '/'):
             response.headers['Cache-Control'] = 'no-store'
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['Referrer-Policy'] = 'no-referrer'
@@ -365,8 +366,13 @@ def create_app(options=None):
 
     @app.get('/api/albums/<album_id>/artwork')
     def album_artwork(album_id):
-        data,mime,source = artwork.get(mbid(album_id))
-        response = send_file(io.BytesIO(data),mimetype=mime,max_age=0)
+        album_id = mbid(album_id)
+        size = request.args.get('size')
+        if size is not None and size not in {'128', '320', '640'}:
+            raise AppError('Choose a cover size of 128, 320 or 640 pixels.')
+        data,mime,source = artwork.sized(album_id, int(size)) if size else artwork.get(album_id)
+        response = send_file(io.BytesIO(data),mimetype=mime,max_age=0,etag=hashlib.sha256(data).hexdigest())
+        response.headers['Cache-Control'] = 'private, no-cache' if store.album(album_id)['on_shelf'] else 'no-store'
         response.headers['X-Artwork-Source'] = source
         return response
 
@@ -379,6 +385,7 @@ def create_app(options=None):
     def artwork_preview(album_id, release_id):
         store.album(mbid(album_id))
         data, mime, source = artwork.preview(mbid(release_id))
+        data, mime = artwork.resize(data, mime, 128)
         response = send_file(io.BytesIO(data), mimetype=mime, max_age=0)
         response.headers['X-Artwork-Source'] = source
         response.headers['Cache-Control'] = 'no-store'

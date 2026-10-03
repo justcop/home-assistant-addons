@@ -227,3 +227,47 @@ def test_explicit_cover_precedes_album_default_without_library_cache(application
     assert artwork.get(ALBUM)[0]==png()
     download.assert_called_once_with(f'https://coverartarchive.org/release/{RELEASE}/front-500')
     assert not list(artwork.directory.glob('*.img'))
+
+
+@pytest.mark.parametrize('size', [128,320,640])
+def test_sized_covers_preserve_aspect_cache_and_revalidate_privately(application,client,monkeypatch,size):
+    artwork=application.extensions['artwork'];application.extensions['store'].shelf(ALBUM,True)
+    buffer=io.BytesIO();Image.effect_noise((960,600),60).convert('RGB').save(buffer,format='PNG')
+    original=buffer.getvalue()
+    monkeypatch.setattr(artwork,'download',lambda url:(original,'image/png'))
+    resize=Mock(wraps=artwork.resize);monkeypatch.setattr(artwork,'resize',resize)
+    url=f'/api/albums/{ALBUM}/artwork?size={size}'
+    response=client.get(url)
+    assert response.mimetype=='image/webp' and response.headers['Cache-Control']=='private, no-cache'
+    with Image.open(io.BytesIO(response.data)) as image:assert image.size==(size,size*5//8)
+    assert len(response.data)<len(original)
+    assert client.get(url).data==response.data and resize.call_count==1
+    assert len(list(artwork.directory.glob(ALBUM+'-*.webp')))==1
+    assert client.get(url,headers={'If-None-Match':response.headers['ETag']}).status_code==304
+    denied=application.test_client().get(url,headers={'If-None-Match':response.headers['ETag']})
+    assert denied.status_code==401 and denied.headers['Cache-Control']=='no-store'
+    assert client.get(f'/api/albums/{ALBUM}/artwork').data==original
+
+
+def test_sized_cover_changes_invalidate_and_removal_evicts_variants(application,client):
+    store=application.extensions['store'];artwork=application.extensions['artwork'];store.shelf(ALBUM,True)
+    artwork.upload(ALBUM,base64.b64encode(png()).decode())
+    url=f'/api/albums/{ALBUM}/artwork?size=128'
+    first=client.get(url)
+    with Image.open(io.BytesIO(first.data)) as image:assert image.size==(20,20) # Never upscale.
+    buffer=io.BytesIO();Image.new('RGB',(20,20),'blue').save(buffer,format='PNG')
+    artwork.upload(ALBUM,base64.b64encode(buffer.getvalue()).decode())
+    changed=client.get(url,headers={'If-None-Match':first.headers['ETag']})
+    assert changed.status_code==200 and changed.headers['ETag']!=first.headers['ETag']
+    assert len(list(artwork.directory.glob(ALBUM+'-*.webp')))==1
+    client.delete(f'/api/albums/{ALBUM}/shelf',json={},headers={'X-AudioShelf-Request':'1'})
+    assert not list(artwork.directory.glob(ALBUM+'-*.webp'))
+    assert client.get(url).status_code==200
+    assert not list(artwork.directory.glob(ALBUM+'-*.webp'))
+    assert list(artwork.custom_directory.iterdir()) # The uploaded original stays durable.
+
+
+def test_invalid_cover_size_never_downloads(application,client,monkeypatch):
+    download=Mock();monkeypatch.setattr(application.extensions['artwork'],'download',download)
+    assert client.get(f'/api/albums/{ALBUM}/artwork?size=99999').status_code==400
+    download.assert_not_called()
