@@ -25,7 +25,7 @@ Playback requires Spotify Premium and your own Spotify developer app. The Februa
 
 AudioShelf uses Authorization Code with PKCE. **No client secret is required.** It requests only `user-read-playback-state` and `user-modify-playback-state`. Tokens refresh automatically; reconnect when Spotify revokes or expires the authorization. Tokens and the session key are in `/data/audioshelf-private`, separate from your shared collection folder, with restrictive file permissions. They never go into exported library files or browser storage.
 
-External HTTPS and access control are managed by your existing system. An optional `web_password` protects standalone API access. Home Assistant ingress uses HA authentication and bypasses that password only for the Supervisor ingress address, not for a spoofed header. If `web_password` is empty, standalone access relies on your network/proxy controls. The app provides its UI at the root of its routed address. Ingress prefixes are handled automatically.
+External HTTPS is supplied by your existing proxy. A `web_password` is required for standalone API access. Home Assistant ingress uses HA authentication and bypasses that password only for the Supervisor ingress address, not for a spoofed header. If `web_password` is empty, standalone API access is locked. Set it in Home Assistant configuration or use ingress. Standalone login cookies are Secure and require HTTPS. The app provides its UI at the root of its routed address. Ingress prefixes are handled automatically.
 
 ## Play an original album
 
@@ -154,3 +154,16 @@ python -m pytest audioshelf/tests -v
 ```
 
 Keep tests that protect an observable requirement or a meaningful past failure. Real album examples are fixtures for shared behaviour, never production exceptions. Consolidate duplicate scenarios where they protect the same behaviour. When removing a feature, remove tests for its obsolete behaviour; retain migration or rejection tests only where old data or calls still need handling. Test count is not a quality target. Run relevant checks during editing and the complete suite before publication; repeat only after changes or failures justify it. Release summaries should state which check groups passed, failed or were not run, and identify remaining live-device checks.
+
+
+## Security
+
+Version 0.4.0 locks standalone access when no web password is set. Existing installations using an empty password must configure a long, unique password in Home Assistant, then restart. Home Assistant ingress remains available through its own authentication. Put the standalone site behind HTTPS; login sessions expire after 12 hours.
+
+In **Settings → Security → Set up authenticator**, confirm your owner password, scan the locally generated QR code (or enter its manual setup key), then enter a six-digit authenticator code. Setup expires in ten minutes and two-factor authentication stays off until confirmed. Save the ten recovery codes when shown. Each code works once alongside your owner password. Codes are never shown again. A freshly used authenticator code cannot be reused; wait for the next code for another sensitive action.
+
+At login, **Trust this browser for 30 days** remembers the second factor. The password is still required after the 12-hour session expires. **Revoke other sessions and trusted browsers** invalidates existing sessions and trusted-browser credentials; logout also forgets the current trusted browser. Changing the configured owner password invalidates existing sessions and trusts on restart. Disabling two-factor authentication requires a fresh owner factor; owner-authenticated Home Assistant ingress can recover access if you lose your authenticator and recovery codes. Protect your Home Assistant login accordingly.
+
+For temporary testing, enable **Allow temporary support access (advanced)** in Home Assistant add-on configuration and restart. It is off by default. In AudioShelf **Settings → Security**, create a login with **View only** (default) or **Allow changes and playback**, lasting one to eight hours (default one hour). Share only the generated temporary password, shown once. Use the normal login screen over HTTPS. Temporary logins cannot change security settings, create more credentials, connect/disconnect Spotify, or export backups/diagnostics. View-only access cannot invoke modifying endpoints or playback. Revocation and expiry terminate already logged-in sessions too. Turning the Home Assistant toggle off and restarting revokes all support credentials, even if later re-enabled.
+
+Authentication secrets, recovery-code hashes, support-password hashes, server sessions and security activity are stored in private add-on data, separate from collection exports and database backups. Back up private add-on data securely as part of your Home Assistant backups. Login and setup attempts are throttled in persistent storage; forwarded IP headers do not bypass limits. Proxies sharing an address can share the throttle. The app records recent security activity without passwords or authenticator secrets. Two-factor authentication protects login, not vulnerabilities elsewhere in the app.

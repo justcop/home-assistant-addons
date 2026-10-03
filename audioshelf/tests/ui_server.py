@@ -13,7 +13,9 @@ from conftest import ALBUM,ARTIST,RELEASE,spotify_track
 
 temporary=tempfile.TemporaryDirectory()
 app=create_app({'data_directory':temporary.name+'/shelf','private_directory':temporary.name+'/private',
-    'spotify_client_id':'fixture','spotify_redirect_uri':'https://audioshelf.example/auth/spotify/callback'})
+    'web_password':'fixture-owner-password','allow_support_access':True,'spotify_client_id':'fixture','spotify_redirect_uri':'https://audioshelf.example/auth/spotify/callback'})
+# HTTP is limited to this local browser fixture; production cookies stay Secure.
+app.config['SESSION_COOKIE_SECURE']=False
 group={'id':ALBUM,'title':'The Original Album','primary-type':'Album','secondary-types':[],
        'first-release-date':'2007-04-18','artist-credit':[{'artist':{'id':ARTIST,'name':'The Artist','sort-name':'Artist, The'}}]}
 release={'id':RELEASE,'title':'The Original Album','status':'Official','date':'2007-04-23','country':'GB',
@@ -59,6 +61,14 @@ app.extensions['artwork'].download=lambda url:(cover_buffer.getvalue(),'image/pn
 app.extensions['musicbrainz'].get=mb_get
 app.extensions['spotify'].api=spotify_api
 app.extensions['spotify']._save({'access_token':'fixture-only','refresh_token':'fixture-only','expires_in':3600})
+
+
+@app.get('/__test/current-code')
+def current_code():
+    from app.security import totp
+    import time
+    secret=app.extensions['security'].get('pending_totp')['secret']
+    return {'code':totp(secret,int(time.time()//30))}
 
 
 @app.get('/__test/play-calls')
