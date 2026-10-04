@@ -1175,8 +1175,10 @@ def listen_and_identify():
     last_pub, last_sleep_log, cooldown_end, chunks, loud_chunks, silence_sleep, song_start = time.time(), 0, 0, 0, 0, 0, 0
     idle_silence_chunks = 0
     target = int(RATE / CHUNK * recognition_session.final_stage)
-    trigger_chunks = 0  
+    trigger_chunks = 0
     buffer = bytearray()
+    tracking_audio = deque(maxlen=max(1, int(RATE / CHUNK * 40.0)))
+    music_gap_started = None
     ghost_buffer, ghost_max_chunks = [], int(RATE / CHUNK * 20.0)
     
     turntable_on, has_played_music, rhythm_locked = False, False, False
@@ -1285,9 +1287,12 @@ def listen_and_identify():
                 detector = GuardianDetector(v6_cfg, rate=RATE, channels=CHANNELS)
                 ghost_buffer.clear()
                 buffer.clear()
+                tracking_audio.clear()
+                music_gap_started = None
                 chunks = loud_chunks = silence_sleep = trigger_chunks = 0
                 with state_lock:
                     recognition_session.invalidate()
+                    track_monitor.clear()
                     app_state = "IDLE"
                     current_track = None
                     scrobble_fired = False
@@ -1321,6 +1326,8 @@ def listen_and_identify():
                 current_attempt = 1
             buffer.clear()
             ghost_buffer.clear()
+            tracking_audio.clear()
+            music_gap_started = None
             chunks = loud_chunks = silence_sleep = trigger_chunks = 0
 
             audio_scan_status = "Scanning — keep music playing"
@@ -1408,6 +1415,7 @@ def listen_and_identify():
             # detector. The staged recognition ladder can run for 30 seconds,
             # while Playing/Motor Idle/Runout remain purely audio-derived.
             frame = detector.update_pcm(data, now)
+            tracking_audio.append((now, bytes(data)))
 
             if stylus_usage is not None:
                 # Persistent diagnostic labels are hints only and must never
@@ -1620,9 +1628,11 @@ def listen_and_identify():
                                         "accumulated_playtime": time_played,
                                     }
                             recognition_session.invalidate()
+                            track_monitor.clear()
                             app_state, current_track, scrobble_fired, current_attempt, consecutive_failures = (
                                 "IDLE", None, False, 1, 0
                             )
+                            music_gap_started = None
 
                     if mqtt_client.is_connected():
                         mqtt_client.publish("vinyl_guardian/track", "Not Playing", retain=True)
@@ -1777,8 +1787,15 @@ def listen_and_identify():
                         if scrobble_fired: scrob_str = f"Scrobbled: {last_scrobbled_track.split(' - ')[0]} ✅" if last_scrobbled_track else "Scrobbled ✅"
                         else:
                             current_silence_sec = silence_sleep * (CHUNK / RATE)
-                            time_left = max(0, int(current_track.get('scrobble_trigger_time', 0) - (now - current_silence_sec)))
-                            m, s = divmod(time_left, 60); scrob_str = f"In {m:02d}:{s:02d} ⏳" if time_left > 0 else "Scrobbling... 🚀"
+                            physical_now_for_scrobble = now - current_silence_sec
+                            time_left = max(0, int(current_track.get('scrobble_trigger_time', 0) - physical_now_for_scrobble))
+                            if time_left > 0:
+                                m, s = divmod(time_left, 60)
+                                scrob_str = f"In {m:02d}:{s:02d} ⏳"
+                            elif not scrobble_identity_confident(current_track):
+                                scrob_str = "Eligible · confirming identity ⚖️"
+                            else:
+                                scrob_str = "Scrobbling... 🚀"
                     else: scrob_str = f"Scrobbled: {last_scrobbled_track.split(' - ')[0]} ✅" if last_scrobbled_track else "Waiting ⏸️"
                     mqtt_client.publish("vinyl_guardian/scrobble_status", scrob_str, retain=True)
                     
@@ -1871,39 +1888,133 @@ def listen_and_identify():
                     buffer, chunks, loud_chunks = bytearray(), 0, 0
                         
             elif current_state == "SLEEPING":
-                # Runout clicks are explicitly excluded from music evidence,
-                # so they cannot keep a track alive as false "music".
-                if is_playing: silence_sleep = 0
-                else: silence_sleep += 1
-                
-                required_silence_chunks = int(RATE / CHUNK * needle_lift_sec)
-                if silence_sleep >= required_silence_chunks:
-                    if not rhythm_locked:
-                        if current_track and not scrobble_fired:
-                            time_played = (now - current_track['session_start_time']) - (required_silence_chunks * (CHUNK / RATE)) + current_track.get('previously_played', 0)
-                            if time_played > 5:
-                                track_id = f"{current_track['title']} - {current_track['artist']}"
-                                with state_lock: paused_track_memory = {"id": track_id, "accumulated_playtime": time_played}
-                        if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/track", "Not Playing", retain=True)
-                        with state_lock: app_state, current_track, current_attempt, consecutive_failures, has_played_music = "IDLE", None, 1, 0, False
-                        continue
-                        
-                physical_now = now - (silence_sleep * (CHUNK / RATE))
-                if current_track and not scrobble_fired and physical_now >= current_track.get('scrobble_trigger_time', 0):
-                    if experiment_harness is not None:
-                        experiment_harness.monitor.notify('scrobble_requested', current_track, now)
-                    track_id = f"{current_track['title']} - {current_track['artist']}"
-                    if track_id != last_scrobbled_track: scrobble_to_lastfm(current_track['artist'], current_track['title'], current_track['start_timestamp'], current_track['album'])
-                    if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/scrobble_state", track_id, retain=True)
-                    try: mqtt_client.publish("vinyl_guardian/scrobble", json.dumps(current_track), retain=True)
-                    except: pass
-                    with state_lock: scrobble_fired, last_scrobbled_track, paused_track_memory = True, track_id, None
-                        
-                if now >= wake_up_time:
-                    cooldown_end = now + 4
-                    if mqtt_client.is_connected(): mqtt_client.publish("vinyl_guardian/track", "Not Playing", retain=True)
-                    with state_lock: app_state, current_track = "COOLDOWN", None
-                        
+                # Unknown-track fallback still uses its timeout. Identified
+                # tracks no longer end merely because metadata duration elapsed:
+                # expected end-time starts a boundary search instead.
+                if current_track is None:
+                    if now >= wake_up_time:
+                        cooldown_end = now + 4
+                        with state_lock:
+                            app_state = "COOLDOWN"
+                    continue
+
+                if is_playing:
+                    if music_gap_started is not None:
+                        gap_seconds = max(0.0, now - music_gap_started)
+                        if gap_seconds >= 0.75:
+                            end_hint = expected_end(current_track)
+                            near_expected = (
+                                end_hint is not None
+                                and abs(now - end_hint) <= 12.0
+                            )
+                            with state_lock:
+                                track_monitor.start_boundary(
+                                    now,
+                                    "music_recovery",
+                                    strength="strong" if near_expected else "medium",
+                                )
+                            log(
+                                f"↗️ Music resumed after {gap_seconds:.1f}s; "
+                                "checking whether this is a new track."
+                            )
+                        music_gap_started = None
+                    silence_sleep = 0
+                else:
+                    silence_sleep += 1
+                    if music_gap_started is None:
+                        music_gap_started = now
+
+                end_hint = expected_end(current_track)
+                if (
+                    end_hint is not None
+                    and now >= end_hint
+                    and not track_monitor.boundary_active()
+                ):
+                    with state_lock:
+                        track_monitor.start_boundary(
+                            end_hint,
+                            "expected_end",
+                            strength="strong",
+                        )
+
+                with state_lock:
+                    tracking_requests = track_monitor.due_requests(now, current_track)
+                for request in tracking_requests:
+                    snapshot = _extract_audio_window(
+                        tracking_audio,
+                        request["start"],
+                        request["end"],
+                    )
+                    threading.Thread(
+                        target=process_tracking_audio_background,
+                        args=(snapshot, request["start"], request["id"]),
+                        daemon=True,
+                    ).start()
+
+                # A long silence well before the metadata end may be an
+                # intentional pause inside a song. Give it extra grace rather
+                # than immediately treating it as a needle lift.
+                silence_seconds = silence_sleep * (CHUNK / RATE)
+                remaining = (
+                    end_hint - now
+                    if end_hint is not None
+                    else None
+                )
+                required_silence_seconds = float(needle_lift_sec)
+                if remaining is not None and remaining > 12.0:
+                    required_silence_seconds = max(required_silence_seconds, 30.0)
+
+                if silence_seconds >= required_silence_seconds and not rhythm_locked:
+                    physical_now = now - silence_seconds
+                    if current_track and not scrobble_fired:
+                        time_played = (
+                            physical_now - current_track["session_start_time"]
+                            + current_track.get("previously_played", 0)
+                        )
+                        if time_played > 5:
+                            track_id = _track_id(current_track)
+                            paused_track_memory = {
+                                "id": track_id,
+                                "accumulated_playtime": time_played,
+                            }
+                        pending_scrobbles.hold(
+                            current_track,
+                            ended_at=now,
+                            physical_now=physical_now,
+                            reason="silence_or_needle_lift",
+                        )
+                    if mqtt_client.is_connected():
+                        mqtt_client.publish("vinyl_guardian/track", "Not Playing", retain=True)
+                    with state_lock:
+                        track_monitor.clear()
+                        app_state, current_track, current_attempt, consecutive_failures, has_played_music = (
+                            "IDLE", None, 1, 0, False
+                        )
+                    music_gap_started = None
+                    continue
+
+                physical_now = now - silence_seconds
+                if (
+                    current_track
+                    and not scrobble_fired
+                    and scrobble_is_eligible(current_track, physical_now)
+                ):
+                    if scrobble_identity_confident(current_track):
+                        if experiment_harness is not None:
+                            experiment_harness.monitor.notify(
+                                "scrobble_requested",
+                                current_track,
+                                now,
+                            )
+                        _send_scrobble(current_track, mark_current=True)
+                    else:
+                        current_track["scrobble_pending_reason"] = (
+                            "Eligible, but contradictory recognition evidence "
+                            "is still being resolved"
+                        )
+
+                pending_scrobbles.expire(now)
+
             elif current_state == "COOLDOWN" and now >= cooldown_end:
                 with state_lock: app_state = "IDLE"
 
