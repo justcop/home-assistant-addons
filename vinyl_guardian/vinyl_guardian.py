@@ -855,7 +855,7 @@ def process_tracking_audio_background(audio_data_bytes, window_start_timestamp, 
             stage_seconds=int(request.get("stage") or 0),
         )
 
-        physical_end = boundary_time
+        physical_end = float(action.get("previous_end") or boundary_time)
         pending_scrobbles.hold(
             old_snapshot,
             ended_at=boundary_time,
@@ -1916,6 +1916,7 @@ def listen_and_identify():
                                     now,
                                     "music_recovery",
                                     strength="strong" if near_expected else "medium",
+                                    previous_end=music_gap_started,
                                 )
                             log(
                                 f"↗️ Music resumed after {gap_seconds:.1f}s; "
@@ -1939,6 +1940,7 @@ def listen_and_identify():
                             end_hint,
                             "expected_end",
                             strength="strong",
+                            previous_end=end_hint,
                         )
 
                 with state_lock:
