@@ -24,19 +24,20 @@ def match(title, adamid):
     }
 
 
-def track(title="A", adamid="1", confidence="low", start=1000.0, duration=180.0):
+def track(title="A", adamid="1", confidence="low", start=1000.0, duration=180.0, duration_known=True):
     item = {
         **match(title, adamid),
         "session_start_time": start,
         "start_timestamp": start,
         "duration": duration,
-        "duration_known": True,
-        "expected_end_time": start + duration,
+        "duration_known": duration_known,
         "scrobble_trigger_time": start + min(duration / 2.0, 240.0),
         "recognition_confidence": confidence,
         "recognition_verified": confidence == "high",
         "scrobble_fired": False,
     }
+    if duration_known:
+        item["expected_end_time"] = start + duration
     item["identity_key"] = identity_key(item)
     return item
 
@@ -213,6 +214,51 @@ class TrackReasoningTests(unittest.TestCase):
         self.assertEqual(result["action"], "successor")
         self.assertEqual(result["confidence"], "medium")
 
+    def test_unknown_duration_uses_repeated_gapless_probes(self):
+        current = track(confidence="high", duration_known=False)
+        monitor = TrackMonitor()
+        monitor.begin_track(current)
+
+        first = monitor.due_requests(1020.1, current)
+        self.assertEqual(len(first), 1)
+        self.assertEqual((first[0]["start"], first[0]["end"]), (1010.0, 1020.0))
+        result = monitor.record_result(first[0]["id"], match("B", "2"))
+        self.assertEqual(result["action"], "unknown_candidate")
+
+        second = monitor.due_requests(1030.1, current)
+        result = monitor.record_result(second[0]["id"], match("B", "2"))
+        self.assertEqual(result["action"], "successor")
+        self.assertEqual(result["reason"], "unknown_duration_consensus")
+        self.assertEqual(result["anchor"], 1010.0)
+
+    def test_unknown_duration_single_or_mixed_alternate_does_not_change_track(self):
+        current = track(confidence="high", duration_known=False)
+        monitor = TrackMonitor()
+        monitor.begin_track(current)
+        first = monitor.due_requests(1020.1, current)[0]
+        self.assertEqual(
+            monitor.record_result(first["id"], match("Mashup X", "8"))["action"],
+            "unknown_candidate",
+        )
+        second = monitor.due_requests(1030.1, current)[0]
+        self.assertEqual(
+            monitor.record_result(second["id"], match("Mashup Y", "9"))["action"],
+            "unknown_candidate",
+        )
+        third = monitor.due_requests(1040.1, current)[0]
+        self.assertIsNone(
+            monitor.record_result(third["id"], match("A", "1"))["action"]
+        )
+
+    def test_lastfm_minimum_duration_is_enforced(self):
+        short = track(confidence="high", duration=30)
+        self.assertFalse(scrobble_is_eligible(short, 2000))
+        long_enough = track(confidence="high", duration=31)
+        self.assertTrue(scrobble_is_eligible(long_enough, 1016))
+        unknown = track(confidence="high", duration=1200, duration_known=False)
+        unknown["scrobble_trigger_time"] = 1240
+        self.assertTrue(scrobble_is_eligible(unknown, 1240))
+
     def test_scrobble_waits_for_identity_confidence(self):
         current = track(confidence="low", duration=100)
         self.assertTrue(scrobble_is_eligible(current, 1051))
@@ -222,11 +268,11 @@ class TrackReasoningTests(unittest.TestCase):
 
     def test_pending_ambiguous_track_can_be_resolved_by_next_boundary(self):
         queue = PendingScrobbleQueue()
-        old = track(confidence="medium", duration=20)
-        self.assertTrue(queue.hold(old, ended_at=1020, physical_now=1020, reason="silence"))
+        old = track(confidence="medium", duration=40)
+        self.assertTrue(queue.hold(old, ended_at=1040, physical_now=1040, reason="silence"))
         resolved = queue.resolve_with_successor(
-            track(title="B", adamid="2", confidence="high", start=1020, duration=120),
-            boundary_time=1020,
+            track(title="B", adamid="2", confidence="high", start=1040, duration=120),
+            boundary_time=1040,
             strong_boundary=True,
         )
         self.assertEqual(len(resolved), 1)
@@ -235,11 +281,11 @@ class TrackReasoningTests(unittest.TestCase):
 
     def test_same_identity_after_pause_is_resume_not_second_scrobble(self):
         queue = PendingScrobbleQueue()
-        old = track(confidence="medium", duration=20)
-        queue.hold(old, ended_at=1020, physical_now=1020, reason="silence")
+        old = track(confidence="medium", duration=40)
+        queue.hold(old, ended_at=1040, physical_now=1040, reason="silence")
         resolved = queue.resolve_with_successor(
-            track(title="A", adamid="1", confidence="high", start=1030, duration=20),
-            boundary_time=1030,
+            track(title="A", adamid="1", confidence="high", start=1050, duration=40),
+            boundary_time=1050,
             strong_boundary=True,
         )
         self.assertEqual(resolved, [])
