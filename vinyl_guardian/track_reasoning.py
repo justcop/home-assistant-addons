@@ -306,7 +306,11 @@ class TrackMonitor:
                 }
                 self.boundary = None
                 return action
-            if winner_key and boundary["strength"] in ("strong", "high"):
+            if (
+                winner_key
+                and len(alternatives) == 1
+                and boundary["strength"] in ("strong", "high")
+            ):
                 action = {
                     "accepted": True,
                     "action": "successor",
