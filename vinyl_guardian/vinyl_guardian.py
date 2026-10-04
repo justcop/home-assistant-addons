@@ -20,7 +20,13 @@ import pylast
 # Import local modules
 from config import *
 from audio_math import calculate_audio_levels, calculate_deep_metrics
-from integrations import recognize_shazam, get_track_duration, scrobble_to_lastfm, log
+from integrations import (
+    recognize_shazam,
+    get_track_duration,
+    get_expected_next_track,
+    scrobble_to_lastfm,
+    log,
+)
 from calibration import run_calibration
 from detector import GuardianDetector
 from stylus_usage import StylusUsage
@@ -479,12 +485,57 @@ def _make_track(match, session_start, start_timestamp, confidence, support=1,
         "identity_key": identity_key(match),
         "image": match.get("image", ""),
         "adamid": match.get("adamid"),
+        "album_adamid": match.get("album_adamid"),
         "shazam_key": match.get("shazam_key"),
         "scrobble_fired": False,
     }
     if duration_known:
         track["expected_end_time"] = float(start_timestamp) + duration
     return track
+
+
+def _enrich_track_catalogue(track_snapshot):
+    """Attach expected-next album evidence without blocking recognition."""
+    if not isinstance(track_snapshot, dict):
+        return
+    album_adamid = track_snapshot.get("album_adamid")
+    if album_adamid in (None, ""):
+        return
+    expected = get_expected_next_track(
+        album_adamid,
+        current_adamid=track_snapshot.get("adamid"),
+        title=track_snapshot.get("title", ""),
+        artist=track_snapshot.get("artist", ""),
+    )
+    if not expected:
+        return
+
+    updated = None
+    with state_lock:
+        if (
+            current_track is not None
+            and identity_key(current_track) == identity_key(track_snapshot)
+            and float(current_track.get("session_start_time") or 0.0)
+                == float(track_snapshot.get("session_start_time") or 0.0)
+        ):
+            current_track["expected_next"] = expected
+            track_monitor.update_track_metadata(current_track)
+            updated = dict(current_track)
+    if updated:
+        log(
+            f"🧭 Album sequence hint: after {_track_id(updated)} expect "
+            f"{expected.get('title', 'next track')} - {expected.get('artist', '')}"
+        )
+        _publish_track(updated)
+
+
+def _start_track_enrichment(track):
+    if isinstance(track, dict) and track.get("album_adamid") not in (None, ""):
+        threading.Thread(
+            target=_enrich_track_catalogue,
+            args=(dict(track),),
+            daemon=True,
+        ).start()
 
 
 def _publish_track(track):
@@ -683,6 +734,7 @@ def process_audio_background(audio_data_bytes, song_start_timestamp, token, stag
             f"({confidence}, {support} agreeing / {conflicts} conflicting)"
         )
         _publish_track(new_track)
+        _start_track_enrichment(new_track)
     else:
         with state_lock:
             if not recognition_session.valid(token, app_state):
@@ -812,6 +864,7 @@ def process_tracking_audio_background(audio_data_bytes, window_start_timestamp, 
             f"after two fresh agreeing windows."
         )
         _publish_track(replacement_track)
+        _start_track_enrichment(replacement_track)
         return
 
     if action_name == "continuation":
@@ -893,6 +946,7 @@ def process_tracking_audio_background(audio_data_bytes, window_start_timestamp, 
             except Exception as exc:
                 log(f"⚠️ Experiment track logging failed: {exc}")
         _publish_track(successor)
+        _start_track_enrichment(successor)
 
 def get_crest(audio_data):
     rms = float(np.sqrt(np.mean(np.square(audio_data))))
