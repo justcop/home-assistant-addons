@@ -52,7 +52,7 @@ from mqtt_runtime import (
     configure_client,
     subscribe_commands,
 )
-from scrobble_dispatcher import ScrobbleDispatcher
+from scrobble_dispatcher import ScrobbleDispatcher, scrobble_event_id
 
 VERSION = os.environ.get("ADDON_VERSION", "Unknown")
 FORMAT = alsaaudio.PCM_FORMAT_S16_LE
@@ -668,14 +668,22 @@ def _send_scrobble(track, mark_current=False):
         or not scrobble_dispatcher.enabled
     ):
         return False
-    event_id = scrobble_dispatcher.submit(track)
+    event_id = scrobble_event_id(track)
     if not event_id:
         return False
+    # Set delivery metadata before waking the worker so a very fast Last.fm
+    # response cannot beat the current-track bookkeeping.
     track["scrobble_fired"] = True
     track["scrobble_queued"] = True
     track["scrobble_delivered"] = False
     track["scrobble_event_id"] = event_id
     track["scrobble_retry_attempts"] = 0
+    queued_id = scrobble_dispatcher.submit(track)
+    if not queued_id:
+        track["scrobble_fired"] = False
+        track["scrobble_queued"] = False
+        track.pop("scrobble_event_id", None)
+        return False
     if mark_current:
         scrobble_fired = True
         paused_track_memory = None
