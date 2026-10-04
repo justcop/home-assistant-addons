@@ -165,7 +165,9 @@ class TrackReasoningTests(unittest.TestCase):
         monitor.record_result(by_stage[3]["id"], match("B", "2"))
         result = monitor.record_result(by_stage[5]["id"], match("A", "1"))
         self.assertIsNone(result["action"])
-        result = monitor.record_result(by_stage[10]["id"], match("A", "1"))
+        ten_request = monitor.due_requests(1040.1, current)[0]
+        self.assertEqual(ten_request["stage"], 10)
+        result = monitor.record_result(ten_request["id"], match("A", "1"))
         self.assertEqual(result["action"], "continuation")
 
     def test_mixed_boundary_fingerprints_stay_unresolved(self):
