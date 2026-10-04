@@ -539,7 +539,10 @@ def _extract_audio_window(ring, start_time, end_time):
         for stamp, payload in ring
         if float(start_time) <= float(stamp) <= float(end_time) + (CHUNK / RATE)
     ]
-    return b"".join(chunks)
+    raw = b"".join(chunks)
+    requested_seconds = max(0.0, float(end_time) - float(start_time))
+    max_bytes = int(requested_seconds * RATE * CHANNELS * 2)
+    return raw[:max_bytes] if max_bytes > 0 else b""
 
 
 # --- BACKGROUND WORKER (SHAZAM) ---
