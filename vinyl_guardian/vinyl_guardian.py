@@ -24,6 +24,7 @@ from integrations import (
     recognize_shazam,
     get_track_duration,
     get_expected_next_track,
+    lastfm_enabled,
     scrobble_to_lastfm,
     log,
 )
@@ -45,6 +46,13 @@ from diagnostic_monitor import MODES, MODE_NAMES
 from profile_manager import ProfileManager
 from replay_lab import replay_latest_dataset
 from audio_source import AudioSourceManager, AUTO_OPTION, SYSTEM_DEFAULT_OPTION
+from mqtt_runtime import (
+    AVAILABILITY_TOPIC,
+    add_availability,
+    configure_client,
+    subscribe_commands,
+)
+from scrobble_dispatcher import ScrobbleDispatcher
 
 VERSION = os.environ.get("ADDON_VERSION", "Unknown")
 FORMAT = alsaaudio.PCM_FORMAT_S16_LE
@@ -54,6 +62,7 @@ state_lock = threading.Lock()
 recognition_session = RecognitionSession()
 track_monitor = TrackMonitor()
 pending_scrobbles = PendingScrobbleQueue()
+scrobble_dispatcher = None
 app_state = "IDLE"
 current_attempt = 1
 wake_up_time = 0
@@ -106,7 +115,9 @@ def signal_handler(sig, frame):
             dataset_collector.close()
         if experiment_harness is not None:
             experiment_harness.audio.flush()
-        
+        if scrobble_dispatcher is not None:
+            scrobble_dispatcher.close()
+
         if mqtt_client.is_connected():
             mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
             mqtt_client.publish("vinyl_guardian/status", "Offline", retain=True)
@@ -123,7 +134,8 @@ def signal_handler(sig, frame):
             mqtt_client.publish("vinyl_guardian/music_energy", "0.0", retain=True)
             mqtt_client.publish("vinyl_guardian/pop_texture", "0.0", retain=True)
             mqtt_client.publish("vinyl_guardian/pop_volume", "0.0", retain=True)
-            
+            mqtt_client.publish(AVAILABILITY_TOPIC, "offline", retain=True)
+
         mqtt_client.loop_stop()
         mqtt_client.disconnect()
     except Exception as e:
