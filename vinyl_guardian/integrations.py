@@ -82,6 +82,7 @@ def recognize_shazam(wav_path):
             duration = 0
             release_year = "Unknown"
             adamid = track.get('trackadamid')
+            shazam_key = track.get('key')
             image_url = track.get('images', {}).get('coverart', '')
            
             for section in track.get('sections', []):
@@ -107,6 +108,7 @@ def recognize_shazam(wav_path):
                 "offset_seconds": res_json['matches'][0].get('offset', 0) if isinstance(res_json['matches'][0], dict) else 0, 
                 "duration": duration, 
                 "adamid": adamid,
+                "shazam_key": shazam_key,
                 "image": image_url
             }
         return None
