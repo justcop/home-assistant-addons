@@ -245,6 +245,13 @@ class TrackMonitor:
         # required before a gapless successor is declared, so one odd Shazam
         # result (including mashup material) cannot rewrite a confirmed track.
         if not track.get("duration_known"):
+            outstanding_probe = any(
+                request.get("kind") == "unknown_probe"
+                for request in self.requests.values()
+            )
+            if outstanding_probe:
+                return due
+
             first_end = origin + UNKNOWN_FIRST_PROBE_END
             if not confidence_at_least(track.get("recognition_confidence"), "high"):
                 first_end = max(first_end, origin + 40.0)
@@ -256,6 +263,7 @@ class TrackMonitor:
                     f"unknown_probe_{self.unknown_probe_index}",
                     next_end - UNKNOWN_PROBE_WINDOW,
                     next_end,
+                    stage=10,
                     anchor=next_end - UNKNOWN_PROBE_WINDOW,
                 ))
         return due
