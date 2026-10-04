@@ -610,6 +610,7 @@ def _on_scrobble_success(row):
     track = dict(row.get("track") or {})
     event_id = row.get("event_id")
     track_id = _track_id(track)
+    is_current = False
     with state_lock:
         if (
             current_track is not None
@@ -617,27 +618,31 @@ def _on_scrobble_success(row):
         ):
             current_track["scrobble_delivered"] = True
             current_track["scrobble_retry_attempts"] = int(row.get("attempts", 0))
+            is_current = True
         last_scrobbled_track = track_id or last_scrobbled_track
     if mqtt_client.is_connected() and track_id:
         mqtt_client.publish("vinyl_guardian/scrobble_state", track_id, retain=True)
         mqtt_client.publish("vinyl_guardian/scrobble", json.dumps(track), retain=True)
-        mqtt_client.publish(
-            "vinyl_guardian/scrobble_status",
-            f"Scrobbled: {track.get('title', 'Track')} ✅",
-            retain=True,
-        )
+        if is_current:
+            mqtt_client.publish(
+                "vinyl_guardian/scrobble_status",
+                f"Scrobbled: {track.get('title', 'Track')} ✅",
+                retain=True,
+            )
 
 
 def _on_scrobble_retry(row):
     event_id = row.get("event_id")
     attempts = int(row.get("attempts", 0))
+    is_current = False
     with state_lock:
         if (
             current_track is not None
             and current_track.get("scrobble_event_id") == event_id
         ):
             current_track["scrobble_retry_attempts"] = attempts
-    if mqtt_client.is_connected():
+            is_current = True
+    if mqtt_client.is_connected() and is_current:
         mqtt_client.publish(
             "vinyl_guardian/scrobble_status",
             f"Last.fm retry queued · attempt {attempts + 1} ⏳",
