@@ -140,6 +140,20 @@ class TrackReasoningTests(unittest.TestCase):
         self.assertEqual(second["confidence"], "high")
         self.assertEqual(second["match"]["title"], "B")
 
+    def test_expected_next_album_track_can_break_a_boundary_tie(self):
+        current = track(confidence="high", duration=30)
+        current["expected_next"] = match("B", "2")
+        monitor = TrackMonitor()
+        monitor.begin_track(current)
+        monitor.start_boundary(expected_end(current), "expected_end", strength="strong")
+        requests = monitor.due_requests(1035.1, current)
+        by_stage = {r["stage"]: r for r in requests}
+        monitor.record_result(by_stage[3]["id"], match("Mashup source", "9"))
+        result = monitor.record_result(by_stage[5]["id"], match("B", "2"))
+        self.assertEqual(result["action"], "successor")
+        self.assertTrue(result["expected_next_match"])
+        self.assertEqual(result["match"]["title"], "B")
+
     def test_mixed_boundary_fingerprints_stay_unresolved(self):
         current = track(confidence="high", duration=30)
         monitor = TrackMonitor()
