@@ -23,7 +23,7 @@ options:
   mqtt_password: ''
   test_capture_mode: false
   calibration_mode: false
-  recording_seconds: 30
+  recording_seconds: 10
   debug_logging: false
   audio_source: auto
   audio_scan_on_start: false

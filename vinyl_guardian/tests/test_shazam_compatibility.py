@@ -5,7 +5,7 @@ import threading
 import unittest
 from pathlib import Path
 
-PAYLOAD={'matches':[{'offset':2}], 'track':{'title':'Example','subtitle':'Artist','sections':[]}}
+PAYLOAD={'matches':[{'offset':2}], 'track':{'title':'Example','subtitle':'Artist','albumadamid':'99','trackadamid':'101','key':'shz','sections':[]}}
 
 
 def recognition_function(factory):
@@ -24,6 +24,9 @@ class ShazamCompatibilityTests(unittest.TestCase):
         result=recognition_function(Legacy)('example.wav')
         self.assertEqual(result['title'],'Example')
         self.assertEqual(result['offset_seconds'],2)
+        self.assertEqual(result['album_adamid'],'99')
+        self.assertEqual(result['adamid'],'101')
+        self.assertEqual(result['shazam_key'],'shz')
 
     def test_modern_client_closes_after_success_and_failure(self):
         for failure in (False,True):
@@ -60,3 +63,32 @@ class ShazamCompatibilityTests(unittest.TestCase):
         self.assertTrue(all(r['title']=='Example' for r in results))
         self.assertIsNot(clients[0],clients[1])
         self.assertIsNot(clients[0].loop,clients[1].loop)
+
+
+class AlbumSequenceTests(unittest.TestCase):
+    def parser(self):
+        path=Path(__file__).resolve().parents[1]/'integrations.py'
+        tree=ast.parse(path.read_text())
+        names={'_catalogue_identity','_next_album_track_from_rows'}
+        nodes=[node for node in tree.body if isinstance(node,ast.FunctionDef) and node.name in names]
+        env={}
+        exec(compile(ast.Module(body=nodes,type_ignores=[]),'catalogue','exec'),env)
+        return env['_next_album_track_from_rows']
+
+    def test_finds_next_track_by_apple_id_and_disc_order(self):
+        rows=[
+            {'wrapperType':'collection','collectionName':'Album'},
+            {'wrapperType':'track','trackId':1,'artistName':'Artist','trackName':'A','discNumber':1,'trackNumber':1,'trackTimeMillis':100000,'collectionName':'Album'},
+            {'wrapperType':'track','trackId':2,'artistName':'Artist','trackName':'B','discNumber':1,'trackNumber':2,'trackTimeMillis':110000,'collectionName':'Album'},
+            {'wrapperType':'track','trackId':3,'artistName':'Artist','trackName':'C','discNumber':2,'trackNumber':1,'trackTimeMillis':120000,'collectionName':'Album'},
+        ]
+        result=self.parser()(rows,current_adamid='2')
+        self.assertEqual(result['title'],'C')
+        self.assertEqual(result['adamid'],3)
+        self.assertEqual(result['duration'],120)
+
+    def test_last_track_has_no_expected_successor(self):
+        rows=[
+            {'wrapperType':'track','trackId':1,'artistName':'Artist','trackName':'A','discNumber':1,'trackNumber':1},
+        ]
+        self.assertIsNone(self.parser()(rows,current_adamid=1))

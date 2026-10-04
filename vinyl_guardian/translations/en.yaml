@@ -38,9 +38,9 @@ configuration:
       restart when complete. Fresh capture requires Reuse calibration audio to be off.
   recording_seconds:
     name: Legacy recording seconds
-    description: Retained for configuration compatibility. Recognition now always uses the
-      staged 3, 5, 10, 20 and 30 second ladder; early matches display immediately and later
-      successful stages can replace them before the best completed result is confirmed.
+    description: Retained for configuration compatibility. Initial recognition now uses
+      3, 5 and 10 second windows only. Weak identities may receive fresh 10-20 and 20-30
+      second verification windows, and expected track endings trigger separate boundary checks.
 
   debug_logging:
     name: Debug logging
