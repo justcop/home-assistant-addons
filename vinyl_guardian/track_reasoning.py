@@ -103,11 +103,27 @@ def scrobble_is_eligible(track, physical_now, completed=False):
             or track.get("start_timestamp")
             or physical_now
         )
-        played = (
-            max(0.0, float(physical_now) - session_start)
-            + float(track.get("previously_played") or 0.0)
+        inferred_track_start = float(
+            track.get("start_timestamp")
+            or session_start
         )
-        return played > LASTFM_MIN_TRACK_SECONDS
+        current_segment = max(0.0, float(physical_now) - session_start)
+        previously_played = float(track.get("previously_played") or 0.0)
+        played = current_segment + previously_played
+
+        # Shazam's offset lets us estimate how far into the song the needle
+        # was dropped even when catalogue duration is unavailable. Reaching the
+        # end is therefore not treated as "100% played" if playback began in
+        # the middle of the track.
+        starting_offset = max(0.0, session_start - inferred_track_start)
+        estimated_duration = max(
+            played,
+            starting_offset + current_segment,
+        )
+        if estimated_duration <= LASTFM_MIN_TRACK_SECONDS:
+            return False
+        required = min(estimated_duration / 2.0, 240.0)
+        return played >= required
 
     trigger = track.get("scrobble_trigger_time")
     return trigger is not None and float(physical_now) >= float(trigger)
