@@ -22,17 +22,28 @@ if not CALIBRATION_MODE and LFM_USER and LFM_PASS and LFM_KEY and LFM_SECRET:
     except Exception as e:
         log(f"🚨 Last.fm initialization failed: {e}")
 
+def lastfm_enabled():
+    return lastfm_network is not None
+
+
 def scrobble_to_lastfm(artist, title, start_timestamp, album=None):
+    """Attempt one Last.fm delivery and report success to the retry queue."""
     if not lastfm_network:
-        return
+        return False
     try:
-        kwargs = {"artist": artist, "title": title, "timestamp": start_timestamp}
+        kwargs = {
+            "artist": artist,
+            "title": title,
+            "timestamp": int(float(start_timestamp)),
+        }
         if album and album != "Unknown":
             kwargs["album"] = album
         lastfm_network.scrobble(**kwargs)
         log(f"🎵 Successfully scrobbled to Last.fm: {title} by {artist}")
+        return True
     except Exception as e:
-        log(f"🚨 Last.fm Scrobble Failed: {e}")
+        log(f"🚨 Last.fm Scrobble Failed (will retry): {e}")
+        return False
 
 # --- HELPER: GET TRACK DURATION ---
 def get_track_duration(title, artist, adamid=None):
