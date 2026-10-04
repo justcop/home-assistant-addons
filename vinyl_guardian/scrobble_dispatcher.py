@@ -11,6 +11,7 @@ from copy import deepcopy
 
 RETRY_DELAYS = (5.0, 30.0, 120.0, 600.0, 900.0)
 SENT_RETENTION_SECONDS = 7 * 24 * 3600
+EVENT_TIMESTAMP_BUCKET_SECONDS = 5
 
 
 def scrobble_event_id(track):
@@ -21,7 +22,14 @@ def scrobble_event_id(track):
     timestamp = int(float(track.get("start_timestamp") or 0))
     if not artist or not title or timestamp <= 0:
         return None
-    raw = f"{artist}\0{title}\0{timestamp}".encode("utf-8")
+    # Shazam offset estimates can move a reconstructed start by a second or two
+    # after an add-on restart. A five-second identity bucket prevents a duplicate
+    # for the same physical play while remaining far shorter than any scrobble-
+    # eligible track, so a genuine replay still receives a new event id.
+    identity_timestamp = (
+        timestamp // EVENT_TIMESTAMP_BUCKET_SECONDS
+    ) * EVENT_TIMESTAMP_BUCKET_SECONDS
+    raw = f"{artist}\0{title}\0{identity_timestamp}".encode("utf-8")
     return hashlib.sha256(raw).hexdigest()[:24]
 
 
@@ -137,6 +145,10 @@ class ScrobbleDispatcher:
     def is_pending(self, event_id):
         with self._lock:
             return any(row.get("event_id") == event_id for row in self._pending)
+
+    def is_sent(self, event_id):
+        with self._lock:
+            return event_id in self._sent
 
     def submit(self, track):
         """Queue one physical play. Same song with a new timestamp is a new event."""
