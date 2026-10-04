@@ -87,12 +87,28 @@ def scrobble_identity_confident(track):
     )
 
 
-def scrobble_is_eligible(track, physical_now):
+def scrobble_is_eligible(track, physical_now, completed=False):
     if not isinstance(track, dict):
         return False
     duration = float(track.get("duration") or 0.0)
-    if track.get("duration_known") and duration <= LASTFM_MIN_TRACK_SECONDS:
-        return False
+    if track.get("duration_known"):
+        if duration <= LASTFM_MIN_TRACK_SECONDS:
+            return False
+        trigger = track.get("scrobble_trigger_time")
+        return trigger is not None and float(physical_now) >= float(trigger)
+
+    if completed:
+        session_start = float(
+            track.get("session_start_time")
+            or track.get("start_timestamp")
+            or physical_now
+        )
+        played = (
+            max(0.0, float(physical_now) - session_start)
+            + float(track.get("previously_played") or 0.0)
+        )
+        return played > LASTFM_MIN_TRACK_SECONDS
+
     trigger = track.get("scrobble_trigger_time")
     return trigger is not None and float(physical_now) >= float(trigger)
 
@@ -483,11 +499,11 @@ class PendingScrobbleQueue:
         now = float(now)
         self.items = [item for item in self.items if now <= item["expires"]]
 
-    def hold(self, track, ended_at, physical_now, reason):
+    def hold(self, track, ended_at, physical_now, reason, completed=False):
         self.expire(ended_at)
         if not track or track.get("scrobble_fired"):
             return False
-        if not scrobble_is_eligible(track, physical_now):
+        if not scrobble_is_eligible(track, physical_now, completed=completed):
             return False
         key = identity_key(track)
         self.items = [item for item in self.items if item["key"] != key]
