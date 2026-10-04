@@ -53,6 +53,7 @@ from mqtt_runtime import (
     subscribe_commands,
 )
 from scrobble_dispatcher import ScrobbleDispatcher, scrobble_event_id
+from runtime_presentation import current_track_presentation
 
 VERSION = os.environ.get("ADDON_VERSION", "Unknown")
 FORMAT = alsaaudio.PCM_FORMAT_S16_LE
@@ -438,22 +439,17 @@ def publish_runtime_snapshot():
     mqtt_client.publish("vinyl_guardian/status", status, retain=True)
     mqtt_client.publish("vinyl_guardian/engine_state", engine, retain=True)
 
-    if status == "Runout Groove":
-        mqtt_client.publish("vinyl_guardian/track", "Not Playing", retain=True)
-        mqtt_client.publish("vinyl_guardian/attributes", "{}", retain=True)
-    elif current_track:
-        mqtt_client.publish("vinyl_guardian/track", _track_id(current_track), retain=True)
-        mqtt_client.publish(
-            "vinyl_guardian/attributes",
-            json.dumps(current_track),
-            retain=True,
-        )
-    elif app_state in ("RECORDING", "PROCESSING"):
-        mqtt_client.publish("vinyl_guardian/track", "Searching...", retain=True)
-        mqtt_client.publish("vinyl_guardian/attributes", "{}", retain=True)
-    else:
-        mqtt_client.publish("vinyl_guardian/track", "Not Playing", retain=True)
-        mqtt_client.publish("vinyl_guardian/attributes", "{}", retain=True)
+    track_state, track_attributes = current_track_presentation(
+        status,
+        app_state,
+        current_track,
+    )
+    mqtt_client.publish("vinyl_guardian/track", track_state, retain=True)
+    mqtt_client.publish(
+        "vinyl_guardian/attributes",
+        json.dumps(track_attributes),
+        retain=True,
+    )
 
 
 def connect_mqtt():
@@ -1853,8 +1849,17 @@ def listen_and_identify():
                 if new_vinyl_status == "Runout Groove":
                     # The stylus is still down and runout wear continues to count,
                     # but no song is playing once the locked runout begins.
-                    mqtt_client.publish("vinyl_guardian/track", "Not Playing", retain=True)
-                    mqtt_client.publish("vinyl_guardian/attributes", "{}", retain=True)
+                    track_state, track_attributes = current_track_presentation(
+                        new_vinyl_status,
+                        app_state,
+                        current_track,
+                    )
+                    mqtt_client.publish("vinyl_guardian/track", track_state, retain=True)
+                    mqtt_client.publish(
+                        "vinyl_guardian/attributes",
+                        json.dumps(track_attributes),
+                        retain=True,
+                    )
                 elif (
                     previous_vinyl_status == "Runout Groove"
                     and current_track
