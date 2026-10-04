@@ -263,6 +263,18 @@ class TrackReasoningTests(unittest.TestCase):
             monitor.record_result(third["id"], match("A", "1"))["action"]
         )
 
+    def test_completed_unknown_duration_track_can_scrobble_before_four_minutes(self):
+        unknown = track(
+            confidence="high",
+            start=1000,
+            duration=1200,
+            duration_known=False,
+        )
+        unknown["scrobble_trigger_time"] = 1240
+        self.assertFalse(scrobble_is_eligible(unknown, 1120))
+        self.assertTrue(scrobble_is_eligible(unknown, 1120, completed=True))
+        self.assertFalse(scrobble_is_eligible(unknown, 1029, completed=True))
+
     def test_lastfm_minimum_duration_is_enforced(self):
         short = track(confidence="high", duration=30)
         self.assertFalse(scrobble_is_eligible(short, 2000))
