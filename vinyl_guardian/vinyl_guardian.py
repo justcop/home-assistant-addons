@@ -134,10 +134,19 @@ def signal_handler(sig, frame):
             mqtt_client.publish("vinyl_guardian/music_energy", "0.0", retain=True)
             mqtt_client.publish("vinyl_guardian/pop_texture", "0.0", retain=True)
             mqtt_client.publish("vinyl_guardian/pop_volume", "0.0", retain=True)
-            mqtt_client.publish(AVAILABILITY_TOPIC, "offline", retain=True)
+            offline = mqtt_client.publish(
+                AVAILABILITY_TOPIC,
+                "offline",
+                qos=1,
+                retain=True,
+            )
+            try:
+                offline.wait_for_publish(timeout=2.0)
+            except Exception:
+                pass
 
-        mqtt_client.loop_stop()
         mqtt_client.disconnect()
+        mqtt_client.loop_stop()
     except Exception as e:
         log(f"⚠️ Error during shutdown: {e}")
     sys.exit(0)
