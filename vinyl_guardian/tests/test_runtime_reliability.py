@@ -1,0 +1,75 @@
+import ast
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def load_function(path, name, env):
+    tree = ast.parse(path.read_text())
+    node = next(
+        item for item in tree.body
+        if isinstance(item, ast.FunctionDef) and item.name == name
+    )
+    exec(compile(ast.Module(body=[node], type_ignores=[]), str(path), "exec"), env)
+    return env[name]
+
+
+class LastFmAttemptTests(unittest.TestCase):
+    def test_success_and_failure_are_reported_to_retry_queue(self):
+        path = ROOT / "integrations.py"
+        messages = []
+
+        class Success:
+            def scrobble(self, **kwargs):
+                self.kwargs = kwargs
+
+        success = Success()
+        env = {"lastfm_network": success, "log": messages.append}
+        attempt = load_function(path, "scrobble_to_lastfm", env)
+        self.assertTrue(attempt("Artist", "Title", 1234.9, "Album"))
+        self.assertEqual(success.kwargs["timestamp"], 1234)
+
+        class Failure:
+            def scrobble(self, **kwargs):
+                raise RuntimeError("offline")
+
+        env = {"lastfm_network": Failure(), "log": messages.append}
+        attempt = load_function(path, "scrobble_to_lastfm", env)
+        self.assertFalse(attempt("Artist", "Title", 1234, "Album"))
+        self.assertTrue(any("will retry" in message for message in messages))
+
+    def test_unconfigured_lastfm_is_not_reported_as_success(self):
+        path = ROOT / "integrations.py"
+        env = {"lastfm_network": None, "log": lambda _message: None}
+        attempt = load_function(path, "scrobble_to_lastfm", env)
+        self.assertFalse(attempt("Artist", "Title", 1234, "Album"))
+
+
+class RuntimeStatusTests(unittest.TestCase):
+    def test_internal_status_advances_while_mqtt_is_offline(self):
+        path = ROOT / "vinyl_guardian.py"
+
+        class MQTT:
+            def is_connected(self):
+                return False
+            def publish(self, *args, **kwargs):
+                raise AssertionError("offline state must not publish")
+
+        env = {
+            "current_display_status": "Powered Off",
+            "current_engine_status": "Off",
+            "CALIBRATION_MODE": False,
+            "mqtt_client": MQTT(),
+        }
+        change = load_function(path, "change_3_tier_status", env)
+        previous, changed = change("Playing", "Tracking")
+        self.assertEqual(previous, "Powered Off")
+        self.assertTrue(changed)
+        self.assertEqual(env["current_display_status"], "Playing")
+        self.assertEqual(env["current_engine_status"], "Tracking")
+
+
+if __name__ == "__main__":
+    unittest.main()
