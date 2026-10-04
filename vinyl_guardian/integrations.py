@@ -51,6 +51,71 @@ def get_track_duration(title, artist, adamid=None):
             time.sleep(1)
     return 0
 
+def _catalogue_identity(row):
+    if not isinstance(row, dict):
+        return ("", "")
+    return (
+        str(row.get("artistName") or "").strip().lower(),
+        str(row.get("trackName") or "").strip().lower(),
+    )
+
+
+def _next_album_track_from_rows(rows, current_adamid=None, title="", artist=""):
+    tracks = [
+        row for row in (rows or [])
+        if isinstance(row, dict)
+        and row.get("wrapperType") == "track"
+        and row.get("trackName")
+    ]
+    tracks.sort(key=lambda row: (
+        int(row.get("discNumber") or 1),
+        int(row.get("trackNumber") or 0),
+    ))
+    target_index = None
+    if current_adamid not in (None, ""):
+        current = str(current_adamid)
+        for index, row in enumerate(tracks):
+            if str(row.get("trackId") or "") == current:
+                target_index = index
+                break
+    if target_index is None:
+        wanted = (str(artist or "").strip().lower(), str(title or "").strip().lower())
+        for index, row in enumerate(tracks):
+            if _catalogue_identity(row) == wanted:
+                target_index = index
+                break
+    if target_index is None or target_index + 1 >= len(tracks):
+        return None
+    row = tracks[target_index + 1]
+    return {
+        "title": row.get("trackName", ""),
+        "artist": row.get("artistName", ""),
+        "album": row.get("collectionName", ""),
+        "adamid": row.get("trackId"),
+        "duration": float(row.get("trackTimeMillis") or 0) / 1000.0,
+        "track_number": row.get("trackNumber"),
+        "disc_number": row.get("discNumber"),
+    }
+
+
+def get_expected_next_track(album_adamid, current_adamid=None, title="", artist=""):
+    """Best-effort album-order hint; failure never affects live recognition."""
+    if album_adamid in (None, ""):
+        return None
+    try:
+        url = f"https://itunes.apple.com/lookup?id={album_adamid}&entity=song"
+        res = requests.get(url, timeout=10)
+        data = res.json()
+        return _next_album_track_from_rows(
+            data.get("results", []),
+            current_adamid=current_adamid,
+            title=title,
+            artist=artist,
+        )
+    except Exception:
+        return None
+
+
 # --- RECOGNITION ENGINE (SHAZAM) ---
 def recognize_shazam(wav_path):
     if DEBUG: log("Uploading to Shazam...")
@@ -82,6 +147,7 @@ def recognize_shazam(wav_path):
             duration = 0
             release_year = "Unknown"
             adamid = track.get('trackadamid')
+            album_adamid = track.get('albumadamid')
             shazam_key = track.get('key')
             image_url = track.get('images', {}).get('coverart', '')
            
@@ -108,6 +174,7 @@ def recognize_shazam(wav_path):
                 "offset_seconds": res_json['matches'][0].get('offset', 0) if isinstance(res_json['matches'][0], dict) else 0, 
                 "duration": duration, 
                 "adamid": adamid,
+                "album_adamid": album_adamid,
                 "shazam_key": shazam_key,
                 "image": image_url
             }
