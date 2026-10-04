@@ -97,6 +97,7 @@ class TrackMonitor:
         self.generation = 0
         self.track_key = None
         self.track_origin = None
+        self.expected_next_key = None
         self.verification_requested = set()
         self.verification_results = {}
         self.boundary = None
@@ -107,6 +108,7 @@ class TrackMonitor:
         self.generation += 1
         self.track_key = identity_key(track)
         self.track_origin = float(track.get("session_start_time") or track.get("start_timestamp") or 0.0)
+        self.expected_next_key = identity_key(track.get("expected_next"))
         self.verification_requested.clear()
         self.verification_results.clear()
         self.boundary = None
@@ -116,6 +118,7 @@ class TrackMonitor:
         self.generation += 1
         self.track_key = None
         self.track_origin = None
+        self.expected_next_key = None
         self.verification_requested.clear()
         self.verification_results.clear()
         self.boundary = None
@@ -123,6 +126,10 @@ class TrackMonitor:
 
     def boundary_active(self):
         return self.boundary is not None
+
+    def update_track_metadata(self, track):
+        """Refresh optional catalogue hints without resetting active evidence."""
+        self.expected_next_key = identity_key((track or {}).get("expected_next"))
 
     def start_boundary(self, anchor, reason, strength="medium", previous_end=None):
         anchor = float(anchor)
@@ -268,6 +275,27 @@ class TrackMonitor:
             if alt_key and alt_key != self.track_key:
                 alternatives.setdefault(alt_key, []).append(row)
         winner_key = max(alternatives, key=lambda item: len(alternatives[item]), default=None)
+
+        expected_rows = alternatives.get(self.expected_next_key, []) if self.expected_next_key else []
+        if (
+            expected_rows
+            and stage >= 5
+            and boundary["strength"] in ("strong", "high")
+        ):
+            action = {
+                "accepted": True,
+                "action": "successor",
+                "confidence": "high" if not same else "medium",
+                "match": deepcopy(expected_rows[-1]["match"]),
+                "anchor": boundary["anchor"],
+                "reason": boundary["reason"],
+                "strength": boundary["strength"],
+                "previous_end": boundary["previous_end"],
+                "expected_next_match": True,
+                "request": spec,
+            }
+            self.boundary = None
+            return action
 
         if winner_key and len(alternatives[winner_key]) >= 2:
             action = {
