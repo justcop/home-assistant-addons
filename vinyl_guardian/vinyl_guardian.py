@@ -1790,27 +1790,41 @@ def listen_and_identify():
                     )
 
                 if not turntable_on:
+                    poweroff_scrobble = None
                     with state_lock:
                         if app_state in ["RECORDING", "PROCESSING", "SLEEPING", "COOLDOWN"]:
                             if app_state == "SLEEPING" and current_track and not scrobble_fired:
                                 current_silence_sec = silence_sleep * (CHUNK / RATE)
+                                physical_now = now - current_silence_sec
                                 time_played = (
-                                    (now - current_track["session_start_time"])
-                                    - current_silence_sec
+                                    physical_now - current_track["session_start_time"]
                                     + current_track.get("previously_played", 0)
                                 )
                                 if time_played > 5:
-                                    track_id = f"{current_track['title']} - {current_track['artist']}"
+                                    track_id = _track_id(current_track)
                                     paused_track_memory = {
                                         "id": track_id,
                                         "accumulated_playtime": time_played,
                                     }
+                                if scrobble_is_eligible(current_track, physical_now):
+                                    if scrobble_identity_confident(current_track):
+                                        poweroff_scrobble = current_track
+                                    else:
+                                        pending_scrobbles.hold(
+                                            current_track,
+                                            ended_at=now,
+                                            physical_now=physical_now,
+                                            reason="power_off",
+                                        )
                             recognition_session.invalidate()
                             track_monitor.clear()
                             app_state, current_track, scrobble_fired, current_attempt, consecutive_failures = (
                                 "IDLE", None, False, 1, 0
                             )
                             music_gap_started = None
+
+                    if poweroff_scrobble is not None:
+                        _send_scrobble(poweroff_scrobble, mark_current=False)
 
                     if mqtt_client.is_connected():
                         mqtt_client.publish("vinyl_guardian/track", "Not Playing", retain=True)
