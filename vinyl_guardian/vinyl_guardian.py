@@ -147,8 +147,6 @@ signal.signal(signal.SIGINT, signal_handler)
 
 # --- MQTT SETUP & CALLBACKS ---
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-if MQTT_USER and MQTT_PASS:
-    mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
 
 def on_message(client, userdata, msg):
     global debug_countdown, debug_metrics_buffer
@@ -206,9 +204,36 @@ def on_message(client, userdata, msg):
         ).strip()
         log(f"🎚️ Audio source selection requested: {requested_audio_source_option}")
 
+def _mqtt_failed(reason_code):
+    return bool(getattr(reason_code, "is_failure", False)) or (
+        isinstance(reason_code, int) and reason_code != 0
+    )
+
+
+def on_connect(client, userdata, flags, reason_code, properties):
+    if _mqtt_failed(reason_code):
+        log(f"🚨 MQTT connection rejected: {reason_code}")
+        return
+    log("✅ MQTT connected. Restoring subscriptions and discovery.")
+    client.publish(AVAILABILITY_TOPIC, "online", retain=True)
+    subscribe_commands(client)
+    publish_discovery()
+    publish_runtime_snapshot()
+    refresh_audio_source_select()
+    publish_audio_source_state()
+
+
+def on_connect_fail(client, userdata):
+    log("⚠️ MQTT broker unavailable. Guardian will keep retrying in the background.")
+
+
+def on_disconnect(client, userdata, disconnect_flags, reason_code, properties):
+    if _mqtt_failed(reason_code):
+        log(f"⚠️ MQTT disconnected ({reason_code}); automatic reconnect active.")
+
+
 def publish_discovery():
     log("Publishing MQTT Auto-Discovery payloads...")
-    mqtt_client.subscribe("vinyl_guardian/calibration/continue")
     device_info = {"identifiers": ["vinyl_guardian_01"], "name": "Vinyl Guardian", "manufacturer": "Custom Add-on"}
     mqtt_client.publish("homeassistant/button/vinyl_guardian/calibration_continue/config", json.dumps({"name": "Continue Calibration", "unique_id": "vinyl_guardian_calibration_continue", "command_topic": "vinyl_guardian/calibration/continue", "device": device_info, "icon": "mdi:play"}), retain=True)
     mqtt_client.publish("homeassistant/sensor/vinyl_guardian/calibration_step/config", json.dumps({"name": "Calibration Instructions", "unique_id": "vinyl_guardian_calibration_step", "state_topic": "vinyl_guardian/calibration/step", "json_attributes_topic": "vinyl_guardian/calibration/details", "device": device_info, "icon": "mdi:clipboard-list"}), retain=True)
@@ -262,7 +287,11 @@ def publish_discovery():
         if c["domain"] == "binary_sensor":
             payload["payload_on"] = "ON"
             payload["payload_off"] = "OFF"
-        mqtt_client.publish(f"homeassistant/{c['domain']}/vinyl_guardian/{key}/config", json.dumps(payload), retain=True)
+        mqtt_client.publish(
+            f"homeassistant/{c['domain']}/vinyl_guardian/{key}/config",
+            json.dumps(add_availability(payload)),
+            retain=True,
+        )
         
     btn_payload = {
         "name": "Live Debug Dump",
@@ -271,7 +300,7 @@ def publish_discovery():
         "device": device_info,
         "icon": "mdi:bug"
     }
-    mqtt_client.publish("homeassistant/button/vinyl_guardian/debug/config", json.dumps(btn_payload), retain=True)
+    mqtt_client.publish("homeassistant/button/vinyl_guardian/debug/config", json.dumps(add_availability(btn_payload)), retain=True)
 
     feedback_buttons = {
         "false_positive": {
@@ -295,7 +324,7 @@ def publish_discovery():
         }
         mqtt_client.publish(
             f"homeassistant/button/vinyl_guardian/{key}/config",
-            json.dumps(payload),
+            json.dumps(add_availability(payload)),
             retain=True,
         )
 
@@ -310,7 +339,7 @@ def publish_discovery():
     }
     mqtt_client.publish(
         "homeassistant/select/vinyl_guardian/ground_truth/config",
-        json.dumps(label_select),
+        json.dumps(add_availability(label_select)),
         retain=True,
     )
 
@@ -327,7 +356,7 @@ def publish_discovery():
         }
         mqtt_client.publish(
             "homeassistant/select/vinyl_guardian/audio_source/config",
-            json.dumps(audio_select),
+            json.dumps(add_availability(audio_select)),
             retain=True,
         )
 
@@ -380,60 +409,60 @@ def publish_discovery():
         retain=True,
     )
 
+def publish_runtime_snapshot():
+    """Restore retained state after first connect or broker reconnect."""
+    if not mqtt_client.is_connected():
+        return
+    mqtt_client.publish(AVAILABILITY_TOPIC, "online", retain=True)
     if CALIBRATION_MODE:
         mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
         mqtt_client.publish("vinyl_guardian/status", "Calibrating", retain=True)
         mqtt_client.publish("vinyl_guardian/engine_state", "Calibration Mode", retain=True)
         mqtt_client.publish("vinyl_guardian/track", "Calibration Mode", retain=True)
         mqtt_client.publish("vinyl_guardian/attributes", "{}", retain=True)
-        mqtt_client.publish("vinyl_guardian/scrobble_status", "Calibration Mode", retain=True)
-        mqtt_client.publish("vinyl_guardian/progress", "Calibration Mode", retain=True)
-        mqtt_client.publish("vinyl_guardian/raw_volume", "0.0", retain=True)
-        mqtt_client.publish("vinyl_guardian/raw_pitch", "0.0", retain=True)
-        mqtt_client.publish("vinyl_guardian/raw_texture", "0.0", retain=True)
-        mqtt_client.publish("vinyl_guardian/power_score", "0", retain=True)
-        mqtt_client.publish("vinyl_guardian/runout_rpm", "None", retain=True)
-        mqtt_client.publish("vinyl_guardian/runout_confidence", "0.0", retain=True)
-        mqtt_client.publish("vinyl_guardian/music_energy", "0.0", retain=True)
-        mqtt_client.publish("vinyl_guardian/pop_texture", "0.0", retain=True)
-        mqtt_client.publish("vinyl_guardian/pop_volume", "0.0", retain=True)
-    else:
-        mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
-        mqtt_client.publish("vinyl_guardian/status", "Powered Off", retain=True)
-        mqtt_client.publish("vinyl_guardian/engine_state", "Off", retain=True)
+        return
+
+    status = current_display_status
+    engine = current_engine_status
+    power = "OFF" if status in ("Powered Off", "Offline") else "ON"
+    mqtt_client.publish("vinyl_guardian/power", power, retain=True)
+    mqtt_client.publish("vinyl_guardian/status", status, retain=True)
+    mqtt_client.publish("vinyl_guardian/engine_state", engine, retain=True)
+
+    if status == "Runout Groove":
         mqtt_client.publish("vinyl_guardian/track", "Not Playing", retain=True)
         mqtt_client.publish("vinyl_guardian/attributes", "{}", retain=True)
-        mqtt_client.publish("vinyl_guardian/scrobble_status", "Off", retain=True)
-        mqtt_client.publish("vinyl_guardian/progress", "[░░░░░░░░░░] 00:00 / 00:00", retain=True)
-        mqtt_client.publish("vinyl_guardian/raw_volume", "0.0", retain=True)
-        mqtt_client.publish("vinyl_guardian/raw_pitch", "0.0", retain=True)
-        mqtt_client.publish("vinyl_guardian/raw_texture", "0.0", retain=True)
-        mqtt_client.publish("vinyl_guardian/power_score", "0", retain=True)
-        mqtt_client.publish("vinyl_guardian/runout_rpm", "None", retain=True)
-        mqtt_client.publish("vinyl_guardian/runout_confidence", "0.0", retain=True)
-        mqtt_client.publish("vinyl_guardian/music_energy", "0.0", retain=True)
-        mqtt_client.publish("vinyl_guardian/pop_texture", "0.0", retain=True)
-        mqtt_client.publish("vinyl_guardian/pop_volume", "0.0", retain=True)
+    elif current_track:
+        mqtt_client.publish("vinyl_guardian/track", _track_id(current_track), retain=True)
+        mqtt_client.publish(
+            "vinyl_guardian/attributes",
+            json.dumps(current_track),
+            retain=True,
+        )
+    elif app_state in ("RECORDING", "PROCESSING"):
+        mqtt_client.publish("vinyl_guardian/track", "Searching...", retain=True)
+        mqtt_client.publish("vinyl_guardian/attributes", "{}", retain=True)
+    else:
+        mqtt_client.publish("vinyl_guardian/track", "Not Playing", retain=True)
+        mqtt_client.publish("vinyl_guardian/attributes", "{}", retain=True)
+
 
 def connect_mqtt():
     try:
-        mqtt_client.on_message = on_message
-        mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
-        mqtt_client.subscribe("vinyl_guardian/debug/trigger")
-        mqtt_client.subscribe("vinyl_guardian/debug/false_positive")
-        mqtt_client.subscribe("vinyl_guardian/debug/missed_music")
-        mqtt_client.subscribe("vinyl_guardian/label/set")
-        mqtt_client.subscribe("vinyl_guardian/label/mark")
-        mqtt_client.subscribe("vinyl_guardian/experiment/replay_latest")
-        mqtt_client.subscribe("vinyl_guardian/diagnostics/mode/set")
-        mqtt_client.subscribe("vinyl_guardian/diagnostics/intentional")
-        mqtt_client.subscribe("vinyl_guardian/diagnostics/finish")
-        mqtt_client.subscribe("vinyl_guardian/profile/rollback")
-        mqtt_client.subscribe("vinyl_guardian/audio/scan")
-        mqtt_client.subscribe("vinyl_guardian/audio/source/set")
-        mqtt_client.loop_start()
-        publish_discovery()
-    except Exception as e: log(f"🚨 MQTT Failed: {e}")
+        configure_client(
+            mqtt_client,
+            MQTT_BROKER,
+            MQTT_PORT,
+            username=MQTT_USER,
+            password=MQTT_PASS,
+            on_connect=on_connect,
+            on_connect_fail=on_connect_fail,
+            on_disconnect=on_disconnect,
+            on_message=on_message,
+        )
+        log("📡 MQTT network loop started; first connection will retry automatically.")
+    except Exception as e:
+        log(f"🚨 MQTT setup failed: {e}")
 
 def change_3_tier_status(new_vinyl_status, new_engine_status):
     global current_display_status, current_engine_status
@@ -1012,7 +1041,7 @@ def refresh_audio_source_select():
         }
         mqtt_client.publish(
             "homeassistant/select/vinyl_guardian/audio_source/config",
-            json.dumps(payload),
+            json.dumps(add_availability(payload)),
             retain=True,
         )
     except Exception as e:
