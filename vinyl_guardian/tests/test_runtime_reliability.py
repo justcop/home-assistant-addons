@@ -1,6 +1,12 @@
 import ast
+import json
+import threading
 import unittest
 from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from runtime_presentation import current_track_presentation
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -69,6 +75,40 @@ class RuntimeStatusTests(unittest.TestCase):
         self.assertTrue(changed)
         self.assertEqual(env["current_display_status"], "Playing")
         self.assertEqual(env["current_engine_status"], "Tracking")
+
+
+class RunoutSuppressionIntegrationTests(unittest.TestCase):
+    def test_verified_publish_is_the_only_path_that_clears_post_runout_latch(self):
+        path = ROOT / "vinyl_guardian.py"
+
+        class MQTT:
+            def __init__(self):
+                self.messages = []
+            def is_connected(self):
+                return True
+            def publish(self, topic, value, **kwargs):
+                self.messages.append((topic, value))
+
+        mqtt = MQTT()
+        env = {
+            "state_lock": threading.Lock(),
+            "track_display_suppressed": True,
+            "current_display_status": "Playing",
+            "app_state": "SLEEPING",
+            "mqtt_client": mqtt,
+            "current_track_presentation": current_track_presentation,
+            "json": json,
+        }
+        publish_track = load_function(path, "_publish_track", env)
+        track = {"title": "A", "artist": "Artist"}
+
+        publish_track(track)
+        self.assertTrue(env["track_display_suppressed"])
+        self.assertEqual(mqtt.messages[-2][1], "Not Playing")
+
+        publish_track(track, verified=True)
+        self.assertFalse(env["track_display_suppressed"])
+        self.assertEqual(mqtt.messages[-2][1], "A - Artist")
 
 
 if __name__ == "__main__":
