@@ -10,6 +10,7 @@ import threading
 import wave
 import subprocess
 import signal
+from collections import deque
 import numpy as np
 import alsaaudio
 import paho.mqtt.client as mqtt
@@ -24,6 +25,14 @@ from calibration import run_calibration
 from detector import GuardianDetector
 from stylus_usage import StylusUsage
 from recognition_session import RecognitionSession, recognize_fragment
+from track_reasoning import (
+    TrackMonitor,
+    PendingScrobbleQueue,
+    identity_key,
+    expected_end,
+    scrobble_identity_confident,
+    scrobble_is_eligible,
+)
 from telemetry import DatasetCollector
 from experiment import ExperimentHarness, TRUSTED_LABELS
 from diagnostic_monitor import MODES, MODE_NAMES
@@ -37,6 +46,8 @@ FORMAT = alsaaudio.PCM_FORMAT_S16_LE
 # Global State & Thread Safety
 state_lock = threading.Lock()
 recognition_session = RecognitionSession()
+track_monitor = TrackMonitor()
+pending_scrobbles = PendingScrobbleQueue()
 app_state = "IDLE"
 current_attempt = 1
 wake_up_time = 0
@@ -415,6 +426,121 @@ def change_3_tier_status(new_vinyl_status, new_engine_status):
         if new_engine_status != current_engine_status:
             mqtt_client.publish("vinyl_guardian/engine_state", new_engine_status, retain=True)
             current_engine_status = new_engine_status
+
+def _track_id(track):
+    if not isinstance(track, dict):
+        return ""
+    return f"{track.get('title', '')} - {track.get('artist', '')}".strip(" -")
+
+
+def _track_duration(match):
+    duration = float((match or {}).get("duration") or 0.0)
+    if duration <= 0 and match:
+        duration = float(get_track_duration(
+            match.get("title", ""),
+            match.get("artist", ""),
+            match.get("adamid"),
+        ) or 0.0)
+    return duration
+
+
+def _make_track(match, session_start, start_timestamp, confidence, support=1,
+                conflicts=0, stage_seconds=0, previously_played=0.0):
+    duration = _track_duration(match)
+    if duration <= 0:
+        duration = 1200.0
+        duration_known = False
+        scrobble_delay = 240.0
+    else:
+        duration_known = True
+        scrobble_delay = min(duration / 2.0, 240.0)
+
+    previously_played = float(previously_played or 0.0)
+    if previously_played:
+        scrobble_delay = max(2.0, scrobble_delay - previously_played)
+
+    track = {
+        "title": match.get("title", "Unknown"),
+        "artist": match.get("artist", "Unknown"),
+        "album": match.get("album", "Unknown"),
+        "duration": duration,
+        "start_timestamp": float(start_timestamp),
+        "session_start_time": float(session_start),
+        "scrobble_trigger_time": float(session_start) + scrobble_delay,
+        "duration_known": duration_known,
+        "previously_played": previously_played,
+        "source": "Shazam",
+        "recognition_status": "confirmed",
+        "recognition_stage_seconds": int(stage_seconds or 0),
+        "recognition_confidence": str(confidence or "low"),
+        "recognition_support": int(support or 0),
+        "recognition_conflicts": int(conflicts or 0),
+        "recognition_verified": str(confidence or "") == "high",
+        "identity_key": identity_key(match),
+        "image": match.get("image", ""),
+        "adamid": match.get("adamid"),
+        "shazam_key": match.get("shazam_key"),
+        "scrobble_fired": False,
+    }
+    if duration_known:
+        track["expected_end_time"] = float(start_timestamp) + duration
+    return track
+
+
+def _publish_track(track):
+    if not isinstance(track, dict):
+        return
+    if mqtt_client.is_connected():
+        mqtt_client.publish(
+            "vinyl_guardian/track",
+            f"{track.get('title', 'Unknown')} - {track.get('artist', 'Unknown')}",
+            retain=True,
+        )
+        mqtt_client.publish(
+            "vinyl_guardian/attributes",
+            json.dumps(track),
+            retain=True,
+        )
+
+
+def _send_scrobble(track, mark_current=False):
+    global scrobble_fired, last_scrobbled_track, paused_track_memory
+    if not isinstance(track, dict) or track.get("scrobble_fired"):
+        return False
+    track_id = _track_id(track)
+    if not track_id:
+        return False
+    # Preserve the existing duplicate guard while allowing a delayed scrobble
+    # to retain the original physical start timestamp.
+    if track_id != last_scrobbled_track:
+        scrobble_to_lastfm(
+            track.get("artist", ""),
+            track.get("title", ""),
+            track.get("start_timestamp"),
+            track.get("album"),
+        )
+    if mqtt_client.is_connected():
+        mqtt_client.publish("vinyl_guardian/scrobble_state", track_id, retain=True)
+        try:
+            mqtt_client.publish("vinyl_guardian/scrobble", json.dumps(track), retain=True)
+        except Exception:
+            pass
+    track["scrobble_fired"] = True
+    last_scrobbled_track = track_id
+    if mark_current:
+        scrobble_fired = True
+        paused_track_memory = None
+    return True
+
+
+def _extract_audio_window(ring, start_time, end_time):
+    chunks = [
+        payload
+        for stamp, payload in ring
+        if float(start_time) <= float(stamp) <= float(end_time) + (CHUNK / RATE)
+    ]
+    return b"".join(chunks)
+
 
 # --- BACKGROUND WORKER (SHAZAM) ---
 def process_audio_background(audio_data_bytes, song_start_timestamp, token, stage_seconds):
