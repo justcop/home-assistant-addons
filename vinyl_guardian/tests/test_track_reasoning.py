@@ -109,6 +109,23 @@ class TrackReasoningTests(unittest.TestCase):
         self.assertEqual(result["action"], "continuation")
         self.assertFalse(monitor.boundary_active())
 
+    def test_recovery_boundary_retains_last_music_time(self):
+        current = track(confidence="high")
+        monitor = TrackMonitor()
+        monitor.begin_track(current)
+        monitor.start_boundary(
+            1060.0,
+            "music_recovery",
+            strength="medium",
+            previous_end=1052.0,
+        )
+        requests = monitor.due_requests(1065.1, current)
+        by_stage = {r["stage"]: r for r in requests}
+        monitor.record_result(by_stage[3]["id"], match("B", "2"))
+        result = monitor.record_result(by_stage[5]["id"], match("B", "2"))
+        self.assertEqual(result["action"], "successor")
+        self.assertEqual(result["previous_end"], 1052.0)
+
     def test_gapless_expected_end_two_new_matches_confirm_successor(self):
         current = track(confidence="high", duration=18)
         monitor = TrackMonitor()
