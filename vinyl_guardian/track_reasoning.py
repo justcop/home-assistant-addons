@@ -6,6 +6,7 @@ combine fingerprint agreement, physical pauses and expected track timing.
 """
 
 import re
+import threading
 from copy import deepcopy
 
 CONFIDENCE_RANK = {"low": 0, "medium": 1, "high": 2}
@@ -510,51 +511,58 @@ class PendingScrobbleQueue:
     def __init__(self, ttl=PENDING_SCROBBLE_TTL):
         self.ttl = float(ttl)
         self.items = []
+        self._lock = threading.RLock()
 
-    def expire(self, now):
+    def _expire_unlocked(self, now):
         now = float(now)
         self.items = [item for item in self.items if now <= item["expires"]]
 
+    def expire(self, now):
+        with self._lock:
+            self._expire_unlocked(now)
+
     def hold(self, track, ended_at, physical_now, reason, completed=False):
-        self.expire(ended_at)
-        if not track or track.get("scrobble_fired"):
-            return False
-        if not scrobble_is_eligible(track, physical_now, completed=completed):
-            return False
-        key = identity_key(track)
-        self.items = [item for item in self.items if item["key"] != key]
-        self.items.append({
-            "key": key,
-            "track": deepcopy(track),
-            "ended_at": float(ended_at),
-            "expires": float(ended_at) + self.ttl,
-            "reason": str(reason),
-        })
-        return True
+        with self._lock:
+            self._expire_unlocked(ended_at)
+            if not track or track.get("scrobble_fired"):
+                return False
+            if not scrobble_is_eligible(track, physical_now, completed=completed):
+                return False
+            key = identity_key(track)
+            self.items = [item for item in self.items if item["key"] != key]
+            self.items.append({
+                "key": key,
+                "track": deepcopy(track),
+                "ended_at": float(ended_at),
+                "expires": float(ended_at) + self.ttl,
+                "reason": str(reason),
+            })
+            return True
 
     def resolve_with_successor(self, successor, boundary_time, strong_boundary=False):
-        self.expire(boundary_time)
-        successor_key = identity_key(successor)
-        resolved = []
-        kept = []
-        for item in self.items:
-            track = item["track"]
-            if item["key"] == successor_key:
-                # Same identity after a pause is a resume, not a completed song.
-                continue
-            end_hint = expected_end(track)
-            timing_fit = (
-                end_hint is not None
-                and abs(float(boundary_time) - float(end_hint)) <= EXPECTED_END_TOLERANCE
-            )
-            confidence_ok = confidence_at_least(track.get("recognition_confidence"), "medium")
-            if strong_boundary and (confidence_ok or timing_fit):
-                track["boundary_confirmed"] = True
-                resolved.append(track)
-            elif timing_fit:
-                track["boundary_confirmed"] = True
-                resolved.append(track)
-            else:
-                kept.append(item)
-        self.items = kept
-        return resolved
+        with self._lock:
+            self._expire_unlocked(boundary_time)
+            successor_key = identity_key(successor)
+            resolved = []
+            kept = []
+            for item in self.items:
+                track = item["track"]
+                if item["key"] == successor_key:
+                    # Same identity after a pause is a resume, not a completed song.
+                    continue
+                end_hint = expected_end(track)
+                timing_fit = (
+                    end_hint is not None
+                    and abs(float(boundary_time) - float(end_hint)) <= EXPECTED_END_TOLERANCE
+                )
+                confidence_ok = confidence_at_least(track.get("recognition_confidence"), "medium")
+                if strong_boundary and (confidence_ok or timing_fit):
+                    track["boundary_confirmed"] = True
+                    resolved.append(track)
+                elif timing_fit:
+                    track["boundary_confirmed"] = True
+                    resolved.append(track)
+                else:
+                    kept.append(item)
+            self.items = kept
+            return resolved
