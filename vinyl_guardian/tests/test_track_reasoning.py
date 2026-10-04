@@ -231,6 +231,19 @@ class TrackReasoningTests(unittest.TestCase):
         self.assertEqual(result["reason"], "unknown_duration_consensus")
         self.assertEqual(result["anchor"], 1010.0)
 
+    def test_unknown_duration_probe_waits_for_previous_result(self):
+        current = track(confidence="high", duration_known=False)
+        monitor = TrackMonitor()
+        monitor.begin_track(current)
+        first = monitor.due_requests(1020.1, current)
+        self.assertEqual(len(first), 1)
+        self.assertEqual(first[0]["stage"], 10)
+        self.assertEqual(monitor.due_requests(1035.0, current), [])
+        monitor.record_result(first[0]["id"], match("A", "1"))
+        second = monitor.due_requests(1035.0, current)
+        self.assertEqual(len(second), 1)
+        self.assertEqual((second[0]["start"], second[0]["end"]), (1020.0, 1030.0))
+
     def test_unknown_duration_single_or_mixed_alternate_does_not_change_track(self):
         current = track(confidence="high", duration_known=False)
         monitor = TrackMonitor()
