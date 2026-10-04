@@ -102,30 +102,32 @@ class ScrobbleDispatcher:
             if float(when) >= cutoff
         }
 
-    def _write_state(self):
-        state = {"format_version": 1, "pending": self._pending, "sent": self._sent}
-        directory = os.path.dirname(self.path) or "."
+    def _atomic_write_json(self, path, state):
+        directory = os.path.dirname(path) or "."
         fd, temp_path = tempfile.mkstemp(prefix=".scrobble_", dir=directory)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 json.dump(state, handle, indent=2, sort_keys=True)
                 handle.flush()
                 os.fsync(handle.fileno())
-            if os.path.exists(self.path):
-                try:
-                    with open(self.path, "rb") as src, open(self.backup_path, "wb") as dst:
-                        dst.write(src.read())
-                        dst.flush()
-                        os.fsync(dst.fileno())
-                except OSError:
-                    pass
-            os.replace(temp_path, self.path)
+            os.replace(temp_path, path)
         finally:
             try:
                 if os.path.exists(temp_path):
                     os.unlink(temp_path)
             except OSError:
                 pass
+
+    def _write_state(self):
+        state = {"format_version": 1, "pending": self._pending, "sent": self._sent}
+        self._atomic_write_json(self.path, state)
+        try:
+            # Keep the backup at the same logical generation as the primary.
+            # Copying the *previous* primary here could resurrect a scrobble
+            # that had already been delivered if the new primary was damaged.
+            self._atomic_write_json(self.backup_path, state)
+        except OSError:
+            pass
 
     @property
     def pending_count(self):
