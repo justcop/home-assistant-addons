@@ -7,12 +7,17 @@ def track_id(track):
     return f"{track.get('title', '')} - {track.get('artist', '')}".strip(" -")
 
 
-def current_track_presentation(vinyl_status, app_state, current_track):
+def current_track_presentation(
+    vinyl_status,
+    app_state,
+    current_track,
+    suppress_track=False,
+):
     """Return track state + attributes without mutating recognition state.
 
     Runout is physically active stylus time, but it is never a playing song.
     """
-    if vinyl_status == "Runout Groove":
+    if vinyl_status == "Runout Groove" or suppress_track:
         return "Not Playing", {}
     if isinstance(current_track, dict):
         return track_id(current_track) or "Not Playing", dict(current_track)
