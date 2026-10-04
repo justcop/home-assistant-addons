@@ -595,33 +595,91 @@ def _publish_track(track):
         )
 
 
-def _send_scrobble(track, mark_current=False):
-    global scrobble_fired, last_scrobbled_track, paused_track_memory
-    if not isinstance(track, dict) or track.get("scrobble_fired"):
-        return False
+def _on_scrobble_success(row):
+    global last_scrobbled_track
+    track = dict(row.get("track") or {})
+    event_id = row.get("event_id")
     track_id = _track_id(track)
-    if not track_id:
-        return False
-    # Preserve the existing duplicate guard while allowing a delayed scrobble
-    # to retain the original physical start timestamp.
-    if track_id != last_scrobbled_track:
-        scrobble_to_lastfm(
-            track.get("artist", ""),
-            track.get("title", ""),
-            track.get("start_timestamp"),
-            track.get("album"),
-        )
-    if mqtt_client.is_connected():
+    with state_lock:
+        if (
+            current_track is not None
+            and current_track.get("scrobble_event_id") == event_id
+        ):
+            current_track["scrobble_delivered"] = True
+            current_track["scrobble_retry_attempts"] = int(row.get("attempts", 0))
+        last_scrobbled_track = track_id or last_scrobbled_track
+    if mqtt_client.is_connected() and track_id:
         mqtt_client.publish("vinyl_guardian/scrobble_state", track_id, retain=True)
-        try:
-            mqtt_client.publish("vinyl_guardian/scrobble", json.dumps(track), retain=True)
-        except Exception:
-            pass
+        mqtt_client.publish("vinyl_guardian/scrobble", json.dumps(track), retain=True)
+        mqtt_client.publish(
+            "vinyl_guardian/scrobble_status",
+            f"Scrobbled: {track.get('title', 'Track')} ✅",
+            retain=True,
+        )
+
+
+def _on_scrobble_retry(row):
+    event_id = row.get("event_id")
+    attempts = int(row.get("attempts", 0))
+    with state_lock:
+        if (
+            current_track is not None
+            and current_track.get("scrobble_event_id") == event_id
+        ):
+            current_track["scrobble_retry_attempts"] = attempts
+    if mqtt_client.is_connected():
+        mqtt_client.publish(
+            "vinyl_guardian/scrobble_status",
+            f"Last.fm retry queued · attempt {attempts + 1} ⏳",
+            retain=True,
+        )
+
+
+def initialise_scrobble_dispatcher():
+    global scrobble_dispatcher
+    scrobble_dispatcher = ScrobbleDispatcher(
+        "/data/pending_scrobbles.json",
+        scrobble_to_lastfm,
+        on_success=_on_scrobble_success,
+        on_retry=_on_scrobble_retry,
+        logger=log,
+        enabled=lastfm_enabled(),
+    )
+    if lastfm_enabled():
+        log(
+            f"🎵 Last.fm delivery queue ready "
+            f"({scrobble_dispatcher.pending_count} pending)."
+        )
+    else:
+        log("ℹ️ Last.fm not configured; scrobble delivery queue disabled.")
+
+
+def _send_scrobble(track, mark_current=False):
+    global scrobble_fired, paused_track_memory
+    if (
+        not isinstance(track, dict)
+        or track.get("scrobble_fired")
+        or scrobble_dispatcher is None
+        or not scrobble_dispatcher.enabled
+    ):
+        return False
+    event_id = scrobble_dispatcher.submit(track)
+    if not event_id:
+        return False
     track["scrobble_fired"] = True
-    last_scrobbled_track = track_id
+    track["scrobble_queued"] = True
+    track["scrobble_delivered"] = False
+    track["scrobble_event_id"] = event_id
+    track["scrobble_retry_attempts"] = 0
     if mark_current:
         scrobble_fired = True
         paused_track_memory = None
+    if mqtt_client.is_connected():
+        mqtt_client.publish(
+            "vinyl_guardian/scrobble_status",
+            "Queued for Last.fm ⏳",
+            retain=True,
+        )
     return True
 
 
@@ -2136,6 +2194,7 @@ if __name__ == "__main__":
     calibration_control.begin(CALIBRATION_MODE)
     start_server()
     initialise_audio_source()
+    initialise_scrobble_dispatcher()
     connect_mqtt()
     calibration_control.configure(publish_calibration_status)
     refresh_audio_source_select()
