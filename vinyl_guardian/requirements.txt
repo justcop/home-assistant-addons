@@ -1,0 +1,6 @@
+numpy==2.5.3
+paho-mqtt==2.1.0
+pyalsaaudio==0.11.0
+requests==2.34.2
+shazamio==0.8.1
+pylast==7.1.0
