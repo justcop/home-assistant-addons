@@ -1,3 +1,4 @@
+import ast
 import unittest
 from pathlib import Path
 import sys
@@ -38,6 +39,23 @@ def track(title="A", adamid="1", confidence="low", start=1000.0, duration=180.0)
     }
     item["identity_key"] = identity_key(item)
     return item
+
+
+class AudioWindowTests(unittest.TestCase):
+    def test_tracking_window_is_byte_clamped_to_requested_ten_seconds(self):
+        source = Path(__file__).resolve().parents[1] / "vinyl_guardian.py"
+        tree = ast.parse(source.read_text())
+        function = next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "_extract_audio_window"
+        )
+        env = {"RATE": 4, "CHANNELS": 1, "CHUNK": 2}
+        exec(compile(ast.Module(body=[function], type_ignores=[]), "window", "exec"), env)
+        # Deliberately include one chunk beyond the nominal end; the helper
+        # may select it for boundary alignment but must never upload it.
+        ring = [(index * 0.5, b"\\x01\\x00" * 2) for index in range(22)]
+        raw = env["_extract_audio_window"](ring, 0.0, 10.0)
+        self.assertEqual(len(raw), 10 * 4 * 1 * 2)
 
 
 class TrackReasoningTests(unittest.TestCase):
