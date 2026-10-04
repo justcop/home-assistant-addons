@@ -16,6 +16,10 @@ VERIFICATION_WINDOWS = (
 )
 EXPECTED_END_TOLERANCE = 10.0
 PENDING_SCROBBLE_TTL = 180.0
+UNKNOWN_PROBE_WINDOW = 10.0
+UNKNOWN_PROBE_INTERVAL = 10.0
+UNKNOWN_FIRST_PROBE_END = 20.0
+LASTFM_MIN_TRACK_SECONDS = 30.0
 
 
 def _normalise(value):
@@ -86,6 +90,9 @@ def scrobble_identity_confident(track):
 def scrobble_is_eligible(track, physical_now):
     if not isinstance(track, dict):
         return False
+    duration = float(track.get("duration") or 0.0)
+    if track.get("duration_known") and duration <= LASTFM_MIN_TRACK_SECONDS:
+        return False
     trigger = track.get("scrobble_trigger_time")
     return trigger is not None and float(physical_now) >= float(trigger)
 
@@ -100,6 +107,11 @@ class TrackMonitor:
         self.expected_next_key = None
         self.verification_requested = set()
         self.verification_results = {}
+        self.unknown_probe_index = 0
+        self.unknown_candidate_key = None
+        self.unknown_candidate_match = None
+        self.unknown_candidate_count = 0
+        self.unknown_candidate_anchor = None
         self.boundary = None
         self.request_sequence = 0
         self.requests = {}
@@ -111,6 +123,11 @@ class TrackMonitor:
         self.expected_next_key = identity_key(track.get("expected_next"))
         self.verification_requested.clear()
         self.verification_results.clear()
+        self.unknown_probe_index = 0
+        self.unknown_candidate_key = None
+        self.unknown_candidate_match = None
+        self.unknown_candidate_count = 0
+        self.unknown_candidate_anchor = None
         self.boundary = None
         self.requests.clear()
 
@@ -121,6 +138,11 @@ class TrackMonitor:
         self.expected_next_key = None
         self.verification_requested.clear()
         self.verification_results.clear()
+        self.unknown_probe_index = 0
+        self.unknown_candidate_key = None
+        self.unknown_candidate_match = None
+        self.unknown_candidate_count = 0
+        self.unknown_candidate_anchor = None
         self.boundary = None
         self.requests.clear()
 
@@ -197,25 +219,45 @@ class TrackMonitor:
                 ))
             return due
 
-        if confidence_at_least(track.get("recognition_confidence"), "high"):
-            return due
-
         origin = float(track.get("session_start_time") or self.track_origin or now)
         end_hint = expected_end(track)
-        for name, start_offset, end_offset in VERIFICATION_WINDOWS:
-            if name in self.verification_requested:
-                continue
-            start = origin + start_offset
-            end = origin + end_offset
-            # Never call a straddling window a correction sample when metadata
-            # says a real boundary may occur inside it.
-            if end_hint is not None and end_hint <= end + 3.0:
+
+        if not confidence_at_least(track.get("recognition_confidence"), "high"):
+            for name, start_offset, end_offset in VERIFICATION_WINDOWS:
+                if name in self.verification_requested:
+                    continue
+                start = origin + start_offset
+                end = origin + end_offset
+                # Never call a straddling window a correction sample when metadata
+                # says a real boundary may occur inside it.
+                if end_hint is not None and end_hint <= end + 3.0:
+                    self.verification_requested.add(name)
+                    continue
+                if now < end:
+                    continue
                 self.verification_requested.add(name)
-                continue
-            if now < end:
-                continue
-            self.verification_requested.add(name)
-            due.append(self._request("verification", name, start, end))
+                due.append(self._request("verification", name, start, end))
+            if due:
+                return due
+
+        # If metadata cannot tell us when a track ends, use sparse rolling
+        # fingerprint probes. Two consecutive matching alternate identities are
+        # required before a gapless successor is declared, so one odd Shazam
+        # result (including mashup material) cannot rewrite a confirmed track.
+        if not track.get("duration_known"):
+            first_end = origin + UNKNOWN_FIRST_PROBE_END
+            if not confidence_at_least(track.get("recognition_confidence"), "high"):
+                first_end = max(first_end, origin + 40.0)
+            next_end = first_end + (self.unknown_probe_index * UNKNOWN_PROBE_INTERVAL)
+            if now >= next_end:
+                self.unknown_probe_index += 1
+                due.append(self._request(
+                    "unknown_probe",
+                    f"unknown_probe_{self.unknown_probe_index}",
+                    next_end - UNKNOWN_PROBE_WINDOW,
+                    next_end,
+                    anchor=next_end - UNKNOWN_PROBE_WINDOW,
+                ))
         return due
 
     def record_result(self, request_id, match):
@@ -223,6 +265,49 @@ class TrackMonitor:
         if spec is None or spec.get("generation") != self.generation:
             return {"accepted": False, "action": None}
         key = identity_key(match)
+
+        if spec["kind"] == "unknown_probe":
+            if not key:
+                return {"accepted": True, "action": None, "request": spec}
+            if key == self.track_key:
+                self.unknown_candidate_key = None
+                self.unknown_candidate_match = None
+                self.unknown_candidate_count = 0
+                self.unknown_candidate_anchor = None
+                return {"accepted": True, "action": None, "request": spec}
+
+            if key == self.unknown_candidate_key:
+                self.unknown_candidate_count += 1
+            else:
+                self.unknown_candidate_key = key
+                self.unknown_candidate_match = deepcopy(match)
+                self.unknown_candidate_count = 1
+                self.unknown_candidate_anchor = float(spec["start"])
+
+            if self.unknown_candidate_count >= 2:
+                action = {
+                    "accepted": True,
+                    "action": "successor",
+                    "confidence": "high",
+                    "match": deepcopy(self.unknown_candidate_match),
+                    "anchor": float(self.unknown_candidate_anchor),
+                    "previous_end": float(self.unknown_candidate_anchor),
+                    "reason": "unknown_duration_consensus",
+                    "strength": "medium",
+                    "request": spec,
+                }
+                self.unknown_candidate_key = None
+                self.unknown_candidate_match = None
+                self.unknown_candidate_count = 0
+                self.unknown_candidate_anchor = None
+                return action
+
+            return {
+                "accepted": True,
+                "action": "unknown_candidate",
+                "match": deepcopy(match),
+                "request": spec,
+            }
 
         if spec["kind"] == "verification":
             self.verification_results[spec["name"]] = {
