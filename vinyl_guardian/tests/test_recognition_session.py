@@ -22,6 +22,16 @@ def match(title, adamid):
 
 
 class InitialRecognitionTests(unittest.TestCase):
+    def test_different_catalogue_releases_agree_without_conflicts(self):
+        session = RecognitionSession()
+        token = session.begin()
+        session.due_stages(token, 5)
+        session.record_result(token, "RECORDING", 3, match("Because", "1"))
+        result = session.record_result(token, "RECORDING", 5, match("Because (Remastered 2009)", "2"))
+        self.assertTrue(result["finalize"])
+        self.assertEqual(result["conflicts"], 0)
+        self.assertEqual(result["support"], 2)
+
     def test_initial_stages_are_only_3_5_10(self):
         session = RecognitionSession()
         self.assertEqual(session.stages, (3, 5, 10))

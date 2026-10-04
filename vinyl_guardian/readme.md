@@ -4,7 +4,7 @@ By listening to the audio output of your turntable, Vinyl Guardian automatically
 ✨ Features
 Zero-Key Shazam Recognition: Uses the shazamio library to fingerprint and identify tracks completely free, with no API keys or rate limits to worry about.
 Native Last.fm Scrobbling: Built-in Last.fm integration that strictly follows official scrobbling rules (waits for 50% of the track duration or 4 minutes of continuous physical playtime).
-Smart Needle-Lift Detection: If you lift the needle halfway through a song, the Add-on detects the silence and instantly aborts the scrobble to prevent false logs.
+Smart Needle-Lift Detection: Silence pauses scrobble eligibility. Playback identity is retained for at least 30 seconds while power remains on, so internal rests are not mistaken for a needle lift. Confirmed power-off clears playback promptly.
 MQTT Auto-Discovery: Automatically creates beautiful, dedicated sensors in your Home Assistant dashboard without any manual YAML configuration.
 Audio Health Monitoring: Actively monitors the audio stream and warns you in the Add-on logs if your audio is clipping or too quiet.
 UI Volume Control: Adjust your physical soundcard's input volume directly from the Home Assistant Add-on configuration screen.
@@ -21,6 +21,26 @@ Click Install.
 Before starting the Add-on, configure your settings in the UI:
 
 ### Installed runtime
+
+Version 5.10.1 reconciles catalogue releases and explicit remaster suffixes of
+the same artist/title without restarting playback or scrobbling twice. Live,
+remix and medley titles remain distinct. Equivalent matches retain the current
+album metadata and sequence hint rather than replacing them with another
+release. This does not identify a mashup album from a constituent song alone.
+
+Brief rests preserve the track clock, and inconclusive pause checks do not
+extend its predicted end before it has actually elapsed. Repeated pause checks
+have a short cooldown; a changed identity after a weak pause needs agreement
+from the later, non-overlapping 5–10 second window. Expected-end checks still
+support gapless transitions. Logs distinguish pauses from expected endings.
+
+Returning music immediately clears a runout lock and its accumulated clicks.
+Runout acquisition still requires six coherent hits without active music.
+Median energy across short audio subframes prevents sustained high-crest music
+from being suppressed as a click, while isolated clicks retain their original
+handling. That measurement is included in calibration exports for exact replay.
+Album-side exception files and automatic mashup interpretation are not part of
+this patch; real recordings remain necessary to evaluate borderline quiet music.
 
 Vinyl Guardian runs the detector, audio selector and calibration screen packaged
 in its installed image. Update the app normally to receive changes; startup does

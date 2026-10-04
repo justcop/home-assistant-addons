@@ -2,6 +2,8 @@ import ast
 import unittest
 from pathlib import Path
 import sys
+import threading
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -42,6 +44,36 @@ def track(title="A", adamid="1", confidence="low", start=1000.0, duration=180.0)
 
 
 class AudioWindowTests(unittest.TestCase):
+    def test_actual_recovery_handler_preserves_clock_album_and_sent_scrobble(self):
+        tree = ast.parse((Path(__file__).resolve().parents[1] / "vinyl_guardian.py").read_text())
+        function = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+                        and node.name == "process_tracking_audio_background")
+        current = track("Because", "love", confidence="high")
+        current["scrobble_fired"] = True
+        current["album"] = "Love"
+        monitor = TrackMonitor()
+        monitor.begin_track(current)
+        monitor.start_boundary(1040, "music_recovery")
+        requests = monitor.due_requests(1045, current)
+        logs = []
+        env = dict(current_track=current, track_monitor=monitor, state_lock=threading.Lock(),
+                   app_state="SLEEPING", RATE=1, CHANNELS=1, RECORDING_DIR="unused",
+                   AUDIO_ONSET_THRESHOLD=0, MIN_AUDIO_SECONDS=2,
+                   recognize_shazam=None, recognize_fragment=lambda *args: (match("Because (Remastered 2009)", "abbey"), 0),
+                   time=SimpleNamespace(time=lambda: 1045), expected_end=expected_end,
+                   _track_id=lambda t: t["title"], _publish_track=lambda t: None,
+                   log=logs.append, wake_up_time=1180, scrobble_fired=True)
+        exec(compile(ast.Module(body=[function], type_ignores=[]), "handler", "exec"), env)
+        for request in requests:
+            env[function.name](b"\0" * 10, request["start"], request["id"])
+        self.assertIs(env["current_track"], current)
+        self.assertEqual(current["start_timestamp"], 1000)
+        self.assertEqual(current["expected_end_time"], 1180)
+        self.assertEqual(current["album"], "Love")
+        self.assertTrue(current["scrobble_fired"])
+        self.assertTrue(env["scrobble_fired"])
+        self.assertIn("quiet passage", logs[-1])
+
     def test_tracking_window_is_byte_clamped_to_requested_ten_seconds(self):
         source = Path(__file__).resolve().parents[1] / "vinyl_guardian.py"
         tree = ast.parse(source.read_text())
@@ -59,6 +91,36 @@ class AudioWindowTests(unittest.TestCase):
 
 
 class TrackReasoningTests(unittest.TestCase):
+    def test_release_ids_and_remaster_suffixes_do_not_change_song_identity(self):
+        original = identity_key(match("Because", "1"))
+        for title in ("Because", "Because (Remastered 2009)", "Because - 2009 Remaster",
+                      "Because [Remastered]", "Because (2009 Remastered)"):
+            self.assertEqual(identity_key(match(title, "another-release")), original)
+        for title in ("Because (Live)", "Because (Remix)", "Because / Get Back"):
+            self.assertNotEqual(identity_key(match(title, "1")), original)
+        self.assertNotEqual(identity_key(dict(match("Because", "1"), artist="Someone Else")), original)
+        self.assertEqual(identity_key({"adamid": "1"}), "adamid:1")
+
+    def test_repeated_recovery_checks_are_throttled_without_blocking_expected_end(self):
+        current = track(confidence="high")
+        monitor = TrackMonitor()
+        monitor.begin_track(current)
+        monitor.start_boundary(1040, "music_recovery")
+        for request in monitor.due_requests(1045, current):
+            monitor.record_result(request["id"], match("A", "different-release"))
+        self.assertFalse(monitor.start_boundary(1050, "music_recovery"))
+        self.assertTrue(monitor.start_boundary(1050, "expected_end", strength="strong"))
+
+    def test_overlap_agreement_after_rest_is_not_enough_to_reset_song(self):
+        current = track(confidence="high")
+        monitor = TrackMonitor()
+        monitor.begin_track(current)
+        monitor.start_boundary(1040, "music_recovery")
+        for request in monitor.due_requests(1045, current):
+            self.assertIsNone(monitor.record_result(request["id"], match("X", "2"))["action"])
+        fresh = monitor.due_requests(1050, current)[0]
+        self.assertEqual(monitor.record_result(fresh["id"], match("A", "1"))["action"], "continuation")
+
     def test_weak_track_gets_fresh_10_20_and_20_30_windows(self):
         current = track(confidence="low", duration=180)
         monitor = TrackMonitor()
@@ -141,6 +203,10 @@ class TrackReasoningTests(unittest.TestCase):
         by_stage = {r["stage"]: r for r in requests}
         monitor.record_result(by_stage[3]["id"], match("B", "2"))
         result = monitor.record_result(by_stage[5]["id"], match("B", "2"))
+        self.assertIsNone(result["action"])
+        fresh = monitor.due_requests(1070.1, current)[0]
+        self.assertEqual((fresh["start"], fresh["end"]), (1065.0, 1070.0))
+        result = monitor.record_result(fresh["id"], match("B", "2"))
         self.assertEqual(result["action"], "successor")
         self.assertEqual(result["previous_end"], 1052.0)
 

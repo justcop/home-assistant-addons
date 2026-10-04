@@ -824,7 +824,7 @@ def process_tracking_audio_background(audio_data_bytes, window_start_timestamp, 
 
     if action_name == "hold_ambiguous":
         with state_lock:
-            if current_track is not None:
+            if current_track is not None and generation == track_monitor.generation:
                 current_track["recognition_conflicts"] = int(current_track.get("recognition_conflicts", 0)) + 1
                 current_track["scrobble_pending_reason"] = "Recognition evidence is contradictory"
                 updated = dict(current_track)
@@ -848,11 +848,12 @@ def process_tracking_audio_background(audio_data_bytes, window_start_timestamp, 
             stage_seconds=10,
             previously_played=float(old_snapshot.get("previously_played") or 0.0),
         )
+        replacement_track["scrobble_fired"] = bool(old_snapshot.get("scrobble_fired"))
         with state_lock:
             if current_track is None or generation != track_monitor.generation:
                 return
             current_track = replacement_track
-            scrobble_fired = False
+            scrobble_fired = replacement_track["scrobble_fired"]
             track_monitor.begin_track(current_track)
             wake_up_time = (
                 current_track.get("expected_end_time")
@@ -869,30 +870,33 @@ def process_tracking_audio_background(audio_data_bytes, window_start_timestamp, 
 
     if action_name == "continuation":
         with state_lock:
-            if current_track is None:
+            if current_track is None or generation != track_monitor.generation:
                 return
             current_track["recognition_verified"] = True
             current_track["recognition_confidence"] = "high"
-            old_end = expected_end(current_track) or float(action.get("anchor") or time.time())
-            current_track["expected_end_time"] = max(
-                old_end + 15.0,
-                time.time() + 10.0,
-            )
-            wake_up_time = current_track["expected_end_time"]
+            old_end = expected_end(current_track)
+            if old_end is not None and time.time() >= old_end:
+                current_track["expected_end_time"] = max(old_end + 15.0, time.time() + 10.0)
+                wake_up_time = current_track["expected_end_time"]
             updated = dict(current_track)
-        log(f"↪️ Shazam still hears the current track after its predicted end; extending boundary watch.")
+        if action.get("reason") == "music_recovery":
+            log("↪️ Same song after a quiet passage; preserving playback and scrobble state.")
+        else:
+            log("↪️ Shazam still hears the current track after its predicted end; extending boundary watch.")
         _publish_track(updated)
         return
 
     if action_name == "boundary_unresolved":
         with state_lock:
-            if current_track is None:
+            if current_track is None or generation != track_monitor.generation:
                 return
-            old_end = expected_end(current_track) or float(action.get("anchor") or time.time())
-            current_track["expected_end_time"] = max(old_end + 15.0, time.time() + 8.0)
-            wake_up_time = current_track["expected_end_time"]
+            old_end = expected_end(current_track)
+            if old_end is not None and time.time() >= old_end:
+                current_track["expected_end_time"] = max(old_end + 15.0, time.time() + 8.0)
+                wake_up_time = current_track["expected_end_time"]
             current_track["scrobble_pending_reason"] = "Boundary not yet resolved"
-        log("⚖️ Expected boundary was inconclusive; keeping the current track and checking again later.")
+        context = "Quiet-passage check" if action.get("reason") == "music_recovery" else "Expected boundary"
+        log(f"⚖️ {context} was inconclusive; keeping the current track and checking again later.")
         return
 
     if action_name == "successor" and action.get("match"):
@@ -1966,16 +1970,17 @@ def listen_and_identify():
                                 and abs(now - end_hint) <= 12.0
                             )
                             with state_lock:
-                                track_monitor.start_boundary(
+                                started = track_monitor.start_boundary(
                                     now,
                                     "music_recovery",
                                     strength="strong" if near_expected else "medium",
                                     previous_end=music_gap_started,
                                 )
-                            log(
-                                f"↗️ Music resumed after {gap_seconds:.1f}s; "
-                                "checking whether this is a new track."
-                            )
+                            if started:
+                                log(
+                                    f"↗️ Music resumed after {gap_seconds:.1f}s; "
+                                    "checking whether this is a new track."
+                                )
                         music_gap_started = None
                     silence_sleep = 0
                 else:
@@ -2015,14 +2020,9 @@ def listen_and_identify():
                 # intentional pause inside a song. Give it extra grace rather
                 # than immediately treating it as a needle lift.
                 silence_seconds = silence_sleep * (CHUNK / RATE)
-                remaining = (
-                    end_hint - now
-                    if end_hint is not None
-                    else None
-                )
-                required_silence_seconds = float(needle_lift_sec)
-                if remaining is not None and remaining > 12.0:
-                    required_silence_seconds = max(required_silence_seconds, 30.0)
+                # Catalogue timing is only a hint. A rest remains a possible
+                # internal pause even when the returned release has ended.
+                required_silence_seconds = max(float(needle_lift_sec), 30.0)
 
                 if silence_seconds >= required_silence_seconds and not rhythm_locked:
                     physical_now = now - silence_seconds

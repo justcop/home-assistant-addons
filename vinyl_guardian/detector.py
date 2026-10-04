@@ -59,6 +59,12 @@ def extract_features(mono, rate=44100):
     # is now applied to consecutive MONO time samples rather than L/R samples.
     pre = x[1:] - 0.95 * x[:-1]
     music_rms = float(np.sqrt(np.mean(pre * pre)))
+    # A click raises whole-chunk energy but leaves most short subframes quiet.
+    # Use the median to distinguish that from sustained high-crest music.
+    subframes = np.array_split(pre, min(8, len(pre)))
+    sustained_music_rms = float(np.median([
+        np.sqrt(np.mean(part * part)) for part in subframes
+    ]))
 
     diff = x[1:] - x[:-1]
     hf_rms = float(np.sqrt(np.mean(diff * diff)))
@@ -70,6 +76,7 @@ def extract_features(mono, rate=44100):
     return {
         "rms": rms,
         "music_rms": music_rms,
+        "sustained_music_rms": sustained_music_rms,
         "hfer": hfer,
         "crest": crest,
         "peak": peak,
@@ -203,6 +210,11 @@ class RunoutRhythmDetector:
 
     def update(self, now, is_candidate, peak, recently_played, music_active):
         self.last_candidate_accepted = False
+        if music_active:
+            # Resumed music cancels both the existing lock and its click
+            # history. Old candidates must not bridge a musical passage.
+            self.reset()
+            return
 
         # Expire ancient events. Six 33⅓ revolutions is already generous.
         while self.events and now - self.events[0][0] > 11.5:
@@ -432,13 +444,14 @@ class GuardianDetector:
             and rms <= motor_ceil * 1.35
         )
 
-        active_music_threshold = m_hold if (self.has_played_music and since_music_before <= 6.0) else m_trigger
+        active_music_threshold = m_hold if (self.has_played_music and since_music_before <= 30.0) else m_trigger
         ratio = music_rms / max(active_music_threshold, 1e-9)
 
         # A smooth evidence score around the threshold is much less twitchy
         # than a boolean comparison on every ~46 ms chunk.
         music_evidence = max(0.0, min(1.0, (ratio - 0.72) / 0.58))
-        if is_pop_candidate:
+        sustained_music = features.get("sustained_music_rms", 0.0) >= active_music_threshold
+        if is_pop_candidate and not sustained_music:
             music_evidence *= 0.10
 
         self.music_confidence = _ema(
@@ -585,7 +598,7 @@ class GuardianDetector:
             else:
                 self.off_candidate_since = None
 
-        if self.has_played_music and since_music > 18.0 and not self.runout.locked:
+        if self.has_played_music and since_music > 30.0 and not self.runout.locked:
             self.has_played_music = False
 
         if not self.turntable_on:

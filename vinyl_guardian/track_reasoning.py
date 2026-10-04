@@ -26,20 +26,29 @@ def _normalise(value):
 def identity_key(value):
     """Stable-enough identity for comparing Shazam results.
 
-    Apple/Shazam ids are preferred when present.  Falling back to artist/title
-    intentionally ignores album: the same recording can be returned with
-    different catalogue releases and should not become a false boundary.
+    Compare artist/title across catalogue releases. Strip only remaster
+    suffixes; live, remix and medley titles remain distinct. Catalogue ids
+    are a fallback when usable text is absent, not evidence of a boundary.
     """
     if not isinstance(value, dict):
         return None
+    title = str(value.get("title") or "").strip()
+    title = re.sub(
+        r"\s*(?:\((?:\d{4}\s+)?remaster(?:ed)?(?:\s+\d{4})?\)"
+        r"|\[(?:\d{4}\s+)?remaster(?:ed)?(?:\s+\d{4})?\]"
+        r"|[-–:]\s*(?:\d{4}\s+)?remaster(?:ed)?(?:\s+\d{4})?)\s*$",
+        "", title, flags=re.IGNORECASE,
+    )
+    title = _normalise(title)
+    artist = _normalise(value.get("artist"))
+    if title and artist:
+        return f"text:{artist}|{title}"
     adamid = value.get("adamid")
     if adamid not in (None, ""):
         return f"adamid:{adamid}"
     shazam_key = value.get("shazam_key")
     if shazam_key not in (None, ""):
         return f"shazam:{shazam_key}"
-    title = _normalise(value.get("title"))
-    artist = _normalise(value.get("artist"))
     if not title and not artist:
         return None
     return f"text:{artist}|{title}"
@@ -103,6 +112,7 @@ class TrackMonitor:
         self.boundary = None
         self.request_sequence = 0
         self.requests = {}
+        self.recovery_check_after = 0.0
 
     def begin_track(self, track):
         self.generation += 1
@@ -113,6 +123,7 @@ class TrackMonitor:
         self.verification_results.clear()
         self.boundary = None
         self.requests.clear()
+        self.recovery_check_after = 0.0
 
     def clear(self):
         self.generation += 1
@@ -123,6 +134,7 @@ class TrackMonitor:
         self.verification_results.clear()
         self.boundary = None
         self.requests.clear()
+        self.recovery_check_after = 0.0
 
     def boundary_active(self):
         return self.boundary is not None
@@ -133,6 +145,8 @@ class TrackMonitor:
 
     def start_boundary(self, anchor, reason, strength="medium", previous_end=None):
         anchor = float(anchor)
+        if reason == "music_recovery" and strength == "medium" and anchor < self.recovery_check_after:
+            return False
         if self.boundary is not None:
             # Preserve the first active search unless the new evidence points to
             # a materially earlier boundary.
@@ -187,7 +201,7 @@ class TrackMonitor:
                 due.append(self._request(
                     "boundary",
                     f"boundary_{stage}",
-                    anchor,
+                    anchor + 5.0 if stage == 10 and boundary["reason"] == "music_recovery" else anchor,
                     anchor + stage,
                     stage=stage,
                     anchor=anchor,
@@ -267,6 +281,11 @@ class TrackMonitor:
             "key": key,
             "match": deepcopy(match) if match else None,
         }
+        if boundary["reason"] == "music_recovery":
+            # Frequent brief rests should not start overlapping searches.
+            # Expected-end checks and strong physical boundaries remain free
+            # to bypass this short recovery-only cooldown.
+            self.recovery_check_after = max(self.recovery_check_after, spec["end"] + 15.0)
 
         same = [row for row in boundary["results"].values() if row.get("key") == self.track_key]
         alternatives = {}
@@ -302,7 +321,12 @@ class TrackMonitor:
             self.boundary = None
             return action
 
-        if winner_key and len(alternatives[winner_key]) >= 2:
+        recovery_needs_fresh = (
+            boundary["reason"] == "music_recovery"
+            and boundary["strength"] == "medium"
+        )
+        fresh_winner = boundary["results"].get(10, {}).get("key") == winner_key
+        if winner_key and len(alternatives[winner_key]) >= 2 and (not recovery_needs_fresh or fresh_winner):
             action = {
                 "accepted": True,
                 "action": "successor",

@@ -72,7 +72,7 @@ def export_measurements(directory, share_dir):
                 metadata['recordings'][name] = {'rate': rate, 'channels': channels,
                     'frames': recording.getnframes(), 'sha256': digest.hexdigest()}
                 csv_text = io.StringIO()
-                fields = ['time', 'sample_count', 'rms', 'music_rms', 'hfer', 'crest', 'peak', 'zcr']
+                fields = ['time', 'sample_count', 'rms', 'music_rms', 'sustained_music_rms', 'hfer', 'crest', 'peak', 'zcr']
                 writer = csv.DictWriter(csv_text, fieldnames=fields)
                 writer.writeheader()
                 frames = 0
