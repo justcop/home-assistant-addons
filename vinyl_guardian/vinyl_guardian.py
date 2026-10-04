@@ -642,19 +642,19 @@ def _start_track_enrichment(track):
 
 
 def _publish_track(track):
-    if not isinstance(track, dict):
+    if not isinstance(track, dict) or not mqtt_client.is_connected():
         return
-    if mqtt_client.is_connected():
-        mqtt_client.publish(
-            "vinyl_guardian/track",
-            f"{track.get('title', 'Unknown')} - {track.get('artist', 'Unknown')}",
-            retain=True,
-        )
-        mqtt_client.publish(
-            "vinyl_guardian/attributes",
-            json.dumps(track),
-            retain=True,
-        )
+    track_state, track_attributes = current_track_presentation(
+        current_display_status,
+        app_state,
+        track,
+    )
+    mqtt_client.publish("vinyl_guardian/track", track_state, retain=True)
+    mqtt_client.publish(
+        "vinyl_guardian/attributes",
+        json.dumps(track_attributes),
+        retain=True,
+    )
 
 
 def _on_scrobble_success(row):
@@ -827,16 +827,28 @@ def process_audio_background(audio_data_bytes, song_start_timestamp, token, stag
                 f"({outcome.get('confidence', 'low')} confidence)"
             )
             if mqtt_client.is_connected():
-                mqtt_client.publish(
-                    "vinyl_guardian/track",
-                    f"{match['title']} - {match['artist']}",
-                    retain=True,
-                )
-                mqtt_client.publish(
-                    "vinyl_guardian/attributes",
-                    json.dumps(display_track),
-                    retain=True,
-                )
+                if current_display_status == "Runout Groove":
+                    mqtt_client.publish(
+                        "vinyl_guardian/track",
+                        "Not Playing",
+                        retain=True,
+                    )
+                    mqtt_client.publish(
+                        "vinyl_guardian/attributes",
+                        "{}",
+                        retain=True,
+                    )
+                else:
+                    mqtt_client.publish(
+                        "vinyl_guardian/track",
+                        f"{match['title']} - {match['artist']}",
+                        retain=True,
+                    )
+                    mqtt_client.publish(
+                        "vinyl_guardian/attributes",
+                        json.dumps(display_track),
+                        retain=True,
+                    )
 
         if not outcome.get("finalize"):
             return
