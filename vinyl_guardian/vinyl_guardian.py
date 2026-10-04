@@ -1953,16 +1953,6 @@ def listen_and_identify():
                         json.dumps(track_attributes),
                         retain=True,
                     )
-            elif (
-                vinyl_status_changed
-                and previous_vinyl_status == "Runout Groove"
-                and current_track
-                and is_playing
-                and mqtt_client.is_connected()
-            ):
-                # A false/transient runout unlock during music should restore
-                # the current track rather than leaving the UI blank.
-                _publish_track(current_track)
             
             # --- MQTT LOGGING & UI DISPATCH ---
             if now - last_pub >= 1.0:
