@@ -1109,6 +1109,7 @@ def process_tracking_audio_background(audio_data_bytes, window_start_timestamp, 
             ended_at=boundary_time,
             physical_now=physical_end,
             reason=f"successor:{action.get('reason')}",
+            completed=True,
         )
         resolved = pending_scrobbles.resolve_with_successor(
             successor,
@@ -1914,8 +1915,29 @@ def listen_and_identify():
                 new_vinyl_status,
                 current_guardian_state,
             )
-            if vinyl_status_changed and mqtt_client.is_connected():
-                if new_vinyl_status == "Runout Groove":
+            if vinyl_status_changed and new_vinyl_status == "Runout Groove":
+                # Runout is strong physical evidence that the musical segment
+                # has completed. This matters especially when catalogue duration
+                # is unavailable and the normal timer is deliberately conservative.
+                if current_track and not scrobble_fired:
+                    physical_end = now - max(0.0, float(continuous_silence or 0.0))
+                    if scrobble_is_eligible(
+                        current_track,
+                        physical_end,
+                        completed=True,
+                    ):
+                        if scrobble_identity_confident(current_track):
+                            _send_scrobble(current_track, mark_current=True)
+                        else:
+                            pending_scrobbles.hold(
+                                current_track,
+                                ended_at=now,
+                                physical_now=physical_end,
+                                reason="runout",
+                                completed=True,
+                            )
+
+                if mqtt_client.is_connected():
                     # The stylus is still down and runout wear continues to count,
                     # but no song is playing once the locked runout begins.
                     track_state, track_attributes = current_track_presentation(
@@ -1929,14 +1951,16 @@ def listen_and_identify():
                         json.dumps(track_attributes),
                         retain=True,
                     )
-                elif (
-                    previous_vinyl_status == "Runout Groove"
-                    and current_track
-                    and is_playing
-                ):
-                    # A false/transient runout unlock during music should restore
-                    # the current track rather than leaving the UI blank.
-                    _publish_track(current_track)
+            elif (
+                vinyl_status_changed
+                and previous_vinyl_status == "Runout Groove"
+                and current_track
+                and is_playing
+                and mqtt_client.is_connected()
+            ):
+                # A false/transient runout unlock during music should restore
+                # the current track rather than leaving the UI blank.
+                _publish_track(current_track)
             
             # --- MQTT LOGGING & UI DISPATCH ---
             if now - last_pub >= 1.0:
