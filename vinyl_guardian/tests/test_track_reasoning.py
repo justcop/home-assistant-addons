@@ -14,6 +14,8 @@ from track_reasoning import (
     identity_key,
     scrobble_identity_confident,
     scrobble_is_eligible,
+    scrobble_threshold_seconds,
+    UNKNOWN_DURATION_SCROBBLE_SECONDS,
 )
 
 
@@ -43,7 +45,108 @@ def track(title="A", adamid="1", confidence="low", start=1000.0, duration=180.0)
     return item
 
 
+def unknown_track():
+    current = track(confidence="high")
+    current.update(duration=0, duration_known=False, scrobble_trigger_time=1120)
+    current.pop("expected_end_time")
+    return current
+
+
+class UnknownDurationTests(unittest.TestCase):
+    def test_checks_continue_every_thirty_seconds_after_scrobbling(self):
+        current = unknown_track()
+        monitor = TrackMonitor()
+        monitor.begin_track(current)
+        self.assertEqual(monitor.due_requests(1029, current), [])
+        for now in (1030, 1060, 1090, 1120, 1150, 1180):
+            due = monitor.due_requests(now, current)
+            self.assertEqual(len(due), 1)
+            request = due[0]
+            self.assertEqual((request["start"], request["end"]), (now - 10, now))
+            self.assertEqual(request["kind"], "periodic")
+            action = monitor.record_result(request["id"], match("A (Remastered 2009)", "other"))
+            self.assertTrue(action["same"])
+            current["scrobble_fired"] = now >= 1120
+        self.assertEqual(scrobble_threshold_seconds(current), 120)
+
+    def test_unknown_duration_detects_gapless_successor_with_future_evidence(self):
+        current = unknown_track()
+        monitor = TrackMonitor()
+        monitor.begin_track(current)
+        request = monitor.due_requests(1030, current)[0]
+        action = monitor.record_result(request["id"], match("B", "2"))
+        self.assertFalse(action["same"])
+        self.assertTrue(monitor.boundary_active())
+        self.assertEqual(monitor.due_requests(1032, current), [])
+        fresh = monitor.due_requests(1033, current)[0]
+        self.assertEqual((fresh["start"], fresh["end"]), (1030, 1033))
+        result = monitor.record_result(fresh["id"], match("B", "2"))
+        self.assertEqual(result["action"], "successor")
+        self.assertEqual(result["reason"], "periodic_identity")
+        monitor.begin_track(unknown_track())
+        self.assertFalse(monitor.record_result(fresh["id"], match("B", "2"))["accepted"])
+
+    def test_slow_api_does_not_queue_old_periodic_audio(self):
+        current = unknown_track()
+        monitor = TrackMonitor()
+        monitor.begin_track(current)
+        request = monitor.due_requests(1030, current)[0]
+        self.assertEqual(monitor.due_requests(1100, current), [])
+        monitor.record_result(request["id"], None)
+        fresh = monitor.due_requests(1101, current)[0]
+        self.assertEqual((fresh["start"], fresh["end"]), (1091, 1101))
+
+    def test_known_duration_keeps_existing_timing_and_no_periodic_requests(self):
+        current = track(confidence="high", duration=300)
+        monitor = TrackMonitor()
+        monitor.begin_track(current)
+        self.assertEqual(monitor.due_requests(1120, current), [])
+        self.assertEqual(scrobble_threshold_seconds(current), 150)
+        self.assertFalse(scrobble_is_eligible(current, 1149))
+        self.assertTrue(scrobble_is_eligible(current, 1150))
+
+
 class AudioWindowTests(unittest.TestCase):
+    def test_unknown_duration_handler_requires_fresh_confirmation_at_two_minutes(self):
+        tree = ast.parse((Path(__file__).resolve().parents[1] / "vinyl_guardian.py").read_text())
+        function = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+                        and node.name == "process_tracking_audio_background")
+        current = unknown_track()
+        monitor = TrackMonitor()
+        monitor.begin_track(current)
+        answer = [match("A", "1")]
+        env = dict(current_track=current, track_monitor=monitor, state_lock=threading.Lock(),
+                   app_state="SLEEPING", RATE=1, CHANNELS=1, RECORDING_DIR="unused",
+                   AUDIO_ONSET_THRESHOLD=0, MIN_AUDIO_SECONDS=2, recognize_shazam=None,
+                   recognize_fragment=lambda *args: (answer[0], 0),
+                   _track_id=lambda t: t["title"], _publish_track=lambda t: None, log=lambda t: None)
+        exec(compile(ast.Module(body=[function], type_ignores=[]), "handler", "exec"), env)
+        for elapsed in (30, 60, 90, 120):
+            request = monitor.due_requests(1000 + elapsed, current)[0]
+            current["duration_recheck_pending"] = True
+            self.assertFalse(scrobble_is_eligible(current, 1000 + elapsed))
+            env[function.name](b"\0" * 20, request["start"], request["id"])
+            self.assertEqual(scrobble_is_eligible(current, 1000 + elapsed), elapsed >= 120)
+        self.assertEqual(current["start_timestamp"], 1000)
+        answer[0] = None
+        request = monitor.due_requests(1150, current)[0]
+        current["duration_recheck_pending"] = True
+        env[function.name](b"\0" * 20, request["start"], request["id"])
+        self.assertFalse(scrobble_is_eligible(current, 1150))
+        self.assertFalse(current["duration_recheck_pending"])
+
+    def test_unknown_duration_is_not_a_fabricated_twenty_minutes(self):
+        tree = ast.parse((Path(__file__).resolve().parents[1] / "vinyl_guardian.py").read_text())
+        function = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_make_track")
+        env = dict(_track_duration=lambda m: 0, identity_key=identity_key,
+                   UNKNOWN_DURATION_SCROBBLE_SECONDS=UNKNOWN_DURATION_SCROBBLE_SECONDS)
+        exec(compile(ast.Module(body=[function], type_ignores=[]), "make", "exec"), env)
+        current = env[function.name](match("A", "1"), 1000, 1000, "high")
+        self.assertEqual(current["duration"], 0)
+        self.assertFalse(current["duration_known"])
+        self.assertIsNone(expected_end(current))
+        self.assertEqual(current["scrobble_trigger_time"], 1120)
+
     def test_actual_recovery_handler_preserves_clock_album_and_sent_scrobble(self):
         tree = ast.parse((Path(__file__).resolve().parents[1] / "vinyl_guardian.py").read_text())
         function = next(node for node in tree.body if isinstance(node, ast.FunctionDef)

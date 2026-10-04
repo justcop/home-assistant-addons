@@ -16,6 +16,8 @@ VERIFICATION_WINDOWS = (
 )
 EXPECTED_END_TOLERANCE = 10.0
 PENDING_SCROBBLE_TTL = 180.0
+UNKNOWN_DURATION_RECHECK_SECONDS = 30.0
+UNKNOWN_DURATION_SCROBBLE_SECONDS = 120.0
 
 
 def _normalise(value):
@@ -60,11 +62,11 @@ def confidence_at_least(value, minimum):
 
 def scrobble_threshold_seconds(track):
     if not isinstance(track, dict):
-        return 240.0
+        return UNKNOWN_DURATION_SCROBBLE_SECONDS
     duration = float(track.get("duration") or 0.0)
     if track.get("duration_known") and duration > 0:
         return min(duration / 2.0, 240.0)
-    return 240.0
+    return UNKNOWN_DURATION_SCROBBLE_SECONDS
 
 
 def expected_end(track):
@@ -96,7 +98,15 @@ def scrobble_is_eligible(track, physical_now):
     if not isinstance(track, dict):
         return False
     trigger = track.get("scrobble_trigger_time")
-    return trigger is not None and float(physical_now) >= float(trigger)
+    if trigger is None or float(physical_now) < float(trigger):
+        return False
+    if not track.get("duration_known", True):
+        confirmed_at = track.get("duration_recheck_confirmed_at")
+        return bool(
+            confirmed_at is not None and float(confirmed_at) >= float(trigger)
+            and not track.get("duration_recheck_pending")
+        )
+    return True
 
 
 class TrackMonitor:
@@ -113,6 +123,7 @@ class TrackMonitor:
         self.request_sequence = 0
         self.requests = {}
         self.recovery_check_after = 0.0
+        self.periodic_requested_at = None
 
     def begin_track(self, track):
         self.generation += 1
@@ -124,6 +135,7 @@ class TrackMonitor:
         self.boundary = None
         self.requests.clear()
         self.recovery_check_after = 0.0
+        self.periodic_requested_at = self.track_origin
 
     def clear(self):
         self.generation += 1
@@ -135,6 +147,7 @@ class TrackMonitor:
         self.boundary = None
         self.requests.clear()
         self.recovery_check_after = 0.0
+        self.periodic_requested_at = None
 
     def boundary_active(self):
         return self.boundary is not None
@@ -211,6 +224,17 @@ class TrackMonitor:
                 ))
             return due
 
+        if not track.get("duration_known", True):
+            origin = self.track_origin if self.track_origin is not None else now
+            last = self.periodic_requested_at if self.periodic_requested_at is not None else origin
+            if now >= last + UNKNOWN_DURATION_RECHECK_SECONDS and not any(
+                request["kind"] == "periodic" for request in self.requests.values()
+            ):
+                # Always sample the latest audio, never replay a backlog after
+                # a delayed API call or an intervening physical boundary.
+                self.periodic_requested_at = now
+                due.append(self._request("periodic", "unknown_duration_recheck", now - 10.0, now))
+
         if confidence_at_least(track.get("recognition_confidence"), "high"):
             return due
 
@@ -237,6 +261,15 @@ class TrackMonitor:
         if spec is None or spec.get("generation") != self.generation:
             return {"accepted": False, "action": None}
         key = identity_key(match)
+        if spec["kind"] == "periodic":
+            same = bool(key and key == self.track_key)
+            if key and not same and self.boundary is None:
+                # Confirm a changed identity with a separate future window.
+                # Timing is approximate without a physical gap or duration.
+                self.start_boundary(spec["end"], "periodic_identity", strength="medium")
+                self.boundary["results"][0] = {"key": key, "match": deepcopy(match)}
+            return {"accepted": True, "action": "duration_rechecked", "same": same,
+                    "match": deepcopy(match) if match else None, "request": spec}
 
         if spec["kind"] == "verification":
             self.verification_results[spec["name"]] = {

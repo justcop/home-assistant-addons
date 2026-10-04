@@ -22,6 +22,16 @@ Before starting the Add-on, configure your settings in the UI:
 
 ### Installed runtime
 
+When a recognised song has no available duration, the engine rechecks Shazam
+every 30 seconds using the latest ten seconds of audio. At two minutes it
+scrobbles only after a fresh same-song confirmation covering that point. Failed
+or conflicting checks delay the scrobble. A different periodic match requires
+a separate future sample before switching tracks, allowing gapless playback
+to be followed without a duration estimate. Those transition timestamps are
+approximate. Checks continue after scrobbling; equivalent releases retain the
+same playback clock and scrobble state. No invented 20-minute duration is
+reported. Known-duration tracks keep their existing timing rules.
+
 Version 5.10.1 reconciles catalogue releases and explicit remaster suffixes of
 the same artist/title without restarting playback or scrobbling twice. Live,
 remix and medley titles remain distinct. Equivalent matches retain the current

@@ -38,6 +38,7 @@ from track_reasoning import (
     expected_end,
     scrobble_identity_confident,
     scrobble_is_eligible,
+    UNKNOWN_DURATION_SCROBBLE_SECONDS,
 )
 from telemetry import DatasetCollector
 from experiment import ExperimentHarness, TRUSTED_LABELS
@@ -454,9 +455,9 @@ def _make_track(match, session_start, start_timestamp, confidence, support=1,
                 conflicts=0, stage_seconds=0, previously_played=0.0):
     duration = _track_duration(match)
     if duration <= 0:
-        duration = 1200.0
+        duration = 0.0
         duration_known = False
-        scrobble_delay = 240.0
+        scrobble_delay = UNKNOWN_DURATION_SCROBBLE_SECONDS
     else:
         duration_known = True
         scrobble_delay = min(duration / 2.0, 240.0)
@@ -781,6 +782,9 @@ def process_tracking_audio_background(audio_data_bytes, window_start_timestamp, 
     if seconds < 2.0:
         with state_lock:
             track_monitor.record_result(request_id, None)
+            if request.get("kind") == "periodic" and current_track is not None and generation == track_monitor.generation:
+                current_track["duration_recheck_pending"] = False
+                current_track["duration_recheck_confirmed_at"] = None
         return
 
     try:
@@ -809,6 +813,26 @@ def process_tracking_audio_background(audio_data_bytes, window_start_timestamp, 
             return
         action_name = action.get("action")
         old_snapshot = dict(current_track)
+
+    if action_name == "duration_rechecked":
+        with state_lock:
+            if current_track is None or generation != track_monitor.generation:
+                return
+            current_track["duration_recheck_pending"] = False
+            current_track["duration_recheck_confirmed_at"] = request["end"] if action["same"] else None
+            if action["same"]:
+                current_track["recognition_verified"] = True
+                current_track["recognition_confidence"] = "high"
+                current_track.pop("scrobble_pending_reason", None)
+            updated = dict(current_track)
+        if action["same"]:
+            log(f"✅ Unknown-duration recheck: still {_track_id(updated)}.")
+        elif action.get("match"):
+            log("🔎 Unknown-duration recheck heard a different song; confirming with fresh audio.")
+        else:
+            log("🔎 Unknown-duration recheck had no match; waiting for fresh confirmation before scrobbling.")
+        _publish_track(updated)
+        return
 
     if action_name == "verified":
         with state_lock:
@@ -881,6 +905,8 @@ def process_tracking_audio_background(audio_data_bytes, window_start_timestamp, 
             updated = dict(current_track)
         if action.get("reason") == "music_recovery":
             log("↪️ Same song after a quiet passage; preserving playback and scrobble state.")
+        elif action.get("reason") == "periodic_identity":
+            log("↪️ Fresh audio confirms the current song; retaining its playback state.")
         else:
             log("↪️ Shazam still hears the current track after its predicted end; extending boundary watch.")
         _publish_track(updated)
@@ -1854,7 +1880,7 @@ def listen_and_identify():
                             if time_left > 0:
                                 m, s = divmod(time_left, 60)
                                 scrob_str = f"In {m:02d}:{s:02d} ⏳"
-                            elif not scrobble_identity_confident(current_track):
+                            elif not scrobble_identity_confident(current_track) or not scrobble_is_eligible(current_track, physical_now_for_scrobble):
                                 scrob_str = "Eligible · confirming identity ⚖️"
                             else:
                                 scrob_str = "Scrobbling... 🚀"
@@ -2004,6 +2030,8 @@ def listen_and_identify():
 
                 with state_lock:
                     tracking_requests = track_monitor.due_requests(now, current_track)
+                    if any(request["kind"] == "periodic" for request in tracking_requests):
+                        current_track["duration_recheck_pending"] = True
                 for request in tracking_requests:
                     snapshot = _extract_audio_window(
                         tracking_audio,
