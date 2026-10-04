@@ -545,7 +545,7 @@ def _extract_audio_window(ring, start_time, end_time):
 # --- BACKGROUND WORKER (SHAZAM) ---
 def process_audio_background(audio_data_bytes, song_start_timestamp, token, stage_seconds):
     global app_state, current_attempt, wake_up_time, consecutive_failures, current_track
-    global scrobble_fired, last_scrobbled_track, paused_track_memory, experiment_harness
+    global scrobble_fired, paused_track_memory, experiment_harness
 
     stage_seconds = int(stage_seconds)
     with state_lock:
@@ -555,7 +555,7 @@ def process_audio_background(audio_data_bytes, song_start_timestamp, token, stag
 
     seconds = len(audio_data_bytes) / (RATE * CHANNELS * 2)
     log(
-        f"🔬 Analyzing {seconds:.1f}s recognition stage "
+        f"🔬 Analyzing {seconds:.1f}s initial recognition "
         f"({stage_seconds}s, Attempt {local_attempt}/{MAX_ATTEMPTS})..."
     )
     try:
@@ -583,132 +583,120 @@ def process_audio_background(audio_data_bytes, song_start_timestamp, token, stag
         if not outcome["accepted"]:
             return
 
-        if outcome["display"] and match:
+        if outcome.get("display") and match:
             display_track = dict(
                 match,
                 source="Shazam",
                 recognition_status="provisional",
                 recognition_stage_seconds=stage_seconds,
+                recognition_confidence=outcome.get("confidence", "low"),
+                recognition_support=outcome.get("support", 1),
+                recognition_conflicts=outcome.get("conflicts", 0),
             )
             log(
                 f"🎶 {stage_seconds}s MATCH: "
-                f"{match['title']} - {match['artist']}"
+                f"{match['title']} - {match['artist']} "
+                f"({outcome.get('confidence', 'low')} confidence)"
             )
-            mqtt_client.publish(
-                "vinyl_guardian/track",
-                f"{match['title']} - {match['artist']}",
-                retain=True,
-            )
-            mqtt_client.publish(
-                "vinyl_guardian/attributes",
-                json.dumps(display_track),
-                retain=True,
-            )
-
-        if not outcome["finalize"]:
-            return
-
-        best_match = outcome["best_match"]
-        best_stage = int(outcome["best_stage"] or 0)
-        best_trimmed = float(outcome["best_trimmed_seconds"] or 0.0)
-
-    # Duration lookup can take seconds; never hold the audio loop's state lock.
-    total_duration = best_match.get("duration", 0) if best_match else 0
-    if best_match and total_duration <= 0:
-        total_duration = get_track_duration(
-            best_match["title"],
-            best_match["artist"],
-            best_match.get("adamid"),
-        )
-
-    with state_lock:
-        if not recognition_session.valid(token, app_state):
-            return
-
-        if best_match:
-            current_attempt = 1
-            consecutive_failures = 0
-            if total_duration <= 0:
-                log("⚠️ Duration unknown. Using track gaps fallback.")
-                total_duration = 1200
-                duration_known = False
-                scrobble_delay = 240
-            else:
-                duration_known = True
-                scrobble_delay = min(total_duration / 2.0, 240)
-
-            track_id = f"{best_match['title']} - {best_match['artist']}"
-            raw_offset = best_match.get("offset_seconds", 0)
-            previously_played = 0
-            if paused_track_memory and paused_track_memory["id"] == track_id:
-                previously_played = paused_track_memory["accumulated_playtime"]
-                scrobble_delay = max(2, scrobble_delay - previously_played)
-                log(f"▶️ Resuming track! Recovered {int(previously_played)}s playtime.")
-            else:
-                if paused_track_memory:
-                    log("▶️ New track detected. Starting fresh scrobble timer.")
-                paused_track_memory = None
-
-            start_ts = int(song_start_timestamp + best_trimmed - raw_offset)
-            if start_ts < 0:
-                start_ts = int(song_start_timestamp)
-
-            current_track = {
-                "title": best_match["title"],
-                "artist": best_match["artist"],
-                "album": best_match["album"],
-                "duration": total_duration,
-                "start_timestamp": start_ts,
-                "session_start_time": song_start_timestamp,
-                "scrobble_trigger_time": song_start_timestamp + scrobble_delay,
-                "duration_known": duration_known,
-                "previously_played": previously_played,
-                "source": "Shazam",
-                "recognition_status": "confirmed",
-                "recognition_stage_seconds": best_stage,
-                "image": best_match.get("image", ""),
-            }
-            scrobble_fired = False
-            if experiment_harness is not None:
-                try:
-                    experiment_harness.track_identified(current_track, now=time.time())
-                except Exception as exc:
-                    log(f"⚠️ Experiment track logging failed: {exc}")
-
-            log(
-                f"✅ FINAL MATCH ({best_stage}s evidence): "
-                f"{best_match['title']} - {best_match['artist']}"
-            )
-            mqtt_client.publish(
-                "vinyl_guardian/track",
-                f"{best_match['title']} - {best_match['artist']}",
-                retain=True,
-            )
-            try:
+            if mqtt_client.is_connected():
                 mqtt_client.publish(
-                    "vinyl_guardian/attributes",
-                    json.dumps(current_track),
+                    "vinyl_guardian/track",
+                    f"{match['title']} - {match['artist']}",
                     retain=True,
                 )
-            except Exception:
-                pass
-            wake_up_time = current_track["start_timestamp"] + total_duration
+                mqtt_client.publish(
+                    "vinyl_guardian/attributes",
+                    json.dumps(display_track),
+                    retain=True,
+                )
+
+        if not outcome.get("finalize"):
+            return
+
+        best_match = outcome.get("best_match")
+        best_stage = int(outcome.get("best_stage") or 0)
+        best_trimmed = float(outcome.get("best_trimmed_seconds") or 0.0)
+        confidence = str(outcome.get("confidence") or "low")
+        support = int(outcome.get("support") or 0)
+        conflicts = int(outcome.get("conflicts") or 0)
+
+        paused = dict(paused_track_memory) if paused_track_memory else None
+
+    if best_match:
+        track_id = f"{best_match.get('title', '')} - {best_match.get('artist', '')}".strip(" -")
+        previously_played = 0.0
+        if paused and paused.get("id") == track_id:
+            previously_played = float(paused.get("accumulated_playtime") or 0.0)
+            log(f"▶️ Resuming track! Recovered {int(previously_played)}s playtime.")
+
+        raw_offset = float(best_match.get("offset_seconds") or 0.0)
+        start_ts = float(song_start_timestamp) + best_trimmed - raw_offset
+        if start_ts < 0:
+            start_ts = float(song_start_timestamp)
+
+        new_track = _make_track(
+            best_match,
+            song_start_timestamp,
+            start_ts,
+            confidence,
+            support=support,
+            conflicts=conflicts,
+            stage_seconds=best_stage,
+            previously_played=previously_played,
+        )
+
+        with state_lock:
+            if not recognition_session.valid(token, app_state):
+                return
+            current_attempt = 1
+            consecutive_failures = 0
+            current_track = new_track
+            scrobble_fired = False
+            if not paused or paused.get("id") != track_id:
+                paused_track_memory = None
+            track_monitor.begin_track(current_track)
+            wake_up_time = (
+                current_track.get("expected_end_time")
+                or (time.time() + float(current_track.get("duration") or 1200))
+            )
             app_state = "SLEEPING"
-        else:
+
+        resolved = pending_scrobbles.resolve_with_successor(
+            new_track,
+            new_track.get("session_start_time", song_start_timestamp),
+            strong_boundary=True,
+        )
+        for old_track in resolved:
+            _send_scrobble(old_track, mark_current=False)
+
+        if experiment_harness is not None:
+            try:
+                experiment_harness.track_identified(new_track, now=time.time())
+            except Exception as exc:
+                log(f"⚠️ Experiment track logging failed: {exc}")
+
+        log(
+            f"✅ TRACK: {best_match['title']} - {best_match['artist']} "
+            f"({confidence}, {support} agreeing / {conflicts} conflicting)"
+        )
+        _publish_track(new_track)
+    else:
+        with state_lock:
+            if not recognition_session.valid(token, app_state):
+                return
             if current_attempt < MAX_ATTEMPTS:
                 log(
-                    f"❌ No Shazam match across 3/5/10/20/30s. "
+                    f"❌ No Shazam match across 3/5/10s. "
                     f"Retrying with fresh audio ({current_attempt + 1}/{MAX_ATTEMPTS})..."
                 )
                 current_attempt += 1
-                # Return to IDLE so the normal music trigger begins a completely
-                # fresh session/token and no discontinuous audio is reused.
                 app_state = "IDLE"
             else:
                 consecutive_failures += 1
                 log("❌ Max staged attempts reached. Fallback to gap detection.")
-                mqtt_client.publish("vinyl_guardian/track", "Unknown Track", retain=True)
-                mqtt_client.publish("vinyl_guardian/attributes", "{}", retain=True)
+                if mqtt_client.is_connected():
+                    mqtt_client.publish("vinyl_guardian/track", "Unknown Track", retain=True)
+                    mqtt_client.publish("vinyl_guardian/attributes", "{}", retain=True)
                 current_attempt = 1
                 wake_up_time = time.time() + (
                     CONSECUTIVE_FAILURE_TIMEOUT
@@ -722,6 +710,186 @@ def process_audio_background(audio_data_bytes, song_start_timestamp, token, stag
     if TEST_CAPTURE_MODE:
         log("🛑 TEST CAPTURE COMPLETE.")
         os._exit(0)
+
+
+def process_tracking_audio_background(audio_data_bytes, window_start_timestamp, request_id):
+    """Evaluate a <=10s verification/boundary window without blocking audio."""
+    global current_track, wake_up_time, scrobble_fired, paused_track_memory
+
+    with state_lock:
+        request = dict(track_monitor.requests.get(request_id) or {})
+        if not request or app_state != "SLEEPING" or current_track is None:
+            return
+        generation = request.get("generation")
+
+    seconds = len(audio_data_bytes) / (RATE * CHANNELS * 2)
+    if seconds < 2.0:
+        with state_lock:
+            track_monitor.record_result(request_id, None)
+        return
+
+    try:
+        match, trimmed_seconds = recognize_fragment(
+            audio_data_bytes,
+            RECORDING_DIR,
+            RATE,
+            CHANNELS,
+            AUDIO_ONSET_THRESHOLD,
+            min(float(MIN_AUDIO_SECONDS), seconds),
+            recognize_shazam,
+        )
+    except Exception as exc:
+        log(f"⚠️ Tracking recognition failed ({request.get('name')}): {exc}")
+        match, trimmed_seconds = None, 0.0
+
+    with state_lock:
+        if (
+            app_state != "SLEEPING"
+            or current_track is None
+            or generation != track_monitor.generation
+        ):
+            return
+        action = track_monitor.record_result(request_id, match)
+        if not action.get("accepted"):
+            return
+        action_name = action.get("action")
+        old_snapshot = dict(current_track)
+
+    if action_name == "verified":
+        with state_lock:
+            if current_track is None or generation != track_monitor.generation:
+                return
+            current_track["recognition_confidence"] = "high"
+            current_track["recognition_verified"] = True
+            current_track["recognition_conflicts"] = int(current_track.get("recognition_conflicts", 0))
+            updated = dict(current_track)
+        log(f"✅ Identity verified from fresh audio: {_track_id(updated)}")
+        _publish_track(updated)
+        return
+
+    if action_name == "hold_ambiguous":
+        with state_lock:
+            if current_track is not None:
+                current_track["recognition_conflicts"] = int(current_track.get("recognition_conflicts", 0)) + 1
+                current_track["scrobble_pending_reason"] = "Recognition evidence is contradictory"
+                updated = dict(current_track)
+            else:
+                updated = None
+        if updated:
+            log(f"⚖️ Conflicting Shazam evidence retained for {_track_id(updated)}; not rewriting track history.")
+            _publish_track(updated)
+        return
+
+    if action_name == "correct_identity" and action.get("match"):
+        replacement = action["match"]
+        session_start = float(old_snapshot.get("session_start_time") or window_start_timestamp)
+        replacement_track = _make_track(
+            replacement,
+            session_start,
+            float(old_snapshot.get("start_timestamp") or session_start),
+            "high",
+            support=2,
+            conflicts=int(old_snapshot.get("recognition_conflicts", 0)),
+            stage_seconds=10,
+            previously_played=float(old_snapshot.get("previously_played") or 0.0),
+        )
+        with state_lock:
+            if current_track is None or generation != track_monitor.generation:
+                return
+            current_track = replacement_track
+            scrobble_fired = False
+            track_monitor.begin_track(current_track)
+            wake_up_time = (
+                current_track.get("expected_end_time")
+                or time.time() + float(current_track.get("duration") or 1200)
+            )
+        log(
+            f"🔁 Corrected weak initial identity to "
+            f"{replacement_track['title']} - {replacement_track['artist']} "
+            f"after two fresh agreeing windows."
+        )
+        _publish_track(replacement_track)
+        return
+
+    if action_name == "continuation":
+        with state_lock:
+            if current_track is None:
+                return
+            current_track["recognition_verified"] = True
+            current_track["recognition_confidence"] = "high"
+            old_end = expected_end(current_track) or float(action.get("anchor") or time.time())
+            current_track["expected_end_time"] = max(
+                old_end + 15.0,
+                time.time() + 10.0,
+            )
+            wake_up_time = current_track["expected_end_time"]
+            updated = dict(current_track)
+        log(f"↪️ Shazam still hears the current track after its predicted end; extending boundary watch.")
+        _publish_track(updated)
+        return
+
+    if action_name == "boundary_unresolved":
+        with state_lock:
+            if current_track is None:
+                return
+            old_end = expected_end(current_track) or float(action.get("anchor") or time.time())
+            current_track["expected_end_time"] = max(old_end + 15.0, time.time() + 8.0)
+            wake_up_time = current_track["expected_end_time"]
+            current_track["scrobble_pending_reason"] = "Boundary not yet resolved"
+        log("⚖️ Expected boundary was inconclusive; keeping the current track and checking again later.")
+        return
+
+    if action_name == "successor" and action.get("match"):
+        successor_match = action["match"]
+        boundary_time = float(action.get("anchor") or window_start_timestamp)
+        successor = _make_track(
+            successor_match,
+            boundary_time,
+            boundary_time,
+            action.get("confidence") or "medium",
+            support=2 if action.get("confidence") == "high" else 1,
+            conflicts=0,
+            stage_seconds=int(request.get("stage") or 0),
+        )
+
+        physical_end = boundary_time
+        pending_scrobbles.hold(
+            old_snapshot,
+            ended_at=boundary_time,
+            physical_now=physical_end,
+            reason=f"successor:{action.get('reason')}",
+        )
+        resolved = pending_scrobbles.resolve_with_successor(
+            successor,
+            boundary_time,
+            strong_boundary=True,
+        )
+
+        with state_lock:
+            if current_track is None or generation != track_monitor.generation:
+                return
+            current_track = successor
+            scrobble_fired = False
+            paused_track_memory = None
+            track_monitor.begin_track(current_track)
+            wake_up_time = (
+                current_track.get("expected_end_time")
+                or time.time() + float(current_track.get("duration") or 1200)
+            )
+
+        for old_track in resolved:
+            _send_scrobble(old_track, mark_current=False)
+
+        log(
+            f"⏭️ Track boundary confirmed ({action.get('reason')}): "
+            f"{successor['title']} - {successor['artist']}"
+        )
+        if experiment_harness is not None:
+            try:
+                experiment_harness.track_identified(successor, now=time.time())
+            except Exception as exc:
+                log(f"⚠️ Experiment track logging failed: {exc}")
+        _publish_track(successor)
 
 def get_crest(audio_data):
     rms = float(np.sqrt(np.mean(np.square(audio_data))))
