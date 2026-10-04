@@ -49,6 +49,7 @@ class ScrobbleDispatcherTests(unittest.TestCase):
             self.assertTrue(queue.process_due())
             self.assertEqual(queue.pending_count, 0)
             self.assertIn(event_id, json.loads(path.read_text())["sent"])
+            self.assertTrue(queue.is_sent(event_id))
             self.assertEqual(len(calls), 2)
 
     def test_pending_queue_survives_restart(self):
@@ -75,6 +76,16 @@ class ScrobbleDispatcherTests(unittest.TestCase):
             self.assertEqual(restored.pending_count, 0)
             self.assertEqual(restored.submit(track()), event_id)
             self.assertEqual(restored.pending_count, 0)
+
+    def test_restart_timestamp_jitter_maps_to_same_physical_play(self):
+        self.assertEqual(
+            scrobble_event_id(track(start=1000)),
+            scrobble_event_id(track(start=1003)),
+        )
+        self.assertNotEqual(
+            scrobble_event_id(track(start=1000)),
+            scrobble_event_id(track(start=1010)),
+        )
 
     def test_same_song_replay_with_different_timestamp_is_not_deduplicated(self):
         with tempfile.TemporaryDirectory() as root:
