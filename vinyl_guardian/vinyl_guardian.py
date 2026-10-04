@@ -1320,6 +1320,7 @@ def listen_and_identify():
 
             with state_lock:
                 recognition_session.invalidate()
+                track_monitor.clear()
                 app_state = "IDLE"
                 current_track = None
                 scrobble_fired = False
@@ -1883,8 +1884,8 @@ def listen_and_identify():
                         if not recognition_session.valid(token, app_state):
                             continue
                         app_state = "PROCESSING"
-                    # All five uploads own immutable snapshots. The live buffer
-                    # can now be released while their results finish.
+                    # The 3/5/10 uploads own immutable snapshots. The live
+                    # buffer can now be released while their results finish.
                     buffer, chunks, loud_chunks = bytearray(), 0, 0
                         
             elif current_state == "SLEEPING":
