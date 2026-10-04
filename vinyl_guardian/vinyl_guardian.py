@@ -65,6 +65,7 @@ current_attempt = 1
 wake_up_time = 0
 consecutive_failures = 0
 current_track = None
+track_display_suppressed = False
 scrobble_fired = False
 last_scrobbled_track = None
 paused_track_memory = None
@@ -462,6 +463,7 @@ def publish_runtime_snapshot():
         engine = current_engine_status
         runtime_state = app_state
         track_snapshot = dict(current_track) if current_track else None
+        suppress_track = bool(track_display_suppressed)
 
     mqtt_client.publish(AVAILABILITY_TOPIC, "online", retain=True)
     if CALIBRATION_MODE:
@@ -491,6 +493,7 @@ def publish_runtime_snapshot():
         status,
         runtime_state,
         track_snapshot,
+        suppress_track=suppress_track,
     )
     mqtt_client.publish("vinyl_guardian/track", track_state, retain=True)
     mqtt_client.publish(
@@ -637,13 +640,23 @@ def _start_track_enrichment(track):
         ).start()
 
 
-def _publish_track(track):
-    if not isinstance(track, dict) or not mqtt_client.is_connected():
+def _publish_track(track, verified=False):
+    global track_display_suppressed
+    if not isinstance(track, dict):
+        return
+    with state_lock:
+        if verified:
+            track_display_suppressed = False
+        status = current_display_status
+        runtime_state = app_state
+        suppress_track = bool(track_display_suppressed)
+    if not mqtt_client.is_connected():
         return
     track_state, track_attributes = current_track_presentation(
-        current_display_status,
-        app_state,
+        status,
+        runtime_state,
         track,
+        suppress_track=suppress_track,
     )
     mqtt_client.publish("vinyl_guardian/track", track_state, retain=True)
     mqtt_client.publish(
@@ -829,7 +842,7 @@ def process_audio_background(audio_data_bytes, song_start_timestamp, token, stag
                 f"({outcome.get('confidence', 'low')} confidence)"
             )
             if mqtt_client.is_connected():
-                if current_display_status == "Runout Groove":
+                if current_display_status == "Runout Groove" or track_display_suppressed:
                     mqtt_client.publish(
                         "vinyl_guardian/track",
                         "Not Playing",
@@ -921,7 +934,7 @@ def process_audio_background(audio_data_bytes, song_start_timestamp, token, stag
             f"✅ TRACK: {best_match['title']} - {best_match['artist']} "
             f"({confidence}, {support} agreeing / {conflicts} conflicting)"
         )
-        _publish_track(new_track)
+        _publish_track(new_track, verified=True)
         _start_track_enrichment(new_track)
     else:
         with state_lock:
@@ -1007,7 +1020,7 @@ def process_tracking_audio_background(audio_data_bytes, window_start_timestamp, 
             current_track["recognition_conflicts"] = int(current_track.get("recognition_conflicts", 0))
             updated = dict(current_track)
         log(f"✅ Identity verified from fresh audio: {_track_id(updated)}")
-        _publish_track(updated)
+        _publish_track(updated, verified=True)
         return
 
     if action_name == "unknown_candidate":
@@ -1060,7 +1073,7 @@ def process_tracking_audio_background(audio_data_bytes, window_start_timestamp, 
             f"{replacement_track['title']} - {replacement_track['artist']} "
             f"after two fresh agreeing windows."
         )
-        _publish_track(replacement_track)
+        _publish_track(replacement_track, verified=True)
         _start_track_enrichment(replacement_track)
         return
 
@@ -1078,7 +1091,7 @@ def process_tracking_audio_background(audio_data_bytes, window_start_timestamp, 
             wake_up_time = current_track["expected_end_time"]
             updated = dict(current_track)
         log(f"↪️ Shazam still hears the current track after its predicted end; extending boundary watch.")
-        _publish_track(updated)
+        _publish_track(updated, verified=True)
         return
 
     if action_name == "boundary_unresolved":
@@ -1143,7 +1156,7 @@ def process_tracking_audio_background(audio_data_bytes, window_start_timestamp, 
                 experiment_harness.track_identified(successor, now=time.time())
             except Exception as exc:
                 log(f"⚠️ Experiment track logging failed: {exc}")
-        _publish_track(successor)
+        _publish_track(successor, verified=True)
         _start_track_enrichment(successor)
 
 def get_crest(audio_data):
@@ -1392,6 +1405,7 @@ def listen_and_identify():
     global requested_audio_source_option, audio_scan_status
     global debug_countdown, debug_metrics_buffer
     global capture_false_positive_requested, capture_missed_music_requested
+    global track_display_suppressed
     
     if DEBUG:
         log(
@@ -1889,6 +1903,7 @@ def listen_and_identify():
                             app_state, current_track, scrobble_fired, current_attempt, consecutive_failures = (
                                 "IDLE", None, False, 1, 0
                             )
+                            track_display_suppressed = False
                             music_gap_started = None
 
                     if poweroff_scrobble is not None:
@@ -1918,6 +1933,8 @@ def listen_and_identify():
                 current_guardian_state,
             )
             if vinyl_status_changed and new_vinyl_status == "Runout Groove":
+                with state_lock:
+                    track_display_suppressed = True
                 # Runout is strong physical evidence that the musical segment
                 # has completed. This matters especially when catalogue duration
                 # is unavailable and the normal timer is deliberately conservative.
@@ -2175,6 +2192,7 @@ def listen_and_identify():
                             mqtt_client.publish("vinyl_guardian/attributes", "{}", retain=True)
                         song_start, buffer, chunks, loud_chunks, silence_sleep, trigger_chunks = now, bytearray(data), 1, 1, 0, 0
                         with state_lock:
+                            track_display_suppressed = False
                             token = recognition_session.begin()
                             app_state = "RECORDING"
                 else: trigger_chunks = 0
