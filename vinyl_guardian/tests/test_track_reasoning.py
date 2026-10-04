@@ -275,6 +275,18 @@ class TrackReasoningTests(unittest.TestCase):
         self.assertTrue(scrobble_is_eligible(unknown, 1120, completed=True))
         self.assertFalse(scrobble_is_eligible(unknown, 1029, completed=True))
 
+    def test_unknown_duration_completion_does_not_assume_mid_song_drop_was_full_play(self):
+        unknown = track(
+            confidence="high",
+            start=1000,
+            duration=1200,
+            duration_known=False,
+        )
+        unknown["start_timestamp"] = 900
+        unknown["scrobble_trigger_time"] = 1240
+        self.assertFalse(scrobble_is_eligible(unknown, 1040, completed=True))
+        self.assertTrue(scrobble_is_eligible(unknown, 1120, completed=True))
+
     def test_lastfm_minimum_duration_is_enforced(self):
         short = track(confidence="high", duration=30)
         self.assertFalse(scrobble_is_eligible(short, 2000))
