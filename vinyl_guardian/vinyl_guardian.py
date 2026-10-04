@@ -461,6 +461,12 @@ def publish_runtime_snapshot():
     """Restore retained state after first connect or broker reconnect."""
     if not mqtt_client.is_connected():
         return
+    with state_lock:
+        status = current_display_status
+        engine = current_engine_status
+        runtime_state = app_state
+        track_snapshot = dict(current_track) if current_track else None
+
     mqtt_client.publish(AVAILABILITY_TOPIC, "online", retain=True)
     if CALIBRATION_MODE:
         mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
@@ -470,8 +476,6 @@ def publish_runtime_snapshot():
         mqtt_client.publish("vinyl_guardian/attributes", "{}", retain=True)
         return
 
-    status = current_display_status
-    engine = current_engine_status
     power = "OFF" if status in ("Powered Off", "Offline") else "ON"
     mqtt_client.publish("vinyl_guardian/power", power, retain=True)
     mqtt_client.publish("vinyl_guardian/status", status, retain=True)
@@ -479,8 +483,8 @@ def publish_runtime_snapshot():
 
     track_state, track_attributes = current_track_presentation(
         status,
-        app_state,
-        current_track,
+        runtime_state,
+        track_snapshot,
     )
     mqtt_client.publish("vinyl_guardian/track", track_state, retain=True)
     mqtt_client.publish(
@@ -2055,7 +2059,12 @@ def listen_and_identify():
                             current_silence_sec = silence_sleep * (CHUNK / RATE)
                             physical_now_for_scrobble = now - current_silence_sec
                             time_left = max(0, int(current_track.get('scrobble_trigger_time', 0) - physical_now_for_scrobble))
-                            if time_left > 0:
+                            if (
+                                current_track.get("duration_known")
+                                and float(current_track.get("duration") or 0) <= 30.0
+                            ):
+                                scrob_str = "Not eligible · track ≤30s"
+                            elif time_left > 0:
                                 m, sec = divmod(time_left, 60)
                                 scrob_str = f"In {m:02d}:{sec:02d} ⏳"
                             elif not scrobble_identity_confident(current_track):
@@ -2219,7 +2228,11 @@ def listen_and_identify():
                         )
 
                 with state_lock:
-                    tracking_requests = track_monitor.due_requests(now, current_track)
+                    tracking_requests = (
+                        []
+                        if rhythm_locked
+                        else track_monitor.due_requests(now, current_track)
+                    )
                 for request in tracking_requests:
                     snapshot = _extract_audio_window(
                         tracking_audio,
