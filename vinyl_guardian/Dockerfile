@@ -33,6 +33,7 @@ WORKDIR /usr/src/app
 COPY run.sh /usr/src/app/run.sh
 COPY *.py /usr/src/app/
 
-RUN chmod a+x /usr/src/app/run.sh
+RUN chmod a+x /usr/src/app/run.sh \
+    && python3 -m compileall -q /usr/src/app
 
 CMD [ "/usr/src/app/run.sh" ]
