@@ -27,8 +27,8 @@ done
 if ! jq --exit-status 'has("reuse_calibration_audio")' /data/options.json >/dev/null; then
     bashio::addon.option reuse_calibration_audio true || echo "Could not persist default reuse setting; runtime defaults to on."
 fi
-if jq --exit-status '.advanced | has("reuse_calibration_audio")' /data/options.json >/dev/null; then
-    bashio::addon.option advanced "$(jq --compact-output '.advanced | del(.reuse_calibration_audio)' /data/options.json)" || echo "Could not remove obsolete advanced reuse setting; it is ignored."
+if jq --exit-status '.advanced | has("reuse_calibration_audio") or has("manual_override_mic_volume") or has("manual_override_music_threshold") or has("manual_override_motor_threshold")' /data/options.json >/dev/null; then
+    bashio::addon.option advanced "$(jq --compact-output '.advanced | del(.reuse_calibration_audio, .manual_override_mic_volume, .manual_override_music_threshold, .manual_override_motor_threshold)' /data/options.json)" || echo "Could not remove obsolete advanced settings; they are ignored."
 fi
 
 # Only show diagnostic spam if debug mode is explicitly true
