@@ -245,14 +245,45 @@ def on_disconnect(client, userdata, disconnect_flags, reason_code, properties):
 def publish_discovery():
     log("Publishing MQTT Auto-Discovery payloads...")
     device_info = {"identifiers": ["vinyl_guardian_01"], "name": "Vinyl Guardian", "manufacturer": "Custom Add-on"}
-    mqtt_client.publish("homeassistant/button/vinyl_guardian/calibration_continue/config", json.dumps({"name": "Continue Calibration", "unique_id": "vinyl_guardian_calibration_continue", "command_topic": "vinyl_guardian/calibration/continue", "device": device_info, "icon": "mdi:play"}), retain=True)
-    mqtt_client.publish("homeassistant/sensor/vinyl_guardian/calibration_step/config", json.dumps({"name": "Calibration Instructions", "unique_id": "vinyl_guardian_calibration_step", "state_topic": "vinyl_guardian/calibration/step", "json_attributes_topic": "vinyl_guardian/calibration/details", "device": device_info, "icon": "mdi:clipboard-list"}), retain=True)
-    mqtt_client.publish('homeassistant/sensor/vinyl_guardian/stylus_usage/config', json.dumps({
-        'name': 'Stylus Use', 'unique_id': 'vinyl_guardian_stylus_usage', 'device': device_info,
-        'state_topic': 'vinyl_guardian/stylus_usage', 'json_attributes_topic': 'vinyl_guardian/stylus_usage/attributes',
-        'device_class': 'duration', 'unit_of_measurement': 'h', 'state_class': 'total_increasing',
-        'suggested_display_precision': 2, 'icon': 'mdi:timer-outline',
-    }), retain=True)
+    mqtt_client.publish(
+        "homeassistant/button/vinyl_guardian/calibration_continue/config",
+        json.dumps(add_availability({
+            "name": "Continue Calibration",
+            "unique_id": "vinyl_guardian_calibration_continue",
+            "command_topic": "vinyl_guardian/calibration/continue",
+            "device": device_info,
+            "icon": "mdi:play",
+        })),
+        retain=True,
+    )
+    mqtt_client.publish(
+        "homeassistant/sensor/vinyl_guardian/calibration_step/config",
+        json.dumps(add_availability({
+            "name": "Calibration Instructions",
+            "unique_id": "vinyl_guardian_calibration_step",
+            "state_topic": "vinyl_guardian/calibration/step",
+            "json_attributes_topic": "vinyl_guardian/calibration/details",
+            "device": device_info,
+            "icon": "mdi:clipboard-list",
+        })),
+        retain=True,
+    )
+    mqtt_client.publish(
+        "homeassistant/sensor/vinyl_guardian/stylus_usage/config",
+        json.dumps(add_availability({
+            "name": "Stylus Use",
+            "unique_id": "vinyl_guardian_stylus_usage",
+            "device": device_info,
+            "state_topic": "vinyl_guardian/stylus_usage",
+            "json_attributes_topic": "vinyl_guardian/stylus_usage/attributes",
+            "device_class": "duration",
+            "unit_of_measurement": "h",
+            "state_class": "total_increasing",
+            "suggested_display_precision": 2,
+            "icon": "mdi:timer-outline",
+        })),
+        retain=True,
+    )
     if stylus_usage is not None:
         mqtt_client.publish('vinyl_guardian/stylus_usage', f'{stylus_usage.saved_hours:.6f}', retain=True)
     deprecated_sensors = ["music_rms", "rumble_rms", "scrobble", "scrobble_countdown", "scrobble_state"]
@@ -370,12 +401,19 @@ def publish_discovery():
             retain=True,
         )
 
-    mqtt_client.publish('homeassistant/select/vinyl_guardian/diagnostic_mode/config', json.dumps({
-        'name': 'Automatic Diagnostic Capture Mode', 'unique_id': 'vinyl_guardian_diagnostic_mode',
-        'device': device_info, 'icon': 'mdi:record-rec',
-        'command_topic': 'vinyl_guardian/diagnostics/mode/set',
-        'state_topic': 'vinyl_guardian/diagnostics/mode', 'options': list(MODE_NAMES.values()),
-    }), retain=True)
+    mqtt_client.publish(
+        "homeassistant/select/vinyl_guardian/diagnostic_mode/config",
+        json.dumps(add_availability({
+            "name": "Automatic Diagnostic Capture Mode",
+            "unique_id": "vinyl_guardian_diagnostic_mode",
+            "device": device_info,
+            "icon": "mdi:record-rec",
+            "command_topic": "vinyl_guardian/diagnostics/mode/set",
+            "state_topic": "vinyl_guardian/diagnostics/mode",
+            "options": list(MODE_NAMES.values()),
+        })),
+        retain=True,
+    )
     experiment_buttons = {
         'intentional_action': {'name': 'Mark Intentional Flip or Pause', 'topic': 'vinyl_guardian/diagnostics/intentional', 'icon': 'mdi:album'},
         'finish_listening_report': {'name': 'Finish Listening Session Report', 'topic': 'vinyl_guardian/diagnostics/finish', 'icon': 'mdi:check-circle-outline'},
@@ -403,13 +441,13 @@ def publish_discovery():
     for key, button in experiment_buttons.items():
         mqtt_client.publish(
             f"homeassistant/button/vinyl_guardian/{key}/config",
-            json.dumps({
+            json.dumps(add_availability({
                 "name": button["name"],
                 "command_topic": button["topic"],
                 "unique_id": f"vinyl_guardian_{key}_btn",
                 "device": device_info,
                 "icon": button["icon"],
-            }),
+            })),
             retain=True,
         )
 
