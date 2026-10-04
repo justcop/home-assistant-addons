@@ -124,7 +124,7 @@ class TrackMonitor:
     def boundary_active(self):
         return self.boundary is not None
 
-    def start_boundary(self, anchor, reason, strength="medium"):
+    def start_boundary(self, anchor, reason, strength="medium", previous_end=None):
         anchor = float(anchor)
         if self.boundary is not None:
             # Preserve the first active search unless the new evidence points to
@@ -135,6 +135,7 @@ class TrackMonitor:
             "anchor": anchor,
             "reason": str(reason),
             "strength": str(strength),
+            "previous_end": float(previous_end) if previous_end is not None else anchor,
             "requested": set(),
             "results": {},
             "generation": self.generation,
@@ -185,6 +186,7 @@ class TrackMonitor:
                     anchor=anchor,
                     reason=boundary["reason"],
                     strength=boundary["strength"],
+                    previous_end=boundary["previous_end"],
                 ))
             return due
 
@@ -276,6 +278,7 @@ class TrackMonitor:
                 "anchor": boundary["anchor"],
                 "reason": boundary["reason"],
                 "strength": boundary["strength"],
+                "previous_end": boundary["previous_end"],
                 "request": spec,
             }
             self.boundary = None
@@ -319,6 +322,7 @@ class TrackMonitor:
                     "anchor": boundary["anchor"],
                     "reason": boundary["reason"],
                     "strength": boundary["strength"],
+                    "previous_end": boundary["previous_end"],
                     "request": spec,
                 }
                 self.boundary = None
