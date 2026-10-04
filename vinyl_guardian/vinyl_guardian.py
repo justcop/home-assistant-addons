@@ -729,11 +729,12 @@ def _send_scrobble(track, mark_current=False):
     event_id = scrobble_event_id(track)
     if not event_id:
         return False
+    already_delivered = scrobble_dispatcher.is_sent(event_id)
     # Set delivery metadata before waking the worker so a very fast Last.fm
     # response cannot beat the current-track bookkeeping.
     track["scrobble_fired"] = True
-    track["scrobble_queued"] = True
-    track["scrobble_delivered"] = False
+    track["scrobble_queued"] = not already_delivered
+    track["scrobble_delivered"] = already_delivered
     track["scrobble_event_id"] = event_id
     track["scrobble_retry_attempts"] = 0
     queued_id = scrobble_dispatcher.submit(track)
@@ -742,6 +743,11 @@ def _send_scrobble(track, mark_current=False):
         track["scrobble_queued"] = False
         track.pop("scrobble_event_id", None)
         return False
+    if already_delivered:
+        if mark_current:
+            scrobble_fired = True
+            paused_track_memory = None
+        return True
     if mark_current:
         scrobble_fired = True
         paused_track_memory = None
