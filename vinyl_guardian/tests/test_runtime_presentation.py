@@ -24,6 +24,17 @@ class RuntimePresentationTests(unittest.TestCase):
         self.assertEqual(state, "A - Artist")
         self.assertEqual(attributes["title"], "A")
 
+    def test_post_runout_suppression_survives_status_change_until_verified(self):
+        track = {"title": "Old", "artist": "Artist"}
+        state, attributes = current_track_presentation(
+            "Playing",
+            "SLEEPING",
+            track,
+            suppress_track=True,
+        )
+        self.assertEqual(state, "Not Playing")
+        self.assertEqual(attributes, {})
+
     def test_searching_and_idle_states_are_distinct(self):
         self.assertEqual(
             current_track_presentation("Playing", "RECORDING", None)[0],
