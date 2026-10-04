@@ -61,6 +61,21 @@ class ScrobbleDispatcherTests(unittest.TestCase):
             restored = ScrobbleDispatcher(path, lambda *_: True, autostart=False)
             self.assertTrue(restored.is_pending(event_id))
 
+    def test_corrupt_primary_recovers_current_sent_state_without_replay(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "queue.json"
+            queue = ScrobbleDispatcher(path, lambda *_: True, autostart=False)
+            event_id = queue.submit(track())
+            queue.process_due()
+            self.assertEqual(queue.pending_count, 0)
+            path.write_text("corrupted")
+
+            restored = ScrobbleDispatcher(path, lambda *_: True, autostart=False)
+            self.assertFalse(restored.is_pending(event_id))
+            self.assertEqual(restored.pending_count, 0)
+            self.assertEqual(restored.submit(track()), event_id)
+            self.assertEqual(restored.pending_count, 0)
+
     def test_same_song_replay_with_different_timestamp_is_not_deduplicated(self):
         with tempfile.TemporaryDirectory() as root:
             path = Path(root) / "queue.json"
