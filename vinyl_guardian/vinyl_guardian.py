@@ -926,6 +926,15 @@ def process_tracking_audio_background(audio_data_bytes, window_start_timestamp, 
         _publish_track(updated)
         return
 
+    if action_name == "unknown_candidate":
+        if match:
+            log(
+                f"🛰️ Unknown-duration boundary probe heard "
+                f"{match.get('title', 'another track')} - {match.get('artist', '')}; "
+                "waiting for a second consecutive match before changing tracks."
+            )
+        return
+
     if action_name == "hold_ambiguous":
         with state_lock:
             if current_track is not None:
@@ -1805,7 +1814,24 @@ def listen_and_identify():
             if turntable_on and current_state in ["RECORDING", "PROCESSING"]:
                 new_vinyl_status = "Playing"
 
-            change_3_tier_status(new_vinyl_status, current_guardian_state)
+            previous_vinyl_status, vinyl_status_changed = change_3_tier_status(
+                new_vinyl_status,
+                current_guardian_state,
+            )
+            if vinyl_status_changed and mqtt_client.is_connected():
+                if new_vinyl_status == "Runout Groove":
+                    # The stylus is still down and runout wear continues to count,
+                    # but no song is playing once the locked runout begins.
+                    mqtt_client.publish("vinyl_guardian/track", "Not Playing", retain=True)
+                    mqtt_client.publish("vinyl_guardian/attributes", "{}", retain=True)
+                elif (
+                    previous_vinyl_status == "Runout Groove"
+                    and current_track
+                    and is_playing
+                ):
+                    # A false/transient runout unlock during music should restore
+                    # the current track rather than leaving the UI blank.
+                    _publish_track(current_track)
             
             # --- MQTT LOGGING & UI DISPATCH ---
             if now - last_pub >= 1.0:
@@ -1934,24 +1960,46 @@ def listen_and_identify():
                     mqtt_client.publish("vinyl_guardian/pop_texture", f"{min(250.0, norm_pop_texture):.1f}", retain=False)
                     mqtt_client.publish("vinyl_guardian/pop_volume", f"{min(250.0, norm_pop_volume):.1f}", retain=False)
 
-                    if not turntable_on: scrob_str = "Off"
+                    if not turntable_on:
+                        scrob_str = "Off"
                     elif current_state == "SLEEPING" and current_track:
-                        if scrobble_fired: scrob_str = f"Scrobbled: {last_scrobbled_track.split(' - ')[0]} ✅" if last_scrobbled_track else "Scrobbled ✅"
+                        if current_track.get("scrobble_delivered"):
+                            scrob_str = f"Scrobbled: {current_track.get('title', 'Track')} ✅"
+                        elif scrobble_fired:
+                            attempts = int(current_track.get("scrobble_retry_attempts", 0))
+                            scrob_str = (
+                                f"Queued for Last.fm · retry {attempts + 1} ⏳"
+                                if attempts
+                                else "Queued for Last.fm ⏳"
+                            )
                         else:
                             current_silence_sec = silence_sleep * (CHUNK / RATE)
                             physical_now_for_scrobble = now - current_silence_sec
                             time_left = max(0, int(current_track.get('scrobble_trigger_time', 0) - physical_now_for_scrobble))
                             if time_left > 0:
-                                m, s = divmod(time_left, 60)
-                                scrob_str = f"In {m:02d}:{s:02d} ⏳"
+                                m, sec = divmod(time_left, 60)
+                                scrob_str = f"In {m:02d}:{sec:02d} ⏳"
                             elif not scrobble_identity_confident(current_track):
                                 scrob_str = "Eligible · confirming identity ⚖️"
+                            elif not lastfm_enabled():
+                                scrob_str = "Last.fm disabled"
                             else:
-                                scrob_str = "Scrobbling... 🚀"
-                    else: scrob_str = f"Scrobbled: {last_scrobbled_track.split(' - ')[0]} ✅" if last_scrobbled_track else "Waiting ⏸️"
+                                scrob_str = "Queueing scrobble…"
+                    else:
+                        scrob_str = (
+                            f"Scrobbled: {last_scrobbled_track.split(' - ')[0]} ✅"
+                            if last_scrobbled_track
+                            else "Waiting ⏸️"
+                        )
                     mqtt_client.publish("vinyl_guardian/scrobble_status", scrob_str, retain=True)
                     
-                    if current_state == "SLEEPING" and current_track:
+                    if rhythm_locked:
+                        mqtt_client.publish(
+                            "vinyl_guardian/progress",
+                            "Not Playing · Runout Groove",
+                            retain=True,
+                        )
+                    elif current_state == "SLEEPING" and current_track:
                         pos_sec, dur_sec = max(0, int(now - current_track['start_timestamp'])), int(current_track['duration'])
                         if pos_sec > dur_sec > 0: pos_sec = dur_sec
                         p_m, p_s = divmod(pos_sec, 60); d_m, d_s = divmod(dur_sec, 60)
