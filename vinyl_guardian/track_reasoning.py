@@ -281,11 +281,16 @@ class TrackMonitor:
             expected_rows
             and stage >= 5
             and boundary["strength"] in ("strong", "high")
+            and (not same or len(expected_rows) >= 2)
         ):
             action = {
                 "accepted": True,
                 "action": "successor",
-                "confidence": "high" if not same else "medium",
+                "confidence": (
+                    "high"
+                    if len(expected_rows) >= 2 and not same
+                    else "medium"
+                ),
                 "match": deepcopy(expected_rows[-1]["match"]),
                 "anchor": boundary["anchor"],
                 "reason": boundary["reason"],
