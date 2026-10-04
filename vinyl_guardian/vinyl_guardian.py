@@ -3,7 +3,6 @@ from calibration_web import start_server
 from audio_scan_once import StartupScanGate, reset_scan_options
 import sys
 import os
-import glob
 import json
 import time
 import threading
@@ -14,12 +13,9 @@ from collections import deque
 import numpy as np
 import alsaaudio
 import paho.mqtt.client as mqtt
-from shazamio import Shazam
-import pylast
 
 # Import local modules
 from config import *
-from audio_math import calculate_audio_levels, calculate_deep_metrics
 from integrations import (
     recognize_shazam,
     get_track_duration,
@@ -42,10 +38,10 @@ from track_reasoning import (
 )
 from telemetry import DatasetCollector
 from experiment import ExperimentHarness, TRUSTED_LABELS
-from diagnostic_monitor import MODES, MODE_NAMES
+from diagnostic_monitor import MODE_NAMES
 from profile_manager import ProfileManager
 from replay_lab import replay_latest_dataset
-from audio_source import AudioSourceManager, AUTO_OPTION, SYSTEM_DEFAULT_OPTION
+from audio_source import AudioSourceManager, SYSTEM_DEFAULT_OPTION
 from mqtt_runtime import (
     AVAILABILITY_TOPIC,
     add_availability,
