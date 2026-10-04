@@ -474,6 +474,16 @@ def publish_runtime_snapshot():
         mqtt_client.publish("vinyl_guardian/engine_state", "Calibration Mode", retain=True)
         mqtt_client.publish("vinyl_guardian/track", "Calibration Mode", retain=True)
         mqtt_client.publish("vinyl_guardian/attributes", "{}", retain=True)
+        mqtt_client.publish(
+            "vinyl_guardian/scrobble_status",
+            "Calibration Mode",
+            retain=True,
+        )
+        mqtt_client.publish(
+            "vinyl_guardian/progress",
+            "Calibration Mode",
+            retain=True,
+        )
         return
 
     power = "OFF" if status in ("Powered Off", "Offline") else "ON"
