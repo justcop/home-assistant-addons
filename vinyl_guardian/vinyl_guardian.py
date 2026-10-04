@@ -466,13 +466,18 @@ def connect_mqtt():
 
 def change_3_tier_status(new_vinyl_status, new_engine_status):
     global current_display_status, current_engine_status
+    previous_status = current_display_status
+    status_changed = new_vinyl_status != current_display_status
+    engine_changed = new_engine_status != current_engine_status
+    current_display_status = new_vinyl_status
+    current_engine_status = new_engine_status
+
     if not CALIBRATION_MODE and mqtt_client.is_connected():
-        if new_vinyl_status != current_display_status:
+        if status_changed:
             mqtt_client.publish("vinyl_guardian/status", new_vinyl_status, retain=True)
-            current_display_status = new_vinyl_status
-        if new_engine_status != current_engine_status:
+        if engine_changed:
             mqtt_client.publish("vinyl_guardian/engine_state", new_engine_status, retain=True)
-            current_engine_status = new_engine_status
+    return previous_status, status_changed
 
 def _track_id(track):
     if not isinstance(track, dict):
@@ -1329,23 +1334,16 @@ def listen_and_identify():
         )
 
     last_pub, last_sleep_log, cooldown_end, chunks, loud_chunks, silence_sleep, song_start = time.time(), 0, 0, 0, 0, 0, 0
-    idle_silence_chunks = 0
     target = int(RATE / CHUNK * recognition_session.final_stage)
     trigger_chunks = 0
     buffer = bytearray()
     tracking_audio = deque(maxlen=max(1, int(RATE / CHUNK * 40.0)))
     music_gap_started = None
-    ghost_buffer, ghost_max_chunks = [], int(RATE / CHUNK * 20.0)
+    feedback_buffer, feedback_max_chunks = [], int(RATE / CHUNK * 20.0)
     
     turntable_on, has_played_music, rhythm_locked = False, False, False
-    power_max_score = int(RATE / CHUNK * 2.0) 
     power_score = 0
     
-    consecutive_music = 0
-    last_music_time, last_rhythm_time = -10.0, -10.0
-    pop_history = []
-    
-    VALID_RPM_INTERVALS = [(1.20, 1.46), (1.65, 1.95), (2.45, 2.85), (3.35, 3.85)]
     engine_state_map = {"IDLE": "Listening", "RECORDING": "Recording", "PROCESSING": "Processing", "SLEEPING": "Tracking", "COOLDOWN": "Cooldown"}
     last_logged_status, last_logged_rhythm = "Unknown", False
 
@@ -1367,7 +1365,6 @@ def listen_and_identify():
     m_hold_thresh = v6_cfg.get('music_hold_threshold', m_thresh * 0.6)
     runout_crest_thresh = v6_cfg.get('runout_crest_threshold', globals().get('RUNOUT_CREST_THRESHOLD', 3.5))
     pop_amp = v6_cfg.get('pop_amplitude_threshold', globals().get('POP_AMPLITUDE_THRESHOLD', 0.0))
-    motor_ceil = v6_cfg.get('motor_power_ceiling', globals().get('MOTOR_POWER_CEILING', 999.0))
     needle_lift_sec = v6_cfg.get('needle_lift_sec', globals().get('NEEDLE_LIFT_SECONDS', 15.0))
 
     # V8: one stateful detector owns feature extraction, power hysteresis,
@@ -1441,7 +1438,7 @@ def listen_and_identify():
             if changed:
                 apply_guardian_source_volume()
                 detector = GuardianDetector(v6_cfg, rate=RATE, channels=CHANNELS)
-                ghost_buffer.clear()
+                feedback_buffer.clear()
                 buffer.clear()
                 tracking_audio.clear()
                 music_gap_started = None
@@ -1482,7 +1479,7 @@ def listen_and_identify():
                 scrobble_fired = False
                 current_attempt = 1
             buffer.clear()
-            ghost_buffer.clear()
+            feedback_buffer.clear()
             tracking_audio.clear()
             music_gap_started = None
             chunks = loud_chunks = silence_sleep = trigger_chunks = 0
@@ -1547,21 +1544,20 @@ def listen_and_identify():
             continue
 
         if length > 0:
-            if DEBUG_GHOST_CATCHER:
-                ghost_buffer.append(data)
-                if len(ghost_buffer) > ghost_max_chunks:
-                    ghost_buffer.pop(0)
+            feedback_buffer.append(data)
+            if len(feedback_buffer) > feedback_max_chunks:
+                feedback_buffer.pop(0)
 
-                feedback_kind = None
-                if capture_false_positive_requested:
-                    feedback_kind = "ghost_trigger"
-                    capture_false_positive_requested = False
-                elif capture_missed_music_requested:
-                    feedback_kind = "missed_music"
-                    capture_missed_music_requested = False
+            feedback_kind = None
+            if capture_false_positive_requested:
+                feedback_kind = "ghost_trigger"
+                capture_false_positive_requested = False
+            elif capture_missed_music_requested:
+                feedback_kind = "missed_music"
+                capture_missed_music_requested = False
 
-                if feedback_kind and ghost_buffer:
-                    save_feedback_clip(feedback_kind, ghost_buffer)
+            if feedback_kind and feedback_buffer:
+                save_feedback_clip(feedback_kind, feedback_buffer)
             
             now = time.time()
             with state_lock:
@@ -1591,7 +1587,6 @@ def listen_and_identify():
             has_played_music = frame["has_played_music"]
             continuous_silence = frame["seconds_since_music"]
             power_score = int(round(frame["motor_confidence"] * 100.0))
-            active_m_thresh = m_hold_thresh if has_played_music and continuous_silence <= 6.0 else m_thresh
 
             if manual_label_requested is not None:
                 if experiment_harness is not None:
@@ -1691,9 +1686,9 @@ def listen_and_identify():
                 and str(DATA_COLLECTION_LABEL).strip().lower() in known_off_labels
                 and not previous_power
                 and turntable_on
-                and ghost_buffer
+                and feedback_buffer
             ):
-                save_feedback_clip("ghost_trigger_auto", ghost_buffer)
+                save_feedback_clip("ghost_trigger_auto", feedback_buffer)
 
             if dataset_collector is not None:
                 try:
