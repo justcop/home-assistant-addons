@@ -447,6 +447,7 @@ def _track_duration(match):
             match.get("title", ""),
             match.get("artist", ""),
             match.get("adamid"),
+            album=match.get("album"),
         ) or 0.0)
     return duration
 

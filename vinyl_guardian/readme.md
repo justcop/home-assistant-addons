@@ -22,6 +22,14 @@ Before starting the Add-on, configure your settings in the UI:
 
 ### Installed runtime
 
+Duration lookup tries the supplied Apple track ID in the GB and US catalogues,
+then falls back to title/artist searches in both. Search results are validated
+against the recognised song, with the reported album preferred when present;
+covers, live versions and ambiguous lengths are rejected. Successful durations
+are cached for the running process. Logs show the successful source or why each
+lookup could not provide a duration. Catalogue failures still use the periodic
+Shazam and two-minute confirmation fallback below.
+
 When a recognised song has no available duration, the engine rechecks Shazam
 every 30 seconds using the latest ten seconds of audio. At two minutes it
 scrobbles only after a fresh same-song confirmation covering that point. Failed

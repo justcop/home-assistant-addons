@@ -1,11 +1,13 @@
 import time
 import asyncio
 import inspect
+import math
 import requests
 import urllib.parse
 import pylast
 from shazamio import Shazam
 from config import *
+from track_reasoning import identity_key
 
 
 # --- LAST.FM SETUP ---
@@ -35,21 +37,68 @@ def scrobble_to_lastfm(artist, title, start_timestamp, album=None):
         log(f"🚨 Last.fm Scrobble Failed: {e}")
 
 # --- HELPER: GET TRACK DURATION ---
-def get_track_duration(title, artist, adamid=None):
-    for attempt in range(2):
+_duration_cache = {}
+
+
+def _duration_from_rows(rows, title, artist, album=None):
+    wanted = identity_key({"title": title, "artist": artist})
+    matches = []
+    for row in rows or []:
+        if not isinstance(row, dict) or row.get("kind", "song") != "song":
+            continue
+        actual = identity_key({"title": row.get("trackName"), "artist": row.get("artistName")})
+        if actual != wanted:
+            continue
         try:
-            if adamid:
-                url = f"https://itunes.apple.com/lookup?id={adamid}"
-            else:
-                query = urllib.parse.quote(f"{title} {artist}")
-                url = f"https://itunes.apple.com/search?term={query}&entity=song&limit=1"
-            res = requests.get(url, timeout=10)
-            data = res.json()
-            if data.get('resultCount', 0) > 0:
-                return data['results'][0].get('trackTimeMillis', 0) / 1000.0
-        except Exception:
-            time.sleep(1)
-    return 0
+            seconds = float(row.get("trackTimeMillis") or 0) / 1000.0
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(seconds) and seconds > 0:
+            matches.append((row, seconds))
+    if album and album != "Unknown":
+        album_key = identity_key({"title": album, "artist": "album"})
+        preferred = [item for item in matches if identity_key(
+            {"title": item[0].get("collectionName"), "artist": "album"}) == album_key]
+        if preferred:
+            matches = preferred
+    if not matches:
+        return 0.0
+    durations = [seconds for row, seconds in matches]
+    # Do not guess between substantially different recordings of one song.
+    if max(durations) - min(durations) > 5.0:
+        return 0.0
+    return durations[0]
+
+
+def get_track_duration(title, artist, adamid=None, album=None):
+    cache_key = (identity_key({"title": title, "artist": artist}), str(adamid or ""), str(album or ""))
+    if cache_key in _duration_cache:
+        return _duration_cache[cache_key]
+    lookups = []
+    if adamid:
+        lookups.extend(("lookup", {"id": adamid, "country": country}) for country in ("GB", "US"))
+    lookups.extend(("search", {"term": f"{title} {artist}", "entity": "song",
+                              "limit": 25, "country": country}) for country in ("GB", "US"))
+    for endpoint, params in lookups:
+        label = f"{endpoint} {params['country']}"
+        try:
+            response = requests.get(f"https://itunes.apple.com/{endpoint}", params=params, timeout=5)
+            response.raise_for_status()
+            data = response.json()
+            if not isinstance(data, dict):
+                raise ValueError("Invalid catalogue response")
+            duration = _duration_from_rows(data.get("results"), title, artist, album)
+            if duration > 0:
+                if len(_duration_cache) >= 256:
+                    _duration_cache.pop(next(iter(_duration_cache)), None)
+                _duration_cache[cache_key] = duration
+                log(f"⏱️ Duration: {title} - {artist}: {duration:.1f}s ({label}).")
+                return duration
+            log(f"🔎 Duration {label}: no unambiguous matching song with a usable length for {title} - {artist}.")
+        except (requests.RequestException, ValueError, TypeError) as error:
+            log(f"⚠️ Duration {label} failed for {title} - {artist}: {type(error).__name__}.")
+    log(f"⏱️ Duration unavailable for {title} - {artist}; using periodic Shazam checks.")
+    return 0.0
 
 def _catalogue_identity(row):
     if not isinstance(row, dict):
