@@ -14,7 +14,7 @@ A Home Assistant add-on that turns your Last.fm history into a clear, local anal
 
 ## Install
 
-This version is on the `lastfm-analytics` branch while its pull request is reviewed.
+Install from the repository’s `main` branch.
 
 1. In Home Assistant, open **Settings → Add-ons → Add-on Store → Repositories**. Recent Home Assistant versions may call these Apps.
 2. Add `https://github.com/justcop/home-assistant-addons#lastfm-analytics`.
@@ -125,3 +125,35 @@ This first version has been tested with fixtures and a local browser. It has not
 - [Last.fm recent tracks API](https://www.last.fm/api/show/user.getRecentTracks)
 - [Home Assistant add-on configuration](https://developers.home-assistant.io/docs/add-ons/configuration/)
 - [Home Assistant Ingress](https://developers.home-assistant.io/docs/add-ons/presentation/#ingress)
+
+## Vinyl attribution
+
+Listening Analytics stores source attribution in the account's listening database.
+Vinyl Guardian reports only submissions explicitly accepted by Last.fm, using the
+returned corrected track and artist names and the original listening timestamp.
+Reports can arrive before history sync and remain through reconciliation and restarts.
+They do not create extra scrobbles or change Last.fm data.
+
+1. Update both add-ons. In Listening Analytics Configuration, set `source_api_token`
+   to a long random secret (at least 32 random characters).
+2. In Listening Analytics Network settings, enable its optional `8099/tcp` port,
+   for example using host port `8100`. Restart the analyser.
+3. In Vinyl Guardian Configuration, set `listening_analytics_url` to
+   `http://HOME_ASSISTANT_IP:8100` and `listening_analytics_token` to the same secret.
+   Keep the Last.fm usernames identical in both add-ons. Restart Guardian.
+4. Choose **Vinyl only** in the analyser's source selector. It applies to overview,
+   trends, rankings, listening heatmaps, history, and artist/song/album detail counts.
+   Settings shows the number of reports received. Scrobbles appear after normal sync.
+
+An add-on's direct internal hostname with port 8099 also works where accessible;
+Home Assistant ingress URLs do not. The optional port accepts authenticated source
+reports and a public health check. Listening-history APIs retain ingress-only access.
+Use a trusted local network or HTTPS, and keep this connection optional.
+
+Guardian retains only unacknowledged delivery notifications in `/data`, retries in
+its own background thread (30 seconds up to five minutes during failures), and deletes
+each notification after an acknowledgement. Retried reports are idempotent. Changing
+accounts does not relabel queued reports. Attribution starts when the connection is
+enabled; older scrobbles remain **Unknown source**, not assumed Spotify. Matching uses
+the exact timestamp plus normalised artist and title, ignoring album differences.
+Multiple indistinguishable copies of that track at the same second share attribution.

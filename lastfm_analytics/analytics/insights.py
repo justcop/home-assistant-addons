@@ -63,7 +63,25 @@ def period(args, tz, now=None, earliest=None):
     }
 
 
+def source_scope(args):
+    source = args.get("source", "all")
+    if source == "all":
+        return "", []
+    if source not in ("vinyl", "unknown"):
+        raise ValueError("Unknown listening source")
+    exists = """EXISTS (SELECT 1 FROM source_reports sr
+        WHERE sr.ts=s.ts AND sr.artist_key=s.artist_key
+        AND sr.title_key=source_key(s.title) AND sr.source='vinyl')"""
+    return " AND " + ("NOT " if source == "unknown" else "") + exists, []
+
+
 def scope(args):
+    extra, params = source_scope(args)
+    entity_extra, entity_params = entity_scope(args)
+    return extra + entity_extra, params + entity_params
+
+
+def entity_scope(args):
     kind, value = args.get("entity"), args.get("id")
     raw = args.get("mode") == "raw"
     if not kind:
@@ -202,10 +220,11 @@ def overview(database, args, tz_name, now=None):
             if current["plays"]
             else 0
         )
-        # First heard is evaluated against all locally imported active history.
+        source_extra, _ = source_scope(args)
+        # First heard is evaluated against the selected source across all history.
         discovery = conn.execute(
             f"""WITH firsts AS (
-          SELECT artist_key, MIN(ts) first_ts FROM scrobbles WHERE active=1 GROUP BY artist_key)
+          SELECT s.artist_key, MIN(s.ts) first_ts FROM scrobbles s WHERE s.active=1 {source_extra} GROUP BY s.artist_key)
           SELECT COUNT(DISTINCT s.artist_key), COUNT(*) {JOINS}
           JOIN firsts f ON f.artist_key=s.artist_key
           WHERE s.active=1 AND s.ts>=? AND s.ts<? AND f.first_ts>=? {extra}""",
@@ -215,7 +234,7 @@ def overview(database, args, tz_name, now=None):
             dict(r)
             for r in conn.execute(
                 f"""WITH prior AS (
-          SELECT artist_key, MAX(ts) last_ts FROM scrobbles WHERE active=1 AND ts<? GROUP BY artist_key)
+          SELECT s.artist_key, MAX(s.ts) last_ts FROM scrobbles s WHERE s.active=1 AND s.ts<? {source_extra} GROUP BY s.artist_key)
           SELECT s.artist_key AS id, MIN(s.artist) AS name, COUNT(*) AS plays,
           (MIN(s.ts)-prior.last_ts)/86400 AS gap_days {JOINS}
           JOIN prior ON prior.artist_key=s.artist_key
@@ -229,8 +248,8 @@ def overview(database, args, tz_name, now=None):
             """SELECT COUNT(DISTINCT sv.id), COUNT(DISTINCT sv.group_id),
           COUNT(DISTINCT av.id),COUNT(DISTINCT av.group_id) """
             + JOINS
-            + """ WHERE s.active=1 AND s.ts>=? AND s.ts<?""",
-            [p["start"], p["end"]],
+            + f""" WHERE s.active=1 AND s.ts>=? AND s.ts<? {extra}""",
+            [p["start"], p["end"], *params],
         ).fetchone()
         return {
             "period": p,
@@ -273,6 +292,9 @@ def history(conn, p, args, tz):
         dict(r)
         for r in conn.execute(
             """SELECT s.id,s.ts,s.artist,s.title,s.album,
+       CASE WHEN EXISTS (SELECT 1 FROM source_reports sr WHERE sr.ts=s.ts
+         AND sr.artist_key=s.artist_key AND sr.title_key=source_key(s.title)
+         AND sr.source='vinyl') THEN 'vinyl' ELSE 'unknown' END AS source,
        sv.group_id AS song_group,av.group_id AS album_group,s.song_id,s.album_id,
        sg.name AS song_name,ag.name AS album_name,s.artist_key """
             + JOINS
@@ -286,7 +308,8 @@ def history(conn, p, args, tz):
     return {"rows": rows, "total": total, "offset": offset}
 
 
-def details(conn, kind, value, raw):
+def details(conn, kind, value, raw, args=None):
+    source_extra, source_params = source_scope(args or {})
     if kind == "artist":
         name = conn.execute(
             "SELECT artist FROM scrobbles WHERE artist_key=? LIMIT 1", (value,)
@@ -304,9 +327,9 @@ def details(conn, kind, value, raw):
         for r in conn.execute(
             f"""SELECT v.id,v.name,v.artist,v.group_id,
       v.override_group IS NOT NULL AS manual,COUNT(s.id) AS plays,MIN(s.ts) AS first_play,MAX(s.ts) AS last_play
-      FROM resolved_variants v LEFT JOIN scrobbles s ON s.{fk}=v.id AND s.active=1
+      FROM resolved_variants v LEFT JOIN scrobbles s ON s.{fk}=v.id AND s.active=1 {source_extra}
       WHERE v.kind=? AND {column}=? GROUP BY v.id ORDER BY plays DESC,v.name""",
-            (kind, value),
+            (*source_params, kind, value),
         )
     ]
     if not versions:
