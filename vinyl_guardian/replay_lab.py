@@ -5,7 +5,7 @@ import glob
 import json
 import os
 import time
-import wave
+from diagnostic_audio import open_pcm
 
 from detector import GuardianDetector
 from experiment import ShadowDetectorSuite
@@ -20,7 +20,7 @@ def _load_thresholds(path):
 
 
 def _dataset_audio_paths(target):
-    if os.path.isfile(target) and target.lower().endswith(".wav"):
+    if os.path.isfile(target) and target.lower().endswith((".wav", ".flac")):
         return [target], {}
     if not os.path.isdir(target):
         raise FileNotFoundError(target)
@@ -34,11 +34,11 @@ def _dataset_audio_paths(target):
         except Exception:
             metadata = {}
 
-    wavs = sorted(glob.glob(os.path.join(target, "audio_*.wav")))
+    wavs = sorted(glob.glob(os.path.join(target, "audio_*.wav")) + glob.glob(os.path.join(target, "audio_*.flac")))
     if not wavs:
-        wavs = sorted(glob.glob(os.path.join(target, "*.wav")))
+        wavs = sorted(glob.glob(os.path.join(target, "*.wav")) + glob.glob(os.path.join(target, "*.flac")))
     if not wavs:
-        raise FileNotFoundError(f"No WAV files in {target}")
+        raise FileNotFoundError(f"No WAV or FLAC files in {target}")
     return wavs, metadata
 
 
@@ -58,7 +58,7 @@ def replay(target, thresholds, output_dir=None, chunk=DEFAULT_CHUNK):
     if not wav_paths:
         raise ValueError("No audio supplied")
 
-    with wave.open(wav_paths[0], "rb") as wf:
+    with open_pcm(wav_paths[0]) as wf:
         rate = wf.getframerate()
         channels = wf.getnchannels()
         sampwidth = wf.getsampwidth()
@@ -90,7 +90,7 @@ def replay(target, thresholds, output_dir=None, chunk=DEFAULT_CHUNK):
     chunks = 0
 
     for wav_path in wav_paths:
-        with wave.open(wav_path, "rb") as wf:
+        with open_pcm(wav_path) as wf:
             if (
                 wf.getframerate() != rate
                 or wf.getnchannels() != channels

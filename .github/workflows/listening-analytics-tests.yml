@@ -1,0 +1,72 @@
+name: Listening Analytics checks
+on:
+  push:
+    paths: ["lastfm_analytics/**", ".github/workflows/listening-analytics-tests.yml"]
+  pull_request:
+    paths: ["lastfm_analytics/**", ".github/workflows/listening-analytics-tests.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: lastfm_analytics
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: python -m pytest -q tests
+      - run: python -m compileall -q analytics && bash -n run.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: node --check analytics/static/app.js
+      - run: npm install --no-save playwright@1.62.1 && npx playwright install --with-deps chromium
+      - name: Exercise dashboard with fictional data
+        env:
+          SCREENSHOT_DIR: ${{ runner.temp }}/listening-analytics-ui
+        run: |
+          python -m analytics --development --data-dir "$RUNNER_TEMP/listening-analytics-data" --port 8105 > "$RUNNER_TEMP/listening-analytics-server.log" 2>&1 &
+          analytics_server_pid=$!
+          trap 'kill "$analytics_server_pid" 2>/dev/null || true' EXIT
+          for attempt in 1 2 3 4 5; do
+            curl -fs http://127.0.0.1:8105/health >/dev/null && break
+            sleep 1
+          done
+          node tests/ui.cjs
+      - name: Exercise direct HTTPS login and web app installation metadata
+        run: |
+          openssl req -x509 -newkey rsa:2048 -nodes -keyout "$RUNNER_TEMP/listening.key" -out "$RUNNER_TEMP/listening.crt" -days 1 -subj /CN=localhost
+          PYTHONPATH=. python tests/auth_server.py --data-dir "$RUNNER_TEMP/listening-auth-data" --certificate "$RUNNER_TEMP/listening.crt" --key "$RUNNER_TEMP/listening.key" > "$RUNNER_TEMP/listening-auth-server.log" 2>&1 &
+          auth_server_pid=$!
+          trap 'kill "$auth_server_pid" 2>/dev/null || true' EXIT
+          for attempt in 1 2 3 4 5; do
+            curl -kfs https://127.0.0.1:8107/health >/dev/null && break
+            sleep 1
+          done
+          LOGIN_SCREENSHOT="$RUNNER_TEMP/listening-analytics-ui/login-mobile.png" node tests/auth_ui.cjs
+      - name: Build add-on container
+        run: docker build --build-arg BUILD_VERSION=0.2.8 --build-arg BUILD_ARCH=amd64 -t listening-analytics:test .
+      - name: Check container health and shutdown
+        run: |
+          docker run -d --name listening-analytics-smoke listening-analytics:test
+          trap 'docker logs listening-analytics-smoke; docker rm -f listening-analytics-smoke >/dev/null' EXIT
+          for attempt in 1 2 3 4 5; do
+            if docker exec listening-analytics-smoke /opt/venv/bin/python -c 'import urllib.request; print(urllib.request.urlopen("http://127.0.0.1:8099/health").read().decode())'; then
+              docker stop --time 30 listening-analytics-smoke
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: listening-analytics-browser-checks
+          path: |
+            ${{ runner.temp }}/listening-analytics-ui
+            ${{ runner.temp }}/listening-analytics-server.log

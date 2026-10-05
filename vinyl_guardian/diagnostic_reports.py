@@ -2,6 +2,7 @@
 import io
 import json
 import zipfile
+from diagnostic_audio import audio_name
 from pathlib import Path
 
 
@@ -38,7 +39,7 @@ def export_diagnostics(recording_directory, max_bytes=128*1024*1024, max_clips=2
     used = 0
     included = []
     for sidecar, metadata in candidates[:max_clips]:
-        group = [sidecar, audio / Path(str(metadata.get('wav', ''))).name,
+        group = [sidecar, audio / Path(str(audio_name(metadata))).name,
                  audio / Path(str(metadata.get('trace', ''))).name]
         if not all(p.is_file() and not p.is_symlink() and p.resolve().is_relative_to(root) for p in group):
             continue
@@ -66,7 +67,7 @@ def export_diagnostics(recording_directory, max_bytes=128*1024*1024, max_clips=2
     manifest = {'included_clips': len(included), 'available_clips': len(candidates), 'excluded_long_break_clips': excluded,
                 'max_clips': max_clips, 'uncompressed_bytes': used,
                 'events': [{'event': m['event'], 'unix_time': m['trigger_time'],
-                            'wav': m['wav'], 'label': m.get('label'),
+                            'audio': audio_name(m), 'label': m.get('label'),
                             'session_id': m.get('details', {}).get('diagnostic_session'),
                             'candidate_id': m.get('details', {}).get('candidate_id')} for m in included],
                 'notes': ['Newest complete clips are included, bounded by count and byte size.',
@@ -76,7 +77,7 @@ def export_diagnostics(recording_directory, max_bytes=128*1024*1024, max_clips=2
                           'Transition-latency clips are observational and use retrospective evidence-onset estimates, not ground truth.',
                           'Needle-drop candidates are restricted to motor-on, music-off Motor Idle and are resolved against later production state.',
                           'Safety metrics track stable-state exposure and shadow disagreement; legacy known-off statistics are observational hints only.',
-                          'The frames.jsonl trace aligns one row per PCM chunk. Recompute all measurements from the WAV for replay.']}
+                          'The frames.jsonl trace aligns one row per PCM chunk. Recompute all measurements from the lossless audio for replay.']}
     output=io.BytesIO()
     with zipfile.ZipFile(output,'w',zipfile.ZIP_DEFLATED) as archive:
         archive.writestr('manifest.json',json.dumps(manifest,indent=2))

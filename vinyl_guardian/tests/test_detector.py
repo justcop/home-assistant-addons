@@ -6,7 +6,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from detector import RUNOUT_SPEEDS, RunoutRhythmDetector, GuardianDetector, pcm16_to_mono
+from detector import RUNOUT_SPEEDS, RunoutRhythmDetector, GuardianDetector, pcm16_to_mono, extract_features
 
 
 class StereoHandlingTests(unittest.TestCase):
@@ -22,6 +22,16 @@ class StereoHandlingTests(unittest.TestCase):
 
 
 class RunoutRhythmTests(unittest.TestCase):
+    def test_music_immediately_clears_existing_lock_and_old_candidates(self):
+        detector, t, period = self._feed_rhythm("33⅓")
+        detector.update(t + .05, True, .08, True, True)
+        self.assertFalse(detector.locked)
+        self.assertIsNone(detector.rpm_label)
+        self.assertEqual(len(detector.events), 0)
+        for index in range(4):
+            detector.update(t + (index + 1) * period, True, .08, True, False)
+        self.assertFalse(detector.locked)
+
     def _feed_rhythm(self, label, jitters=None):
         detector = RunoutRhythmDetector()
         period = RUNOUT_SPEEDS[label]
@@ -131,6 +141,42 @@ class MotorProfileTests(unittest.TestCase):
         self.assertTrue(detector.turntable_on)
         feed(off, 45, 30)
         self.assertFalse(detector.turntable_on)
+
+
+class QuietMusicTests(unittest.TestCase):
+    def test_high_crest_sustained_music_cannot_become_runout(self):
+        detector = GuardianDetector(dict(music_threshold=.002, music_hold_threshold=.001,
+                                        motor_power_ceiling=.02))
+        features = dict(rms=.004, music_rms=.003, sustained_music_rms=.003,
+                        crest=10, peak=.04, hfer=.2, zcr=.1)
+        for tick in range(400):
+            frame = detector.update_features(features, tick / 20)
+            self.assertFalse(frame["runout_locked"])
+        self.assertTrue(frame["music_active"])
+        self.assertEqual(frame["status"], "Playing")
+
+    def test_quiet_music_recovers_after_ten_second_internal_rest(self):
+        detector = GuardianDetector(dict(music_threshold=.01, music_hold_threshold=.001))
+        music = dict(rms=.02, music_rms=.02, crest=2, peak=.04, hfer=.2, zcr=.1)
+        silence = dict(music, rms=.001, music_rms=.0001, peak=.002)
+        for tick in range(60):
+            detector.update_features(music, tick / 20)
+        for tick in range(60, 260):
+            frame = detector.update_features(silence, tick / 20)
+            self.assertFalse(frame["runout_locked"])
+        for tick in range(260, 280):
+            frame = detector.update_features(dict(music, music_rms=.0015), tick / 20)
+        self.assertTrue(frame["music_active"])
+        self.assertFalse(frame["runout_locked"])
+
+    def test_sustained_measurement_rejects_isolated_click_energy(self):
+        click = np.zeros(2048, dtype=np.float32)
+        click[100] = .5
+        features = extract_features(click)
+        self.assertGreater(features["music_rms"], .001)
+        self.assertEqual(features["sustained_music_rms"], 0)
+        music = .01 * np.sin(np.arange(2048) * .5)
+        self.assertGreater(extract_features(music)["sustained_music_rms"], .001)
 
 
 if __name__ == "__main__":

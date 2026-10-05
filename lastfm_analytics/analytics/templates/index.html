@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+    <base href="{{ base }}" />
+    <meta name="csrf-token" content="{{ csrf }}" />
+    <meta name="theme-color" content="#5b5fe9" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Listening" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" type="image/png" href="static/icon-192.png" />
+    <link rel="apple-touch-icon" href="static/icon-192.png" />
+    <title>Listening Analytics</title>
+    <link rel="stylesheet" href="static/style.css" />
+    <script src="static/app.js" defer></script>
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <a class="brand" href="./" aria-label="Listening Analytics home"
+          ><img class="brand-icon" src="static/icon-192.png" width="36" height="36" alt=""
+          ><span>Listening<span class="brand-sub">ANALYTICS</span></span></a
+        >
+        <div class="nav-label">YOUR LIBRARY</div>
+        <nav aria-label="Main navigation" id="nav">
+          <button data-view="overview" aria-current="page">
+            <span aria-hidden="true">◫</span>Overview
+          </button>
+          <button data-view="trends">
+            <span aria-hidden="true">↗</span>Trends
+          </button>
+          <button data-view="artists">
+            <span aria-hidden="true">◎</span>Artists
+          </button>
+          <button data-view="albums">
+            <span aria-hidden="true">▣</span>Albums
+          </button>
+          <button data-view="songs">
+            <span aria-hidden="true">♫</span>Songs
+          </button>
+          <button data-view="history">
+            <span aria-hidden="true">◷</span>History
+          </button>
+        </nav>
+        <div class="sidebar-bottom">
+          <div class="settings-actions">
+            <button class="settings-nav" data-view="settings" aria-label="Settings and grouping">
+              ⚙ <span>Settings & grouping</span>
+            </button>
+            <button id="refresh" class="icon-button sync-button" aria-label="Sync with Last.fm" title="Check Last.fm for new scrobbles">↻</button>
+          </div>
+          <div class="profile">
+            <span class="avatar">L</span>
+            <div>
+              <strong id="listener">Your library</strong
+              ><span id="connection">Connect Last.fm</span>
+            </div>
+          </div>
+          <div class="sidebar-note">Your music. A clearer picture.</div>
+        </div>
+      </aside>
+      <main>
+        <div id="banner" hidden></div>
+        <header class="page-header">
+          <div>
+            <div class="eyebrow">LISTENING ANALYTICS</div>
+            <h1 id="page-title">Overview</h1>
+            <p id="page-description">
+              Understand the patterns behind your plays.
+            </p>
+          </div>
+          <div class="header-actions">
+            <button id="install-app" class="button" hidden>Install app</button>
+            <span id="sync-label" class="sync-label">Loading…</span>
+          </div>
+        </header>
+        <div class="toolbar" id="toolbar">
+          <div class="date-controls">
+            <div class="period-picker">
+            <button id="source" class="icon-button vinyl-toggle" aria-label="Vinyl only" aria-pressed="false" title="Vinyl only">
+              <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r=".7" fill="currentColor"/></svg>
+            </button>
+            <label for="period" class="sr-only">Date range</label
+            ><select id="period">
+              <option value="7d">Last 7 days</option>
+              <option value="30d">Last 30 days</option>
+              <option value="90d">Last 90 days</option>
+              <option value="365d">Last 365 days</option>
+              <option value="all" selected>All time</option>
+              <option value="custom">Custom dates</option>
+              <optgroup id="year-options" label="Calendar years"></optgroup></select
+            ><button id="reset-filters" class="button quiet" title="Reset to all-time listening with all sources">Reset</button></div><span id="custom-dates" hidden
+              ><label>From <input type="date" id="start" /></label
+              ><label>To <input type="date" id="end" /></label
+              ><button id="apply-dates" class="button">Apply</button></span
+            >
+          </div>
+        </div>
+        <div id="now-playing" class="now-playing" hidden></div>
+        <div id="error" role="alert" hidden></div>
+        <div id="loading-status" class="loading-status" role="status" hidden><span class="spinner" aria-hidden="true"></span> Loading analysis…</div>
+        <section id="settings-preferences" class="panel settings-preferences" hidden aria-label="Appearance and account settings">
+          <h2>Display and account</h2>
+          <h3 class="settings-version-heading">Version display</h3>
+          <div class="segment" aria-label="Version display">
+            <button data-mode="merged" aria-pressed="true">
+              Combined versions</button
+            ><button data-mode="raw" aria-pressed="false">
+              Last.fm entries
+            </button>
+          </div>
+          <p class="method-note">Use combined totals or the original Last.fm entries throughout your listening views.</p>
+          <div class="preference-controls">
+            <label for="palette">Colour theme <select id="palette"><option value="violet">Violet</option><option value="ocean">Ocean</option><option value="forest">Forest</option><option value="rose">Rose</option><option value="amber">Amber</option></select></label>
+            <button id="theme" class="button" aria-label="Switch light or dark appearance">Switch light / dark</button>
+            {% if direct_login %}<button id="logout" class="button">Sign out</button>{% endif %}
+          </div>
+        </section>
+        <p id="cache-status" class="cache-status" role="status" hidden></p>
+        <div id="content" aria-live="polite" aria-busy="true">
+          <div class="loading">Loading your listening history…</div>
+        </div>
+        <footer>
+          <span
+            >Powered by
+            <a
+              href="https://www.last.fm"
+              target="_blank"
+              rel="noopener noreferrer"
+              >Last.fm</a
+            >
+            · Local listening analytics</span
+          ><span id="footer-note">Play counts, grounded in your history</span>
+        </footer>
+      </main>
+    </div>
+    <dialog id="detail-dialog" class="detail-dialog">
+      <div class="dialog-head">
+        <span class="eyebrow" id="detail-kind">DETAIL</span
+        ><button
+          class="icon-button"
+          id="close-detail"
+          aria-label="Close details"
+        >
+          ×
+        </button>
+      </div>
+      <p id="detail-cache-status" class="cache-status" role="status" hidden></p>
+      <div id="detail-content"></div>
+    </dialog>
+    <dialog id="confirm-dialog" class="confirm-dialog">
+      <h2 id="confirm-title">Confirm grouping</h2>
+      <p id="confirm-description"></p>
+      <div class="dialog-actions">
+        <button id="confirm-cancel" class="button">Cancel</button
+        ><button id="confirm-ok" class="button primary">Confirm</button>
+      </div>
+    </dialog>
+    <div id="toast" role="status" hidden></div>
+  </body>
+</html>

@@ -9,6 +9,7 @@ from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from diagnostic_monitor import DiagnosticMonitor
 from diagnostic_reports import export_diagnostics
+from diagnostic_audio import open_pcm
 from experiment import ExperimentHarness, EventAudioRecorder
 from regression import collect_labelled_event_clips
 
@@ -164,7 +165,7 @@ class DiagnosticCaptureTests(unittest.TestCase):
             self.assertEqual(meta['post_roll_sec'],1)
             rows=[json.loads(row) for row in path.with_suffix('.frames.jsonl').read_text().splitlines()]
             self.assertEqual([row['index'] for row in rows],[1,2,3])
-            with wave.open(str(path)) as wav:self.assertEqual(wav.getnframes(),12)
+            with open_pcm(path) as wav:self.assertEqual(wav.getnframes(),12)
             self.assertEqual(collect_labelled_event_clips(root)[0][1],'off')
             Path(root,'options.json').write_text('private-api-key')
             archive=zipfile.ZipFile(io.BytesIO(export_diagnostics(root)))

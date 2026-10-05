@@ -5,7 +5,7 @@ import secrets
 import threading
 from urllib.parse import urlsplit, parse_qs
 import calibration_control as control
-from review_queue import list_samples, review_sample, audio_bytes, VALID_REVIEW_LABELS
+from review_queue import list_samples, review_sample, audio_bytes, audio_content_type, VALID_REVIEW_LABELS
 
 PAGE = r'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Vinyl Guardian calibration</title>
@@ -136,7 +136,7 @@ def make_server(host='0.0.0.0', port=8099, allowed_peer='172.30.32.2', exporter=
             elif path == '/api/review/audio':
                 try:
                     sample_id = parse_qs(urlsplit(self.path).query).get('id', [''])[0]
-                    self.send(200, audio_bytes(recording_directory, sample_id), 'audio/wav')
+                    self.send(200, audio_bytes(recording_directory, sample_id), audio_content_type(recording_directory, sample_id))
                 except (OSError, ValueError, json.JSONDecodeError):
                     self.send(404, {'error': 'Sample audio is unavailable.'})
             elif path == '/api/state':

@@ -1,0 +1,25 @@
+configuration:
+  username:
+    name: Last.fm username
+    description: The account whose available listening history you want to import.
+  api_key:
+    name: Last.fm API key
+    description: A Last.fm application API key. No password, API secret or write permission is needed.
+  timezone:
+    name: Display timezone
+    description: An IANA timezone, for example Europe/London. Handles daylight saving automatically.
+  sync_interval_seconds:
+    name: Sync interval in seconds
+    description: Defaults to five minutes. All outbound requests are paced to at most one per second.
+  reconcile_days:
+    name: Daily reconciliation window
+    description: Recheck this many recent days for edits, deletions and delayed submissions. Older history is kept.
+  demo_mode:
+    name: Preview with fictional data
+    description: Uses an isolated demo database and makes no Last.fm requests. Your imported data stays separate.
+  web_password:
+    name: Web login password
+    description: At least 12 characters. Protects the optional direct web port. Blank disables direct access. Save and restart after changes. Use HTTPS.
+  source_api_token:
+    name: Vinyl Guardian connection token
+    description: Set a long random token and copy it to Vinyl Guardian. Only source reports can use this token, not your browser or listening-history APIs.

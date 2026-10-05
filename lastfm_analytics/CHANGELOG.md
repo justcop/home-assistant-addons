@@ -1,0 +1,71 @@
+# Changelog
+
+## 0.2.8
+
+- Prevent an in-flight background read from restoring the browser session after sign-out. Direct browser sessions now expire seven days after sign-in.
+
+- Find covers in older scrobbles and more of an artist’s albums. When imported images are missing, retrieve small Last.fm album thumbnail URLs in a paced background worker. Store URL metadata only and show a loading or unavailable status.
+- Make statistic totals clickable in Overview, Trends and detail pages. Open artist, album, song or scrobble lists with the current item, dates, source and version display retained. Show the item filter in rankings and preserve Back navigation to the detail view.
+
+## 0.2.7
+
+- Save Overview/Trends, detail analyses and artist/album/song rankings across restarts. Show saved results immediately while a single background worker refreshes changed data.
+- Refresh saved views nightly at 03:00 in the configured timezone, even when no browser is open. Keep up to 24 recent views per account, including separate date/source/version filters.
+- Show when saved results were updated and replace changed results automatically, preserving timeline zoom and scroll. Failed refreshes retain saved results.
+
+## 0.2.6
+
+- Add a Listening Analytics record-and-chart logo to the Home Assistant add-on, web header, login, browser favicon and installed app icons.
+
+## 0.2.5
+
+- Add remote Last.fm album thumbnails to artist, album and song details without storing image files or fetching metadata during page load. Artist/song artwork is labelled with its representative album. Missing or failed covers leave the statistics usable.
+
+## 0.2.4
+
+
+- Move combined/original version display into Settings and remember the preference.
+- Offer selected version names as merge-name choices, preferring names without brackets then the highest scrobble count, with free text editing retained.
+- Default to all-time statistics and add Reset to clear date, source, search and item filters.
+- Replace the prominent source dropdown with a small highlighted Vinyl only record toggle, and enlarge the statistics icons.
+- Widen the diary song column and retain table scrolling on phones.
+- Add menu and detail navigation history so browser/Android Back and Forward restore the previous view and filters.
+
+## 0.2.3
+
+- Choose individual versions from merge suggestions, including a subset of already grouped versions, and edit their combined display name before merging. Undo restores previous names and grouping.
+- Move sign-out and theme controls into Settings. Put a compact Sync button beside Settings.
+- Replace the graph zoom slider with pinch zoom and accessible zoom/reset buttons. Keep one-finger scrolling within the graph.
+- Tighten the year/month heatmap gutter and spacing to fit small phone screens.
+
+## 0.2.2
+
+- Identify invalid startup settings by name without printing credentials, including web password length errors.
+- Treat null optional credentials and passwords as blank, keeping direct browser access disabled.
+- Report storage access failures separately from configuration errors.
+
+## 0.2.1
+
+- Add contained horizontal timeline scrolling and zoom, calendar-year selection, and year/month heatmaps in the library and entity details.
+- Add five persistent colour palettes, full-screen phone detail sheets and background scroll locking.
+- Replace the full unmerged-song list with suggestions, explained skipped candidates and existing merges, with remembered dismissals and optional artist-specific suffix learning.
+- Add loading feedback and revision-aware analysis caching for faster repeated views.
+- Add an installable network-only web app with an offline connection notice; private data is never cached in the service worker.
+
+- Improve phone layouts with persistent bottom navigation, larger touch targets, safe-area spacing and readable date controls.
+- Add web app manifest and home-screen icons, retaining Home Assistant authentication.
+- Add a configurable web password, secure login cookies, CSRF checks, login rate limiting and sign out for an optional direct HTTPS web app.
+- Keep Home Assistant Ingress access and disable direct browser access unless a password is configured.
+
+## 0.2.0
+
+- Store authenticated vinyl source reports in the analyser's account database, independently of history sync and reconciliation.
+- Add All listening, Vinyl only and Unknown source filters throughout analytics and detail views.
+- Add optional local port and shared connection token for Vinyl Guardian. Show connection status and received-report count.
+
+## 0.1.0
+
+- Add a responsive light and dark Last.fm analytics dashboard with date filters, rankings, discovery, rediscovery, artist concentration and listening heatmaps.
+- Add resumable history import and periodic sync with transactional storage, duplicate preservation and checked recent-history reconciliation.
+- Add reversible song and album grouping, raw-versus-combined totals and version drill-down.
+- Add Home Assistant Ingress packaging for amd64 and aarch64, persistent account databases, safe setup, health monitoring and a fictional demo.

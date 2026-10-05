@@ -3,7 +3,7 @@
 import glob
 import json
 import os
-import wave
+from diagnostic_audio import audio_name, open_pcm
 
 import numpy as np
 
@@ -22,7 +22,7 @@ LABEL_EXPECTATIONS = {
 
 
 def collect_labelled_event_clips(share_dir):
-    """Return only human-reviewed event-audio WAVs with trusted expectations."""
+    """Return only human-reviewed event-audio clips with trusted expectations."""
     root = os.path.join(share_dir, "experiments", "event_audio")
     clips = []
     for sidecar in sorted(glob.glob(os.path.join(root, "*.json"))):
@@ -36,7 +36,7 @@ def collect_labelled_event_clips(share_dir):
             expectation = LABEL_EXPECTATIONS.get(label)
             if not expectation:
                 continue
-            wav_name = metadata.get("wav")
+            wav_name = audio_name(metadata)
             if wav_name:
                 wav_path = os.path.join(root, os.path.basename(str(wav_name)))
             else:
@@ -48,7 +48,7 @@ def collect_labelled_event_clips(share_dir):
     return clips
 
 def _read_wav(path):
-    with wave.open(path, "rb") as wf:
+    with open_pcm(path) as wf:
         channels = wf.getnchannels()
         rate = wf.getframerate()
         width = wf.getsampwidth()
