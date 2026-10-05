@@ -1,4 +1,5 @@
 🎵 Vinyl Guardian
+Artist conflict protection: repeated Shazam agreement does not override a conflicting expected album artist. An unknown-album match that changes artist after two confident tracks from the same album is also held. Fresh verification can correct the identity, but repeated agreement on the suspect identity cannot release its scrobble. Metadata is never rewritten from album context alone. The pending reason is exposed in track attributes. Context expires after twelve minutes; ordinary catalogue-backed artist changes remain supported. A genuine artist change with missing album metadata can therefore be held conservatively.
 Vinyl Guardian is a custom Home Assistant Add-on that bridges the gap between your analog record player and your digital smart home.
 By listening to the audio output of your turntable, Vinyl Guardian automatically detects when the needle drops, records a short snippet, identifies the song using Shazam, and publishes the track metadata natively to Home Assistant via MQTT. It even includes bulletproof, native Last.fm scrobbling that perfectly mimics digital media players.
 ✨ Features
