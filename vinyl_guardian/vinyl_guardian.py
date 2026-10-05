@@ -1481,7 +1481,7 @@ def listen_and_identify():
         )
 
     last_pub, last_sleep_log, cooldown_end, chunks, loud_chunks, silence_sleep, song_start = time.time(), 0, 0, 0, 0, 0, 0
-    target = int(RATE / CHUNK * recognition_session.final_stage)
+    # Round up: flooring this value can stop at ~9.98s and strand the 10s stage forever.\n    target = math.ceil(RATE / CHUNK * recognition_session.final_stage)
     trigger_chunks = 0
     buffer = bytearray()
     tracking_audio = deque(maxlen=max(1, int(RATE / CHUNK * 40.0)))
