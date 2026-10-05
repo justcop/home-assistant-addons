@@ -12,7 +12,7 @@ import math
 import os
 import threading
 import time
-import wave
+from diagnostic_audio import write_flac
 from collections import deque
 
 import numpy as np
@@ -225,19 +225,15 @@ class EventAudioRecorder:
                 c if c.isalnum() or c in "-_" else "_"
                 for c in capture["kind"]
             )[:50]
-            path = os.path.join(self.root, f"{stamp}_{safe_kind}.wav")
+            path = os.path.join(self.root, f"{stamp}_{safe_kind}.flac")
             suffix = 1
-            while os.path.exists(path):
+            while any(os.path.exists(os.path.splitext(path)[0] + ext) for ext in (".wav", ".flac", ".json")):
                 path = os.path.join(
                     self.root,
-                    f"{stamp}_{safe_kind}_{suffix:02d}.wav",
+                    f"{stamp}_{safe_kind}_{suffix:02d}.flac",
                 )
                 suffix += 1
-            with wave.open(path, "wb") as wf:
-                wf.setnchannels(self.channels)
-                wf.setsampwidth(2)
-                wf.setframerate(self.rate)
-                wf.writeframes(b"".join(capture["chunks"]))
+            write_flac(path, b"".join(capture["chunks"]), self.rate, self.channels)
 
             trace_path = os.path.splitext(path)[0] + '.frames.jsonl'
             with open(trace_path, 'w') as trace:
@@ -268,7 +264,8 @@ class EventAudioRecorder:
                 "pre_roll_sec": capture['initial_pre_chunks'] * self.chunk / self.rate,
                 "trace": os.path.basename(trace_path),
                 "post_roll_sec": (len(capture['chunks'])-capture['initial_pre_chunks']) * self.chunk / self.rate,
-                "wav": os.path.basename(path),
+                "audio": os.path.basename(path),
+                "audio_format": "flac",
             })
             self._prune()
             return path
@@ -280,7 +277,7 @@ class EventAudioRecorder:
         try:
             pending = []
             for name in os.listdir(self.root):
-                if not name.lower().endswith(".wav"):
+                if not name.lower().endswith((".wav", ".flac")):
                     continue
                 path = os.path.join(self.root, name)
                 sidecar = os.path.splitext(path)[0] + ".json"

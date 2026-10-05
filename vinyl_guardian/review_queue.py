@@ -1,4 +1,5 @@
 """Human review queue for automatically captured Vinyl Guardian audio."""
+from diagnostic_audio import audio_name
 import json
 import os
 import re
@@ -79,9 +80,9 @@ def list_samples(recording_directory, limit=100):
         try:
             metadata = json.loads(path.read_text())
             review = _normalise_review(metadata)
-            wav_name = Path(str(metadata.get("wav") or "")).name
+            wav_name = Path(str(audio_name(metadata))).name
             wav = root / wav_name
-            if not wav.is_file():
+            if not wav.is_file() or wav.is_symlink():
                 continue
             details = metadata.get("details") or {}
             production = details.get("production") or {}
@@ -134,7 +135,12 @@ def audio_bytes(recording_directory, sample_id):
     path = _sidecar(recording_directory, sample_id)
     metadata = json.loads(path.read_text())
     root = _root(recording_directory)
-    wav = (root / Path(str(metadata.get("wav") or "")).name).resolve()
+    wav = (root / Path(str(audio_name(metadata))).name).resolve()
     if wav.parent != root or not wav.is_file() or wav.is_symlink():
         raise ValueError("Audio is unavailable")
     return wav.read_bytes()
+
+
+def audio_content_type(recording_directory, sample_id):
+    metadata = json.loads(_sidecar(recording_directory, sample_id).read_text())
+    return 'audio/flac' if str(audio_name(metadata)).lower().endswith('.flac') else 'audio/wav'
