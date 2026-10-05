@@ -40,7 +40,13 @@ if config.get("listening_analytics_url") and config.get("listening_analytics_tok
         log(f"Listening Analytics connection unavailable ({type(exc).__name__}). Check its URL and token settings.")
 
 
+
+def lastfm_enabled():
+    return lastfm_network is not None
+
+
 def scrobble_to_lastfm(artist, title, start_timestamp, album=None):
+    """Attempt one Last.fm delivery and report success to the retry queue."""
     if not lastfm_network:
         return False
     try:

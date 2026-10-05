@@ -6,6 +6,7 @@ combine fingerprint agreement, physical pauses and expected track timing.
 """
 
 import re
+import threading
 from copy import deepcopy
 from threading import RLock
 
@@ -19,6 +20,7 @@ EXPECTED_END_TOLERANCE = 10.0
 PENDING_SCROBBLE_TTL = 180.0
 UNKNOWN_DURATION_RECHECK_SECONDS = 30.0
 UNKNOWN_DURATION_SCROBBLE_SECONDS = 120.0
+LASTFM_MIN_TRACK_SECONDS = 30.0
 
 
 def _normalise(value):
@@ -164,19 +166,42 @@ class AlbumIdentityGuard:
             self.tracks = self.tracks[-2:]
 
 
-def scrobble_is_eligible(track, physical_now):
+def scrobble_is_eligible(track, physical_now, completed=False):
     if not isinstance(track, dict):
         return False
+    duration = float(track.get("duration") or 0.0)
+    if track.get("duration_known"):
+        if duration <= LASTFM_MIN_TRACK_SECONDS:
+            return False
+        trigger = track.get("scrobble_trigger_time")
+        return trigger is not None and float(physical_now) >= float(trigger)
+
+    if completed:
+        session_start = float(
+            track.get("session_start_time")
+            or track.get("start_timestamp")
+            or physical_now
+        )
+        inferred_track_start = float(track.get("start_timestamp") or session_start)
+        current_segment = max(0.0, float(physical_now) - session_start)
+        previously_played = float(track.get("previously_played") or 0.0)
+        played = current_segment + previously_played
+        starting_offset = max(0.0, session_start - inferred_track_start)
+        estimated_duration = max(played, starting_offset + current_segment)
+        if estimated_duration <= LASTFM_MIN_TRACK_SECONDS:
+            return False
+        required = min(estimated_duration / 2.0, 240.0)
+        return played >= required
+
     trigger = track.get("scrobble_trigger_time")
     if trigger is None or float(physical_now) < float(trigger):
         return False
-    if not track.get("duration_known", True):
-        confirmed_at = track.get("duration_recheck_confirmed_at")
-        return bool(
-            confirmed_at is not None and float(confirmed_at) >= float(trigger)
-            and not track.get("duration_recheck_pending")
-        )
-    return True
+    confirmed_at = track.get("duration_recheck_confirmed_at")
+    return bool(
+        confirmed_at is not None
+        and float(confirmed_at) >= float(trigger)
+        and not track.get("duration_recheck_pending")
+    )
 
 
 class TrackMonitor:
@@ -305,26 +330,37 @@ class TrackMonitor:
                 self.periodic_requested_at = now
                 due.append(self._request("periodic", "unknown_duration_recheck", now - 10.0, now))
 
-        if (confidence_at_least(track.get("recognition_confidence"), "high")
-                and not track.get("identity_context_conflict")):
+        identity_held = bool(track.get("identity_context_conflict"))
+        if (
+            confidence_at_least(track.get("recognition_confidence"), "high")
+            and not identity_held
+        ):
             return due
 
         origin = float(track.get("session_start_time") or self.track_origin or now)
         end_hint = expected_end(track)
-        for name, start_offset, end_offset in VERIFICATION_WINDOWS:
-            if name in self.verification_requested:
-                continue
-            start = origin + start_offset
-            end = origin + end_offset
-            # Never call a straddling window a correction sample when metadata
-            # says a real boundary may occur inside it.
-            if end_hint is not None and end_hint <= end + 3.0:
+
+        if (
+            not confidence_at_least(track.get("recognition_confidence"), "high")
+            or identity_held
+        ):
+            for name, start_offset, end_offset in VERIFICATION_WINDOWS:
+                if name in self.verification_requested:
+                    continue
+                start = origin + start_offset
+                end = origin + end_offset
+                # Never call a straddling window a correction sample when metadata
+                # says a real boundary may occur inside it.
+                if end_hint is not None and end_hint <= end + 3.0:
+                    self.verification_requested.add(name)
+                    continue
+                if now < end:
+                    continue
                 self.verification_requested.add(name)
-                continue
-            if now < end:
-                continue
-            self.verification_requested.add(name)
-            due.append(self._request("verification", name, start, end))
+                due.append(self._request("verification", name, start, end))
+            if due:
+                return due
+
         return due
 
     def record_result(self, request_id, match):
@@ -513,51 +549,58 @@ class PendingScrobbleQueue:
     def __init__(self, ttl=PENDING_SCROBBLE_TTL):
         self.ttl = float(ttl)
         self.items = []
+        self._lock = threading.RLock()
 
-    def expire(self, now):
+    def _expire_unlocked(self, now):
         now = float(now)
         self.items = [item for item in self.items if now <= item["expires"]]
 
-    def hold(self, track, ended_at, physical_now, reason):
-        self.expire(ended_at)
-        if not track or track.get("scrobble_fired"):
-            return False
-        if not scrobble_is_eligible(track, physical_now):
-            return False
-        key = identity_key(track)
-        self.items = [item for item in self.items if item["key"] != key]
-        self.items.append({
-            "key": key,
-            "track": deepcopy(track),
-            "ended_at": float(ended_at),
-            "expires": float(ended_at) + self.ttl,
-            "reason": str(reason),
-        })
-        return True
+    def expire(self, now):
+        with self._lock:
+            self._expire_unlocked(now)
+
+    def hold(self, track, ended_at, physical_now, reason, completed=False):
+        with self._lock:
+            self._expire_unlocked(ended_at)
+            if not track or track.get("scrobble_fired"):
+                return False
+            if not scrobble_is_eligible(track, physical_now, completed=completed):
+                return False
+            key = identity_key(track)
+            self.items = [item for item in self.items if item["key"] != key]
+            self.items.append({
+                "key": key,
+                "track": deepcopy(track),
+                "ended_at": float(ended_at),
+                "expires": float(ended_at) + self.ttl,
+                "reason": str(reason),
+            })
+            return True
 
     def resolve_with_successor(self, successor, boundary_time, strong_boundary=False):
-        self.expire(boundary_time)
-        successor_key = identity_key(successor)
-        resolved = []
-        kept = []
-        for item in self.items:
-            track = item["track"]
-            if item["key"] == successor_key:
-                # Same identity after a pause is a resume, not a completed song.
-                continue
-            end_hint = expected_end(track)
-            timing_fit = (
-                end_hint is not None
-                and abs(float(boundary_time) - float(end_hint)) <= EXPECTED_END_TOLERANCE
-            )
-            confidence_ok = confidence_at_least(track.get("recognition_confidence"), "medium")
-            if strong_boundary and (confidence_ok or timing_fit):
-                track["boundary_confirmed"] = True
-                resolved.append(track)
-            elif timing_fit:
-                track["boundary_confirmed"] = True
-                resolved.append(track)
-            else:
-                kept.append(item)
-        self.items = kept
-        return resolved
+        with self._lock:
+            self._expire_unlocked(boundary_time)
+            successor_key = identity_key(successor)
+            resolved = []
+            kept = []
+            for item in self.items:
+                track = item["track"]
+                if item["key"] == successor_key:
+                    # Same identity after a pause is a resume, not a completed song.
+                    continue
+                end_hint = expected_end(track)
+                timing_fit = (
+                    end_hint is not None
+                    and abs(float(boundary_time) - float(end_hint)) <= EXPECTED_END_TOLERANCE
+                )
+                confidence_ok = confidence_at_least(track.get("recognition_confidence"), "medium")
+                if strong_boundary and (confidence_ok or timing_fit):
+                    track["boundary_confirmed"] = True
+                    resolved.append(track)
+                elif timing_fit:
+                    track["boundary_confirmed"] = True
+                    resolved.append(track)
+                else:
+                    kept.append(item)
+            self.items = kept
+            return resolved

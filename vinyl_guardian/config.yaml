@@ -6,9 +6,6 @@ init: false
 arch:
 - aarch64
 - amd64
-- armhf
-- armv7
-- i386
 startup: application
 boot: auto
 options:
@@ -39,9 +36,6 @@ options:
   experiment_harness_enabled: true
   auto_capture_interesting_events: true
   advanced:
-    manual_override_mic_volume: 0
-    manual_override_music_threshold: 0
-    manual_override_motor_threshold: 0
     max_attempts: 3
     min_audio_seconds: 5
     audio_onset_threshold: 1000
@@ -79,9 +73,6 @@ schema:
   experiment_harness_enabled: bool
   auto_capture_interesting_events: bool
   advanced:
-    manual_override_mic_volume: int(0,100)?
-    manual_override_music_threshold: float?
-    manual_override_motor_threshold: float?
     max_attempts: int
     min_audio_seconds: int
     audio_onset_threshold: int

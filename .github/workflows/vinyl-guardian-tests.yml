@@ -33,6 +33,13 @@ jobs:
           python -m compileall -q vinyl_guardian
       - name: Run runtime tests
         run: python -m unittest discover -s vinyl_guardian/tests -p 'test_*.py' -v
+      - name: Build Vinyl Guardian image
+        run: |
+          docker build --pull \
+            --build-arg BUILD_VERSION=test \
+            --build-arg BUILD_ARCH=amd64 \
+            -t vinyl-guardian-test \
+            vinyl_guardian
       - uses: actions/setup-node@v4
         with:
           node-version: '22'

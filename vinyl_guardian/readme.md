@@ -4,11 +4,11 @@ Vinyl Guardian is a custom Home Assistant Add-on that bridges the gap between yo
 By listening to the audio output of your turntable, Vinyl Guardian automatically detects when the needle drops, records a short snippet, identifies the song using Shazam, and publishes the track metadata natively to Home Assistant via MQTT. It even includes bulletproof, native Last.fm scrobbling that perfectly mimics digital media players.
 ✨ Features
 Zero-Key Shazam Recognition: Uses the shazamio library to fingerprint and identify tracks completely free, with no API keys or rate limits to worry about.
-Native Last.fm Scrobbling: Built-in Last.fm integration that strictly follows official scrobbling rules (waits for 50% of the track duration or 4 minutes of continuous physical playtime).
+Reliable Last.fm Scrobbling: Tracks longer than 30 seconds become eligible after 50% of their duration or four minutes. Delivery runs outside the audio loop, persists across restarts and retries transient failures without losing the original play timestamp.
 Smart Needle-Lift Detection: Silence pauses scrobble eligibility. Playback identity is retained for at least 30 seconds while power remains on, so internal rests are not mistaken for a needle lift. Confirmed power-off clears playback promptly.
-MQTT Auto-Discovery: Automatically creates beautiful, dedicated sensors in your Home Assistant dashboard without any manual YAML configuration.
+Resilient MQTT Auto-Discovery: Home Assistant entities use availability/LWT, reconnect automatically after broker outages, and restore live state and subscriptions without restarting the add-on.
 Audio Health Monitoring: Actively monitors the audio stream and warns you in the Add-on logs if your audio is clipping or too quiet.
-UI Volume Control: Adjust your physical soundcard's input volume directly from the Home Assistant Add-on configuration screen.
+Calibration-Owned Tuning: Input gain and detector thresholds come from measured calibration profiles rather than manual threshold overrides.
 🛠️ Prerequisites
 Hardware: A USB soundcard, audio capture device, or direct line-in connected to your Home Assistant host machine. You will need to route your turntable/pre-amp output into this input.
 Software: An active MQTT Broker (like the official Mosquitto broker Add-on) running in Home Assistant.
@@ -430,3 +430,10 @@ gain settings straddle that range, it verifies the highest safely sampled gain
 over 10 seconds and accepts a lower, unclipped level. If that verification clips,
 it searches the previously safe candidates by midpoint. It still rejects absent
 audio and levels above its clipping safety limit.
+
+
+### Runtime reliability
+
+MQTT uses a retained availability topic and last-will. Broker outages no longer require an add-on restart: subscriptions, discovery and the actual current runtime state are restored on reconnect. Last.fm submissions are persisted under `/data/pending_scrobbles.json`, delivered outside the audio capture loop and retried after transient failures. Replaying the same song is allowed because deduplication is by physical play start timestamp, not title alone.
+
+Detector thresholds and capture gain are calibration-owned; the former manual overrides have been removed. Supported add-on architectures are `amd64` and `aarch64`, matching the current multi-architecture Home Assistant Python base.

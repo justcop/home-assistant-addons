@@ -90,23 +90,9 @@ configuration:
       enabled.
   advanced:
     name: Advanced settings
-    description: Detector and calibration tuning for the detector. Prefer calibration defaults unless
-      diagnosing a problem.
+    description: Recognition and fallback timings. Detector thresholds and input gain come from calibration,
+      not manual overrides.
     fields:
-      manual_override_mic_volume:
-        name: Override input gain
-        description: 0 uses calibration; 1–100 overrides capture gain. This controls the host recording
-          input, not speaker volume.
-      manual_override_music_threshold:
-        name: Music threshold fallback
-        description: 0 uses the default fallback. Positive values set a fallback threshold; saved
-          calibration thresholds take priority in the detector. Recalibrate to change the active
-          profile.
-      manual_override_motor_threshold:
-        name: Motor threshold fallback
-        description: 0 uses the default fallback. Positive values set a fallback threshold; saved
-          calibration thresholds take priority in the detector. Recalibrate to change the active
-          profile.
       max_attempts:
         name: Recognition attempts
         description: Maximum identification attempts per track.

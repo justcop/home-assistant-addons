@@ -3,7 +3,6 @@ from calibration_web import start_server
 from audio_scan_once import StartupScanGate, reset_scan_options
 import sys
 import os
-import glob
 import json
 import time
 import threading
@@ -14,16 +13,14 @@ from collections import deque
 import numpy as np
 import alsaaudio
 import paho.mqtt.client as mqtt
-from shazamio import Shazam
-import pylast
 
 # Import local modules
 from config import *
-from audio_math import calculate_audio_levels, calculate_deep_metrics
 from integrations import (
     recognize_shazam,
     get_track_duration,
     get_expected_next_track,
+    lastfm_enabled,
     scrobble_to_lastfm,
     log,
 )
@@ -43,10 +40,18 @@ from track_reasoning import (
 )
 from telemetry import DatasetCollector
 from experiment import ExperimentHarness, TRUSTED_LABELS
-from diagnostic_monitor import MODES, MODE_NAMES
+from diagnostic_monitor import MODE_NAMES
 from profile_manager import ProfileManager
 from replay_lab import replay_latest_dataset
-from audio_source import AudioSourceManager, AUTO_OPTION, SYSTEM_DEFAULT_OPTION
+from audio_source import AudioSourceManager, SYSTEM_DEFAULT_OPTION
+from mqtt_runtime import (
+    AVAILABILITY_TOPIC,
+    add_availability,
+    configure_client,
+    subscribe_commands,
+)
+from scrobble_dispatcher import ScrobbleDispatcher, scrobble_event_id
+from runtime_presentation import current_track_presentation
 
 VERSION = os.environ.get("ADDON_VERSION", "Unknown")
 FORMAT = alsaaudio.PCM_FORMAT_S16_LE
@@ -56,12 +61,14 @@ state_lock = threading.Lock()
 recognition_session = RecognitionSession()
 track_monitor = TrackMonitor()
 pending_scrobbles = PendingScrobbleQueue()
+scrobble_dispatcher = None
 album_identity_guard = AlbumIdentityGuard()
 app_state = "IDLE"
 current_attempt = 1
 wake_up_time = 0
 consecutive_failures = 0
 current_track = None
+track_display_suppressed = False
 scrobble_fired = False
 last_scrobbled_track = None
 paused_track_memory = None
@@ -109,7 +116,9 @@ def signal_handler(sig, frame):
             dataset_collector.close()
         if experiment_harness is not None:
             experiment_harness.audio.flush()
-        
+        if scrobble_dispatcher is not None:
+            scrobble_dispatcher.close()
+
         if mqtt_client.is_connected():
             mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
             mqtt_client.publish("vinyl_guardian/status", "Offline", retain=True)
@@ -126,9 +135,19 @@ def signal_handler(sig, frame):
             mqtt_client.publish("vinyl_guardian/music_energy", "0.0", retain=True)
             mqtt_client.publish("vinyl_guardian/pop_texture", "0.0", retain=True)
             mqtt_client.publish("vinyl_guardian/pop_volume", "0.0", retain=True)
-            
-        mqtt_client.loop_stop()
+            offline = mqtt_client.publish(
+                AVAILABILITY_TOPIC,
+                "offline",
+                qos=1,
+                retain=True,
+            )
+            try:
+                offline.wait_for_publish(timeout=2.0)
+            except Exception:
+                pass
+
         mqtt_client.disconnect()
+        mqtt_client.loop_stop()
     except Exception as e:
         log(f"⚠️ Error during shutdown: {e}")
     sys.exit(0)
@@ -138,8 +157,6 @@ signal.signal(signal.SIGINT, signal_handler)
 
 # --- MQTT SETUP & CALLBACKS ---
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-if MQTT_USER and MQTT_PASS:
-    mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
 
 def on_message(client, userdata, msg):
     global debug_countdown, debug_metrics_buffer
@@ -197,18 +214,76 @@ def on_message(client, userdata, msg):
         ).strip()
         log(f"🎚️ Audio source selection requested: {requested_audio_source_option}")
 
+def _mqtt_failed(reason_code):
+    return bool(getattr(reason_code, "is_failure", False)) or (
+        isinstance(reason_code, int) and reason_code != 0
+    )
+
+
+def on_connect(client, userdata, flags, reason_code, properties):
+    if _mqtt_failed(reason_code):
+        log(f"🚨 MQTT connection rejected: {reason_code}")
+        return
+    log("✅ MQTT connected. Restoring subscriptions and discovery.")
+    client.publish(AVAILABILITY_TOPIC, "online", retain=True)
+    subscribe_commands(client)
+    publish_discovery()
+    publish_runtime_snapshot()
+    refresh_audio_source_select()
+    publish_audio_source_state()
+
+
+def on_connect_fail(client, userdata):
+    log("⚠️ MQTT broker unavailable. Guardian will keep retrying in the background.")
+
+
+def on_disconnect(client, userdata, disconnect_flags, reason_code, properties):
+    if _mqtt_failed(reason_code):
+        log(f"⚠️ MQTT disconnected ({reason_code}); automatic reconnect active.")
+
+
 def publish_discovery():
     log("Publishing MQTT Auto-Discovery payloads...")
-    mqtt_client.subscribe("vinyl_guardian/calibration/continue")
     device_info = {"identifiers": ["vinyl_guardian_01"], "name": "Vinyl Guardian", "manufacturer": "Custom Add-on"}
-    mqtt_client.publish("homeassistant/button/vinyl_guardian/calibration_continue/config", json.dumps({"name": "Continue Calibration", "unique_id": "vinyl_guardian_calibration_continue", "command_topic": "vinyl_guardian/calibration/continue", "device": device_info, "icon": "mdi:play"}), retain=True)
-    mqtt_client.publish("homeassistant/sensor/vinyl_guardian/calibration_step/config", json.dumps({"name": "Calibration Instructions", "unique_id": "vinyl_guardian_calibration_step", "state_topic": "vinyl_guardian/calibration/step", "json_attributes_topic": "vinyl_guardian/calibration/details", "device": device_info, "icon": "mdi:clipboard-list"}), retain=True)
-    mqtt_client.publish('homeassistant/sensor/vinyl_guardian/stylus_usage/config', json.dumps({
-        'name': 'Stylus Use', 'unique_id': 'vinyl_guardian_stylus_usage', 'device': device_info,
-        'state_topic': 'vinyl_guardian/stylus_usage', 'json_attributes_topic': 'vinyl_guardian/stylus_usage/attributes',
-        'device_class': 'duration', 'unit_of_measurement': 'h', 'state_class': 'total_increasing',
-        'suggested_display_precision': 2, 'icon': 'mdi:timer-outline',
-    }), retain=True)
+    mqtt_client.publish(
+        "homeassistant/button/vinyl_guardian/calibration_continue/config",
+        json.dumps(add_availability({
+            "name": "Continue Calibration",
+            "unique_id": "vinyl_guardian_calibration_continue",
+            "command_topic": "vinyl_guardian/calibration/continue",
+            "device": device_info,
+            "icon": "mdi:play",
+        })),
+        retain=True,
+    )
+    mqtt_client.publish(
+        "homeassistant/sensor/vinyl_guardian/calibration_step/config",
+        json.dumps(add_availability({
+            "name": "Calibration Instructions",
+            "unique_id": "vinyl_guardian_calibration_step",
+            "state_topic": "vinyl_guardian/calibration/step",
+            "json_attributes_topic": "vinyl_guardian/calibration/details",
+            "device": device_info,
+            "icon": "mdi:clipboard-list",
+        })),
+        retain=True,
+    )
+    mqtt_client.publish(
+        "homeassistant/sensor/vinyl_guardian/stylus_usage/config",
+        json.dumps(add_availability({
+            "name": "Stylus Use",
+            "unique_id": "vinyl_guardian_stylus_usage",
+            "device": device_info,
+            "state_topic": "vinyl_guardian/stylus_usage",
+            "json_attributes_topic": "vinyl_guardian/stylus_usage/attributes",
+            "device_class": "duration",
+            "unit_of_measurement": "h",
+            "state_class": "total_increasing",
+            "suggested_display_precision": 2,
+            "icon": "mdi:timer-outline",
+        })),
+        retain=True,
+    )
     if stylus_usage is not None:
         mqtt_client.publish('vinyl_guardian/stylus_usage', f'{stylus_usage.saved_hours:.6f}', retain=True)
     deprecated_sensors = ["music_rms", "rumble_rms", "scrobble", "scrobble_countdown", "scrobble_state"]
@@ -253,7 +328,11 @@ def publish_discovery():
         if c["domain"] == "binary_sensor":
             payload["payload_on"] = "ON"
             payload["payload_off"] = "OFF"
-        mqtt_client.publish(f"homeassistant/{c['domain']}/vinyl_guardian/{key}/config", json.dumps(payload), retain=True)
+        mqtt_client.publish(
+            f"homeassistant/{c['domain']}/vinyl_guardian/{key}/config",
+            json.dumps(add_availability(payload)),
+            retain=True,
+        )
         
     btn_payload = {
         "name": "Live Debug Dump",
@@ -262,7 +341,7 @@ def publish_discovery():
         "device": device_info,
         "icon": "mdi:bug"
     }
-    mqtt_client.publish("homeassistant/button/vinyl_guardian/debug/config", json.dumps(btn_payload), retain=True)
+    mqtt_client.publish("homeassistant/button/vinyl_guardian/debug/config", json.dumps(add_availability(btn_payload)), retain=True)
 
     feedback_buttons = {
         "false_positive": {
@@ -286,7 +365,7 @@ def publish_discovery():
         }
         mqtt_client.publish(
             f"homeassistant/button/vinyl_guardian/{key}/config",
-            json.dumps(payload),
+            json.dumps(add_availability(payload)),
             retain=True,
         )
 
@@ -301,7 +380,7 @@ def publish_discovery():
     }
     mqtt_client.publish(
         "homeassistant/select/vinyl_guardian/ground_truth/config",
-        json.dumps(label_select),
+        json.dumps(add_availability(label_select)),
         retain=True,
     )
 
@@ -318,16 +397,23 @@ def publish_discovery():
         }
         mqtt_client.publish(
             "homeassistant/select/vinyl_guardian/audio_source/config",
-            json.dumps(audio_select),
+            json.dumps(add_availability(audio_select)),
             retain=True,
         )
 
-    mqtt_client.publish('homeassistant/select/vinyl_guardian/diagnostic_mode/config', json.dumps({
-        'name': 'Automatic Diagnostic Capture Mode', 'unique_id': 'vinyl_guardian_diagnostic_mode',
-        'device': device_info, 'icon': 'mdi:record-rec',
-        'command_topic': 'vinyl_guardian/diagnostics/mode/set',
-        'state_topic': 'vinyl_guardian/diagnostics/mode', 'options': list(MODE_NAMES.values()),
-    }), retain=True)
+    mqtt_client.publish(
+        "homeassistant/select/vinyl_guardian/diagnostic_mode/config",
+        json.dumps(add_availability({
+            "name": "Automatic Diagnostic Capture Mode",
+            "unique_id": "vinyl_guardian_diagnostic_mode",
+            "device": device_info,
+            "icon": "mdi:record-rec",
+            "command_topic": "vinyl_guardian/diagnostics/mode/set",
+            "state_topic": "vinyl_guardian/diagnostics/mode",
+            "options": list(MODE_NAMES.values()),
+        })),
+        retain=True,
+    )
     experiment_buttons = {
         'intentional_action': {'name': 'Mark Intentional Flip or Pause', 'topic': 'vinyl_guardian/diagnostics/intentional', 'icon': 'mdi:album'},
         'finish_listening_report': {'name': 'Finish Listening Session Report', 'topic': 'vinyl_guardian/diagnostics/finish', 'icon': 'mdi:check-circle-outline'},
@@ -355,13 +441,13 @@ def publish_discovery():
     for key, button in experiment_buttons.items():
         mqtt_client.publish(
             f"homeassistant/button/vinyl_guardian/{key}/config",
-            json.dumps({
+            json.dumps(add_availability({
                 "name": button["name"],
                 "command_topic": button["topic"],
                 "unique_id": f"vinyl_guardian_{key}_btn",
                 "device": device_info,
                 "icon": button["icon"],
-            }),
+            })),
             retain=True,
         )
 
@@ -371,70 +457,86 @@ def publish_discovery():
         retain=True,
     )
 
+def publish_runtime_snapshot():
+    """Restore retained state after first connect or broker reconnect."""
+    if not mqtt_client.is_connected():
+        return
+    with state_lock:
+        status = current_display_status
+        engine = current_engine_status
+        runtime_state = app_state
+        track_snapshot = dict(current_track) if current_track else None
+        suppress_track = bool(track_display_suppressed)
+
+    mqtt_client.publish(AVAILABILITY_TOPIC, "online", retain=True)
     if CALIBRATION_MODE:
         mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
         mqtt_client.publish("vinyl_guardian/status", "Calibrating", retain=True)
         mqtt_client.publish("vinyl_guardian/engine_state", "Calibration Mode", retain=True)
         mqtt_client.publish("vinyl_guardian/track", "Calibration Mode", retain=True)
         mqtt_client.publish("vinyl_guardian/attributes", "{}", retain=True)
-        mqtt_client.publish("vinyl_guardian/scrobble_status", "Calibration Mode", retain=True)
-        mqtt_client.publish("vinyl_guardian/progress", "Calibration Mode", retain=True)
-        mqtt_client.publish("vinyl_guardian/raw_volume", "0.0", retain=True)
-        mqtt_client.publish("vinyl_guardian/raw_pitch", "0.0", retain=True)
-        mqtt_client.publish("vinyl_guardian/raw_texture", "0.0", retain=True)
-        mqtt_client.publish("vinyl_guardian/power_score", "0", retain=True)
-        mqtt_client.publish("vinyl_guardian/runout_rpm", "None", retain=True)
-        mqtt_client.publish("vinyl_guardian/runout_confidence", "0.0", retain=True)
-        mqtt_client.publish("vinyl_guardian/music_energy", "0.0", retain=True)
-        mqtt_client.publish("vinyl_guardian/pop_texture", "0.0", retain=True)
-        mqtt_client.publish("vinyl_guardian/pop_volume", "0.0", retain=True)
-    else:
-        mqtt_client.publish("vinyl_guardian/power", "OFF", retain=True)
-        mqtt_client.publish("vinyl_guardian/status", "Powered Off", retain=True)
-        mqtt_client.publish("vinyl_guardian/engine_state", "Off", retain=True)
-        mqtt_client.publish("vinyl_guardian/track", "Not Playing", retain=True)
-        mqtt_client.publish("vinyl_guardian/attributes", "{}", retain=True)
-        mqtt_client.publish("vinyl_guardian/scrobble_status", "Off", retain=True)
-        mqtt_client.publish("vinyl_guardian/progress", "[░░░░░░░░░░] 00:00 / 00:00", retain=True)
-        mqtt_client.publish("vinyl_guardian/raw_volume", "0.0", retain=True)
-        mqtt_client.publish("vinyl_guardian/raw_pitch", "0.0", retain=True)
-        mqtt_client.publish("vinyl_guardian/raw_texture", "0.0", retain=True)
-        mqtt_client.publish("vinyl_guardian/power_score", "0", retain=True)
-        mqtt_client.publish("vinyl_guardian/runout_rpm", "None", retain=True)
-        mqtt_client.publish("vinyl_guardian/runout_confidence", "0.0", retain=True)
-        mqtt_client.publish("vinyl_guardian/music_energy", "0.0", retain=True)
-        mqtt_client.publish("vinyl_guardian/pop_texture", "0.0", retain=True)
-        mqtt_client.publish("vinyl_guardian/pop_volume", "0.0", retain=True)
+        mqtt_client.publish(
+            "vinyl_guardian/scrobble_status",
+            "Calibration Mode",
+            retain=True,
+        )
+        mqtt_client.publish(
+            "vinyl_guardian/progress",
+            "Calibration Mode",
+            retain=True,
+        )
+        return
+
+    power = "OFF" if status in ("Powered Off", "Offline") else "ON"
+    mqtt_client.publish("vinyl_guardian/power", power, retain=True)
+    mqtt_client.publish("vinyl_guardian/status", status, retain=True)
+    mqtt_client.publish("vinyl_guardian/engine_state", engine, retain=True)
+
+    track_state, track_attributes = current_track_presentation(
+        status,
+        runtime_state,
+        track_snapshot,
+        suppress_track=suppress_track,
+    )
+    mqtt_client.publish("vinyl_guardian/track", track_state, retain=True)
+    mqtt_client.publish(
+        "vinyl_guardian/attributes",
+        json.dumps(track_attributes),
+        retain=True,
+    )
+
 
 def connect_mqtt():
     try:
-        mqtt_client.on_message = on_message
-        mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
-        mqtt_client.subscribe("vinyl_guardian/debug/trigger")
-        mqtt_client.subscribe("vinyl_guardian/debug/false_positive")
-        mqtt_client.subscribe("vinyl_guardian/debug/missed_music")
-        mqtt_client.subscribe("vinyl_guardian/label/set")
-        mqtt_client.subscribe("vinyl_guardian/label/mark")
-        mqtt_client.subscribe("vinyl_guardian/experiment/replay_latest")
-        mqtt_client.subscribe("vinyl_guardian/diagnostics/mode/set")
-        mqtt_client.subscribe("vinyl_guardian/diagnostics/intentional")
-        mqtt_client.subscribe("vinyl_guardian/diagnostics/finish")
-        mqtt_client.subscribe("vinyl_guardian/profile/rollback")
-        mqtt_client.subscribe("vinyl_guardian/audio/scan")
-        mqtt_client.subscribe("vinyl_guardian/audio/source/set")
-        mqtt_client.loop_start()
-        publish_discovery()
-    except Exception as e: log(f"🚨 MQTT Failed: {e}")
+        configure_client(
+            mqtt_client,
+            MQTT_BROKER,
+            MQTT_PORT,
+            username=MQTT_USER,
+            password=MQTT_PASS,
+            on_connect=on_connect,
+            on_connect_fail=on_connect_fail,
+            on_disconnect=on_disconnect,
+            on_message=on_message,
+        )
+        log("📡 MQTT network loop started; first connection will retry automatically.")
+    except Exception as e:
+        log(f"🚨 MQTT setup failed: {e}")
 
 def change_3_tier_status(new_vinyl_status, new_engine_status):
     global current_display_status, current_engine_status
+    previous_status = current_display_status
+    status_changed = new_vinyl_status != current_display_status
+    engine_changed = new_engine_status != current_engine_status
+    current_display_status = new_vinyl_status
+    current_engine_status = new_engine_status
+
     if not CALIBRATION_MODE and mqtt_client.is_connected():
-        if new_vinyl_status != current_display_status:
+        if status_changed:
             mqtt_client.publish("vinyl_guardian/status", new_vinyl_status, retain=True)
-            current_display_status = new_vinyl_status
-        if new_engine_status != current_engine_status:
+        if engine_changed:
             mqtt_client.publish("vinyl_guardian/engine_state", new_engine_status, retain=True)
-            current_engine_status = new_engine_status
+    return previous_status, status_changed
 
 def _track_id(track):
     if not isinstance(track, dict):
@@ -547,58 +649,144 @@ def _start_track_enrichment(track):
         ).start()
 
 
-def _publish_track(track):
+def _publish_track(track, verified=False):
+    global track_display_suppressed
     if not isinstance(track, dict):
         return
-    album_identity_guard.observe(track)
-    if mqtt_client.is_connected():
+    guard = globals().get("album_identity_guard")
+    if guard is not None:
+        guard.observe(track)
+    with state_lock:
+        if verified:
+            track_display_suppressed = False
+        status = current_display_status
+        runtime_state = app_state
+        suppress_track = bool(track_display_suppressed)
+    if not mqtt_client.is_connected():
+        return
+    track_state, track_attributes = current_track_presentation(
+        status,
+        runtime_state,
+        track,
+        suppress_track=suppress_track,
+    )
+    mqtt_client.publish("vinyl_guardian/track", track_state, retain=True)
+    mqtt_client.publish(
+        "vinyl_guardian/attributes",
+        json.dumps(track_attributes),
+        retain=True,
+    )
+
+
+def _on_scrobble_success(row):
+    global last_scrobbled_track
+    track = dict(row.get("track") or {})
+    event_id = row.get("event_id")
+    track_id = _track_id(track)
+    is_current = False
+    with state_lock:
+        if (
+            current_track is not None
+            and current_track.get("scrobble_event_id") == event_id
+        ):
+            current_track["scrobble_delivered"] = True
+            current_track["scrobble_retry_attempts"] = int(row.get("attempts", 0))
+            is_current = True
+        last_scrobbled_track = track_id or last_scrobbled_track
+    if mqtt_client.is_connected() and track_id:
+        mqtt_client.publish("vinyl_guardian/scrobble_state", track_id, retain=True)
+        mqtt_client.publish("vinyl_guardian/scrobble", json.dumps(track), retain=True)
+        if is_current:
+            mqtt_client.publish(
+                "vinyl_guardian/scrobble_status",
+                f"Scrobbled: {track.get('title', 'Track')} ✅",
+                retain=True,
+            )
+
+
+def _on_scrobble_retry(row):
+    event_id = row.get("event_id")
+    attempts = int(row.get("attempts", 0))
+    is_current = False
+    with state_lock:
+        if (
+            current_track is not None
+            and current_track.get("scrobble_event_id") == event_id
+        ):
+            current_track["scrobble_retry_attempts"] = attempts
+            is_current = True
+    if mqtt_client.is_connected() and is_current:
         mqtt_client.publish(
-            "vinyl_guardian/track",
-            f"{track.get('title', 'Unknown')} - {track.get('artist', 'Unknown')}",
+            "vinyl_guardian/scrobble_status",
+            f"Last.fm retry queued · attempt {attempts + 1} ⏳",
             retain=True,
         )
-        mqtt_client.publish(
-            "vinyl_guardian/attributes",
-            json.dumps(track),
-            retain=True,
+
+
+def initialise_scrobble_dispatcher():
+    global scrobble_dispatcher
+    scrobble_dispatcher = ScrobbleDispatcher(
+        "/data/pending_scrobbles.json",
+        scrobble_to_lastfm,
+        on_success=_on_scrobble_success,
+        on_retry=_on_scrobble_retry,
+        logger=log,
+        enabled=lastfm_enabled(),
+    )
+    if lastfm_enabled():
+        log(
+            f"🎵 Last.fm delivery queue ready "
+            f"({scrobble_dispatcher.pending_count} pending)."
         )
+    else:
+        log("ℹ️ Last.fm not configured; scrobble delivery queue disabled.")
 
 
 def _send_scrobble(track, mark_current=False):
-    global scrobble_fired, last_scrobbled_track, paused_track_memory
+    global scrobble_fired, paused_track_memory
     if not isinstance(track, dict) or track.get("scrobble_fired"):
         return False
     # Final gate also covers delayed tracks promoted by boundary evidence.
+    # Keep this before dispatcher access so a suspect identity can never leak
+    # through a delayed completion path.
     if track.get("identity_context_conflict"):
         return False
-    track_id = _track_id(track)
-    if not track_id:
+    if (
+        scrobble_dispatcher is None
+        or not scrobble_dispatcher.enabled
+    ):
         return False
-    # Preserve the existing duplicate guard while allowing a delayed scrobble
-    # to retain the original physical start timestamp.
-    if track_id != last_scrobbled_track:
-        if time.time() < track.get("scrobble_retry_after", 0):
-            return False
-        accepted = scrobble_to_lastfm(
-            track.get("artist", ""),
-            track.get("title", ""),
-            track.get("start_timestamp"),
-            track.get("album"),
-        )
-        if not accepted:
-            track["scrobble_retry_after"] = time.time() + 60
-            return False
-    if mqtt_client.is_connected():
-        mqtt_client.publish("vinyl_guardian/scrobble_state", track_id, retain=True)
-        try:
-            mqtt_client.publish("vinyl_guardian/scrobble", json.dumps(track), retain=True)
-        except Exception:
-            pass
+    event_id = scrobble_event_id(track)
+    if not event_id:
+        return False
+    already_delivered = scrobble_dispatcher.is_sent(event_id)
+    # Set delivery metadata before waking the worker so a very fast Last.fm
+    # response cannot beat the current-track bookkeeping.
     track["scrobble_fired"] = True
-    last_scrobbled_track = track_id
+    track["scrobble_queued"] = not already_delivered
+    track["scrobble_delivered"] = already_delivered
+    track["scrobble_event_id"] = event_id
+    track["scrobble_retry_attempts"] = 0
+    queued_id = scrobble_dispatcher.submit(track)
+    if not queued_id:
+        track["scrobble_fired"] = False
+        track["scrobble_queued"] = False
+        track.pop("scrobble_event_id", None)
+        return False
+    if already_delivered:
+        if mark_current:
+            scrobble_fired = True
+            paused_track_memory = None
+        return True
     if mark_current:
         scrobble_fired = True
         paused_track_memory = None
+    if mqtt_client.is_connected():
+        mqtt_client.publish(
+            "vinyl_guardian/scrobble_status",
+            "Queued for Last.fm ⏳",
+            retain=True,
+        )
     return True
 
 
@@ -671,16 +859,28 @@ def process_audio_background(audio_data_bytes, song_start_timestamp, token, stag
                 f"({outcome.get('confidence', 'low')} confidence)"
             )
             if mqtt_client.is_connected():
-                mqtt_client.publish(
-                    "vinyl_guardian/track",
-                    f"{match['title']} - {match['artist']}",
-                    retain=True,
-                )
-                mqtt_client.publish(
-                    "vinyl_guardian/attributes",
-                    json.dumps(display_track),
-                    retain=True,
-                )
+                if current_display_status == "Runout Groove" or track_display_suppressed:
+                    mqtt_client.publish(
+                        "vinyl_guardian/track",
+                        "Not Playing",
+                        retain=True,
+                    )
+                    mqtt_client.publish(
+                        "vinyl_guardian/attributes",
+                        "{}",
+                        retain=True,
+                    )
+                else:
+                    mqtt_client.publish(
+                        "vinyl_guardian/track",
+                        f"{match['title']} - {match['artist']}",
+                        retain=True,
+                    )
+                    mqtt_client.publish(
+                        "vinyl_guardian/attributes",
+                        json.dumps(display_track),
+                        retain=True,
+                    )
 
         if not outcome.get("finalize"):
             return
@@ -751,7 +951,7 @@ def process_audio_background(audio_data_bytes, song_start_timestamp, token, stag
             f"✅ TRACK: {best_match['title']} - {best_match['artist']} "
             f"({confidence}, {support} agreeing / {conflicts} conflicting)"
         )
-        _publish_track(new_track)
+        _publish_track(new_track, verified=True)
         _start_track_enrichment(new_track)
     else:
         with state_lock:
@@ -861,7 +1061,7 @@ def process_tracking_audio_background(audio_data_bytes, window_start_timestamp, 
             current_track["recognition_conflicts"] = int(current_track.get("recognition_conflicts", 0))
             updated = dict(current_track)
         log(f"✅ Identity verified from fresh audio: {_track_id(updated)}")
-        _publish_track(updated)
+        _publish_track(updated, verified=True)
         return
 
     if action_name == "hold_ambiguous":
@@ -906,7 +1106,7 @@ def process_tracking_audio_background(audio_data_bytes, window_start_timestamp, 
             f"{replacement_track['title']} - {replacement_track['artist']} "
             f"after two fresh agreeing windows."
         )
-        _publish_track(replacement_track)
+        _publish_track(replacement_track, verified=True)
         _start_track_enrichment(replacement_track)
         return
 
@@ -927,7 +1127,7 @@ def process_tracking_audio_background(audio_data_bytes, window_start_timestamp, 
             log("↪️ Fresh audio confirms the current song; retaining its playback state.")
         else:
             log("↪️ Shazam still hears the current track after its predicted end; extending boundary watch.")
-        _publish_track(updated)
+        _publish_track(updated, verified=True)
         return
 
     if action_name == "boundary_unresolved":
@@ -962,6 +1162,7 @@ def process_tracking_audio_background(audio_data_bytes, window_start_timestamp, 
             ended_at=boundary_time,
             physical_now=physical_end,
             reason=f"successor:{action.get('reason')}",
+            completed=True,
         )
         resolved = pending_scrobbles.resolve_with_successor(
             successor,
@@ -993,7 +1194,7 @@ def process_tracking_audio_background(audio_data_bytes, window_start_timestamp, 
                 experiment_harness.track_identified(successor, now=time.time())
             except Exception as exc:
                 log(f"⚠️ Experiment track logging failed: {exc}")
-        _publish_track(successor)
+        _publish_track(successor, verified=True)
         _start_track_enrichment(successor)
 
 def get_crest(audio_data):
@@ -1048,7 +1249,7 @@ def refresh_audio_source_select():
         }
         mqtt_client.publish(
             "homeassistant/select/vinyl_guardian/audio_source/config",
-            json.dumps(payload),
+            json.dumps(add_availability(payload)),
             retain=True,
         )
     except Exception as e:
@@ -1242,6 +1443,7 @@ def listen_and_identify():
     global requested_audio_source_option, audio_scan_status
     global debug_countdown, debug_metrics_buffer
     global capture_false_positive_requested, capture_missed_music_requested
+    global track_display_suppressed
     
     if DEBUG:
         log(
@@ -1278,23 +1480,16 @@ def listen_and_identify():
         )
 
     last_pub, last_sleep_log, cooldown_end, chunks, loud_chunks, silence_sleep, song_start = time.time(), 0, 0, 0, 0, 0, 0
-    idle_silence_chunks = 0
     target = int(RATE / CHUNK * recognition_session.final_stage)
     trigger_chunks = 0
     buffer = bytearray()
     tracking_audio = deque(maxlen=max(1, int(RATE / CHUNK * 40.0)))
     music_gap_started = None
-    ghost_buffer, ghost_max_chunks = [], int(RATE / CHUNK * 20.0)
+    feedback_buffer, feedback_max_chunks = [], int(RATE / CHUNK * 20.0)
     
     turntable_on, has_played_music, rhythm_locked = False, False, False
-    power_max_score = int(RATE / CHUNK * 2.0) 
     power_score = 0
     
-    consecutive_music = 0
-    last_music_time, last_rhythm_time = -10.0, -10.0
-    pop_history = []
-    
-    VALID_RPM_INTERVALS = [(1.20, 1.46), (1.65, 1.95), (2.45, 2.85), (3.35, 3.85)]
     engine_state_map = {"IDLE": "Listening", "RECORDING": "Recording", "PROCESSING": "Processing", "SLEEPING": "Tracking", "COOLDOWN": "Cooldown"}
     last_logged_status, last_logged_rhythm = "Unknown", False
 
@@ -1316,7 +1511,6 @@ def listen_and_identify():
     m_hold_thresh = v6_cfg.get('music_hold_threshold', m_thresh * 0.6)
     runout_crest_thresh = v6_cfg.get('runout_crest_threshold', globals().get('RUNOUT_CREST_THRESHOLD', 3.5))
     pop_amp = v6_cfg.get('pop_amplitude_threshold', globals().get('POP_AMPLITUDE_THRESHOLD', 0.0))
-    motor_ceil = v6_cfg.get('motor_power_ceiling', globals().get('MOTOR_POWER_CEILING', 999.0))
     needle_lift_sec = v6_cfg.get('needle_lift_sec', globals().get('NEEDLE_LIFT_SECONDS', 15.0))
 
     # V8: one stateful detector owns feature extraction, power hysteresis,
@@ -1390,7 +1584,7 @@ def listen_and_identify():
             if changed:
                 apply_guardian_source_volume()
                 detector = GuardianDetector(v6_cfg, rate=RATE, channels=CHANNELS)
-                ghost_buffer.clear()
+                feedback_buffer.clear()
                 buffer.clear()
                 tracking_audio.clear()
                 music_gap_started = None
@@ -1431,7 +1625,7 @@ def listen_and_identify():
                 scrobble_fired = False
                 current_attempt = 1
             buffer.clear()
-            ghost_buffer.clear()
+            feedback_buffer.clear()
             tracking_audio.clear()
             music_gap_started = None
             chunks = loud_chunks = silence_sleep = trigger_chunks = 0
@@ -1496,21 +1690,20 @@ def listen_and_identify():
             continue
 
         if length > 0:
-            if DEBUG_GHOST_CATCHER:
-                ghost_buffer.append(data)
-                if len(ghost_buffer) > ghost_max_chunks:
-                    ghost_buffer.pop(0)
+            feedback_buffer.append(data)
+            if len(feedback_buffer) > feedback_max_chunks:
+                feedback_buffer.pop(0)
 
-                feedback_kind = None
-                if capture_false_positive_requested:
-                    feedback_kind = "ghost_trigger"
-                    capture_false_positive_requested = False
-                elif capture_missed_music_requested:
-                    feedback_kind = "missed_music"
-                    capture_missed_music_requested = False
+            feedback_kind = None
+            if capture_false_positive_requested:
+                feedback_kind = "ghost_trigger"
+                capture_false_positive_requested = False
+            elif capture_missed_music_requested:
+                feedback_kind = "missed_music"
+                capture_missed_music_requested = False
 
-                if feedback_kind and ghost_buffer:
-                    save_feedback_clip(feedback_kind, ghost_buffer)
+            if feedback_kind and feedback_buffer:
+                save_feedback_clip(feedback_kind, feedback_buffer)
             
             now = time.time()
             with state_lock:
@@ -1540,7 +1733,6 @@ def listen_and_identify():
             has_played_music = frame["has_played_music"]
             continuous_silence = frame["seconds_since_music"]
             power_score = int(round(frame["motor_confidence"] * 100.0))
-            active_m_thresh = m_hold_thresh if has_played_music and continuous_silence <= 6.0 else m_thresh
 
             if manual_label_requested is not None:
                 if experiment_harness is not None:
@@ -1640,9 +1832,9 @@ def listen_and_identify():
                 and str(DATA_COLLECTION_LABEL).strip().lower() in known_off_labels
                 and not previous_power
                 and turntable_on
-                and ghost_buffer
+                and feedback_buffer
             ):
-                save_feedback_clip("ghost_trigger_auto", ghost_buffer)
+                save_feedback_clip("ghost_trigger_auto", feedback_buffer)
 
             if dataset_collector is not None:
                 try:
@@ -1718,27 +1910,42 @@ def listen_and_identify():
                     )
 
                 if not turntable_on:
+                    poweroff_scrobble = None
                     with state_lock:
                         if app_state in ["RECORDING", "PROCESSING", "SLEEPING", "COOLDOWN"]:
                             if app_state == "SLEEPING" and current_track and not scrobble_fired:
                                 current_silence_sec = silence_sleep * (CHUNK / RATE)
+                                physical_now = now - current_silence_sec
                                 time_played = (
-                                    (now - current_track["session_start_time"])
-                                    - current_silence_sec
+                                    physical_now - current_track["session_start_time"]
                                     + current_track.get("previously_played", 0)
                                 )
                                 if time_played > 5:
-                                    track_id = f"{current_track['title']} - {current_track['artist']}"
+                                    track_id = _track_id(current_track)
                                     paused_track_memory = {
                                         "id": track_id,
                                         "accumulated_playtime": time_played,
                                     }
+                                if scrobble_is_eligible(current_track, physical_now):
+                                    if scrobble_identity_confident(current_track):
+                                        poweroff_scrobble = current_track
+                                    else:
+                                        pending_scrobbles.hold(
+                                            current_track,
+                                            ended_at=now,
+                                            physical_now=physical_now,
+                                            reason="power_off",
+                                        )
                             recognition_session.invalidate()
                             track_monitor.clear()
                             app_state, current_track, scrobble_fired, current_attempt, consecutive_failures = (
                                 "IDLE", None, False, 1, 0
                             )
+                            track_display_suppressed = False
                             music_gap_started = None
+
+                    if poweroff_scrobble is not None:
+                        _send_scrobble(poweroff_scrobble, mark_current=False)
 
                     if mqtt_client.is_connected():
                         mqtt_client.publish("vinyl_guardian/track", "Not Playing", retain=True)
@@ -1759,7 +1966,48 @@ def listen_and_identify():
             if turntable_on and current_state in ["RECORDING", "PROCESSING"]:
                 new_vinyl_status = "Playing"
 
-            change_3_tier_status(new_vinyl_status, current_guardian_state)
+            previous_vinyl_status, vinyl_status_changed = change_3_tier_status(
+                new_vinyl_status,
+                current_guardian_state,
+            )
+            if vinyl_status_changed and new_vinyl_status == "Runout Groove":
+                with state_lock:
+                    track_display_suppressed = True
+                # Runout is strong physical evidence that the musical segment
+                # has completed. This matters especially when catalogue duration
+                # is unavailable and the normal timer is deliberately conservative.
+                if current_track and not scrobble_fired:
+                    physical_end = now - max(0.0, float(continuous_silence or 0.0))
+                    if scrobble_is_eligible(
+                        current_track,
+                        physical_end,
+                        completed=True,
+                    ):
+                        if scrobble_identity_confident(current_track):
+                            _send_scrobble(current_track, mark_current=True)
+                        else:
+                            pending_scrobbles.hold(
+                                current_track,
+                                ended_at=now,
+                                physical_now=physical_end,
+                                reason="runout",
+                                completed=True,
+                            )
+
+                if mqtt_client.is_connected():
+                    # The stylus is still down and runout wear continues to count,
+                    # but no song is playing once the locked runout begins.
+                    track_state, track_attributes = current_track_presentation(
+                        new_vinyl_status,
+                        app_state,
+                        current_track,
+                    )
+                    mqtt_client.publish("vinyl_guardian/track", track_state, retain=True)
+                    mqtt_client.publish(
+                        "vinyl_guardian/attributes",
+                        json.dumps(track_attributes),
+                        retain=True,
+                    )
             
             # --- MQTT LOGGING & UI DISPATCH ---
             if now - last_pub >= 1.0:
@@ -1888,24 +2136,51 @@ def listen_and_identify():
                     mqtt_client.publish("vinyl_guardian/pop_texture", f"{min(250.0, norm_pop_texture):.1f}", retain=False)
                     mqtt_client.publish("vinyl_guardian/pop_volume", f"{min(250.0, norm_pop_volume):.1f}", retain=False)
 
-                    if not turntable_on: scrob_str = "Off"
+                    if not turntable_on:
+                        scrob_str = "Off"
                     elif current_state == "SLEEPING" and current_track:
-                        if scrobble_fired: scrob_str = f"Scrobbled: {last_scrobbled_track.split(' - ')[0]} ✅" if last_scrobbled_track else "Scrobbled ✅"
+                        if current_track.get("scrobble_delivered"):
+                            scrob_str = f"Scrobbled: {current_track.get('title', 'Track')} ✅"
+                        elif scrobble_fired:
+                            attempts = int(current_track.get("scrobble_retry_attempts", 0))
+                            scrob_str = (
+                                f"Queued for Last.fm · retry {attempts + 1} ⏳"
+                                if attempts
+                                else "Queued for Last.fm ⏳"
+                            )
                         else:
                             current_silence_sec = silence_sleep * (CHUNK / RATE)
                             physical_now_for_scrobble = now - current_silence_sec
                             time_left = max(0, int(current_track.get('scrobble_trigger_time', 0) - physical_now_for_scrobble))
-                            if time_left > 0:
-                                m, s = divmod(time_left, 60)
-                                scrob_str = f"In {m:02d}:{s:02d} ⏳"
+                            if (
+                                current_track.get("duration_known")
+                                and float(current_track.get("duration") or 0) <= 30.0
+                            ):
+                                scrob_str = "Not eligible · track ≤30s"
+                            elif time_left > 0:
+                                m, sec = divmod(time_left, 60)
+                                scrob_str = f"In {m:02d}:{sec:02d} ⏳"
                             elif not scrobble_identity_confident(current_track) or not scrobble_is_eligible(current_track, physical_now_for_scrobble):
                                 scrob_str = "Eligible · confirming identity ⚖️"
+                            elif not lastfm_enabled():
+                                scrob_str = "Last.fm disabled"
                             else:
-                                scrob_str = "Scrobbling... 🚀"
-                    else: scrob_str = f"Scrobbled: {last_scrobbled_track.split(' - ')[0]} ✅" if last_scrobbled_track else "Waiting ⏸️"
+                                scrob_str = "Queueing scrobble…"
+                    else:
+                        scrob_str = (
+                            f"Scrobbled: {last_scrobbled_track.split(' - ')[0]} ✅"
+                            if last_scrobbled_track
+                            else "Waiting ⏸️"
+                        )
                     mqtt_client.publish("vinyl_guardian/scrobble_status", scrob_str, retain=True)
                     
-                    if current_state == "SLEEPING" and current_track:
+                    if rhythm_locked:
+                        mqtt_client.publish(
+                            "vinyl_guardian/progress",
+                            "Not Playing · Runout Groove",
+                            retain=True,
+                        )
+                    elif current_state == "SLEEPING" and current_track:
                         pos_sec, dur_sec = max(0, int(now - current_track['start_timestamp'])), int(current_track['duration'])
                         if pos_sec > dur_sec > 0: pos_sec = dur_sec
                         p_m, p_s = divmod(pos_sec, 60); d_m, d_s = divmod(dur_sec, 60)
@@ -1955,6 +2230,7 @@ def listen_and_identify():
                             mqtt_client.publish("vinyl_guardian/attributes", "{}", retain=True)
                         song_start, buffer, chunks, loud_chunks, silence_sleep, trigger_chunks = now, bytearray(data), 1, 1, 0, 0
                         with state_lock:
+                            track_display_suppressed = False
                             token = recognition_session.begin()
                             app_state = "RECORDING"
                 else: trigger_chunks = 0
@@ -2047,7 +2323,11 @@ def listen_and_identify():
                         )
 
                 with state_lock:
-                    tracking_requests = track_monitor.due_requests(now, current_track)
+                    tracking_requests = (
+                        []
+                        if rhythm_locked
+                        else track_monitor.due_requests(now, current_track)
+                    )
                     if any(request["kind"] == "periodic" for request in tracking_requests):
                         current_track["duration_recheck_pending"] = True
                 for request in tracking_requests:
@@ -2141,6 +2421,7 @@ if __name__ == "__main__":
     calibration_control.begin(CALIBRATION_MODE)
     start_server()
     initialise_audio_source()
+    initialise_scrobble_dispatcher()
     connect_mqtt()
     calibration_control.configure(publish_calibration_status)
     refresh_audio_source_select()

@@ -53,9 +53,6 @@ DIAGNOSTIC_CAPTURE_MODE = config.get("diagnostic_capture_mode", "normal")
 EXPERIMENT_HARNESS_ENABLED = config.get("experiment_harness_enabled", True)
 AUTO_CAPTURE_INTERESTING_EVENTS = config.get("auto_capture_interesting_events", True)
 
-# 👻 TEMPORARY DEBUG TOGGLE: Capture False Positives
-DEBUG_GHOST_CATCHER = True
-
 # --- MQTT & API Keys ---
 MQTT_BROKER = config.get("mqtt_broker", "core-mosquitto")
 MQTT_PORT = config.get("mqtt_port", 1883)
@@ -136,16 +133,6 @@ else:
         print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [Vinyl Guardian] 🚨 FATAL ERROR: No calibration data found!")
         print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [Vinyl Guardian] 👉 Please enable 'calibration_mode' in the Add-on configuration, start the Add-on to run the wizard, and then turn it off.")
         sys.exit(1)
-
-# Manual UI Overrides
-UI_MUSIC = adv.get("manual_override_music_threshold")
-if UI_MUSIC is not None and UI_MUSIC > 0: MUSIC_THRESHOLD = UI_MUSIC
-
-UI_MOTOR = adv.get("manual_override_motor_threshold")
-if UI_MOTOR is not None and UI_MOTOR > 0: MOTOR_POWER_THRESHOLD = UI_MOTOR
-
-UI_MIC = adv.get("manual_override_mic_volume")
-if UI_MIC is not None and UI_MIC > 0: MIC_VOLUME = UI_MIC
 
 # --- ENGINE TUNING PARAMETERS ---
 MAX_ATTEMPTS = adv.get("max_attempts", 3)
