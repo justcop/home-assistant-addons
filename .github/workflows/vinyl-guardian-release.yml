@@ -19,7 +19,6 @@ permissions:
   contents: write
   packages: write
 
-# Publish only installed main runtime changes.
 concurrency:
   group: vinyl-guardian-delivery
   cancel-in-progress: false
@@ -48,23 +47,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and publish pre-built add-on images
-        shell: bash
-        run: |
-          VERSION="$(python - <<'PY'
-          import yaml
-          print(yaml.safe_load(open('vinyl_guardian/config.yaml'))['version'])
-          PY
-          )"
-          for ARCH in amd64 aarch64; do
-            docker buildx build vinyl_guardian \
-              --platform "linux/$ARCH" \
-              --build-arg "BUILD_ARCH=$ARCH" \
-              --build-arg "BUILD_VERSION=$VERSION" \
-              --tag "ghcr.io/justcop/vinyl-guardian-$ARCH:$VERSION" \
-              --push
-          done
-      - name: Publish main version
+      - name: Publish version and pre-built images
         env:
           BUMP: ${{ inputs.bump || 'auto' }}
         run: |
@@ -79,6 +62,22 @@ jobs:
               echo 'No main runtime changes to publish.'
               exit 0
             fi
+
+            VERSION="$(python - <<'PY'
+          import yaml
+          print(yaml.safe_load(open('vinyl_guardian/config.yaml'))['version'])
+          PY
+            )"
+            echo "Building Vinyl Guardian $VERSION"
+            for ARCH in amd64 aarch64; do
+              docker buildx build vinyl_guardian \
+                --platform "linux/$ARCH" \
+                --build-arg "BUILD_ARCH=$ARCH" \
+                --build-arg "BUILD_VERSION=$VERSION" \
+                --tag "ghcr.io/justcop/vinyl-guardian-$ARCH:$VERSION" \
+                --push
+            done
+
             git commit -m 'chore: publish Vinyl Guardian delivery update'
             if git push origin HEAD:main; then
               exit 0
