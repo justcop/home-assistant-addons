@@ -22,6 +22,7 @@ DEFAULTS = {
     "sync_interval_seconds": 300,
     "reconcile_days": 7,
     "demo_mode": False,
+    "source_api_token": "",
 }
 
 
@@ -90,6 +91,14 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
         # Health carries no private data and must also be reachable by Supervisor.
         if request.path == "/health":
             return None
+        if request.path == "/api/source-reports":
+            expected = config["source_api_token"]
+            supplied = request.headers.get("Authorization", "")
+            if not expected or not secrets.compare_digest(supplied, "Bearer " + expected):
+                abort(403)
+            if request.method != "POST" or not request.is_json or config["demo_mode"]:
+                abort(403)
+            return None
         allowed = ("127.0.0.1", "::1") if development else ("172.30.32.2",)
         if request.remote_addr not in allowed:
             abort(403)
@@ -131,6 +140,13 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
             abort(400)
         return render_template("index.html", base=prefix.rstrip("/") + "/", csrf=csrf)
 
+    @app.post("/api/source-reports")
+    def source_report():
+        if not config["username"]:
+            raise ValueError("Configure a Last.fm username before receiving source reports")
+        database.record_source(config["username"], request.get_json())
+        return jsonify(ok=True)
+
     @app.get("/api/status")
     def status():
         db = db_for_request()
@@ -158,6 +174,8 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
             ).fetchone()[0]
             return jsonify(
                 version=__version__,
+                source_reporting_enabled=bool(config["source_api_token"]),
+                source_reports=conn.execute("SELECT COUNT(*) FROM source_reports").fetchone()[0],
                 demo=is_demo(),
                 configured=bool(config["username"] and config["api_key"]),
                 username="Demo listener" if is_demo() else config["username"],
@@ -220,6 +238,7 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
                     request.args.get("entity"),
                     request.args.get("id"),
                     request.args.get("mode") == "raw",
+                    request.args,
                 )
             )
 

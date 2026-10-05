@@ -577,12 +577,17 @@ def _send_scrobble(track, mark_current=False):
     # Preserve the existing duplicate guard while allowing a delayed scrobble
     # to retain the original physical start timestamp.
     if track_id != last_scrobbled_track:
-        scrobble_to_lastfm(
+        if time.time() < track.get("scrobble_retry_after", 0):
+            return False
+        accepted = scrobble_to_lastfm(
             track.get("artist", ""),
             track.get("title", ""),
             track.get("start_timestamp"),
             track.get("album"),
         )
+        if not accepted:
+            track["scrobble_retry_after"] = time.time() + 60
+            return False
     if mqtt_client.is_connected():
         mqtt_client.publish("vinyl_guardian/scrobble_state", track_id, retain=True)
         try:

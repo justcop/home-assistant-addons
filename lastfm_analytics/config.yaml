@@ -1,5 +1,5 @@
 name: Listening Analytics
-version: "0.1.0"
+version: "0.2.0"
 slug: lastfm_analytics
 description: A clear, local view of your Last.fm listening, with reversible song and album grouping.
 url: https://github.com/justcop/home-assistant-addons/tree/main/lastfm_analytics
@@ -18,7 +18,12 @@ panel_admin: true
 backup: cold
 timeout: 30
 watchdog: http://[HOST]:8099/health
+ports:
+  8099/tcp: null
+ports_description:
+  8099/tcp: Optional local port for Vinyl Guardian source reports. Browser access uses ingress.
 options:
+  source_api_token: ""
   username: ""
   api_key: ""
   timezone: Europe/London
@@ -26,6 +31,7 @@ options:
   reconcile_days: 7
   demo_mode: false
 schema:
+  source_api_token: password?
   username: str?
   api_key: password?
   timezone: str

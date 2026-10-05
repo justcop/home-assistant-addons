@@ -30,6 +30,11 @@ CREATE INDEX IF NOT EXISTS play_time ON scrobbles(active, ts);
 CREATE INDEX IF NOT EXISTS play_artist ON scrobbles(artist_key, active, ts);
 CREATE INDEX IF NOT EXISTS play_song ON scrobbles(song_id, active, ts);
 CREATE INDEX IF NOT EXISTS play_album ON scrobbles(album_id, active, ts);
+CREATE TABLE IF NOT EXISTS source_reports (
+ username TEXT NOT NULL, ts INTEGER NOT NULL, artist_key TEXT NOT NULL,
+ title_key TEXT NOT NULL, source TEXT NOT NULL, received_at INTEGER NOT NULL,
+ PRIMARY KEY(username,ts,artist_key,title_key));
+CREATE INDEX IF NOT EXISTS source_match ON source_reports(ts,artist_key,title_key,source);
 CREATE TABLE IF NOT EXISTS grouping_events (
  id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, description TEXT NOT NULL,
  before_json TEXT NOT NULL, undone INTEGER NOT NULL DEFAULT 0);
@@ -54,12 +59,13 @@ class Database:
         with self.connect() as db:
             db.execute("PRAGMA journal_mode=WAL")
             db.executescript(SCHEMA)
-            db.execute("PRAGMA user_version=1")
+            db.execute("PRAGMA user_version=2")
 
     @contextlib.contextmanager
     def connect(self):
         db = sqlite3.connect(self.path, timeout=30)
         db.row_factory = sqlite3.Row
+        db.create_function("source_key", 1, normalise, deterministic=True)
         db.execute("PRAGMA foreign_keys=ON")
         try:
             with db:
@@ -151,6 +157,29 @@ class Database:
                 )
             for key, value in (checkpoint or {}).items():
                 self.put(db, key, value)
+
+    def record_source(self, username, report):
+        # Keep attribution independent of imported rows: notifications can precede
+        # sync, and reconciliation/Last.fm album edits must not erase the source.
+        if not isinstance(report, dict):
+            raise ValueError("Invalid source report")
+        if str(report.get("username", "")).strip().casefold() != username.casefold():
+            raise ValueError("Source report belongs to another Last.fm account")
+        if report.get("source") != "vinyl":
+            raise ValueError("Unsupported listening source")
+        ts = report.get("timestamp")
+        if isinstance(ts, bool) or not isinstance(ts, int) or not 0 < ts <= time.time() + 300:
+            raise ValueError("Invalid listening timestamp")
+        keys = []
+        for field in ("artist", "title"):
+            value = report.get(field)
+            if not isinstance(value, str) or not value.strip() or len(value) > 1000:
+                raise ValueError("Invalid track identity")
+            keys.append(normalise(value))
+        with self.connect() as db:
+            db.execute("""INSERT INTO source_reports VALUES (?,?,?,?,?,?)
+                ON CONFLICT(username,ts,artist_key,title_key) DO NOTHING""",
+                (username.casefold(), ts, *keys, "vinyl", int(time.time())))
 
     def change_groups(self, action, ids):
         try:

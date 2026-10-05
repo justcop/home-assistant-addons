@@ -22,6 +22,7 @@ const views = [
 const state = {
   view: views.includes(initial.get("view")) ? initial.get("view") : "overview",
   period: initial.get("period") || "30d",
+  source: ["vinyl", "unknown"].includes(initial.get("source")) ? initial.get("source") : "all",
   mode: initial.get("mode") === "raw" ? "raw" : "merged",
   start: initial.get("start") || "",
   end: initial.get("end") || "",
@@ -83,6 +84,7 @@ function ago(ts) {
 function query(extra = {}) {
   const p = {
     period: state.period,
+    source: state.source,
     mode: state.mode,
     start: state.start,
     end: state.end,
@@ -243,7 +245,7 @@ function historyHTML(data) {
       lastDay = day;
       return (
         head +
-        `<tr><td>${formatDate(r.ts, { hour: "2-digit", minute: "2-digit", timeZoneName: "short" })}</td><td class="name-cell"><button class="text-button" data-detail="song" data-id="${state.mode === "raw" ? r.song_id : r.song_group}"><strong>${esc(state.mode === "raw" ? r.title : r.song_name)}</strong></button>${r.title !== r.song_name && state.mode !== "raw" ? `<small>Scrobbled as ${esc(r.title)}</small>` : ""}</td><td><button class="text-button" data-detail="artist" data-id="${esc(r.artist_key)}">${esc(r.artist)}</button></td><td>${r.album_id ? `<button class="text-button" data-detail="album" data-id="${state.mode === "raw" ? r.album_id : r.album_group}">${esc(state.mode === "raw" ? r.album : r.album_name)}</button>` : "<small>No album supplied</small>"}</td></tr>`
+        `<tr><td>${formatDate(r.ts, { hour: "2-digit", minute: "2-digit", timeZoneName: "short" })}</td><td class="name-cell"><button class="text-button" data-detail="song" data-id="${state.mode === "raw" ? r.song_id : r.song_group}"><strong>${esc(state.mode === "raw" ? r.title : r.song_name)}</strong></button>${r.title !== r.song_name && state.mode !== "raw" ? `<small>Scrobbled as ${esc(r.title)}</small>` : ""}</td><td><button class="text-button" data-detail="artist" data-id="${esc(r.artist_key)}">${esc(r.artist)}</button>${r.source === "vinyl" ? "<small>Vinyl</small>" : ""}</td><td>${r.album_id ? `<button class="text-button" data-detail="album" data-id="${state.mode === "raw" ? r.album_id : r.album_group}">${esc(state.mode === "raw" ? r.album : r.album_name)}</button>` : "<small>No album supplied</small>"}</td></tr>`
       );
     })
     .join("");
@@ -252,7 +254,7 @@ function historyHTML(data) {
 function settingsHTML(data) {
   const c = statusData.counts,
     imp = statusData.import_state;
-  return `<div class="settings-grid"><section class="panel">${panelHead("Last.fm connection", "Configured in the Home Assistant add-on options")}<dl><dt>Account</dt><dd>${esc(statusData.username || "Not configured")}</dd><dt>API key</dt><dd>${statusData.configured ? "Configured, hidden" : "Not configured"}</dd><dt>Sync interval</dt><dd>${statusData.interval} seconds</dd><dt>Daily reconciliation</dt><dd>Last ${statusData.reconcile_days} days</dd><dt>Display timezone</dt><dd>${esc(statusData.timezone)}</dd><dt>History import</dt><dd>${imp.complete ? "Complete" : imp.cursor ? "In progress" : "Not started"}</dd></dl><p class="method-note">Set your username and API key in the add-on’s Configuration tab, then restart. Changing account opens a separate database. <a href="https://www.last.fm/api/account/create" target="_blank" rel="noopener noreferrer">Get an API key ↗</a></p></section><section class="panel">${panelHead("Data quality", "What your statistics are built on")}<dl><dt>Active scrobbles</dt><dd>${number(c.plays)}</dd><dt>Earliest play</dt><dd>${formatDate(c.earliest)}</dd><dt>Missing album metadata</dt><dd>${number(c.missing_albums)}</dd><dt>Removed remotely, archived</dt><dd>${number(statusData.removed)}</dd></dl><p class="method-note">Counts are recorded scrobbles. Actual listening time and full-album sessions are not inferred. Album groups are scoped to the scrobbled track artist, so compilation albums may appear under several artists.</p></section></div><section class="panel" style="margin-bottom:22px">${panelHead("Version decisions", "Each change is local and reversible.", `<button class="button" id="undo" ${statusData.events.some((e) => !e.undone) ? "" : "disabled"}>Undo latest change</button>`)}<p class="method-note">Recognised remaster suffixes combine automatically. Live recordings, acoustic performances and mixes retain their labels. Select groups below to merge them, or open a group to separate a version. The first selected group supplies the display name. Artist totals are unaffected.</p>${
+  return `<div class="settings-grid"><section class="panel">${panelHead("Last.fm connection", "Configured in the Home Assistant add-on options")}<dl><dt>Account</dt><dd>${esc(statusData.username || "Not configured")}</dd><dt>API key</dt><dd>${statusData.configured ? "Configured, hidden" : "Not configured"}</dd><dt>Vinyl connection</dt><dd>${statusData.source_reporting_enabled ? "Enabled" : "Not configured"}</dd><dt>Vinyl reports received</dt><dd>${number(statusData.source_reports)}</dd><dt>Sync interval</dt><dd>${statusData.interval} seconds</dd><dt>Daily reconciliation</dt><dd>Last ${statusData.reconcile_days} days</dd><dt>Display timezone</dt><dd>${esc(statusData.timezone)}</dd><dt>History import</dt><dd>${imp.complete ? "Complete" : imp.cursor ? "In progress" : "Not started"}</dd></dl><p class="method-note">Set your username and API key in the add-on’s Configuration tab, then restart. Changing account opens a separate database. <a href="https://www.last.fm/api/account/create" target="_blank" rel="noopener noreferrer">Get an API key ↗</a></p></section><section class="panel">${panelHead("Data quality", "What your statistics are built on")}<dl><dt>Active scrobbles</dt><dd>${number(c.plays)}</dd><dt>Earliest play</dt><dd>${formatDate(c.earliest)}</dd><dt>Missing album metadata</dt><dd>${number(c.missing_albums)}</dd><dt>Removed remotely, archived</dt><dd>${number(statusData.removed)}</dd></dl><p class="method-note">Counts are recorded scrobbles. Actual listening time and full-album sessions are not inferred. Album groups are scoped to the scrobbled track artist, so compilation albums may appear under several artists.</p></section></div><section class="panel" style="margin-bottom:22px">${panelHead("Version decisions", "Each change is local and reversible.", `<button class="button" id="undo" ${statusData.events.some((e) => !e.undone) ? "" : "disabled"}>Undo latest change</button>`)}<p class="method-note">Recognised remaster suffixes combine automatically. Live recordings, acoustic performances and mixes retain their labels. Select groups below to merge them, or open a group to separate a version. The first selected group supplies the display name. Artist totals are unaffected.</p>${
     statusData.events.length
       ? `<div style="margin-top:16px">${statusData.events
           .slice(0, 4)
@@ -307,7 +309,7 @@ async function fetchStatus() {
     banner = `<span><strong>Importing your history.</strong> ${number(statusData.counts.plays)} plays saved. ${pct}% of the date span checked. You can explore while it runs.<div class="progress-track"><span style="width:${pct}%"></span></div></span>`;
   }
   const playing = statusData.now_playing.track;
-  $("#now-playing").hidden = !playing;
+  $("#now-playing").hidden = !playing || state.source !== "all";
   $("#now-playing").innerHTML = playing
     ? `<span class="playing-dot"></span><span><strong>Now playing</strong> ${esc(playing.title)} · ${esc(playing.artist)}</span><small>Reported by Last.fm at ${formatDate(statusData.now_playing.checked_at, { hour: "2-digit", minute: "2-digit" })}</small>`
     : "";
@@ -322,7 +324,7 @@ async function load() {
   $("#error").hidden = true;
   $("#content").setAttribute("aria-busy", "true");
   $("#page-title").textContent = titles[state.view][0];
-  $("#page-description").textContent = titles[state.view][1];
+  $("#page-description").textContent = titles[state.view][1] + (state.source === "vinyl" ? " Showing confirmed vinyl scrobbles." : state.source === "unknown" ? " Showing scrobbles without confirmed attribution." : "");
   document.querySelectorAll("[data-view]").forEach((b) => {
     if (b.closest("nav") || b.classList.contains("settings-nav"))
       b.setAttribute(
@@ -337,6 +339,8 @@ async function load() {
     );
   $("#toolbar").hidden = state.view === "settings";
   $("#period").value = state.period;
+  $("#source").value = state.source;
+  $("#now-playing").hidden = state.source !== "all" || !statusData?.now_playing?.track;
   $("#custom-dates").hidden = state.period !== "custom";
   $("#start").value = state.start;
   $("#end").value = state.end;
@@ -414,7 +418,7 @@ async function showDetail(kind, id, groupMode = false) {
     ]);
     if (serial !== detailSerial || !dialog.open) return;
     $("#detail-content").innerHTML =
-      `<h2>${esc(detail.name)}</h2><p>${esc(detail.artist)}</p>${metrics(data, mode)}<section class="panel">${panelHead("Listening history", "Select a bar to inspect individual scrobbles.")}${chart(data, { kind, id, name: detail.name }, mode)}</section>${detail.versions.length ? `<div class="panel-head" style="margin-top:23px"><div><h2>Versions</h2><p>All-time plays, including versions outside the selected period.</p></div></div><div class="table-wrap"><table><thead><tr><th>Scrobbled name</th><th class="num">Plays</th><th>First / latest play</th><th></th></tr></thead><tbody>${detail.versions.map((v) => `<tr><td class="name-cell"><strong>${esc(v.name)}</strong><small>${v.manual ? "Manual decision" : "Automatic grouping"}</small></td><td class="num">${number(v.plays)}</td><td><small>${formatDate(v.first_play)}<br>${formatDate(v.last_play)}</small></td><td>${detail.versions.length > 1 ? `<button class="button" data-separate="${v.id}" data-name="${esc(v.name)}">Separate</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : ""}<div class="dialog-actions" style="margin-top:18px"><button class="button primary" data-show-history="${kind}" data-id="${esc(id)}" data-name="${esc(detail.name)}" data-mode="${mode}" data-all="${groupMode}">View scrobbles →</button></div>`;
+      `<h2>${esc(detail.name)}</h2><p>${esc(detail.artist)}</p>${metrics(data, mode)}<section class="panel">${panelHead("Listening history", "Select a bar to inspect individual scrobbles.")}${chart(data, { kind, id, name: detail.name }, mode)}</section>${detail.versions.length ? `<div class="panel-head" style="margin-top:23px"><div><h2>Versions</h2><p>All-time plays for the selected source, including versions outside the selected period.</p></div></div><div class="table-wrap"><table><thead><tr><th>Scrobbled name</th><th class="num">Plays</th><th>First / latest play</th><th></th></tr></thead><tbody>${detail.versions.map((v) => `<tr><td class="name-cell"><strong>${esc(v.name)}</strong><small>${v.manual ? "Manual decision" : "Automatic grouping"}</small></td><td class="num">${number(v.plays)}</td><td><small>${formatDate(v.first_play)}<br>${formatDate(v.last_play)}</small></td><td>${detail.versions.length > 1 ? `<button class="button" data-separate="${v.id}" data-name="${esc(v.name)}">Separate</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : ""}<div class="dialog-actions" style="margin-top:18px"><button class="button primary" data-show-history="${kind}" data-id="${esc(id)}" data-name="${esc(detail.name)}" data-mode="${mode}" data-all="${groupMode}">View scrobbles →</button></div>`;
   } catch (error) {
     $("#detail-content").innerHTML =
       `<div class="empty">${esc(error.message)}</div>`;
@@ -571,6 +575,11 @@ document.addEventListener("input", (event) => {
     }
   }, 300);
 });
+$("#source").onchange = () => {
+  state.source = $("#source").value;
+  state.offset = 0;
+  load();
+};
 $("#period").onchange = () => {
   state.period = $("#period").value;
   state.offset = 0;

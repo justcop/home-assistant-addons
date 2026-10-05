@@ -11,6 +11,7 @@ import pylast
 from shazamio import Shazam
 from config import *
 from track_reasoning import identity_key
+from source_reporting import SourceReporter, submit_scrobble
 
 
 # --- LAST.FM SETUP ---
@@ -27,17 +28,37 @@ if not CALIBRATION_MODE and LFM_USER and LFM_PASS and LFM_KEY and LFM_SECRET:
     except Exception as e:
         log(f"🚨 Last.fm initialization failed: {e}")
 
+source_reporter = None
+if config.get("listening_analytics_url") and config.get("listening_analytics_token"):
+    try:
+        source_reporter = SourceReporter(
+            "/data/listening-source-pending.sqlite3",
+            config["listening_analytics_url"], config["listening_analytics_token"],
+            LFM_USER, log)
+        source_reporter.start()
+    except Exception as exc:
+        log(f"Listening Analytics connection unavailable ({type(exc).__name__}). Check its URL and token settings.")
+
+
 def scrobble_to_lastfm(artist, title, start_timestamp, album=None):
     if not lastfm_network:
-        return
+        return False
     try:
-        kwargs = {"artist": artist, "title": title, "timestamp": start_timestamp}
-        if album and album != "Unknown":
-            kwargs["album"] = album
-        lastfm_network.scrobble(**kwargs)
-        log(f"🎵 Successfully scrobbled to Last.fm: {title} by {artist}")
-    except Exception as e:
-        log(f"🚨 Last.fm Scrobble Failed: {e}")
+        report = submit_scrobble(lastfm_network, artist, title, start_timestamp, album)
+        if report is None:
+            log(f"Last.fm ignored the scrobble: {title} by {artist}")
+            return False
+    except Exception as exc:
+        log(f"Last.fm scrobble failed ({type(exc).__name__}).")
+        return False
+    log(f"🎵 Successfully scrobbled to Last.fm: {title} by {artist}")
+    if source_reporter:
+        try:
+            source_reporter.enqueue(report)
+        except Exception as exc:
+            # Last.fm already accepted it. Never resubmit because reporting failed.
+            log(f"Could not queue vinyl attribution ({type(exc).__name__}).")
+    return True
 
 # --- HELPER: GET TRACK DURATION ---
 _duration_cache = {}
