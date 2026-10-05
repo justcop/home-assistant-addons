@@ -19,7 +19,7 @@ class PackagingTests(unittest.TestCase):
         names = {line.split("==", 1)[0].lower() for line in requirements}
         self.assertEqual(
             names,
-            {"numpy", "paho-mqtt", "pyalsaaudio", "requests", "shazamio", "pylast"},
+            {"numpy", "paho-mqtt", "pyalsaaudio", "requests", "shazamio", "pylast", "audioop-lts"},
         )
 
     def test_dockerfile_uses_explicit_multiarch_base_and_removes_build_deps(self):
