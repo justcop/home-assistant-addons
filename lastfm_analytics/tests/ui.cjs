@@ -45,6 +45,13 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
     () =>
       document.querySelector("#content").getAttribute("aria-busy") === "false",
   );
+  await page.route("**/api/detail?*", async (route) => {
+    const response = await route.fetch();
+    const detail = await response.json();
+    detail.artwork = { url: "https://lastfm.freetls.fastly.net/i/u/174s/fixture.png", album: "Abbey Road", artist: "The Beatles" };
+    await route.fulfill({ response, json: detail });
+  });
+  await page.route("https://lastfm.freetls.fastly.net/**", route => route.fulfill({ path: path.join(__dirname, "../analytics/static/icon-192.png"), contentType: "image/png" }));
   await page
     .getByRole("button", { name: "Come Together", exact: true })
     .click();
@@ -53,6 +60,19 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
     await page.locator("#detail-dialog").innerText(),
     /2009 Remaster/,
   );
+  const cover = page.locator(".detail-artwork img");
+  await cover.waitFor();
+  await page.waitForFunction(() => document.querySelector(".detail-artwork img")?.naturalWidth > 0);
+  assert.match(await cover.getAttribute("alt"), /Abbey Road/);
+  await page.setViewportSize({ width: 320, height: 700 });
+  assert.equal(await page.locator("#detail-content").evaluate(el => el.scrollWidth <= el.clientWidth), true);
+  await page.screenshot({ path: path.join(output, "cover-art-mobile.png") });
+  await cover.evaluate(el => el.dispatchEvent(new Event("error")));
+  assert.equal(await page.locator(".detail-artwork").count(), 0);
+  assert.equal(await page.locator("#detail-dialog .metrics").isVisible(), true);
+  await page.unroute("**/api/detail?*");
+  await page.unroute("https://lastfm.freetls.fastly.net/**");
+  await page.setViewportSize({ width: 1440, height: 1050 });
   // Manual separate and undo restore all-time combined rankings.
   await page.locator("#detail-dialog [data-separate]").first().click();
   await page.locator("#confirm-ok").click();

@@ -267,20 +267,25 @@ def test_actual_stats_discovery_dates_and_raw_vs_merged(db):
             play(ts - 50, artist="New Artist", album=""),
         ],
     )
-    data = overview(db, {"period":"30d"}, "Europe/London", now)
+    data = overview(db, {"period": "30d"}, "Europe/London", now)
     assert (
         data["current"] == {"plays": 3, "artists": 2, "songs": 2, "albums": 1}
         and data["discovery"]["plays"] is None
     )
     db.set_meta("import", {"complete": True})
-    data = overview(db, {"period":"30d"}, "Europe/London", now)
+    data = overview(db, {"period": "30d"}, "Europe/London", now)
     assert data["discovery"]["plays"] == 1 and data["discovery"]["artists"] == 1
     assert data["grouping"]["raw_songs"] == 3 and data["grouping"]["songs"] == 2
     assert (
         sum(b["plays"] for b in data["timeline"]) == 3
         and sum(sum(h) for h in data["hours"]) == 3
     )
-    assert overview(db, {"mode": "raw", "period":"30d"}, "Europe/London", now)["current"]["songs"] == 3
+    assert (
+        overview(db, {"mode": "raw", "period": "30d"}, "Europe/London", now)["current"][
+            "songs"
+        ]
+        == 3
+    )
     p = data["period"]
     assert p["end"] - p["start"] == p["start"] - p["previous_start"]
 
@@ -777,6 +782,48 @@ def test_invalid_config_values_have_credential_free_errors(tmp_path):
         with pytest.raises(ConfigurationError) as failure:
             load_config(tmp_path)
         assert field in str(failure.value) and "secret-value" not in str(failure.value)
+
+
+def test_remote_cover_art_for_each_detail_type(db):
+    from analytics.insights import details
+
+    thumbnail = "https://lastfm.freetls.fastly.net/i/u/174s/cover.jpg"
+    row = play(100)
+    row["raw"]["image"] = [
+        {"size": "extralarge", "#text": "https://lastfm.freetls.fastly.net/full.jpg"},
+        {"size": "large", "#text": thumbnail},
+    ]
+    db.apply_window(0, 200, [row])
+    with db.connect() as conn:
+        artist = conn.execute("SELECT artist_key FROM scrobbles").fetchone()[0]
+        for kind, value in [("artist", artist), ("song", 1), ("album", 2)]:
+            for raw in (True, False):
+                result = details(conn, kind, value, raw)
+                assert result["artwork"]["url"] == thumbnail
+                assert result["artwork"]["album"] == "Abbey Road"
+        assert (
+            details(conn, "artist", artist, False, {"source": "vinyl"})["artwork"]
+            is None
+        )
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "javascript:alert(1)",
+        "https://evil.example/cover.jpg",
+        "http://lastfm.freetls.fastly.net/a.jpg",
+        "https://lastfm.freetls.fastly.net/i/2a96cbd8b46e442fc41c2b86b821562f.png",
+    ],
+)
+def test_artwork_ignores_untrusted_urls_and_placeholder(db, url):
+    from analytics.insights import details
+
+    row = play(100)
+    row["raw"]["image"] = [{"size": "large", "#text": url}]
+    db.apply_window(0, 200, [row])
+    with db.connect() as conn:
+        assert details(conn, "song", 1, False)["artwork"] is None
 
 
 def test_default_period_is_all_time(db):

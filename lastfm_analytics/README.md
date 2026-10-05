@@ -209,6 +209,17 @@ next to Settings. Pinch timeline graphs to zoom around your fingers, use one fin
 to scroll sideways, or use the zoom/reset buttons. The year/month heatmap fits the
 phone width with a smaller year gutter.
 
+## Cover art
+
+Detail pages use small Last.fm thumbnail URLs already present in imported scrobbles.
+The browser loads images directly from Last.fm's image CDN; the add-on never downloads
+or stores image files and does not create a browser image cache. Normal browser HTTP
+caching may still apply. Artist and song pages show a representative album cover,
+labelled with the album name, favouring the most played album for the selected source.
+Artwork is independent of the selected date period. Blank, default or unavailable
+covers are omitted. History without image metadata cannot supply a cover until
+Last.fm provides one in an imported scrobble. No MusicBrainz matching is needed.
+
 ## Display and navigation
 
 The default date range is **All time**. **Reset** beside the date range returns to
