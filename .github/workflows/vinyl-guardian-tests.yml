@@ -25,12 +25,20 @@ jobs:
           python-version: '3.12'
       - name: Install test dependencies
         run: |
-          python -m pip install --disable-pip-version-check numpy PyYAML pytest requests
+          python -m pip install --disable-pip-version-check numpy PyYAML pytest requests pyflakes
           command -v ffmpeg || (sudo apt-get update -qq && sudo apt-get install -y ffmpeg)
       - name: Check launcher syntax and Python compilation
         run: |
           bash -n vinyl_guardian/run.sh
           python -m compileall -q vinyl_guardian
+      - name: Check runtime names
+        run: |
+          output="$(python -m pyflakes vinyl_guardian/vinyl_guardian.py vinyl_guardian/integrations.py vinyl_guardian/recognition_session.py 2>&1 || true)"
+          echo "$output"
+          if echo "$output" | grep -Eq "undefined name '[^\']+'"; then
+            echo "Undefined runtime name detected." >&2
+            exit 1
+          fi
       - name: Run runtime tests
         run: python -m unittest discover -s vinyl_guardian/tests -p 'test_*.py' -v
       - name: Build Vinyl Guardian image

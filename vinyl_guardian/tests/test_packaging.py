@@ -11,7 +11,7 @@ class PackagingTests(unittest.TestCase):
     def test_runtime_source_defines_recognition_target(self):
         source = (ROOT / "vinyl_guardian.py").read_text()
         self.assertIn(
-            "target = math.ceil(RATE / CHUNK * recognition_session.final_stage)",
+            "target = (RATE * recognition_session.final_stage + CHUNK - 1) // CHUNK",
             source,
         )
         self.assertNotIn(
