@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.3
+
+- Choose individual versions from merge suggestions, including a subset of already grouped versions, and edit their combined display name before merging. Undo restores previous names and grouping.
+- Move sign-out and theme controls into Settings. Put a compact Sync button beside Settings.
+- Replace the graph zoom slider with pinch zoom and accessible zoom/reset buttons. Keep one-finger scrolling within the graph.
+- Tighten the year/month heatmap gutter and spacing to fit small phone screens.
+
 ## 0.2.2
 
 - Identify invalid startup settings by name without printing credentials, including web password length errors.

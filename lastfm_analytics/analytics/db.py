@@ -220,7 +220,11 @@ class Database:
             )
             self.put(db, "analysis_revision", self.get(db, "analysis_revision", 0) + 1)
 
-    def change_groups(self, action, ids):
+    def change_groups(self, action, ids, name=None):
+        if name is not None:
+            if not isinstance(name, str) or not name.strip() or len(name) > 1000:
+                raise ValueError("Choose a combined name between 1 and 1000 characters")
+            name = name.strip()
         try:
             if any(isinstance(i, bool) or not isinstance(i, (int, str)) for i in ids):
                 raise ValueError
@@ -232,7 +236,7 @@ class Database:
         marks = ",".join("?" for _ in ids)
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            snapshot = {"aliases": [], "variants": []}
+            snapshot = {"aliases": [], "variants": [], "groups": []}
             if action in ("merge", "merge_learn"):
                 if action == "merge_learn":
                     source = db.execute(
@@ -280,6 +284,10 @@ class Database:
                     f"UPDATE aliases SET group_id=? WHERE group_id IN ({marks})",
                     [ids[0], *ids],
                 )
+                if name is not None:
+                    target = next(g for g in groups if g["id"] == ids[0])
+                    snapshot["groups"].append({"id": target["id"], "name": target["name"]})
+                    db.execute("UPDATE groups SET name=? WHERE id=?", (name, ids[0]))
                 description = f"Merged {len(ids)} {groups[0]['kind']} groups"
                 if action == "merge_learn":
                     rules = self.get(db, "learned_rules", [])
@@ -294,6 +302,36 @@ class Database:
                     }
                     self.put(db, "learned_rules", [*rules, rule])
                     description += f" and learned {rule['suffix']} for {rule['artist']}"
+            elif action == "merge_versions":
+                if len(ids) < 2:
+                    raise ValueError("Select at least two versions")
+                variants = db.execute(
+                    f"SELECT * FROM resolved_variants WHERE id IN ({marks})", ids
+                ).fetchall()
+                if len(variants) != len(ids) or len({v["kind"] for v in variants}) != 1:
+                    raise ValueError("Merge versions of the same type")
+                if len({normalise(v["artist"]) for v in variants}) != 1:
+                    raise ValueError("Merge versions by the same artist")
+                first = next(v for v in variants if v["id"] == ids[0])
+                gid = db.execute(
+                    "INSERT INTO groups(kind,artist,name) VALUES (?,?,?)",
+                    (first["kind"], first["artist"], name or canonical_title(first["name"], first["kind"]))
+                ).lastrowid
+                snapshot["variants"] = [
+                    {"id": v["id"], "override_group": v["override_group"]} for v in variants
+                ]
+                # Move automatic aliases only when every member was selected.
+                # A partial selection must not bring unselected versions along.
+                for source_gid in {v["group_id"] for v in variants}:
+                    members = db.execute(
+                        "SELECT id FROM resolved_variants WHERE group_id=?", (source_gid,)
+                    ).fetchall()
+                    if all(v["id"] in ids for v in members):
+                        aliases = db.execute("SELECT * FROM aliases WHERE group_id=?", (source_gid,)).fetchall()
+                        snapshot["aliases"].extend(dict(a) for a in aliases)
+                        db.execute("UPDATE aliases SET group_id=? WHERE group_id=?", (gid, source_gid))
+                db.execute(f"UPDATE variants SET override_group=? WHERE id IN ({marks})", [gid, *ids])
+                description = f"Merged {len(ids)} selected {first['kind']} versions"
             elif action == "separate":
                 variants = db.execute(
                     f"SELECT * FROM variants WHERE id IN ({marks})", ids
@@ -343,6 +381,8 @@ class Database:
                 self.put(db, "learned_rules", before["learned_rules"])
             if "dismissed_candidates" in before:
                 self.put(db, "dismissed_candidates", before["dismissed_candidates"])
+            for g in before.get("groups", []):
+                db.execute("UPDATE groups SET name=? WHERE id=?", (g["name"], g["id"]))
             for a in before["aliases"]:
                 db.execute(
                     "UPDATE aliases SET group_id=? WHERE kind=? AND auto_key=?",

@@ -44,9 +44,12 @@
           </button>
         </nav>
         <div class="sidebar-bottom">
-          <button class="settings-nav" data-view="settings">
-            ⚙ <span>Settings & grouping</span>
-          </button>
+          <div class="settings-actions">
+            <button class="settings-nav" data-view="settings" aria-label="Settings and grouping">
+              ⚙ <span>Settings & grouping</span>
+            </button>
+            <button id="refresh" class="icon-button sync-button" aria-label="Sync with Last.fm" title="Check Last.fm for new scrobbles">↻</button>
+          </div>
           <div class="profile">
             <span class="avatar">L</span>
             <div>
@@ -69,23 +72,7 @@
           </div>
           <div class="header-actions">
             <button id="install-app" class="button" hidden>Install app</button>
-            <select id="palette" aria-label="Colour palette"><option value="violet">Violet</option><option value="ocean">Ocean</option><option value="forest">Forest</option><option value="rose">Rose</option><option value="amber">Amber</option></select>
-            {% if direct_login %}<button id="logout" class="button">Sign out</button>{% endif %}
-            <button
-              id="theme"
-              class="icon-button"
-              aria-label="Switch colour theme"
-              title="Switch colour theme"
-            >
-              ◐</button
-            ><span id="sync-label" class="sync-label">Loading…</span
-            ><button
-              id="refresh"
-              class="button"
-              title="Check Last.fm for new scrobbles"
-            >
-              ↻ Sync
-            </button>
+            <span id="sync-label" class="sync-label">Loading…</span>
           </div>
         </header>
         <div class="toolbar" id="toolbar">
@@ -122,6 +109,14 @@
         <div id="now-playing" class="now-playing" hidden></div>
         <div id="error" role="alert" hidden></div>
         <div id="loading-status" class="loading-status" role="status" hidden><span class="spinner" aria-hidden="true"></span> Loading analysis…</div>
+        <section id="settings-preferences" class="panel settings-preferences" hidden aria-label="Appearance and account settings">
+          <h2>Appearance and account</h2>
+          <div class="preference-controls">
+            <label for="palette">Colour theme <select id="palette"><option value="violet">Violet</option><option value="ocean">Ocean</option><option value="forest">Forest</option><option value="rose">Rose</option><option value="amber">Amber</option></select></label>
+            <button id="theme" class="button" aria-label="Switch light or dark appearance">Switch light / dark</button>
+            {% if direct_login %}<button id="logout" class="button">Sign out</button>{% endif %}
+          </div>
+        </section>
         <div id="content" aria-live="polite" aria-busy="true">
           <div class="loading">Loading your listening history…</div>
         </div>

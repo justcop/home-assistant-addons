@@ -19,6 +19,8 @@ const {chromium} = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
   const cookies = await page.context().cookies();
   const cookie = cookies.find(c=>c.name==='listening_session');
   assert.ok(cookie.secure && cookie.httpOnly);
+  assert.equal(await page.locator('#logout').isVisible(), false);
+  await page.locator('.settings-nav').click();
   await page.locator('#logout').click();
   await page.getByRole('button',{name:'Sign in',exact:true}).waitFor();
   assert.equal((await page.request.get(root+'/api/status')).status(),401);

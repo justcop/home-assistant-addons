@@ -1463,3 +1463,35 @@ dialog { overscroll-behavior: contain; }
 
 .bar-chart { height:calc(100% - 24px); }
 .bar-chart button::after { content:attr(data-label); position:absolute; top:calc(100% + 6px); left:50%; transform:translateX(-50%); font-size:9px; color:var(--muted); white-space:nowrap; pointer-events:none; }
+
+.settings-actions { display:flex; align-items:center; gap:4px; }
+.settings-actions .settings-nav { flex:1; min-width:0; }
+.sync-button { flex-shrink:0; width:36px; height:36px; font-size:21px; }
+.settings-preferences { margin-bottom:20px; }
+.preference-controls { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin-top:16px; }
+.preference-controls label { display:flex; align-items:center; gap:10px; }
+.review-choices { border:0; padding:0; margin:12px 0; min-width:0; }
+.review-choices legend { color:var(--muted); font-size:12px; margin-bottom:8px; }
+.review-choices label { display:flex; gap:10px; align-items:center; padding:8px; min-height:44px; border-radius:6px; cursor:pointer; }
+.review-choices label:has(input:checked) { background:var(--accent-light); }
+.review-choices input { width:18px; height:18px; flex-shrink:0; accent-color:var(--accent); }
+.review-choices span { overflow-wrap:anywhere; }
+.review-choices small { display:block; color:var(--muted); font-size:11px; }
+.merge-name { display:grid; gap:6px; margin:12px 0; font-size:12px; color:var(--muted); }
+.merge-name input { width:100%; min-width:0; }
+.chart-zoom-buttons { display:flex; gap:6px; }
+.chart-zoom-buttons button { min-width:44px; min-height:44px; }
+.chart-scroll { touch-action:pan-x pan-y; }
+.bar-chart { width:calc(max(100%, var(--bins) * 9px) * var(--zoom, 1)); }
+@media (min-width:701px) and (max-width:900px) {
+  .settings-actions { flex-direction:column; }
+}
+@media (max-width:700px) {
+  .settings-actions { flex-direction:row; }
+  .sync-button { min-width:44px; min-height:44px; }
+}
+@media (max-width:620px) {
+  .calendar-heatmap { grid-template-columns:26px repeat(12,minmax(0,1fr)); gap:2px; min-width:0; width:100%; }
+  .calendar-month { min-width:0; font-size:clamp(7px,2.2vw,9px); }
+  .calendar-year { text-align:left; font-size:9px; }
+}

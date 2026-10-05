@@ -67,12 +67,20 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   await page.locator("#search").fill("Come as You Are");
   await page.waitForTimeout(450);
   await page.locator("[data-candidate-merge]").first().waitFor();
-  await page.locator("[data-candidate-merge]").first().click();
+  const candidate = page.locator(".review-card").first();
+  assert.equal(await candidate.locator("[data-candidate-merge]").isDisabled(), true);
+  await candidate.locator(".candidate-version").nth(0).check();
+  assert.equal(await candidate.locator("[data-candidate-merge]").isDisabled(), true);
+  await candidate.locator(".candidate-version").nth(1).check();
+  await candidate.locator(".candidate-name").fill("Come as You Are, chosen name");
+  await candidate.locator("[data-candidate-merge]").click();
+  assert.match(await page.locator("#confirm-dialog").innerText(), /chosen name/);
   await page.locator("#confirm-ok").click();
   await page.locator('[data-group-tab="merged"]').click();
   await page.locator("#search").fill("Come as You Are");
   await page.waitForTimeout(450);
   await page.locator(".review-card").first().waitFor();
+  assert.match(await page.locator(".review-card").first().innerText(), /chosen name/);
   await page.locator("#undo").click();
   await page.locator('[data-group-tab="skipped"]').click();
   await page.locator("#search").fill("Come as You Are");
@@ -81,7 +89,9 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   // Mobile and dark theme, accessible navigation, no page overflow.
   await page.locator('#nav [data-view="overview"]').click();
   await page.locator("#period").selectOption("30d");
+  await page.locator(".settings-nav").click();
   await page.locator("#theme").click();
+  await page.locator('#nav [data-view="overview"]').click();
   await page.locator("#content .metrics").waitFor();
   await page.screenshot({
     path: path.join(output, "overview-dark.png"),
@@ -107,7 +117,9 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
     ),
     false,
   );
+  await page.locator(".settings-nav").click();
   await page.locator("#palette").selectOption("ocean");
+  await page.locator('#nav [data-view="overview"]').click();
   assert.equal(await page.evaluate(() => document.documentElement.dataset.palette), "ocean");
   await page.route("**/api/overview?**", async route => {
     const response = await route.fetch();
@@ -125,13 +137,40 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
     await page.setViewportSize({width,height:844});
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     assert.ok(await page.locator("#content .chart-scroll").evaluate(n=>n.scrollWidth>n.clientWidth));
+    if (width <= 620) assert.equal(await page.locator("#content .calendar-scroll").evaluate(n=>n.scrollWidth>n.clientWidth), false);
   }
   const before = await page.locator("#content .bar-chart").evaluate(n=>n.scrollWidth);
-  await page.locator("#content .chart-zoom").evaluate(n=>{n.value="4";n.dispatchEvent(new Event("input",{bubbles:true}));});
+  await page.locator('#content [data-chart-zoom="in"]').click();
+  await page.locator('#content [data-chart-zoom="in"]').click();
   assert.ok(await page.locator("#content .bar-chart").evaluate(n=>n.scrollWidth)>before);
   assert.equal(await page.locator("#content .calendar-cell:not(.unavailable)").count(),240);
   await page.locator("#content .chart-scroll").evaluate(n=>n.scrollLeft=500);
   assert.ok(await page.locator("#content .chart-scroll").evaluate(n=>n.scrollLeft)>0);
+  await page.setViewportSize({width:390,height:844});
+  await page.locator('#content [data-chart-zoom="reset"]').click();
+  const scroller = page.locator('#content .chart-scroll');
+  await scroller.scrollIntoViewIfNeeded();
+  await scroller.evaluate(n => n.scrollLeft = 300);
+  const rect = await scroller.boundingBox();
+  const centre = rect.x + rect.width / 2, y = rect.y + rect.height / 2;
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Emulation.setTouchEmulationEnabled', {enabled:true});
+  const touches = distance => [{x:centre-distance,y,id:1},{x:centre+distance,y,id:2}];
+  const pinchBefore = await scroller.locator('.bar-chart').evaluate(n => n.getBoundingClientRect().width);
+  await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:touches(30)});
+  await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:touches(60)});
+  await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+  const pinchAfter = await scroller.locator('.bar-chart').evaluate(n => n.getBoundingClientRect().width);
+  assert.ok(pinchAfter > pinchBefore * 1.8);
+  assert.equal(await page.evaluate(() => visualViewport.scale),1);
+  assert.equal(await page.locator('#page-title').innerText(),'Overview');
+  const scrollBefore = await scroller.evaluate(n=>n.scrollLeft);
+  await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:centre+50,y,id:1}]});
+  for (const x of [centre+30,centre,centre-30,centre-50])
+    await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x,y,id:1}]});
+  await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+  assert.ok(await scroller.evaluate(n=>n.scrollLeft)>scrollBefore);
+  await cdp.send('Emulation.setTouchEmulationEnabled', {enabled:false});
   await page.unroute("**/api/overview?**");
   await page.setViewportSize({width:390,height:844});
   await page.locator("#period").selectOption("30d");
