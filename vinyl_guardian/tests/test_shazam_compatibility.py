@@ -1,6 +1,8 @@
 import ast
 import asyncio
 import inspect
+import os
+import time
 import threading
 import unittest
 from pathlib import Path
@@ -12,7 +14,7 @@ def recognition_function(factory):
     path=Path(__file__).resolve().parents[1]/'integrations.py'
     tree=ast.parse(path.read_text())
     node=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='recognize_shazam')
-    env=dict(Shazam=factory,asyncio=asyncio,inspect=inspect,DEBUG=False,log=lambda message:None)
+    env=dict(Shazam=factory,asyncio=asyncio,inspect=inspect,os=os,time=time,DEBUG=False,log=lambda message:None)
     exec(compile(ast.Module(body=[node],type_ignores=[]),'recognition','exec'),env)
     return env['recognize_shazam']
 
