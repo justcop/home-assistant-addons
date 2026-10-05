@@ -31,8 +31,27 @@ class LastFmAttemptTests(unittest.TestCase):
             def scrobble(self, **kwargs):
                 self.kwargs = kwargs
 
+        def submit(network, artist, title, timestamp, album):
+            network.scrobble(
+                artist=artist,
+                title=title,
+                timestamp=int(float(timestamp)),
+                album=album,
+            )
+            return {
+                "source": "vinyl",
+                "artist": artist,
+                "title": title,
+                "timestamp": int(float(timestamp)),
+            }
+
         success = Success()
-        env = {"lastfm_network": success, "log": messages.append}
+        env = {
+            "lastfm_network": success,
+            "source_reporter": None,
+            "submit_scrobble": submit,
+            "log": messages.append,
+        }
         attempt = load_function(path, "scrobble_to_lastfm", env)
         self.assertTrue(attempt("Artist", "Title", 1234.9, "Album"))
         self.assertEqual(success.kwargs["timestamp"], 1234)
@@ -41,10 +60,15 @@ class LastFmAttemptTests(unittest.TestCase):
             def scrobble(self, **kwargs):
                 raise RuntimeError("offline")
 
-        env = {"lastfm_network": Failure(), "log": messages.append}
+        env = {
+            "lastfm_network": Failure(),
+            "source_reporter": None,
+            "submit_scrobble": submit,
+            "log": messages.append,
+        }
         attempt = load_function(path, "scrobble_to_lastfm", env)
         self.assertFalse(attempt("Artist", "Title", 1234, "Album"))
-        self.assertTrue(any("will retry" in message for message in messages))
+        self.assertTrue(any("scrobble failed" in message.lower() for message in messages))
 
     def test_unconfigured_lastfm_is_not_reported_as_success(self):
         path = ROOT / "integrations.py"
