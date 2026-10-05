@@ -125,3 +125,9 @@ configuration:
     description: On by default. Calibration automatically analyses a complete saved WAV set without
       Continue prompts. Missing or invalid recordings start the recording wizard. Turn off to capture
       fresh audio after hardware changes.
+  listening_analytics_url:
+    name: Listening Analytics URL
+    description: Optional direct base URL, for example http://HOME_ASSISTANT_IP:8100. Enable that port in Listening Analytics. Do not use a Home Assistant ingress URL.
+  listening_analytics_token:
+    name: Listening Analytics connection token
+    description: Copy the source API token configured in Listening Analytics. Accepted vinyl scrobbles are reported there, with persistent retries during outages.
