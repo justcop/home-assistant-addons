@@ -9,6 +9,9 @@ from pathlib import Path
 from .grouping import auto_key, canonical_title, normalise, review_title
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS view_cache (
+ cache_key TEXT PRIMARY KEY, revision INTEGER NOT NULL, generated REAL NOT NULL,
+ accessed REAL NOT NULL, payload TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS groups (
  id INTEGER PRIMARY KEY, kind TEXT NOT NULL, artist TEXT NOT NULL, name TEXT NOT NULL);

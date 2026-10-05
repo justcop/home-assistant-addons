@@ -235,3 +235,25 @@ Menus and details create browser navigation history. Back returns to the previou
 menu or closes a detail first; Forward reopens it. Previous filters and searches
 are restored. Diary song names have a wider column, with horizontal table scrolling
 on narrow phones.
+
+## Saved analytics views
+
+Overview and Trends share saved calculations. Detail analyses and artist, album and
+song rankings are also saved, with up to 24 recently accessed views per account.
+Date ranges, sources, version display and item filters remain separate. Results
+are stored privately in the add-on database, behind the same authentication as
+other analytics; they are not put in browser storage or the service worker.
+
+Saved views survive restarts and refresh at **03:00 in the configured timezone**,
+without a browser being open. The default all-time Overview is prepared on startup and kept when older
+filter combinations are evicted.
+When you open a saved view after new data or on a later day, the saved result appears
+first and updates in the background. A small status shows its calculation time and
+whether it is updating. The page replaces changed results automatically and keeps
+timeline zoom and horizontal scroll. Failed updates retain the saved result and retry.
+
+An unseen or evicted filter combination needs its first calculation. New releases
+rebuild saved results to avoid mixing old and new analytics formats. Explicit merge
+and undo actions clear saved views so the next result reflects your decision. If
+the add-on is stopped overnight, views refresh when it starts again; it cannot
+calculate while stopped. No Last.fm API calls are added by view refreshes.

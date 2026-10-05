@@ -38,6 +38,7 @@ def main():
     )
 
     def shutdown(*_):
+        app.extensions["view_cache"].close()
         app.extensions["sync_worker"].close()
         server.close()
         raise SystemExit(0)
@@ -47,6 +48,7 @@ def main():
     try:
         server.run()
     finally:
+        app.extensions["view_cache"].close()
         app.extensions["sync_worker"].close()
 
 

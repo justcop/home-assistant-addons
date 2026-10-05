@@ -688,7 +688,7 @@ def test_candidate_review_learning_and_undo(tmp_path):
         db.change_groups("merge_learn", protected["ids"])
 
 
-def test_cached_analysis_invalidates_after_import(tmp_path):
+def test_cached_analysis_refreshes_in_background_after_import(tmp_path, monkeypatch):
     app = create_app(tmp_path, config={}, start_worker=False, development=True)
     client = app.test_client()
     db = app.extensions["database"]
@@ -696,7 +696,25 @@ def test_cached_analysis_invalidates_after_import(tmp_path):
     db.apply_window(now - 10, now + 1, [play(now - 5)])
     assert client.get("/api/overview?period=all").json["current"]["plays"] == 1
     db.apply_window(now - 10, now + 1, [play(now - 4, title="Something")])
+    cache = app.extensions["view_cache"]
+    entered, release = threading.Event(), threading.Event()
+    original = cache.compute["overview"]
+
+    def delayed(db, args):
+        entered.set()
+        assert release.wait(5)
+        return original(db, args)
+
+    monkeypatch.setitem(cache.compute, "overview", delayed)
+    saved = client.get("/api/overview?period=all").json
+    assert saved["current"]["plays"] == 1 and saved["_cache"]["stale"]
+    assert entered.wait(2)
+    with cache.lock:
+        future = next(iter(cache.jobs.values()))
+    release.set()
+    future.result(timeout=5)
     assert client.get("/api/overview?period=all").json["current"]["plays"] == 2
+    cache.close()
 
 
 def test_rejected_candidate_persists_and_can_be_undone(tmp_path):

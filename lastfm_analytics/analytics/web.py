@@ -23,6 +23,7 @@ from flask import (
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from . import __version__, insights
+from .cache import ViewCache
 from .review import review
 from .db import Database
 from .demo import seed
@@ -137,8 +138,47 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
     worker = SyncWorker(database, config)
     app.extensions["database"] = database
     app.extensions["sync_worker"] = worker
-    overview_cache = {}
-    cache_lock = threading.Lock()
+
+    def calculate_rankings(db, args):
+        with db.connect() as conn:
+            conn.execute("BEGIN")
+            earliest = conn.execute(
+                "SELECT MIN(ts) FROM scrobbles WHERE active=1"
+            ).fetchone()[0]
+            p = insights.period(args, tz, earliest=earliest)
+            p["compare"] = p["compare"] and bool(
+                db.get(conn, "import", {}).get("complete")
+            )
+            offset = max(0, int(args.get("offset", 0)))
+            extra, params = insights.scope(args)
+            rows = insights.rankings(
+                conn,
+                p,
+                args.get("kind", "song"),
+                args.get("mode") == "raw",
+                args.get("q", "")[:200],
+                50,
+                offset,
+                extra,
+                params,
+            )
+            return dict(
+                rows=rows,
+                total=rows[0]["total_rows"] if rows else 0,
+                offset=offset,
+                period=p,
+            )
+
+    view_cache = ViewCache(
+        config["timezone"],
+        {
+            "overview": lambda db, args: insights.overview(
+                db, args, config["timezone"]
+            ),
+            "rankings": calculate_rankings,
+        },
+    )
+    app.extensions["view_cache"] = view_cache
     demo_lock = threading.Lock()
     demo_db = None
 
@@ -410,48 +450,11 @@ self.addEventListener('fetch', event => {
 
     @app.get("/api/overview")
     def overview():
-        db = db_for_request()
-        key = (
-            str(db.path),
-            db.meta("analysis_revision", 0),
-            tuple(sorted(request.args.items())),
-        )
-        now = time.monotonic()
-        with cache_lock:
-            cached = overview_cache.get(key)
-            if cached and now - cached[0] < 60:
-                return jsonify(cached[1])
-        result = insights.overview(db, request.args, config["timezone"])
-        with cache_lock:
-            if len(overview_cache) >= 16:
-                del overview_cache[next(iter(overview_cache))]
-            overview_cache[key] = (now, result)
-        return jsonify(result)
+        return jsonify(view_cache.get(db_for_request(), "overview", dict(request.args)))
 
     @app.get("/api/rankings")
     def ranking():
-        with db_for_request().connect() as conn:
-            conn.execute("BEGIN")
-            p = dates(conn)
-            offset = max(0, int(request.args.get("offset", 0)))
-            extra, params = insights.scope(request.args)
-            rows = insights.rankings(
-                conn,
-                p,
-                request.args.get("kind", "song"),
-                request.args.get("mode") == "raw",
-                request.args.get("q", "")[:200],
-                50,
-                offset,
-                extra,
-                params,
-            )
-            return jsonify(
-                rows=rows,
-                total=rows[0]["total_rows"] if rows else 0,
-                offset=offset,
-                period=p,
-            )
+        return jsonify(view_cache.get(db_for_request(), "rankings", dict(request.args)))
 
     @app.get("/api/history")
     def history():
@@ -516,6 +519,7 @@ self.addEventListener('fetch', event => {
             db.undo_grouping()
         else:
             db.change_groups(data.get("action"), data.get("ids", []), data.get("name"))
+        view_cache.clear(db)
         return jsonify(ok=True)
 
     @app.post("/api/sync")
@@ -530,4 +534,5 @@ self.addEventListener('fetch', event => {
 
     if start_worker:
         worker.start()
+        view_cache.warm(database)
     return app

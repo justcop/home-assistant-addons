@@ -386,8 +386,57 @@ async function fetchStatus() {
   $("#banner").innerHTML = banner;
   $("#banner").hidden = !banner;
 }
+const cacheTimers = {};
+function cacheLabel(data, target) {
+  const marker = $(target);
+  const cache = data?._cache;
+  marker.hidden = !cache;
+  if (!cache) return;
+  const updated = formatDate(cache.generated, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  marker.textContent = `Saved view · updated ${updated}${cache.error ? " · Update delayed; showing saved results" : cache.stale || cache.refreshing ? " · Updating…" : ""}`;
+}
+function replaceCachedView(container, html) {
+  const element = $(container);
+  const positions = [...element.querySelectorAll(".chart-scroll")].map(el => ({ left: el.scrollLeft, zoom: Number(el.dataset.zoom || 1) }));
+  const top = element.scrollTop;
+  element.innerHTML = html;
+  element.scrollTop = top;
+  element.querySelectorAll(".chart-scroll").forEach((el, i) => {
+    if (!positions[i]) return;
+    setChartZoom(el, positions[i].zoom);
+    el.scrollLeft = positions[i].left;
+  });
+}
+function watchCachedView(slot, path, extra, data, render, valid, target) {
+  clearTimeout(cacheTimers[slot]);
+  cacheLabel(data, target);
+  const content = value => JSON.stringify({ ...value, _cache: undefined });
+  let displayed = content(data);
+  async function tick() {
+    if (!valid()) return;
+    if (document.hidden) { cacheTimers[slot] = setTimeout(tick, 15000); return; }
+    try {
+      const next = await api(path, extra);
+      if (!valid()) return;
+      const updated = content(next);
+      if (updated !== displayed && document.activeElement?.id !== "search") {
+        render(next);
+        displayed = updated;
+      }
+      cacheLabel(next, target);
+      data = next;
+    } catch (_) {
+      if (!valid()) return;
+      $(target).textContent = "Update delayed; showing saved results";
+    }
+    cacheTimers[slot] = setTimeout(tick, data?._cache?.error ? 60000 : data?._cache?.stale || data?._cache?.refreshing ? 2000 : 60000);
+  }
+  if (data?._cache) cacheTimers[slot] = setTimeout(tick, data._cache.error ? 60000 : data._cache.stale || data._cache.refreshing ? 2000 : 60000);
+}
 async function load({historyMode = "push"} = {}) {
   const serial = ++loadSerial;
+  clearTimeout(cacheTimers.main);
+  $("#cache-status").hidden = true;
   requestController?.abort();
   requestController = new AbortController();
   const signal = requestController.signal;
@@ -425,10 +474,13 @@ async function load({historyMode = "push"} = {}) {
       $("#content").innerHTML = setupHTML();
       return;
     }
-    let html;
+    let html, cachedView;
     if (["overview", "trends"].includes(state.view)) {
       const data = await api("overview", {}, { signal });
-      html = state.view === "overview" ? overviewHTML(data) : trendsHTML(data);
+      const view = state.view;
+      const render = next => replaceCachedView("#content", view === "overview" ? overviewHTML(next) : trendsHTML(next));
+      cachedView = { path: "overview", extra: {}, data, render };
+      html = view === "overview" ? overviewHTML(data) : trendsHTML(data);
     } else if (state.view === "history") {
       html = historyHTML(
         await api("history", { q: state.q, offset: state.offset }, { signal }),
@@ -440,16 +492,15 @@ async function load({historyMode = "push"} = {}) {
       const kind = { artists: "artist", albums: "album", songs: "song" }[
         state.view
       ];
-      html = rankTable(
-        await api(
-          "rankings",
-          { kind, q: state.q, offset: state.offset },
-          { signal },
-        ),
-        kind,
-      );
+      const extra = { kind, q: state.q, offset: state.offset };
+      const data = await api("rankings", extra, { signal });
+      cachedView = { path: "rankings", extra, data, render: next => replaceCachedView("#content", rankTable(next, kind)) };
+      html = rankTable(data, kind);
     }
-    if (serial === loadSerial) $("#content").innerHTML = html;
+    if (serial === loadSerial) {
+      $("#content").innerHTML = html;
+      if (cachedView) watchCachedView("main", cachedView.path, cachedView.extra, cachedView.data, cachedView.render, () => serial === loadSerial, "#cache-status");
+    }
   } catch (error) {
     report(error);
   } finally {
@@ -464,6 +515,8 @@ async function showDetail(kind, id, groupMode = false, restoring = false) {
     history.pushState({listening:true, nav:navigationState(), detail:{kind,id,groupMode}}, "", location.href);
   }
   const serial = ++detailSerial;
+  clearTimeout(cacheTimers.detail);
+  $("#detail-cache-status").hidden = true;
   const dialog = $("#detail-dialog");
   const mode = groupMode ? "merged" : state.mode;
   const extra = {
@@ -482,10 +535,14 @@ async function showDetail(kind, id, groupMode = false, restoring = false) {
       api("overview", extra),
     ]);
     if (serial !== detailSerial || !dialog.open) return;
-    $("#detail-content").innerHTML =
-      `<div class="detail-heading">${detail.artwork ? `<figure class="detail-artwork"><img src="${esc(detail.artwork.url)}" alt="Cover of ${esc(detail.artwork.album)} by ${esc(detail.artwork.artist)}" width="112" height="112" decoding="async" referrerpolicy="no-referrer"><figcaption>${kind === "album" ? "Album cover" : esc(detail.artwork.album)} · Last.fm</figcaption></figure>` : ""}<div><h2>${esc(detail.name)}</h2><p>${esc(detail.artist)}</p></div></div>${metrics(data, mode)}<section class="panel">${panelHead("Listening history", "Select a bar to inspect individual scrobbles.")}${chart(data, { kind, id, name: detail.name }, mode)}</section>${detail.versions.length ? `<div class="panel-head" style="margin-top:23px"><div><h2>Versions</h2><p>All-time plays for the selected source, including versions outside the selected period.</p></div></div><div class="table-wrap"><table><thead><tr><th>Scrobbled name</th><th class="num">Plays</th><th>First / latest play</th><th></th></tr></thead><tbody>${detail.versions.map((v) => `<tr><td class="name-cell"><strong>${esc(v.name)}</strong><small>${v.manual ? "Manual decision" : "Automatic grouping"}</small></td><td class="num">${number(v.plays)}</td><td><small>${formatDate(v.first_play)}<br>${formatDate(v.last_play)}</small></td><td>${detail.versions.length > 1 ? `<button class="button" data-separate="${v.id}" data-name="${esc(v.name)}">Separate</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : ""}<div class="dialog-actions" style="margin-top:18px"><button class="button primary" data-show-history="${kind}" data-id="${esc(id)}" data-name="${esc(detail.name)}" data-mode="${mode}" data-all="${groupMode}">View scrobbles →</button></div>`;
+    const renderDetail = (data) => {
+    replaceCachedView("#detail-content",
+      `<div class="detail-heading">${detail.artwork ? `<figure class="detail-artwork"><img src="${esc(detail.artwork.url)}" alt="Cover of ${esc(detail.artwork.album)} by ${esc(detail.artwork.artist)}" width="112" height="112" decoding="async" referrerpolicy="no-referrer"><figcaption>${kind === "album" ? "Album cover" : esc(detail.artwork.album)} · Last.fm</figcaption></figure>` : ""}<div><h2>${esc(detail.name)}</h2><p>${esc(detail.artist)}</p></div></div>${metrics(data, mode)}<section class="panel">${panelHead("Listening history", "Select a bar to inspect individual scrobbles.")}${chart(data, { kind, id, name: detail.name }, mode)}</section>${detail.versions.length ? `<div class="panel-head" style="margin-top:23px"><div><h2>Versions</h2><p>All-time plays for the selected source, including versions outside the selected period.</p></div></div><div class="table-wrap"><table><thead><tr><th>Scrobbled name</th><th class="num">Plays</th><th>First / latest play</th><th></th></tr></thead><tbody>${detail.versions.map((v) => `<tr><td class="name-cell"><strong>${esc(v.name)}</strong><small>${v.manual ? "Manual decision" : "Automatic grouping"}</small></td><td class="num">${number(v.plays)}</td><td><small>${formatDate(v.first_play)}<br>${formatDate(v.last_play)}</small></td><td>${detail.versions.length > 1 ? `<button class="button" data-separate="${v.id}" data-name="${esc(v.name)}">Separate</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : ""}<div class="dialog-actions" style="margin-top:18px"><button class="button primary" data-show-history="${kind}" data-id="${esc(id)}" data-name="${esc(detail.name)}" data-mode="${mode}" data-all="${groupMode}">View scrobbles →</button></div>`);
     const cover = $("#detail-content .detail-artwork img");
     if (cover) cover.addEventListener("error", () => cover.closest("figure").remove(), { once: true });
+    };
+    renderDetail(data);
+    watchCachedView("detail", "overview", extra, data, renderDetail, () => serial === detailSerial && dialog.open, "#detail-cache-status");
   } catch (error) {
     $("#detail-content").innerHTML =
       `<div class="empty">${esc(error.message)}</div>`;
