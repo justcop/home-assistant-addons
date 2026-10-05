@@ -2,16 +2,21 @@ import ast
 import unittest
 from pathlib import Path
 import sys
+import threading
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from track_reasoning import (
     PendingScrobbleQueue,
+    AlbumIdentityGuard,
     TrackMonitor,
     expected_end,
     identity_key,
     scrobble_identity_confident,
     scrobble_is_eligible,
+    scrobble_threshold_seconds,
+    UNKNOWN_DURATION_SCROBBLE_SECONDS,
 )
 
 
@@ -42,7 +47,139 @@ def track(title="A", adamid="1", confidence="low", start=1000.0, duration=180.0,
     return item
 
 
+def unknown_track():
+    current = track(confidence="high")
+    current.update(duration=0, duration_known=False, scrobble_trigger_time=1120)
+    current.pop("expected_end_time")
+    return current
+
+
+class UnknownDurationTests(unittest.TestCase):
+    def test_checks_continue_every_thirty_seconds_after_scrobbling(self):
+        current = unknown_track()
+        monitor = TrackMonitor()
+        monitor.begin_track(current)
+        self.assertEqual(monitor.due_requests(1029, current), [])
+        for now in (1030, 1060, 1090, 1120, 1150, 1180):
+            due = monitor.due_requests(now, current)
+            self.assertEqual(len(due), 1)
+            request = due[0]
+            self.assertEqual((request["start"], request["end"]), (now - 10, now))
+            self.assertEqual(request["kind"], "periodic")
+            action = monitor.record_result(request["id"], match("A (Remastered 2009)", "other"))
+            self.assertTrue(action["same"])
+            current["scrobble_fired"] = now >= 1120
+        self.assertEqual(scrobble_threshold_seconds(current), 120)
+
+    def test_unknown_duration_detects_gapless_successor_with_future_evidence(self):
+        current = unknown_track()
+        monitor = TrackMonitor()
+        monitor.begin_track(current)
+        request = monitor.due_requests(1030, current)[0]
+        action = monitor.record_result(request["id"], match("B", "2"))
+        self.assertFalse(action["same"])
+        self.assertTrue(monitor.boundary_active())
+        self.assertEqual(monitor.due_requests(1032, current), [])
+        fresh = monitor.due_requests(1033, current)[0]
+        self.assertEqual((fresh["start"], fresh["end"]), (1030, 1033))
+        result = monitor.record_result(fresh["id"], match("B", "2"))
+        self.assertEqual(result["action"], "successor")
+        self.assertEqual(result["reason"], "periodic_identity")
+        monitor.begin_track(unknown_track())
+        self.assertFalse(monitor.record_result(fresh["id"], match("B", "2"))["accepted"])
+
+    def test_slow_api_does_not_queue_old_periodic_audio(self):
+        current = unknown_track()
+        monitor = TrackMonitor()
+        monitor.begin_track(current)
+        request = monitor.due_requests(1030, current)[0]
+        self.assertEqual(monitor.due_requests(1100, current), [])
+        monitor.record_result(request["id"], None)
+        fresh = monitor.due_requests(1101, current)[0]
+        self.assertEqual((fresh["start"], fresh["end"]), (1091, 1101))
+
+    def test_known_duration_keeps_existing_timing_and_no_periodic_requests(self):
+        current = track(confidence="high", duration=300)
+        monitor = TrackMonitor()
+        monitor.begin_track(current)
+        self.assertEqual(monitor.due_requests(1120, current), [])
+        self.assertEqual(scrobble_threshold_seconds(current), 150)
+        self.assertFalse(scrobble_is_eligible(current, 1149))
+        self.assertTrue(scrobble_is_eligible(current, 1150))
+
+
 class AudioWindowTests(unittest.TestCase):
+    def test_unknown_duration_handler_requires_fresh_confirmation_at_two_minutes(self):
+        tree = ast.parse((Path(__file__).resolve().parents[1] / "vinyl_guardian.py").read_text())
+        function = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+                        and node.name == "process_tracking_audio_background")
+        current = unknown_track()
+        monitor = TrackMonitor()
+        monitor.begin_track(current)
+        answer = [match("A", "1")]
+        env = dict(current_track=current, track_monitor=monitor, state_lock=threading.Lock(),
+                   app_state="SLEEPING", RATE=1, CHANNELS=1, RECORDING_DIR="unused",
+                   AUDIO_ONSET_THRESHOLD=0, MIN_AUDIO_SECONDS=2, recognize_shazam=None,
+                   recognize_fragment=lambda *args: (answer[0], 0),
+                   _track_id=lambda t: t["title"], _publish_track=lambda t: None, log=lambda t: None)
+        exec(compile(ast.Module(body=[function], type_ignores=[]), "handler", "exec"), env)
+        for elapsed in (30, 60, 90, 120):
+            request = monitor.due_requests(1000 + elapsed, current)[0]
+            current["duration_recheck_pending"] = True
+            self.assertFalse(scrobble_is_eligible(current, 1000 + elapsed))
+            env[function.name](b"\0" * 20, request["start"], request["id"])
+            self.assertEqual(scrobble_is_eligible(current, 1000 + elapsed), elapsed >= 120)
+        self.assertEqual(current["start_timestamp"], 1000)
+        answer[0] = None
+        request = monitor.due_requests(1150, current)[0]
+        current["duration_recheck_pending"] = True
+        env[function.name](b"\0" * 20, request["start"], request["id"])
+        self.assertFalse(scrobble_is_eligible(current, 1150))
+        self.assertFalse(current["duration_recheck_pending"])
+
+    def test_unknown_duration_is_not_a_fabricated_twenty_minutes(self):
+        tree = ast.parse((Path(__file__).resolve().parents[1] / "vinyl_guardian.py").read_text())
+        function = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_make_track")
+        env = dict(_track_duration=lambda m: 0, identity_key=identity_key,
+                   album_identity_guard=AlbumIdentityGuard(),
+                   UNKNOWN_DURATION_SCROBBLE_SECONDS=UNKNOWN_DURATION_SCROBBLE_SECONDS)
+        exec(compile(ast.Module(body=[function], type_ignores=[]), "make", "exec"), env)
+        current = env[function.name](match("A", "1"), 1000, 1000, "high")
+        self.assertEqual(current["duration"], 0)
+        self.assertFalse(current["duration_known"])
+        self.assertIsNone(expected_end(current))
+        self.assertEqual(current["scrobble_trigger_time"], 1120)
+
+    def test_actual_recovery_handler_preserves_clock_album_and_sent_scrobble(self):
+        tree = ast.parse((Path(__file__).resolve().parents[1] / "vinyl_guardian.py").read_text())
+        function = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+                        and node.name == "process_tracking_audio_background")
+        current = track("Because", "love", confidence="high")
+        current["scrobble_fired"] = True
+        current["album"] = "Love"
+        monitor = TrackMonitor()
+        monitor.begin_track(current)
+        monitor.start_boundary(1040, "music_recovery")
+        requests = monitor.due_requests(1045, current)
+        logs = []
+        env = dict(current_track=current, track_monitor=monitor, state_lock=threading.Lock(),
+                   app_state="SLEEPING", RATE=1, CHANNELS=1, RECORDING_DIR="unused",
+                   AUDIO_ONSET_THRESHOLD=0, MIN_AUDIO_SECONDS=2,
+                   recognize_shazam=None, recognize_fragment=lambda *args: (match("Because (Remastered 2009)", "abbey"), 0),
+                   time=SimpleNamespace(time=lambda: 1045), expected_end=expected_end,
+                   _track_id=lambda t: t["title"], _publish_track=lambda t: None,
+                   log=logs.append, wake_up_time=1180, scrobble_fired=True)
+        exec(compile(ast.Module(body=[function], type_ignores=[]), "handler", "exec"), env)
+        for request in requests:
+            env[function.name](b"\0" * 10, request["start"], request["id"])
+        self.assertIs(env["current_track"], current)
+        self.assertEqual(current["start_timestamp"], 1000)
+        self.assertEqual(current["expected_end_time"], 1180)
+        self.assertEqual(current["album"], "Love")
+        self.assertTrue(current["scrobble_fired"])
+        self.assertTrue(env["scrobble_fired"])
+        self.assertIn("quiet passage", logs[-1])
+
     def test_tracking_window_is_byte_clamped_to_requested_ten_seconds(self):
         source = Path(__file__).resolve().parents[1] / "vinyl_guardian.py"
         tree = ast.parse(source.read_text())
@@ -60,6 +197,36 @@ class AudioWindowTests(unittest.TestCase):
 
 
 class TrackReasoningTests(unittest.TestCase):
+    def test_release_ids_and_remaster_suffixes_do_not_change_song_identity(self):
+        original = identity_key(match("Because", "1"))
+        for title in ("Because", "Because (Remastered 2009)", "Because - 2009 Remaster",
+                      "Because [Remastered]", "Because (2009 Remastered)"):
+            self.assertEqual(identity_key(match(title, "another-release")), original)
+        for title in ("Because (Live)", "Because (Remix)", "Because / Get Back"):
+            self.assertNotEqual(identity_key(match(title, "1")), original)
+        self.assertNotEqual(identity_key(dict(match("Because", "1"), artist="Someone Else")), original)
+        self.assertEqual(identity_key({"adamid": "1"}), "adamid:1")
+
+    def test_repeated_recovery_checks_are_throttled_without_blocking_expected_end(self):
+        current = track(confidence="high")
+        monitor = TrackMonitor()
+        monitor.begin_track(current)
+        monitor.start_boundary(1040, "music_recovery")
+        for request in monitor.due_requests(1045, current):
+            monitor.record_result(request["id"], match("A", "different-release"))
+        self.assertFalse(monitor.start_boundary(1050, "music_recovery"))
+        self.assertTrue(monitor.start_boundary(1050, "expected_end", strength="strong"))
+
+    def test_overlap_agreement_after_rest_is_not_enough_to_reset_song(self):
+        current = track(confidence="high")
+        monitor = TrackMonitor()
+        monitor.begin_track(current)
+        monitor.start_boundary(1040, "music_recovery")
+        for request in monitor.due_requests(1045, current):
+            self.assertIsNone(monitor.record_result(request["id"], match("X", "2"))["action"])
+        fresh = monitor.due_requests(1050, current)[0]
+        self.assertEqual(monitor.record_result(fresh["id"], match("A", "1"))["action"], "continuation")
+
     def test_weak_track_gets_fresh_10_20_and_20_30_windows(self):
         current = track(confidence="low", duration=180)
         monitor = TrackMonitor()
@@ -142,6 +309,10 @@ class TrackReasoningTests(unittest.TestCase):
         by_stage = {r["stage"]: r for r in requests}
         monitor.record_result(by_stage[3]["id"], match("B", "2"))
         result = monitor.record_result(by_stage[5]["id"], match("B", "2"))
+        self.assertIsNone(result["action"])
+        fresh = monitor.due_requests(1070.1, current)[0]
+        self.assertEqual((fresh["start"], fresh["end"]), (1065.0, 1070.0))
+        result = monitor.record_result(fresh["id"], match("B", "2"))
         self.assertEqual(result["action"], "successor")
         self.assertEqual(result["previous_end"], 1052.0)
 
@@ -214,55 +385,6 @@ class TrackReasoningTests(unittest.TestCase):
         self.assertEqual(result["action"], "successor")
         self.assertEqual(result["confidence"], "medium")
 
-    def test_unknown_duration_uses_repeated_gapless_probes(self):
-        current = track(confidence="high", duration_known=False)
-        monitor = TrackMonitor()
-        monitor.begin_track(current)
-
-        first = monitor.due_requests(1020.1, current)
-        self.assertEqual(len(first), 1)
-        self.assertEqual((first[0]["start"], first[0]["end"]), (1010.0, 1020.0))
-        result = monitor.record_result(first[0]["id"], match("B", "2"))
-        self.assertEqual(result["action"], "unknown_candidate")
-
-        second = monitor.due_requests(1030.1, current)
-        result = monitor.record_result(second[0]["id"], match("B", "2"))
-        self.assertEqual(result["action"], "successor")
-        self.assertEqual(result["reason"], "unknown_duration_consensus")
-        self.assertEqual(result["anchor"], 1010.0)
-
-    def test_unknown_duration_probe_waits_for_previous_result(self):
-        current = track(confidence="high", duration_known=False)
-        monitor = TrackMonitor()
-        monitor.begin_track(current)
-        first = monitor.due_requests(1020.1, current)
-        self.assertEqual(len(first), 1)
-        self.assertEqual(first[0]["stage"], 10)
-        self.assertEqual(monitor.due_requests(1035.0, current), [])
-        monitor.record_result(first[0]["id"], match("A", "1"))
-        second = monitor.due_requests(1035.0, current)
-        self.assertEqual(len(second), 1)
-        self.assertEqual((second[0]["start"], second[0]["end"]), (1020.0, 1030.0))
-
-    def test_unknown_duration_single_or_mixed_alternate_does_not_change_track(self):
-        current = track(confidence="high", duration_known=False)
-        monitor = TrackMonitor()
-        monitor.begin_track(current)
-        first = monitor.due_requests(1020.1, current)[0]
-        self.assertEqual(
-            monitor.record_result(first["id"], match("Mashup X", "8"))["action"],
-            "unknown_candidate",
-        )
-        second = monitor.due_requests(1030.1, current)[0]
-        self.assertEqual(
-            monitor.record_result(second["id"], match("Mashup Y", "9"))["action"],
-            "unknown_candidate",
-        )
-        third = monitor.due_requests(1040.1, current)[0]
-        self.assertIsNone(
-            monitor.record_result(third["id"], match("A", "1"))["action"]
-        )
-
     def test_completed_unknown_duration_track_can_scrobble_before_four_minutes(self):
         unknown = track(
             confidence="high",
@@ -293,8 +415,10 @@ class TrackReasoningTests(unittest.TestCase):
         long_enough = track(confidence="high", duration=31)
         self.assertTrue(scrobble_is_eligible(long_enough, 1016))
         unknown = track(confidence="high", duration=1200, duration_known=False)
-        unknown["scrobble_trigger_time"] = 1240
-        self.assertTrue(scrobble_is_eligible(unknown, 1240))
+        unknown["scrobble_trigger_time"] = 1120
+        unknown["duration_recheck_confirmed_at"] = 1120
+        unknown["duration_recheck_pending"] = False
+        self.assertTrue(scrobble_is_eligible(unknown, 1120))
 
     def test_scrobble_waits_for_identity_confidence(self):
         current = track(confidence="low", duration=100)
