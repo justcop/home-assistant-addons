@@ -31,10 +31,12 @@ from recognition_session import RecognitionSession, recognize_fragment
 from track_reasoning import (
     TrackMonitor,
     PendingScrobbleQueue,
+    AlbumIdentityGuard,
     identity_key,
     expected_end,
     scrobble_identity_confident,
     scrobble_is_eligible,
+    UNKNOWN_DURATION_SCROBBLE_SECONDS,
 )
 from telemetry import DatasetCollector
 from experiment import ExperimentHarness, TRUSTED_LABELS
@@ -60,6 +62,7 @@ recognition_session = RecognitionSession()
 track_monitor = TrackMonitor()
 pending_scrobbles = PendingScrobbleQueue()
 scrobble_dispatcher = None
+album_identity_guard = AlbumIdentityGuard()
 app_state = "IDLE"
 current_attempt = 1
 wake_up_time = 0
@@ -548,6 +551,7 @@ def _track_duration(match):
             match.get("title", ""),
             match.get("artist", ""),
             match.get("adamid"),
+            album=match.get("album"),
         ) or 0.0)
     return duration
 
@@ -556,9 +560,9 @@ def _make_track(match, session_start, start_timestamp, confidence, support=1,
                 conflicts=0, stage_seconds=0, previously_played=0.0):
     duration = _track_duration(match)
     if duration <= 0:
-        duration = 1200.0
+        duration = 0.0
         duration_known = False
-        scrobble_delay = 240.0
+        scrobble_delay = UNKNOWN_DURATION_SCROBBLE_SECONDS
     else:
         duration_known = True
         scrobble_delay = min(duration / 2.0, 240.0)
@@ -593,6 +597,11 @@ def _make_track(match, session_start, start_timestamp, confidence, support=1,
     }
     if duration_known:
         track["expected_end_time"] = float(start_timestamp) + duration
+    context_conflict = album_identity_guard.conflict(track, float(session_start))
+    if context_conflict:
+        track["identity_context_conflict"] = context_conflict
+        track["scrobble_pending_reason"] = context_conflict["reason"]
+        log(f"⚖️ Holding scrobble for {_track_id(track)}: {context_conflict['reason']}.")
     return track
 
 
@@ -644,6 +653,7 @@ def _publish_track(track, verified=False):
     global track_display_suppressed
     if not isinstance(track, dict):
         return
+    album_identity_guard.observe(track)
     with state_lock:
         if verified:
             track_display_suppressed = False
@@ -738,6 +748,9 @@ def _send_scrobble(track, mark_current=False):
         or scrobble_dispatcher is None
         or not scrobble_dispatcher.enabled
     ):
+        return False
+    # Final gate also covers delayed tracks promoted by boundary evidence.
+    if track.get("identity_context_conflict"):
         return False
     event_id = scrobble_event_id(track)
     if not event_id:
@@ -982,6 +995,9 @@ def process_tracking_audio_background(audio_data_bytes, window_start_timestamp, 
     if seconds < 2.0:
         with state_lock:
             track_monitor.record_result(request_id, None)
+            if request.get("kind") == "periodic" and current_track is not None and generation == track_monitor.generation:
+                current_track["duration_recheck_pending"] = False
+                current_track["duration_recheck_confirmed_at"] = None
         return
 
     try:
@@ -1011,6 +1027,27 @@ def process_tracking_audio_background(audio_data_bytes, window_start_timestamp, 
         action_name = action.get("action")
         old_snapshot = dict(current_track)
 
+    if action_name == "duration_rechecked":
+        with state_lock:
+            if current_track is None or generation != track_monitor.generation:
+                return
+            current_track["duration_recheck_pending"] = False
+            current_track["duration_recheck_confirmed_at"] = request["end"] if action["same"] else None
+            if action["same"]:
+                current_track["recognition_verified"] = True
+                current_track["recognition_confidence"] = "high"
+                if not current_track.get("identity_context_conflict"):
+                    current_track.pop("scrobble_pending_reason", None)
+            updated = dict(current_track)
+        if action["same"]:
+            log(f"✅ Unknown-duration recheck: still {_track_id(updated)}.")
+        elif action.get("match"):
+            log("🔎 Unknown-duration recheck heard a different song; confirming with fresh audio.")
+        else:
+            log("🔎 Unknown-duration recheck had no match; waiting for fresh confirmation before scrobbling.")
+        _publish_track(updated)
+        return
+
     if action_name == "verified":
         with state_lock:
             if current_track is None or generation != track_monitor.generation:
@@ -1023,18 +1060,9 @@ def process_tracking_audio_background(audio_data_bytes, window_start_timestamp, 
         _publish_track(updated, verified=True)
         return
 
-    if action_name == "unknown_candidate":
-        if match:
-            log(
-                f"🛰️ Unknown-duration boundary probe heard "
-                f"{match.get('title', 'another track')} - {match.get('artist', '')}; "
-                "waiting for a second consecutive match before changing tracks."
-            )
-        return
-
     if action_name == "hold_ambiguous":
         with state_lock:
-            if current_track is not None:
+            if current_track is not None and generation == track_monitor.generation:
                 current_track["recognition_conflicts"] = int(current_track.get("recognition_conflicts", 0)) + 1
                 current_track["scrobble_pending_reason"] = "Recognition evidence is contradictory"
                 updated = dict(current_track)
@@ -1058,11 +1086,12 @@ def process_tracking_audio_background(audio_data_bytes, window_start_timestamp, 
             stage_seconds=10,
             previously_played=float(old_snapshot.get("previously_played") or 0.0),
         )
+        replacement_track["scrobble_fired"] = bool(old_snapshot.get("scrobble_fired"))
         with state_lock:
             if current_track is None or generation != track_monitor.generation:
                 return
             current_track = replacement_track
-            scrobble_fired = False
+            scrobble_fired = replacement_track["scrobble_fired"]
             track_monitor.begin_track(current_track)
             wake_up_time = (
                 current_track.get("expected_end_time")
@@ -1079,30 +1108,35 @@ def process_tracking_audio_background(audio_data_bytes, window_start_timestamp, 
 
     if action_name == "continuation":
         with state_lock:
-            if current_track is None:
+            if current_track is None or generation != track_monitor.generation:
                 return
             current_track["recognition_verified"] = True
             current_track["recognition_confidence"] = "high"
-            old_end = expected_end(current_track) or float(action.get("anchor") or time.time())
-            current_track["expected_end_time"] = max(
-                old_end + 15.0,
-                time.time() + 10.0,
-            )
-            wake_up_time = current_track["expected_end_time"]
+            old_end = expected_end(current_track)
+            if old_end is not None and time.time() >= old_end:
+                current_track["expected_end_time"] = max(old_end + 15.0, time.time() + 10.0)
+                wake_up_time = current_track["expected_end_time"]
             updated = dict(current_track)
-        log(f"↪️ Shazam still hears the current track after its predicted end; extending boundary watch.")
+        if action.get("reason") == "music_recovery":
+            log("↪️ Same song after a quiet passage; preserving playback and scrobble state.")
+        elif action.get("reason") == "periodic_identity":
+            log("↪️ Fresh audio confirms the current song; retaining its playback state.")
+        else:
+            log("↪️ Shazam still hears the current track after its predicted end; extending boundary watch.")
         _publish_track(updated, verified=True)
         return
 
     if action_name == "boundary_unresolved":
         with state_lock:
-            if current_track is None:
+            if current_track is None or generation != track_monitor.generation:
                 return
-            old_end = expected_end(current_track) or float(action.get("anchor") or time.time())
-            current_track["expected_end_time"] = max(old_end + 15.0, time.time() + 8.0)
-            wake_up_time = current_track["expected_end_time"]
+            old_end = expected_end(current_track)
+            if old_end is not None and time.time() >= old_end:
+                current_track["expected_end_time"] = max(old_end + 15.0, time.time() + 8.0)
+                wake_up_time = current_track["expected_end_time"]
             current_track["scrobble_pending_reason"] = "Boundary not yet resolved"
-        log("⚖️ Expected boundary was inconclusive; keeping the current track and checking again later.")
+        context = "Quiet-passage check" if action.get("reason") == "music_recovery" else "Expected boundary"
+        log(f"⚖️ {context} was inconclusive; keeping the current track and checking again later.")
         return
 
     if action_name == "successor" and action.get("match"):
@@ -2122,7 +2156,7 @@ def listen_and_identify():
                             elif time_left > 0:
                                 m, sec = divmod(time_left, 60)
                                 scrob_str = f"In {m:02d}:{sec:02d} ⏳"
-                            elif not scrobble_identity_confident(current_track):
+                            elif not scrobble_identity_confident(current_track) or not scrobble_is_eligible(current_track, physical_now_for_scrobble):
                                 scrob_str = "Eligible · confirming identity ⚖️"
                             elif not lastfm_enabled():
                                 scrob_str = "Last.fm disabled"
@@ -2252,16 +2286,17 @@ def listen_and_identify():
                                 and abs(now - end_hint) <= 12.0
                             )
                             with state_lock:
-                                track_monitor.start_boundary(
+                                started = track_monitor.start_boundary(
                                     now,
                                     "music_recovery",
                                     strength="strong" if near_expected else "medium",
                                     previous_end=music_gap_started,
                                 )
-                            log(
-                                f"↗️ Music resumed after {gap_seconds:.1f}s; "
-                                "checking whether this is a new track."
-                            )
+                            if started:
+                                log(
+                                    f"↗️ Music resumed after {gap_seconds:.1f}s; "
+                                    "checking whether this is a new track."
+                                )
                         music_gap_started = None
                     silence_sleep = 0
                 else:
@@ -2289,6 +2324,8 @@ def listen_and_identify():
                         if rhythm_locked
                         else track_monitor.due_requests(now, current_track)
                     )
+                    if any(request["kind"] == "periodic" for request in tracking_requests):
+                        current_track["duration_recheck_pending"] = True
                 for request in tracking_requests:
                     snapshot = _extract_audio_window(
                         tracking_audio,
@@ -2305,14 +2342,9 @@ def listen_and_identify():
                 # intentional pause inside a song. Give it extra grace rather
                 # than immediately treating it as a needle lift.
                 silence_seconds = silence_sleep * (CHUNK / RATE)
-                remaining = (
-                    end_hint - now
-                    if end_hint is not None
-                    else None
-                )
-                required_silence_seconds = float(needle_lift_sec)
-                if remaining is not None and remaining > 12.0:
-                    required_silence_seconds = max(required_silence_seconds, 30.0)
+                # Catalogue timing is only a hint. A rest remains a possible
+                # internal pause even when the returned release has ended.
+                required_silence_seconds = max(float(needle_lift_sec), 30.0)
 
                 if silence_seconds >= required_silence_seconds and not rhythm_locked:
                     physical_now = now - silence_seconds
@@ -2359,8 +2391,8 @@ def listen_and_identify():
                         _send_scrobble(current_track, mark_current=True)
                     else:
                         current_track["scrobble_pending_reason"] = (
-                            "Eligible, but contradictory recognition evidence "
-                            "is still being resolved"
+                            current_track.get("identity_context_conflict", {}).get("reason")
+                            or "Eligible, but contradictory recognition evidence is still being resolved"
                         )
 
                 pending_scrobbles.expire(now)
