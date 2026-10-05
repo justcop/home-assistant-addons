@@ -1,7 +1,7 @@
 """Exact play-count analytics; no fabricated duration or session estimates."""
 
 import json
-from urllib.parse import urlsplit
+from .artwork import image_url
 
 from collections import Counter
 from datetime import datetime, timedelta, timezone
@@ -326,58 +326,43 @@ def history(conn, p, args, tz):
     return {"rows": rows, "total": total, "offset": offset}
 
 
-def cover_art(conn, kind, value, raw, args):
-    """Select existing remote thumbnail metadata; never fetch or store images."""
+def artwork_albums(conn, kind, value, raw, args):
     extra, params = source_scope(args or {})
     if kind == "artist":
         scope, values = "s.artist_key=?", (value,)
-    else:
+    elif kind in ("song", "album"):
         variant = "sv" if kind == "song" else "av"
         column = "id" if raw else "group_id"
         scope, values = f"{variant}.{column}=?", (int(value),)
-    # Keep each thumbnail tied to its actual scrobbled album, including merged
-    # versions. Artist/song covers are representative, never claimed portraits.
+    else:
+        raise ValueError("Unknown detail type")
     albums = conn.execute(
         f"SELECT s.artist,s.album,COUNT(*) AS plays {JOINS} "
         f"WHERE s.active=1 AND {scope} {extra} AND s.album<>'' "
-        "GROUP BY s.artist,s.album ORDER BY plays DESC,s.album LIMIT 3",
+        "GROUP BY s.artist,s.album ORDER BY plays DESC,s.album LIMIT 10",
         (*values, *params),
     ).fetchall()
+    return albums, scope, values, extra, params
+
+
+def cover_art(conn, kind, value, raw, args):
+    """Search distinct stored image metadata throughout the selected history."""
+    albums, scope, values, extra, params = artwork_albums(conn, kind, value, raw, args)
     for album in albums:
         rows = conn.execute(
-            f"SELECT s.raw_json {JOINS} WHERE s.active=1 AND {scope} {extra} "
-            "AND s.artist=? AND s.album=? ORDER BY s.ts DESC LIMIT 12",
+            f"SELECT DISTINCT json_extract(CASE WHEN json_valid(s.raw_json) "
+            f"THEN s.raw_json ELSE '{{}}' END,'$.image') AS images {JOINS} "
+            f"WHERE s.active=1 AND {scope} {extra} AND s.artist=? AND s.album=? "
+            "AND images IS NOT NULL",
             (*values, *params, album["artist"], album["album"]),
         )
         for row in rows:
             try:
-                images = json.loads(row[0]).get("image", [])
-                if not isinstance(images, list):
-                    continue
-                for size in ("large", "medium", "small"):
-                    for image in images:
-                        if not isinstance(image, dict) or image.get("size") != size:
-                            continue
-                        url = image.get("#text", "")
-                        if not isinstance(url, str) or len(url) > 2048:
-                            continue
-                        parsed = urlsplit(url)
-                        if (
-                            parsed.scheme == "https"
-                            and parsed.netloc
-                            in (
-                                "lastfm.freetls.fastly.net",
-                                "lastfm-img2.akamaized.net",
-                            )
-                            and "2a96cbd8b46e442fc41c2b86b821562f" not in url
-                        ):
-                            return {
-                                "url": url,
-                                "album": album["album"],
-                                "artist": album["artist"],
-                                "source": "Last.fm",
-                            }
-            except (ValueError, TypeError, AttributeError):
+                url = image_url(json.loads(row[0]))
+                if url:
+                    return dict(url=url, album=album["album"],
+                                artist=album["artist"], source="Last.fm")
+            except (ValueError, TypeError):
                 continue
     return None
 

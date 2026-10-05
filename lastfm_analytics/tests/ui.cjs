@@ -272,8 +272,8 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   assert.equal(await page.evaluate(() => localStorage.getItem('listening-version-mode')), 'raw');
   await page.goto((process.env.APP_URL || 'http://127.0.0.1:8105/') + '?demo=1');
   await page.locator('#content .metrics').waitFor();
-  assert.equal(await page.locator('[data-mode="raw"]').getAttribute('aria-pressed'), 'true');
-  assert.equal(await page.locator('[data-mode="raw"]').isVisible(), false);
+  assert.equal(await page.locator('#settings-preferences [data-mode="raw"]').getAttribute('aria-pressed'), 'true');
+  assert.equal(await page.locator('#settings-preferences [data-mode="raw"]').isVisible(), false);
   await page.route('**/api/grouping-review?**', async route => {
     await route.fulfill({json:{rows:[{artist:'Fixture artist', ids:[501,502], key:'song:501:502',
       versions:[
@@ -324,6 +324,58 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   assert.doesNotMatch(await page.locator('#cache-status').innerText(), /Updating/);
   assert.equal(await page.locator('#content .chart-scroll').getAttribute('data-zoom'), cachedZoom);
   await page.unroute("**/api/overview?**");
+  // Detail totals drill into the selected entity and Back restores its dialog.
+  await page.locator('#nav [data-view="overview"]').click();
+  await page.locator('#content [data-detail="artist"][data-id="the beatles"]').click();
+  await page.locator('#detail-dialog [data-browse="albums"]').waitFor();
+  for (const [view, title] of [['albums', 'Albums'], ['songs', 'Songs'], ['history', 'Listening history'], ['artists', 'Artists']]) {
+    await page.locator(`#detail-dialog [data-browse="${view}"]`).click();
+    await page.locator('#content table').waitFor();
+    assert.equal(await page.locator('#page-title').innerText(), title);
+    assert.match(await page.locator('#content .filter-chip').innerText(), /The Beatles/);
+    assert.equal(new URL(page.url()).searchParams.get('entity'), 'artist');
+    assert.equal(new URL(page.url()).searchParams.get('id'), 'the beatles');
+    assert.equal(new URL(page.url()).searchParams.get('period'), 'all');
+    assert.doesNotMatch(await page.locator('#content tbody').innerText(), /Oasis|Radiohead/);
+    await page.goBack();
+    await page.locator('#detail-dialog [data-browse="albums"]').waitFor();
+    assert.match(await page.locator('#detail-content h2').first().innerText(), /The Beatles/);
+  }
+  // An album's Songs total lists just that album's songs.
+  await page.locator('#detail-dialog [data-browse="albums"]').click();
+  await page.locator('#content [data-detail="album"]').first().click();
+  await page.locator('#detail-dialog [data-browse="songs"]').waitFor();
+  const albumId = await page.locator('#detail-dialog [data-browse="songs"]').getAttribute('data-id');
+  await page.locator('#detail-dialog [data-browse="songs"]').click();
+  await page.locator('#content table').waitFor();
+  assert.equal(new URL(page.url()).searchParams.get('entity'), 'album');
+  assert.equal(new URL(page.url()).searchParams.get('id'), albumId);
+  await page.locator('#clear-filter').click();
+  await page.waitForFunction(() => !document.querySelector('#content .filter-chip'));
+  assert.equal(new URL(page.url()).searchParams.has('entity'), false);
+  // Metadata arrives later without discarding the chart or changing its zoom.
+  await page.route('**/api/detail?*', async route => {
+    const response = await route.fetch();
+    const data = await response.json();
+    data.artwork = null; data.artwork_pending = true;
+    await route.fulfill({response, json:data});
+  });
+  await page.route('**/api/artwork?*', route => route.fulfill({json:{artwork_pending:false,
+    artwork:{url:'https://lastfm.freetls.fastly.net/i/u/174s/fixture.png',artist:'The Beatles',album:'Abbey Road'}}}));
+  await page.route('https://lastfm.freetls.fastly.net/**', route => route.fulfill({path:path.join(__dirname, '../analytics/static/icon-192.png'),contentType:'image/png'}));
+  await page.locator('#nav [data-view="overview"]').click();
+  await page.locator('#content [data-detail="artist"][data-id="the beatles"]').click();
+  await page.locator('#detail-dialog [data-chart-zoom="in"]').click();
+  const artworkZoom = await page.locator('#detail-dialog .chart-scroll').getAttribute('data-zoom');
+  await page.locator('#detail-artwork-slot img').waitFor();
+  await page.waitForFunction(() => document.querySelector('#detail-artwork-slot img')?.naturalWidth > 0);
+  assert.equal(await page.locator('#detail-dialog .chart-scroll').getAttribute('data-zoom'), artworkZoom);
+  await page.setViewportSize({width:320,height:700});
+  assert.equal(await page.locator('#detail-content').evaluate(el => el.scrollWidth <= el.clientWidth), true);
+  await page.screenshot({path:path.join(output, 'artist-detail-artwork-mobile.png')});
+  await page.unroute('**/api/detail?*');
+  await page.unroute('**/api/artwork?*');
+  await page.unroute('https://lastfm.freetls.fastly.net/**');
   assert.deepEqual(errors, []);
   console.log(
     "UI passed: setup, demo, dates, history, search, detail, separate, merge, undo, mobile, dark, heatmap and safe text rendering.",

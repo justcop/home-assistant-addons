@@ -28,6 +28,7 @@ from .review import review
 from .db import Database
 from .demo import seed
 from .sync import SyncWorker
+from .artwork import ArtworkWorker
 
 DEFAULTS = {
     "username": "",
@@ -127,6 +128,9 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SECURE=not development,
         SESSION_COOKIE_SAMESITE="Lax",
+        # A slow background read must not reissue an authenticated cookie
+        # after a later logout response has cleared it.
+        SESSION_REFRESH_EACH_REQUEST=False,
         PERMANENT_SESSION_LIFETIME=timedelta(days=7),
     )
     password_hash = generate_password_hash(password) if password else None
@@ -138,6 +142,8 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
     worker = SyncWorker(database, config)
     app.extensions["database"] = database
     app.extensions["sync_worker"] = worker
+    artwork_worker = ArtworkWorker(config["api_key"], enabled=start_worker)
+    app.extensions["artwork_worker"] = artwork_worker
 
     def calculate_rankings(db, args):
         with db.connect() as conn:
@@ -462,19 +468,35 @@ self.addEventListener('fetch', event => {
             conn.execute("BEGIN")
             return jsonify(insights.history(conn, dates(conn), request.args, tz))
 
+    def detail_artwork(db, result=None):
+        kind, value = request.args.get("entity"), request.args.get("id")
+        raw = request.args.get("mode") == "raw"
+        with db.connect() as conn:
+            conn.execute("BEGIN")
+            artwork = result.get("artwork") if result else insights.cover_art(
+                conn, kind, value, raw, request.args)
+            albums = insights.artwork_albums(conn, kind, value, raw, request.args)[0]
+        if artwork:
+            return dict(artwork=artwork, artwork_pending=False)
+        if is_demo():
+            return dict(artwork=None, artwork_pending=False)
+        return artwork_worker.resolve(db, albums)
+
+    @app.get("/api/artwork")
+    def artwork():
+        return jsonify(detail_artwork(db_for_request()))
+
     @app.get("/api/detail")
     def detail():
-        with db_for_request().connect() as conn:
+        db = db_for_request()
+        with db.connect() as conn:
             conn.execute("BEGIN")
-            return jsonify(
-                insights.details(
-                    conn,
-                    request.args.get("entity"),
-                    request.args.get("id"),
-                    request.args.get("mode") == "raw",
-                    request.args,
-                )
+            result = insights.details(
+                conn, request.args.get("entity"), request.args.get("id"),
+                request.args.get("mode") == "raw", request.args,
             )
+        result.update(detail_artwork(db, result))
+        return jsonify(result)
 
     @app.get("/api/grouping-review")
     def grouping_review():

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.8
+
+- Prevent an in-flight background read from restoring the browser session after sign-out. Direct browser sessions now expire seven days after sign-in.
+
+- Find covers in older scrobbles and more of an artist’s albums. When imported images are missing, retrieve small Last.fm album thumbnail URLs in a paced background worker. Store URL metadata only and show a loading or unavailable status.
+- Make statistic totals clickable in Overview, Trends and detail pages. Open artist, album, song or scrobble lists with the current item, dates, source and version display retained. Show the item filter in rankings and preserve Back navigation to the detail view.
+
 ## 0.2.7
 
 - Save Overview/Trends, detail analyses and artist/album/song rankings across restarts. Show saved results immediately while a single background worker refreshes changed data.
