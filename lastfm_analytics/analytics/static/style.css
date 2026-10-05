@@ -1495,3 +1495,14 @@ dialog { overscroll-behavior: contain; }
   .calendar-month { min-width:0; font-size:clamp(7px,2.2vw,9px); }
   .calendar-year { text-align:left; font-size:9px; }
 }
+
+.detail-heading { display: flex; gap: 18px; align-items: center; margin-bottom: 20px; }
+.detail-heading > div { min-width: 0; overflow-wrap: anywhere; }
+.detail-artwork { margin: 0; flex: 0 0 112px; width: 112px; }
+.detail-artwork img { display: block; width: 112px; height: 112px; object-fit: cover; border-radius: 12px; }
+.detail-artwork figcaption { font-size: 11px; line-height: 1.4; opacity: .7; margin-top: 6px; overflow-wrap: anywhere; }
+@media (max-width: 480px) {
+  .detail-heading { gap: 12px; align-items: flex-start; }
+  .detail-artwork { flex-basis: 88px; width: 88px; }
+  .detail-artwork img { width: 88px; height: 88px; }
+}

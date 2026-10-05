@@ -777,3 +777,45 @@ def test_invalid_config_values_have_credential_free_errors(tmp_path):
         with pytest.raises(ConfigurationError) as failure:
             load_config(tmp_path)
         assert field in str(failure.value) and "secret-value" not in str(failure.value)
+
+
+def test_remote_cover_art_for_each_detail_type(db):
+    from analytics.insights import details
+
+    thumbnail = "https://lastfm.freetls.fastly.net/i/u/174s/cover.jpg"
+    row = play(100)
+    row["raw"]["image"] = [
+        {"size": "extralarge", "#text": "https://lastfm.freetls.fastly.net/full.jpg"},
+        {"size": "large", "#text": thumbnail},
+    ]
+    db.apply_window(0, 200, [row])
+    with db.connect() as conn:
+        artist = conn.execute("SELECT artist_key FROM scrobbles").fetchone()[0]
+        for kind, value in [("artist", artist), ("song", 1), ("album", 2)]:
+            for raw in (True, False):
+                result = details(conn, kind, value, raw)
+                assert result["artwork"]["url"] == thumbnail
+                assert result["artwork"]["album"] == "Abbey Road"
+        assert (
+            details(conn, "artist", artist, False, {"source": "vinyl"})["artwork"]
+            is None
+        )
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "javascript:alert(1)",
+        "https://evil.example/cover.jpg",
+        "http://lastfm.freetls.fastly.net/a.jpg",
+        "https://lastfm.freetls.fastly.net/i/2a96cbd8b46e442fc41c2b86b821562f.png",
+    ],
+)
+def test_artwork_ignores_untrusted_urls_and_placeholder(db, url):
+    from analytics.insights import details
+
+    row = play(100)
+    row["raw"]["image"] = [{"size": "large", "#text": url}]
+    db.apply_window(0, 200, [row])
+    with db.connect() as conn:
+        assert details(conn, "song", 1, False)["artwork"] is None

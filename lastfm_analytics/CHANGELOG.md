@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4
+
+- Add remote Last.fm album thumbnails to artist, album and song details without storing image files or fetching metadata during page load. Artist/song artwork is labelled with its representative album. Missing or failed covers leave the statistics usable.
+
 ## 0.2.3
 
 - Choose individual versions from merge suggestions, including a subset of already grouped versions, and edit their combined display name before merging. Undo restores previous names and grouping.

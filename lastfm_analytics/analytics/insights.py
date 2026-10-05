@@ -1,5 +1,8 @@
 """Exact play-count analytics; no fabricated duration or session estimates."""
 
+import json
+from urllib.parse import urlsplit
+
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -323,6 +326,62 @@ def history(conn, p, args, tz):
     return {"rows": rows, "total": total, "offset": offset}
 
 
+def cover_art(conn, kind, value, raw, args):
+    """Select existing remote thumbnail metadata; never fetch or store images."""
+    extra, params = source_scope(args or {})
+    if kind == "artist":
+        scope, values = "s.artist_key=?", (value,)
+    else:
+        variant = "sv" if kind == "song" else "av"
+        column = "id" if raw else "group_id"
+        scope, values = f"{variant}.{column}=?", (int(value),)
+    # Keep each thumbnail tied to its actual scrobbled album, including merged
+    # versions. Artist/song covers are representative, never claimed portraits.
+    albums = conn.execute(
+        f"SELECT s.artist,s.album,COUNT(*) AS plays {JOINS} "
+        f"WHERE s.active=1 AND {scope} {extra} AND s.album<>'' "
+        "GROUP BY s.artist,s.album ORDER BY plays DESC,s.album LIMIT 3",
+        (*values, *params),
+    ).fetchall()
+    for album in albums:
+        rows = conn.execute(
+            f"SELECT s.raw_json {JOINS} WHERE s.active=1 AND {scope} {extra} "
+            "AND s.artist=? AND s.album=? ORDER BY s.ts DESC LIMIT 12",
+            (*values, *params, album["artist"], album["album"]),
+        )
+        for row in rows:
+            try:
+                images = json.loads(row[0]).get("image", [])
+                if not isinstance(images, list):
+                    continue
+                for size in ("large", "medium", "small"):
+                    for image in images:
+                        if not isinstance(image, dict) or image.get("size") != size:
+                            continue
+                        url = image.get("#text", "")
+                        if not isinstance(url, str) or len(url) > 2048:
+                            continue
+                        parsed = urlsplit(url)
+                        if (
+                            parsed.scheme == "https"
+                            and parsed.netloc
+                            in (
+                                "lastfm.freetls.fastly.net",
+                                "lastfm-img2.akamaized.net",
+                            )
+                            and "2a96cbd8b46e442fc41c2b86b821562f" not in url
+                        ):
+                            return {
+                                "url": url,
+                                "album": album["album"],
+                                "artist": album["artist"],
+                                "source": "Last.fm",
+                            }
+            except (ValueError, TypeError, AttributeError):
+                continue
+    return None
+
+
 def details(conn, kind, value, raw, args=None):
     source_extra, source_params = source_scope(args or {})
     if kind == "artist":
@@ -331,7 +390,12 @@ def details(conn, kind, value, raw, args=None):
         ).fetchone()
         if not name:
             raise ValueError("Artist not found")
-        return {"name": name[0], "artist": "", "versions": []}
+        return {
+            "name": name[0],
+            "artist": "",
+            "versions": [],
+            "artwork": cover_art(conn, kind, value, raw, args),
+        }
     if kind not in ("song", "album"):
         raise ValueError("Unknown detail type")
     value = int(value)
@@ -356,4 +420,5 @@ def details(conn, kind, value, raw, args=None):
         "name": versions[0]["name"] if raw else group["name"],
         "artist": group["artist"],
         "versions": versions,
+        "artwork": cover_art(conn, kind, value, raw, args),
     }
