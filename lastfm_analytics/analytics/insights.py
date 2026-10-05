@@ -17,7 +17,7 @@ def period(args, tz, now=None, earliest=None):
     now = now or datetime.now(timezone.utc)
     local = now.astimezone(tz)
     end = int(now.timestamp()) + 1
-    name = args.get("period", "30d")
+    name = args.get("period", "all")
     if name == "custom":
         try:
             start_dt = datetime.strptime(args["start"], "%Y-%m-%d").replace(tzinfo=tz)

@@ -1495,3 +1495,28 @@ dialog { overscroll-behavior: contain; }
   .calendar-month { min-width:0; font-size:clamp(7px,2.2vw,9px); }
   .calendar-year { text-align:left; font-size:9px; }
 }
+
+.settings-version-heading { margin:16px 0 10px; }
+.settings-preferences .segment { width:fit-content; max-width:100%; }
+.settings-preferences .method-note { margin-top:10px; }
+.merge-name select { width:100%; min-width:0; max-width:100%; }
+
+.metric-label { align-items:center; gap:8px; }
+.metric-label span { font-size:24px; line-height:1; flex-shrink:0; }
+.period-picker { display:flex; align-items:center; gap:8px; min-width:0; }
+.period-picker #period { width:auto; flex:1; min-width:0; }
+.vinyl-toggle { flex-shrink:0; display:grid; place-items:center; }
+.vinyl-toggle[aria-pressed="true"] { color:var(--accent); background:var(--accent-light); box-shadow:inset 0 0 0 1px var(--accent); }
+@media (max-width:620px) { .period-picker { width:100%; } .vinyl-toggle { min-width:44px; min-height:44px; } }
+
+.history-table { table-layout:fixed; min-width:700px; white-space:normal; }
+.history-table .history-time { width:110px; }
+.history-table .history-song { width:42%; }
+.history-table .history-artist { width:24%; }
+.history-table td { overflow-wrap:anywhere; }
+.history-table td:first-child:not([colspan]) { white-space:nowrap; }
+.history-table td.name-cell { min-width:260px; max-width:none; }
+@media (max-width:620px) {
+  .history-table th, .history-table td { padding-left:12px; padding-right:12px; }
+  .history-table .history-time { width:90px; }
+}

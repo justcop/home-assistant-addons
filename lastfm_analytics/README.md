@@ -208,3 +208,19 @@ Sign-out and colour/light-dark controls are in Settings. The small Sync button s
 next to Settings. Pinch timeline graphs to zoom around your fingers, use one finger
 to scroll sideways, or use the zoom/reset buttons. The year/month heatmap fits the
 phone width with a smaller year gutter.
+
+## Display and navigation
+
+The default date range is **All time**. **Reset** beside the date range returns to
+all-time listening across all sources, clearing custom dates, search, item filters
+and pagination. Tap the record icon beside it to toggle **Vinyl only**.
+
+Choose **Combined versions** or **Last.fm entries** in Settings. The preference is
+remembered on this browser. Merge names offer a dropdown of the selected versions
+with their scrobble counts. Names without brackets sort first, then by most
+scrobbles. You can choose another listed name or edit the text directly.
+
+Menus and details create browser navigation history. Back returns to the previous
+menu or closes a detail first; Forward reopens it. Previous filters and searches
+are restored. Diary song names have a wider column, with horizontal table scrolling
+on narrow phones.

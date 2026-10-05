@@ -76,30 +76,21 @@
           </div>
         </header>
         <div class="toolbar" id="toolbar">
-          <div class="segment" aria-label="Ranking mode">
-            <button data-mode="merged" aria-pressed="true">
-              Combined versions</button
-            ><button data-mode="raw" aria-pressed="false">
-              Last.fm entries
-            </button>
-          </div>
           <div class="date-controls">
-            <label for="source" class="sr-only">Listening source</label>
-            <select id="source" title="Vinyl includes confirmed Vinyl Guardian submissions. Unmatched scrobbles have an unknown source.">
-              <option value="all">All listening</option>
-              <option value="vinyl">Vinyl only</option>
-              <option value="unknown">Unknown source</option>
-            </select>
+            <div class="period-picker">
+            <button id="source" class="icon-button vinyl-toggle" aria-label="Vinyl only" aria-pressed="false" title="Vinyl only">
+              <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r=".7" fill="currentColor"/></svg>
+            </button>
             <label for="period" class="sr-only">Date range</label
             ><select id="period">
               <option value="7d">Last 7 days</option>
-              <option value="30d" selected>Last 30 days</option>
+              <option value="30d">Last 30 days</option>
               <option value="90d">Last 90 days</option>
               <option value="365d">Last 365 days</option>
-              <option value="all">All time</option>
+              <option value="all" selected>All time</option>
               <option value="custom">Custom dates</option>
               <optgroup id="year-options" label="Calendar years"></optgroup></select
-            ><span id="custom-dates" hidden
+            ><button id="reset-filters" class="button quiet" title="Reset to all-time listening with all sources">Reset</button></div><span id="custom-dates" hidden
               ><label>From <input type="date" id="start" /></label
               ><label>To <input type="date" id="end" /></label
               ><button id="apply-dates" class="button">Apply</button></span
@@ -110,7 +101,16 @@
         <div id="error" role="alert" hidden></div>
         <div id="loading-status" class="loading-status" role="status" hidden><span class="spinner" aria-hidden="true"></span> Loading analysis…</div>
         <section id="settings-preferences" class="panel settings-preferences" hidden aria-label="Appearance and account settings">
-          <h2>Appearance and account</h2>
+          <h2>Display and account</h2>
+          <h3 class="settings-version-heading">Version display</h3>
+          <div class="segment" aria-label="Version display">
+            <button data-mode="merged" aria-pressed="true">
+              Combined versions</button
+            ><button data-mode="raw" aria-pressed="false">
+              Last.fm entries
+            </button>
+          </div>
+          <p class="method-note">Use combined totals or the original Last.fm entries throughout your listening views.</p>
           <div class="preference-controls">
             <label for="palette">Colour theme <select id="palette"><option value="violet">Violet</option><option value="ocean">Ocean</option><option value="forest">Forest</option><option value="rose">Rose</option><option value="amber">Amber</option></select></label>
             <button id="theme" class="button" aria-label="Switch light or dark appearance">Switch light / dark</button>
