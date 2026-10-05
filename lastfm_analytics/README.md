@@ -211,14 +211,18 @@ phone width with a smaller year gutter.
 
 ## Cover art
 
-Detail pages use small Last.fm thumbnail URLs already present in imported scrobbles.
-The browser loads images directly from Last.fm's image CDN; the add-on never downloads
-or stores image files and does not create a browser image cache. Normal browser HTTP
-caching may still apply. Artist and song pages show a representative album cover,
-labelled with the album name, favouring the most played album for the selected source.
-Artwork is independent of the selected date period. Blank, default or unavailable
-covers are omitted. History without image metadata cannot supply a cover until
-Last.fm provides one in an imported scrobble. No MusicBrainz matching is needed.
+Detail pages search stored Last.fm thumbnail metadata throughout the selected history,
+including older scrobbles and up to ten of the most played albums. If no usable image
+is present, a background worker queries Last.fm `album.getInfo` for up to three
+scrobbled albums, using the configured API key. Statistics remain usable while the
+cover loads. Requests are paced and deduplicated; successful URL metadata is saved
+for 30 days, absent covers for one day, and temporary failures for five minutes.
+
+The browser loads small images directly from Last.fm's image CDN. The add-on stores
+URLs only, never image files. Normal browser HTTP caching may apply. Artist and song
+pages show a representative album cover, labelled with the album name, rather than
+an artist portrait. Artwork respects the source filter and is independent of the
+selected date period. Missing or failed images show a short status message.
 
 ## Display and navigation
 
@@ -235,6 +239,12 @@ Menus and details create browser navigation history. Back returns to the previou
 menu or closes a detail first; Forward reopens it. Previous filters and searches
 are restored. Diary song names have a wider column, with horizontal table scrolling
 on narrow phones.
+
+Statistic totals in Overview, Trends and artist/album/song details open the relevant
+rankings or scrobbles. Detail links retain the selected item, date range, source and
+version display. For example, Albums on The Beatles opens only their albums;
+Songs on an album opens only songs scrobbled from that album. The visible item chip
+can clear this filter. Back returns to the detail page you came from.
 
 ## Saved analytics views
 

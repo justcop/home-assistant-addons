@@ -1518,3 +1518,11 @@ dialog { overscroll-behavior: contain; }
 }
 
 .cache-status { font-size: 12px; color: var(--muted); margin: 0 0 12px; }
+
+.metric-link { text-align:left; color:var(--ink); font:inherit; cursor:pointer; }
+.metric-link:hover { border-color:var(--accent); }
+.metric-link:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+.metric-link .metric-value, .metric-comparison { display:block; }
+#detail-artwork-slot:empty { display:none; }
+
+#detail-artwork-slot { flex-shrink:0; max-width:112px; }

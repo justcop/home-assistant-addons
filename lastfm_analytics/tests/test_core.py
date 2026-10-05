@@ -579,7 +579,9 @@ def test_direct_password_login_logout_and_password_change(tmp_path):
         environ_overrides=env,
     )
     assert signed_in.status_code == 302
-    assert client.get("/api/status", environ_overrides=env).status_code == 200
+    status = client.get("/api/status", environ_overrides=env)
+    assert status.status_code == 200
+    assert "Set-Cookie" not in status.headers
     home = client.get("/", environ_overrides=env, headers={"X-Ingress-Path": "/fake"})
     assert '<base href="/"' in home.text and 'id="logout"' in home.text
     csrf = re.search(r'name="csrf-token" content="([^"]+)"', home.text).group(1)

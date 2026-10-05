@@ -38,6 +38,7 @@ def main():
     )
 
     def shutdown(*_):
+        app.extensions["artwork_worker"].close()
         app.extensions["view_cache"].close()
         app.extensions["sync_worker"].close()
         server.close()
@@ -48,6 +49,7 @@ def main():
     try:
         server.run()
     finally:
+        app.extensions["artwork_worker"].close()
         app.extensions["view_cache"].close()
         app.extensions["sync_worker"].close()
 
