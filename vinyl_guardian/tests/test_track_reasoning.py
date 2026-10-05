@@ -167,7 +167,7 @@ class AudioWindowTests(unittest.TestCase):
                    AUDIO_ONSET_THRESHOLD=0, MIN_AUDIO_SECONDS=2,
                    recognize_shazam=None, recognize_fragment=lambda *args: (match("Because (Remastered 2009)", "abbey"), 0),
                    time=SimpleNamespace(time=lambda: 1045), expected_end=expected_end,
-                   _track_id=lambda t: t["title"], _publish_track=lambda t: None,
+                   _track_id=lambda t: t["title"], _publish_track=lambda t, **kwargs: None,
                    log=logs.append, wake_up_time=1180, scrobble_fired=True)
         exec(compile(ast.Module(body=[function], type_ignores=[]), "handler", "exec"), env)
         for request in requests:
