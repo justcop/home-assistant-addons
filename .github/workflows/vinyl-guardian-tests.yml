@@ -40,6 +40,9 @@ jobs:
             --build-arg BUILD_ARCH=amd64 \
             -t vinyl-guardian-test \
             vinyl_guardian
+      - name: Smoke-test runtime imports in built image
+        run: |
+          docker run --rm --entrypoint python3 vinyl-guardian-test -c "import audioop; from shazamio import Shazam; import pydub; print('Shazam runtime imports OK')"
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
