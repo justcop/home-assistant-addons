@@ -62,23 +62,22 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   await page.locator("#undo:not([disabled])").waitFor();
   await page.locator("#undo").click();
   await page.waitForFunction(() => document.querySelector("#undo")?.disabled);
-  // Merge groups and undo, using a live performance and studio song by same artist.
+  // Candidates are reviewed separately from existing merged groups.
+  await page.locator('[data-group-tab="skipped"]').click();
   await page.locator("#search").fill("Come as You Are");
   await page.waitForTimeout(450);
-  await page.waitForFunction(
-    () => document.querySelectorAll(".group-select").length === 2,
-  );
-  await page.locator(".group-select").nth(0).check();
-  await page.locator(".group-select").nth(1).check();
-  await page.locator("#merge").click();
+  await page.locator("[data-candidate-merge]").first().waitFor();
+  await page.locator("[data-candidate-merge]").first().click();
   await page.locator("#confirm-ok").click();
-  await page.waitForFunction(
-    () => document.querySelectorAll(".group-select").length === 1,
-  );
+  await page.locator('[data-group-tab="merged"]').click();
+  await page.locator("#search").fill("Come as You Are");
+  await page.waitForTimeout(450);
+  await page.locator(".review-card").first().waitFor();
   await page.locator("#undo").click();
-  await page.waitForFunction(
-    () => document.querySelectorAll(".group-select").length === 2,
-  );
+  await page.locator('[data-group-tab="skipped"]').click();
+  await page.locator("#search").fill("Come as You Are");
+  await page.waitForTimeout(450);
+  await page.locator("[data-candidate-merge]").first().waitFor();
   // Mobile and dark theme, accessible navigation, no page overflow.
   await page.locator('#nav [data-view="overview"]').click();
   await page.locator("#period").selectOption("30d");
@@ -88,6 +87,15 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
     path: path.join(output, "overview-dark.png"),
     fullPage: true,
   });
+  for (const width of [320, 390, 430]) {
+    await page.setViewportSize({ width, height: 844 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    const buttons = await page.locator("#nav button").evaluateAll(nodes => nodes.map(n => {
+      const r = n.getBoundingClientRect();
+      return { width: r.width, height: r.height, bottom: r.bottom, top: r.top };
+    }));
+    assert.ok(buttons.every(b => b.width >= 44 && b.height >= 44 && b.bottom <= 844 && b.top > 700));
+  }
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({
     path: path.join(output, "overview-mobile.png"),
@@ -99,8 +107,58 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
     ),
     false,
   );
+  await page.locator("#palette").selectOption("ocean");
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.palette), "ocean");
+  await page.route("**/api/overview?**", async route => {
+    const response = await route.fetch();
+    const data = await response.json();
+    data.timeline = Array.from({length:240},(_,i)=> {
+      const year = 2006 + Math.floor(i/12), month = i%12+1;
+      const prefix = `${year}-${String(month).padStart(2,"0")}`;
+      return {label:prefix,start:`${prefix}-01`,end:`${prefix}-28`,plays:12};
+    });
+    await route.fulfill({response,json:data});
+  });
+  await page.locator("#period").selectOption("all");
+  await page.waitForFunction(() => document.querySelectorAll("#content .bar-chart button").length === 240);
+  for (const width of [320,390,1440]) {
+    await page.setViewportSize({width,height:844});
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    assert.ok(await page.locator("#content .chart-scroll").evaluate(n=>n.scrollWidth>n.clientWidth));
+  }
+  const before = await page.locator("#content .bar-chart").evaluate(n=>n.scrollWidth);
+  await page.locator("#content .chart-zoom").evaluate(n=>{n.value="4";n.dispatchEvent(new Event("input",{bubbles:true}));});
+  assert.ok(await page.locator("#content .bar-chart").evaluate(n=>n.scrollWidth)>before);
+  assert.equal(await page.locator("#content .calendar-cell:not(.unavailable)").count(),240);
+  await page.locator("#content .chart-scroll").evaluate(n=>n.scrollLeft=500);
+  assert.ok(await page.locator("#content .chart-scroll").evaluate(n=>n.scrollLeft)>0);
+  await page.unroute("**/api/overview?**");
+  await page.setViewportSize({width:390,height:844});
+  await page.locator("#period").selectOption("30d");
+  await page.locator("#content .list-row").first().click();
+  await page.locator("#detail-dialog .calendar-heatmap").waitFor();
+  const bounds = await page.locator("#detail-dialog").boundingBox();
+  assert.equal(Math.round(bounds.width),390);
+  assert.equal(Math.round(bounds.height),844);
+  assert.ok(await page.evaluate(()=>document.body.classList.contains("modal-open")));
+  await page.locator("#close-detail").click();
+  await page.waitForFunction(()=>!document.body.classList.contains("modal-open"));
+  const yearOption = await page.locator("#year-options option").first().getAttribute("value");
+  await page.route("**/api/overview?**", async route => {
+    await new Promise(resolve => setTimeout(resolve, 700));
+    await route.continue();
+  });
+  await page.locator("#period").selectOption(yearOption);
+  await page.locator("#loading-status").waitFor({state:"visible"});
+  await page.waitForFunction(()=>document.querySelector("#content").getAttribute("aria-busy")==="false");
+  await page.unroute("**/api/overview?**");
+  await page.locator("#period").selectOption("30d");
   await page.locator('#nav [data-view="trends"]').click();
   await page.locator(".heatmap").waitFor();
+  assert.equal(await page.locator('#nav [data-view="trends"]').getAttribute("aria-current"), "page");
+  await page.locator("#period").selectOption("custom");
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.locator("#period").selectOption("30d");
   assert.equal(await page.locator(".heatmap .cell").count(), 168);
   await page.locator('#nav [data-view="history"]').click();
   await page.locator("#content table").waitFor();

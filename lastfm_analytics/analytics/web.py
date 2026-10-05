@@ -1,3 +1,4 @@
+from datetime import datetime
 import hashlib
 import json
 import os
@@ -5,12 +6,24 @@ import re
 import secrets
 import threading
 import time
+from datetime import timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from flask import Flask, abort, jsonify, render_template, request
+from flask import (
+    Response,
+    Flask,
+    abort,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    session,
+)
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from . import __version__, insights
+from .review import review
 from .db import Database
 from .demo import seed
 from .sync import SyncWorker
@@ -22,6 +35,7 @@ DEFAULTS = {
     "sync_interval_seconds": 300,
     "reconcile_days": 7,
     "demo_mode": False,
+    "web_password": "",
 }
 
 
@@ -45,6 +59,10 @@ def load_config(data_dir):
         raise ValueError("Use an IANA timezone such as Europe/London") from None
     if not isinstance(config["demo_mode"], bool):
         raise ValueError("demo_mode must be true or false")
+    if not isinstance(config["web_password"], str):
+        raise ValueError("Web password must be text")
+    if config["web_password"] and not 12 <= len(config["web_password"]) <= 256:
+        raise ValueError("Web password must have between 12 and 256 characters")
     return config
 
 
@@ -53,12 +71,39 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
     tz = ZoneInfo(config["timezone"])
     app = Flask(__name__)
     app.config["MAX_CONTENT_LENGTH"] = 65536
+    password = config["web_password"]
+    if password and not 12 <= len(password) <= 256:
+        raise ValueError("Web password must have between 12 and 256 characters")
+    secret_path = Path(data_dir) / "web-session-secret"
+    secret_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with secret_path.open("x") as handle:
+            secret_path.chmod(0o600)
+            handle.write(secrets.token_hex(32))
+    except FileExistsError:
+        pass
+    # Changing the configured password invalidates all existing sessions.
+    app.secret_key = hashlib.sha256(
+        (secret_path.read_text() + password).encode()
+    ).digest()
+    app.config.update(
+        SESSION_COOKIE_NAME="listening_session",
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SECURE=not development,
+        SESSION_COOKIE_SAMESITE="Lax",
+        PERMANENT_SESSION_LIFETIME=timedelta(days=7),
+    )
+    password_hash = generate_password_hash(password) if password else None
+    login_attempts = {}
+    login_lock = threading.Lock()
     csrf = secrets.token_urlsafe(32)
     account = hashlib.sha256(config["username"].casefold().encode()).hexdigest()[:24]
     database = Database(Path(data_dir) / f"listening-{account}.sqlite3")
     worker = SyncWorker(database, config)
     app.extensions["database"] = database
     app.extensions["sync_worker"] = worker
+    overview_cache = {}
+    cache_lock = threading.Lock()
     demo_lock = threading.Lock()
     demo_db = None
 
@@ -85,18 +130,90 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
         )
         return result
 
+    def ingress_request():
+        return not development and request.remote_addr == "172.30.32.2"
+
     @app.before_request
     def access():
         # Health carries no private data and must also be reachable by Supervisor.
         if request.path == "/health":
             return None
-        allowed = ("127.0.0.1", "::1") if development else ("172.30.32.2",)
-        if request.remote_addr not in allowed:
+        ingress = ingress_request()
+        local_dev = development and request.remote_addr in ("127.0.0.1", "::1")
+        if not ingress and not local_dev and not password_hash:
             abort(403)
+        if request.path == "/login" or request.path in (
+            "/static/style.css",
+            "/static/icon-192.png",
+            "/static/icon-512.png",
+            "/manifest.webmanifest",
+            "/sw.js",
+        ):
+            return None
+        if not ingress and not local_dev and not session.get("authenticated"):
+            if request.path.startswith("/api/"):
+                return jsonify(error="Sign in to continue."), 401
+            return redirect("/login")
         if request.method not in ("GET", "HEAD", "OPTIONS"):
             token = request.headers.get("X-CSRF-Token", "")
             if not secrets.compare_digest(token, csrf) or not request.is_json:
                 abort(403)
+
+    @app.route("/login", methods=["GET", "POST"])
+    def login():
+        if ingress_request():
+            return redirect(request_base())
+        if not password_hash:
+            abort(403)
+        error = None
+        code = 200
+        if "login_csrf" not in session:
+            session["login_csrf"] = secrets.token_urlsafe(32)
+        if request.method == "POST":
+            if not secrets.compare_digest(
+                request.form.get("csrf", ""), session["login_csrf"]
+            ):
+                abort(403)
+            now = time.monotonic()
+            with login_lock:
+                # Ignore spoofable forwarded headers, bound memory and password work.
+                for ip in list(login_attempts):
+                    if now - login_attempts[ip][0] >= 600:
+                        del login_attempts[ip]
+                ip = request.remote_addr
+                attempts = login_attempts.get(ip, [now, 0])
+                limited = (
+                    attempts[1] >= 10
+                    or sum(x[1] for x in login_attempts.values()) >= 100
+                )
+                if not limited:
+                    attempts[1] += 1
+                    login_attempts[ip] = attempts
+            if limited:
+                error, code = "Too many attempts. Try again in ten minutes.", 429
+            elif len(request.form.get("password", "")) <= 256 and check_password_hash(
+                password_hash, request.form.get("password", "")
+            ):
+                session.clear()
+                session["authenticated"] = True
+                session.permanent = True
+                return redirect("/")
+            else:
+                error, code = "Incorrect password.", 401
+        response = app.make_response(
+            (
+                render_template("login.html", error=error, csrf=session["login_csrf"]),
+                code,
+            )
+        )
+        if code == 429:
+            response.headers["Retry-After"] = "600"
+        return response
+
+    @app.post("/api/logout")
+    def logout():
+        session.clear()
+        return jsonify(ok=True)
 
     @app.after_request
     def headers(response):
@@ -122,14 +239,61 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
             conn.execute("SELECT 1").fetchone()
         return jsonify(status="ok", version=__version__)
 
-    @app.get("/")
-    def index():
-        prefix = request.headers.get("X-Ingress-Path", "") if not development else ""
+    def request_base():
+        prefix = request.headers.get("X-Ingress-Path", "") if ingress_request() else ""
         if prefix and not re.fullmatch(r"/[A-Za-z0-9_/-]+", prefix):
             abort(400)
         if "//" in prefix:
             abort(400)
-        return render_template("index.html", base=prefix.rstrip("/") + "/", csrf=csrf)
+        return prefix.rstrip("/") + "/"
+
+    @app.get("/")
+    def index():
+        return render_template(
+            "index.html",
+            base=request_base(),
+            csrf=csrf,
+            direct_login=bool(password_hash) and not ingress_request(),
+        )
+
+    @app.get("/manifest.webmanifest")
+    def manifest():
+        base = request_base()
+        response = jsonify(
+            id=base,
+            name="Listening Analytics",
+            short_name="Listening",
+            description="Explore your listening history and music statistics.",
+            start_url=base,
+            scope=base,
+            display="standalone",
+            background_color="#f5f6fa",
+            theme_color="#5b5fe9",
+            icons=[
+                {
+                    "src": base + f"static/icon-{size}.png",
+                    "sizes": f"{size}x{size}",
+                    "type": "image/png",
+                    "purpose": "any maskable",
+                }
+                for size in (192, 512)
+            ],
+        )
+        response.mimetype = "application/manifest+json"
+        return response
+
+    @app.get("/sw.js")
+    def service_worker():
+        # Network-only: private pages and API data never enter browser caches.
+        return Response(
+            """self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));
+self.addEventListener('fetch', event => {
+  if (event.request.mode === 'navigate') event.respondWith(fetch(event.request).catch(() =>
+    new Response('<!doctype html><meta name="viewport" content="width=device-width"><title>Listening Analytics</title><h1>You are offline</h1><p>Reconnect to open your listening history.</p>', { headers: { 'Content-Type': 'text/html' } })));
+});""",
+            mimetype="application/javascript",
+        )
 
     @app.get("/api/status")
     def status():
@@ -156,7 +320,20 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
             removed = conn.execute(
                 "SELECT COUNT(*) FROM scrobbles WHERE active=0"
             ).fetchone()[0]
+            years = []
+            if counts["earliest"] is not None:
+                first = datetime.fromtimestamp(counts["earliest"], tz).year
+                last = datetime.fromtimestamp(counts["latest"], tz).year
+                for year in range(last, first - 1, -1):
+                    start = int(datetime(year, 1, 1, tzinfo=tz).timestamp())
+                    end = int(datetime(year + 1, 1, 1, tzinfo=tz).timestamp())
+                    if conn.execute(
+                        "SELECT 1 FROM scrobbles WHERE active=1 AND ts>=? AND ts<? LIMIT 1",
+                        (start, end),
+                    ).fetchone():
+                        years.append(year)
             return jsonify(
+                years=years,
                 version=__version__,
                 demo=is_demo(),
                 configured=bool(config["username"] and config["api_key"]),
@@ -175,9 +352,23 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
 
     @app.get("/api/overview")
     def overview():
-        return jsonify(
-            insights.overview(db_for_request(), request.args, config["timezone"])
+        db = db_for_request()
+        key = (
+            str(db.path),
+            db.meta("analysis_revision", 0),
+            tuple(sorted(request.args.items())),
         )
+        now = time.monotonic()
+        with cache_lock:
+            cached = overview_cache.get(key)
+            if cached and now - cached[0] < 60:
+                return jsonify(cached[1])
+        result = insights.overview(db, request.args, config["timezone"])
+        with cache_lock:
+            if len(overview_cache) >= 16:
+                del overview_cache[next(iter(overview_cache))]
+            overview_cache[key] = (now, result)
+        return jsonify(result)
 
     @app.get("/api/rankings")
     def ranking():
@@ -223,13 +414,46 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
                 )
             )
 
+    @app.get("/api/grouping-review")
+    def grouping_review():
+        return jsonify(
+            review(
+                db_for_request(),
+                request.args.get("kind", "song"),
+                request.args.get("tab", "suggested"),
+                request.args.get("q", "")[:200],
+                max(0, int(request.args.get("offset", 0))),
+            )
+        )
+
     @app.post("/api/grouping")
     def grouping():
         data = request.get_json()
         if not isinstance(data, dict) or not isinstance(data.get("ids", []), list):
             raise ValueError("Invalid grouping request")
         db = db_for_request()
-        if data.get("action") == "undo":
+        if data.get("action") in ("dismiss", "restore"):
+            key = data.get("key", "")
+            if not re.fullmatch(r"(?:song|album):[0-9]+:[0-9]+", key):
+                raise ValueError("Invalid candidate")
+            with db.connect() as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                old = db.get(conn, "dismissed_candidates", [])
+                new = [k for k in old if k != key]
+                if data["action"] == "dismiss":
+                    new.append(key)
+                db.put(conn, "dismissed_candidates", new)
+                conn.execute(
+                    "INSERT INTO grouping_events(ts,description,before_json) VALUES (?,?,?)",
+                    (
+                        int(time.time()),
+                        "Updated candidate decision",
+                        json.dumps(
+                            {"aliases": [], "variants": [], "dismissed_candidates": old}
+                        ),
+                    ),
+                )
+        elif data.get("action") == "undo":
             db.undo_grouping()
         else:
             db.change_groups(data.get("action"), data.get("ids", []))

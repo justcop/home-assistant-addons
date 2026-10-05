@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.0
+
+- Add contained horizontal timeline scrolling and zoom, calendar-year selection, and year/month heatmaps in the library and entity details.
+- Add five persistent colour palettes, full-screen phone detail sheets and background scroll locking.
+- Replace the full unmerged-song list with suggestions, explained skipped candidates and existing merges, with remembered dismissals and optional artist-specific suffix learning.
+- Add loading feedback and revision-aware analysis caching for faster repeated views.
+- Add an installable network-only web app with an offline connection notice; private data is never cached in the service worker.
+
+- Improve phone layouts with persistent bottom navigation, larger touch targets, safe-area spacing and readable date controls.
+- Add web app manifest and home-screen icons, retaining Home Assistant authentication.
+- Add a configurable web password, secure login cookies, CSRF checks, login rate limiting and sign out for an optional direct HTTPS web app.
+- Keep Home Assistant Ingress access and disable direct access unless a password is configured.
+
 ## 0.1.0
 
 - Add a responsive light and dark Last.fm analytics dashboard with date filters, rankings, discovery, rediscovery, artist concentration and listening heatmaps.

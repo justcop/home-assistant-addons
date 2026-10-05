@@ -401,6 +401,26 @@ def test_web_ingress_csrf_setup_account_isolation_and_demo(tmp_path):
         headers={"X-Ingress-Path": "/api/hassio_ingress/fixture"},
     )
     assert b'<base href="/api/hassio_ingress/fixture/"' in home.data
+    manifest = client.get(
+        "/manifest.webmanifest",
+        environ_overrides=env,
+        headers={"X-Ingress-Path": "/api/hassio_ingress/fixture"},
+    )
+    assert manifest.json["start_url"] == "/api/hassio_ingress/fixture/"
+    assert manifest.json["scope"] == manifest.json["start_url"]
+    assert manifest.mimetype == "application/manifest+json"
+    assert client.get("/manifest.webmanifest").status_code == 403
+    assert (
+        client.get(
+            "/manifest.webmanifest",
+            headers={"X-Ingress-Path": "//evil.example"},
+            environ_overrides=env,
+        ).status_code
+        == 400
+    )
+    for icon in manifest.json["icons"]:
+        path = icon["src"].removeprefix("/api/hassio_ingress/fixture")
+        assert client.get(path, environ_overrides=env).status_code == 200
     import re
 
     csrf = re.search(r'name="csrf-token" content="([^"]+)"', home.text).group(1)
@@ -510,3 +530,194 @@ def test_history_filtering_and_exact_counts(db):
         )
         assert events["total"] == 2
         assert len(details(conn, "song", group["id"], False)["versions"]) == 2
+
+
+def test_direct_password_login_logout_and_password_change(tmp_path):
+    import re
+
+    config = {"web_password": "long-enough-password"}
+    app = create_app(tmp_path, config=config, start_worker=False)
+    client = app.test_client()
+    env = {"REMOTE_ADDR": "192.0.2.1", "wsgi.url_scheme": "https"}
+
+    def token(response):
+        return re.search(r'name="csrf" value="([^"]+)"', response.text).group(1)
+
+    assert client.get("/", environ_overrides=env).status_code == 302
+    assert client.get("/api/status", environ_overrides=env).status_code == 401
+    assert (
+        client.get(
+            "/", environ_overrides=env, headers={"X-Ingress-Path": "/fake"}
+        ).location
+        == "/login"
+    )
+    login = client.get("/login", environ_overrides=env)
+    cookie = login.headers["Set-Cookie"]
+    assert "Secure" in cookie and "HttpOnly" in cookie and "SameSite=Lax" in cookie
+    assert (
+        client.post(
+            "/login", data={"password": config["web_password"]}, environ_overrides=env
+        ).status_code
+        == 403
+    )
+    assert (
+        client.post(
+            "/login",
+            data={"csrf": token(login), "password": "wrong"},
+            environ_overrides=env,
+        ).status_code
+        == 401
+    )
+    signed_in = client.post(
+        "/login",
+        data={"csrf": token(login), "password": config["web_password"]},
+        environ_overrides=env,
+    )
+    assert signed_in.status_code == 302
+    assert client.get("/api/status", environ_overrides=env).status_code == 200
+    home = client.get("/", environ_overrides=env, headers={"X-Ingress-Path": "/fake"})
+    assert '<base href="/"' in home.text and 'id="logout"' in home.text
+    csrf = re.search(r'name="csrf-token" content="([^"]+)"', home.text).group(1)
+    assert client.post("/api/logout", json={}, environ_overrides=env).status_code == 403
+    old_cookie = client.get_cookie("listening_session").value
+    assert (
+        client.post(
+            "/api/logout",
+            json={},
+            environ_overrides=env,
+            headers={"X-CSRF-Token": csrf},
+        ).status_code
+        == 200
+    )
+    assert client.get("/api/status", environ_overrides=env).status_code == 401
+    changed = create_app(
+        tmp_path, config={"web_password": "new-long-password"}, start_worker=False
+    ).test_client()
+    changed.set_cookie("listening_session", old_cookie)
+    assert changed.get("/api/status", environ_overrides=env).status_code == 401
+    ingress = {"REMOTE_ADDR": "172.30.32.2"}
+    assert client.get("/api/status", environ_overrides=ingress).status_code == 200
+
+
+def test_direct_password_rate_limit_and_disabled_access(tmp_path):
+    import re
+
+    client = create_app(
+        tmp_path, config={"web_password": "long-enough-password"}, start_worker=False
+    ).test_client()
+    env = {"REMOTE_ADDR": "192.0.2.2", "wsgi.url_scheme": "https"}
+    login = client.get("/login", environ_overrides=env)
+    csrf = re.search(r'name="csrf" value="([^"]+)"', login.text).group(1)
+    for _ in range(10):
+        assert (
+            client.post(
+                "/login",
+                data={"csrf": csrf, "password": "wrong"},
+                environ_overrides=env,
+            ).status_code
+            == 401
+        )
+    limited = client.post(
+        "/login",
+        data={"csrf": csrf, "password": "long-enough-password"},
+        environ_overrides=env,
+    )
+    assert limited.status_code == 429 and limited.headers["Retry-After"] == "600"
+    disabled = create_app(tmp_path, config={}, start_worker=False).test_client()
+    assert disabled.get("/login", environ_overrides=env).status_code == 403
+    assert disabled.get("/api/status", environ_overrides=env).status_code == 403
+    with pytest.raises(ValueError):
+        create_app(tmp_path, config={"web_password": "short"}, start_worker=False)
+
+
+def test_calendar_year_period():
+    now = datetime(2026, 10, 5, tzinfo=timezone.utc)
+    p = period({"period": "year:2024"}, ZoneInfo("Europe/London"), now=now)
+    assert p["start_label"] == "01 Jan 2024" and p["end_label"] == "31 Dec 2024"
+    assert p["end"] - p["start"] == 366 * 86400
+    current = period({"period": "year:2026"}, ZoneInfo("Europe/London"), now=now)
+    assert current["end"] == int(now.timestamp()) + 1
+    with pytest.raises(ValueError):
+        period({"period": "year:2027"}, ZoneInfo("Europe/London"), now=now)
+
+
+def test_candidate_review_learning_and_undo(tmp_path):
+    from analytics.review import review
+
+    db = Database(tmp_path / "review.sqlite3")
+    rows = [
+        play(100, title="Alpha"),
+        play(200, title="Alpha (Anniversary Edition)"),
+        play(300, title="Alpha (Live)"),
+        play(400, title="Other"),
+        play(500, title="Other (2009 Remaster)"),
+    ]
+    db.apply_window(0, 1000, rows)
+    candidates = review(db)["rows"]
+    assert len(candidates) == 1 and candidates[0]["learnable"]
+    assert len(review(db, tab="skipped")["rows"]) >= 1
+    assert len(review(db, tab="merged")["rows"]) == 1
+    db.change_groups("merge_learn", candidates[0]["ids"])
+    assert db.meta("learned_rules")[0]["artist"] == "The Beatles"
+    # The suffixed entry arrives before its base. Learned matches still resolve.
+    db.apply_window(
+        1000,
+        2000,
+        [
+            play(1100, title="Beta (Anniversary Edition)"),
+            play(1200, title="Beta"),
+            play(1300, title="Gamma (Anniversary Edition)", artist="Other Artist"),
+            play(1400, title="Gamma", artist="Other Artist"),
+        ],
+    )
+    assert len(review(db, tab="merged")["rows"]) == 3
+    db.undo_grouping()
+    assert db.meta("learned_rules") == []
+    assert len(review(db, tab="merged")["rows"]) == 1
+    protected = review(db, tab="skipped")["rows"][0]
+    with pytest.raises(ValueError):
+        db.change_groups("merge_learn", protected["ids"])
+
+
+def test_cached_analysis_invalidates_after_import(tmp_path):
+    app = create_app(tmp_path, config={}, start_worker=False, development=True)
+    client = app.test_client()
+    db = app.extensions["database"]
+    now = int(datetime.now(timezone.utc).timestamp())
+    db.apply_window(now - 10, now + 1, [play(now - 5)])
+    assert client.get("/api/overview?period=all").json["current"]["plays"] == 1
+    db.apply_window(now - 10, now + 1, [play(now - 4, title="Something")])
+    assert client.get("/api/overview?period=all").json["current"]["plays"] == 2
+
+
+def test_rejected_candidate_persists_and_can_be_undone(tmp_path):
+    import re
+
+    app = create_app(tmp_path, config={}, development=True, start_worker=False)
+    db = app.extensions["database"]
+    db.apply_window(
+        0,
+        1000,
+        [play(100, title="Alpha"), play(200, title="Alpha (Anniversary Edition)")],
+    )
+    client = app.test_client()
+    csrf = re.search(
+        r'name="csrf-token" content="([^"]+)"', client.get("/").text
+    ).group(1)
+    candidate = client.get("/api/grouping-review").json["rows"][0]
+    response = client.post(
+        "/api/grouping",
+        json={"action": "dismiss", "key": candidate["key"]},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert response.status_code == 200
+    assert client.get("/api/grouping-review").json["rows"] == []
+    assert client.get("/api/grouping-review?tab=skipped").json["rows"][0]["dismissed"]
+    restarted = create_app(
+        tmp_path, config={}, development=True, start_worker=False
+    ).test_client()
+    assert restarted.get("/api/grouping-review?tab=skipped").json["rows"][0][
+        "dismissed"
+    ]
+    db.undo_grouping()
+    assert len(client.get("/api/grouping-review").json["rows"]) == 1

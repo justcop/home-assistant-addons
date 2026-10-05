@@ -2,9 +2,14 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
     <base href="{{ base }}" />
     <meta name="csrf-token" content="{{ csrf }}" />
+    <meta name="theme-color" content="#5b5fe9" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Listening" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="static/icon-192.png" />
     <title>Listening Analytics</title>
     <link rel="stylesheet" href="static/style.css" />
     <script src="static/app.js" defer></script>
@@ -63,6 +68,9 @@
             </p>
           </div>
           <div class="header-actions">
+            <button id="install-app" class="button" hidden>Install app</button>
+            <select id="palette" aria-label="Colour palette"><option value="violet">Violet</option><option value="ocean">Ocean</option><option value="forest">Forest</option><option value="rose">Rose</option><option value="amber">Amber</option></select>
+            {% if direct_login %}<button id="logout" class="button">Sign out</button>{% endif %}
             <button
               id="theme"
               class="icon-button"
@@ -96,7 +104,8 @@
               <option value="90d">Last 90 days</option>
               <option value="365d">Last 365 days</option>
               <option value="all">All time</option>
-              <option value="custom">Custom dates</option></select
+              <option value="custom">Custom dates</option>
+              <optgroup id="year-options" label="Calendar years"></optgroup></select
             ><span id="custom-dates" hidden
               ><label>From <input type="date" id="start" /></label
               ><label>To <input type="date" id="end" /></label
@@ -106,6 +115,7 @@
         </div>
         <div id="now-playing" class="now-playing" hidden></div>
         <div id="error" role="alert" hidden></div>
+        <div id="loading-status" class="loading-status" role="status" hidden><span class="spinner" aria-hidden="true"></span> Loading analysis…</div>
         <div id="content" aria-live="polite" aria-busy="true">
           <div class="loading">Loading your listening history…</div>
         </div>

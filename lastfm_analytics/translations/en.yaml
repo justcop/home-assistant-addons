@@ -17,3 +17,6 @@ configuration:
   demo_mode:
     name: Preview with fictional data
     description: Uses an isolated demo database and makes no Last.fm requests. Your imported data stays separate.
+  web_password:
+    name: Web login password
+    description: At least 12 characters. Protects the optional direct web port. Blank disables direct access. Save and restart after changes. Use HTTPS.

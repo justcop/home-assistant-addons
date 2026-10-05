@@ -14,8 +14,8 @@ In **Settings & grouping**, select song or album groups by the same artist and c
 
 The fictional demo is available from the setup page, or by enabling `demo_mode`. It uses a separate database and never contacts Last.fm. Disable it and restart to return to your own account.
 
-Your persistent database is in `/data`. Include this add-on in Home Assistant backups. Changing username opens a separate account database. No LAN port is exposed; access is through Home Assistant Ingress.
+Your persistent database is in `/data`. Include this add-on in Home Assistant backups. Changing username opens a separate account database. Access uses Home Assistant Ingress by default. For a standalone phone app, set `web_password` (at least 12 characters), restart, enable the optional `8099/tcp` host port in Network and route an HTTPS reverse proxy to it. Only the HTTPS address should be public. Direct login cookies require HTTPS. Leave the password blank to block direct access.
 
 If sync reports an error, check your username, API key and connectivity. Temporary failures retry automatically. A restart retries an interrupted import from its last completed window. Discovery and percentage comparisons wait for the full initial import so partial data does not create misleading figures.
 
-See [the full README](https://github.com/justcop/home-assistant-addons/blob/lastfm-analytics/lastfm_analytics/README.md) for the import model, grouping rules, data limitations and development instructions.
+See [the full README](https://github.com/justcop/home-assistant-addons/blob/main/lastfm_analytics/README.md) for the import model, grouping rules, data limitations and development instructions.

@@ -28,6 +28,15 @@ def period(args, tz, now=None, earliest=None):
             end = min(end, int(end_dt.timestamp()))
         except (KeyError, ValueError):
             raise ValueError("Choose valid start and end dates") from None
+    elif name.startswith("year:"):
+        try:
+            year = int(name[5:])
+            if not 1970 <= year <= local.year:
+                raise ValueError
+            start = int(datetime(year, 1, 1, tzinfo=tz).timestamp())
+            end = min(end, int(datetime(year + 1, 1, 1, tzinfo=tz).timestamp()))
+        except ValueError:
+            raise ValueError("Choose a valid calendar year") from None
     elif name == "all":
         start = (
             earliest

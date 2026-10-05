@@ -30,6 +30,7 @@ const state = {
   offset: 0,
   filter: null,
   groupKind: "song",
+  groupTab: "suggested",
   selected: new Map(),
 };
 let statusData,
@@ -107,6 +108,10 @@ async function api(path, extra = {}, opts = {}) {
       ...opts.headers,
     },
   });
+  if (response.status === 401) {
+    location.assign(new URL("login", document.baseURI));
+    throw new Error("Sign in to continue.");
+  }
   let data;
   try {
     data = await response.json();
@@ -166,6 +171,22 @@ function metrics(data, mode = state.mode) {
 function panelHead(title, sub, action = "") {
   return `<div class="panel-head"><div><h2>${title}</h2>${sub ? `<p>${sub}</p>` : ""}</div>${action}</div>`;
 }
+function calendarHeatmap(data, filter = null, mode = state.mode) {
+  const months = new Map();
+  for (const b of data.timeline) {
+    const key = b.label.slice(0, 7);
+    const prior = months.get(key);
+    if (prior) { prior.plays += b.plays; prior.end = b.end; }
+    else months.set(key, { ...b, label: key });
+  }
+  const years = [...new Set([...months.keys()].map(k => k.slice(0, 4)))];
+  const max = Math.max(1, ...[...months.values()].map(b => b.plays));
+  const ds = filter ? ` data-entity="${esc(filter.kind)}" data-id="${esc(filter.id)}" data-name="${esc(filter.name)}" data-history-mode="${mode}"` : "";
+  return `<section class="calendar-section"><h3>Listening by year and month</h3><small>Selected period. Darker cells mean more scrobbles. Tap a month to explore.</small><div class="calendar-scroll"><div class="calendar-heatmap"><span></span>${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].map(m=>`<span class="calendar-month">${m}</span>`).join("")}${years.map(y=>`<span class="calendar-year">${y}</span>${Array.from({length:12},(_,i)=> {
+    const b = months.get(`${y}-${String(i+1).padStart(2,"0")}`);
+    return b ? `<button class="calendar-cell" data-chart-start="${b.start}" data-chart-end="${b.end}"${ds} style="--intensity:${b.plays ? .18 + .82 * b.plays / max : 0}" title="${b.label}: ${number(b.plays)} scrobbles" aria-label="${b.label}, ${number(b.plays)} scrobbles"></button>` : '<span class="calendar-cell unavailable" title="Outside selected period"></span>';
+  }).join("")}`).join("")}</div></div></section>`;
+}
 function chart(data, filter = null, mode = state.mode) {
   const bins = data.timeline,
     max = Math.max(4, ...bins.map((b) => b.plays));
@@ -177,7 +198,7 @@ function chart(data, filter = null, mode = state.mode) {
   const ds = filter
     ? ` data-entity="${esc(filter.kind)}" data-id="${esc(filter.id)}" data-name="${esc(filter.name)}" data-history-mode="${mode}"`
     : "";
-  return `<div class="chart-layout"><div class="chart-axis"><span>${number(rounded)}</span><span>${number(rounded * 0.75)}</span><span>${number(rounded * 0.5)}</span><span>${number(rounded * 0.25)}</span><span>0</span></div><div class="bar-chart" role="group" aria-label="Scrobbles by ${bins[0]?.label.length === 7 ? "month" : "day"}, select a bar to inspect history">${bins.map((b) => `<button data-chart-start="${b.start}" data-chart-end="${b.end}"${ds} style="height:${Math.max(0.5, (b.plays / rounded) * 100)}%" title="${b.label}: ${number(b.plays)} scrobbles. Open history." aria-label="${b.label}, ${number(b.plays)} scrobbles"></button>`).join("")}</div></div><div class="chart-labels"><span>${esc(bins[0]?.label)}</span><span>${esc(bins[Math.floor(bins.length / 2)]?.label)}</span><span>${esc(bins.at(-1)?.label)}</span></div><div class="chart-foot"><span><strong>${number(data.current.plays)}</strong> scrobbles in this period</span><span>${best.plays ? `Peak: <strong>${esc(best.label)}</strong>` : "No plays yet"}</span></div>`;
+  return `<div class="chart-tools"><label>Zoom <input class="chart-zoom" type="range" min="1" max="8" step="0.5" value="1" aria-label="Timeline zoom"></label><small>Scroll sideways to explore. Select a bar for scrobbles.</small></div><div class="chart-layout"><div class="chart-axis"><span>${number(rounded)}</span><span>${number(rounded * 0.75)}</span><span>${number(rounded * 0.5)}</span><span>${number(rounded * 0.25)}</span><span>0</span></div><div class="chart-scroll" tabindex="0" aria-label="Scrollable listening timeline"><div class="bar-chart" style="--bins:${bins.length}" role="group" aria-label="Scrobbles by ${bins[0]?.label.length === 7 ? "month" : "day"}, select a bar to inspect history">${bins.map((b,i) => `<button data-label="${i % 6 === 0 ? esc(b.label) : ""}" data-chart-start="${b.start}" data-chart-end="${b.end}"${ds} style="height:${Math.max(0.5, (b.plays / rounded) * 100)}%" title="${b.label}: ${number(b.plays)} scrobbles. Open history." aria-label="${b.label}, ${number(b.plays)} scrobbles"></button>`).join("")}</div></div></div><div class="chart-foot"><span><strong>${number(data.current.plays)}</strong> scrobbles in this period</span><span>${best.plays ? `Peak: <strong>${esc(best.label)}</strong>` : "No plays yet"}</span></div>${calendarHeatmap(data, filter, mode)}`;
 }
 function detailAttrs(kind, row) {
   return `data-detail="${kind}" data-id="${esc(row.id)}"`;
@@ -250,25 +271,20 @@ function historyHTML(data) {
   return `${state.filter ? `<div class="filter-chip">${esc(state.filter.name)}<button class="icon-button" id="clear-filter" aria-label="Clear history filter">×</button></div>` : ""}<section class="panel table-panel"><div class="table-head"><div><h2>Your listening diary</h2><small>${number(data.total)} scrobbles · ${esc(statusData.timezone)}</small></div><input id="search" type="search" aria-label="Search history" placeholder="Search songs, artists or albums…" value="${esc(state.q)}"></div><div class="table-wrap"><table><thead><tr><th>Time</th><th>Song</th><th>Artist</th><th>Album</th></tr></thead><tbody>${rows || '<tr><td colspan="4" class="empty">No scrobbles match this selection.</td></tr>'}</tbody></table></div>${pager(data.total)}</section>`;
 }
 function settingsHTML(data) {
-  const c = statusData.counts,
-    imp = statusData.import_state;
-  return `<div class="settings-grid"><section class="panel">${panelHead("Last.fm connection", "Configured in the Home Assistant add-on options")}<dl><dt>Account</dt><dd>${esc(statusData.username || "Not configured")}</dd><dt>API key</dt><dd>${statusData.configured ? "Configured, hidden" : "Not configured"}</dd><dt>Sync interval</dt><dd>${statusData.interval} seconds</dd><dt>Daily reconciliation</dt><dd>Last ${statusData.reconcile_days} days</dd><dt>Display timezone</dt><dd>${esc(statusData.timezone)}</dd><dt>History import</dt><dd>${imp.complete ? "Complete" : imp.cursor ? "In progress" : "Not started"}</dd></dl><p class="method-note">Set your username and API key in the add-on’s Configuration tab, then restart. Changing account opens a separate database. <a href="https://www.last.fm/api/account/create" target="_blank" rel="noopener noreferrer">Get an API key ↗</a></p></section><section class="panel">${panelHead("Data quality", "What your statistics are built on")}<dl><dt>Active scrobbles</dt><dd>${number(c.plays)}</dd><dt>Earliest play</dt><dd>${formatDate(c.earliest)}</dd><dt>Missing album metadata</dt><dd>${number(c.missing_albums)}</dd><dt>Removed remotely, archived</dt><dd>${number(statusData.removed)}</dd></dl><p class="method-note">Counts are recorded scrobbles. Actual listening time and full-album sessions are not inferred. Album groups are scoped to the scrobbled track artist, so compilation albums may appear under several artists.</p></section></div><section class="panel" style="margin-bottom:22px">${panelHead("Version decisions", "Each change is local and reversible.", `<button class="button" id="undo" ${statusData.events.some((e) => !e.undone) ? "" : "disabled"}>Undo latest change</button>`)}<p class="method-note">Recognised remaster suffixes combine automatically. Live recordings, acoustic performances and mixes retain their labels. Select groups below to merge them, or open a group to separate a version. The first selected group supplies the display name. Artist totals are unaffected.</p>${
-    statusData.events.length
-      ? `<div style="margin-top:16px">${statusData.events
-          .slice(0, 4)
-          .map(
-            (e) =>
-              `<p style="font-size:11px;margin-top:6px">${esc(e.description)} · ${formatDate(e.ts)} ${e.undone ? "· Undone" : ""}</p>`,
-          )
-          .join("")}</div>`
-      : ""
-  }</section>${rankTable(data, state.groupKind, true)}`;
+  const card = r => state.groupTab === "merged"
+    ? `<article class="review-card"><h3>${esc(r.artist)}</h3><button class="text-button" data-detail="${state.groupKind}" data-id="${r.id}" data-group-detail="true">${esc(r.versions[0].name)} · ${r.versions.length} versions · ${number(r.plays)} plays</button><p>${r.versions.map(v => esc(v.name)).join(" · ")}</p></article>`
+    : `<article class="review-card"><h3>${esc(r.artist)}</h3><p class="review-names">${r.names.map(esc).join("<br>")}</p><p>${esc(r.reason)}</p><div class="review-actions"><button class="button primary" data-candidate-merge="${r.ids.join(",")}">Merge these</button>${r.learnable ? `<button class="button" data-candidate-learn="${r.ids.join(",")}" data-suffix="${esc(r.suffix)}" data-artist="${esc(r.artist)}">Merge and learn suffix</button>` : ""}${state.groupTab !== "skipped" || r.dismissed ? `<button class="button" data-candidate-key="${esc(r.key)}" data-candidate-action="${state.groupTab === "skipped" ? "restore" : "dismiss"}">${state.groupTab === "skipped" ? "Reconsider" : "Keep separate"}</button>` : ""}</div></article>`;
+  return `<section class="panel"><div class="panel-head"><div><h2>Version review</h2><p>Suggestions compare titles by the same artist. Your original scrobbles stay intact.</p></div><button class="button" id="undo" ${statusData.events.some(e => !e.undone) ? "" : "disabled"}>Undo latest change</button></div><div class="review-filters"><select id="group-kind" aria-label="Review songs or albums"><option value="song" ${state.groupKind === "song" ? "selected" : ""}>Songs</option><option value="album" ${state.groupKind === "album" ? "selected" : ""}>Albums</option></select><input id="search" type="search" aria-label="Search merge candidates" placeholder="Search candidates or merges…" value="${esc(state.q)}"></div><div class="segment review-tabs">${[["suggested","Suggestions"],["skipped","Skipped candidates"],["merged","Already merged"]].map(([tab,label])=>`<button data-group-tab="${tab}" aria-pressed="${tab===state.groupTab}">${label}</button>`).join("")}</div><p class="method-note">Skipped candidates include live performances and mixes that automatic rules kept separate, plus your rejected suggestions. “Merge and learn suffix” remembers only that exact suffix for this artist and type, for future imports with a matching base entry. Undo removes the rule and its later assignments.</p><div class="review-list">${data.rows.map(card).join("") || '<div class="empty">No matches in this review.</div>'}</div>${pager(data.total)}</section><section class="panel" style="margin-top:20px"><h2>Learned rules</h2>${data.rules.length ? data.rules.map(r=>`<p class="method-note">${esc(r.artist)} · ${esc(r.kind)} · ${esc(r.suffix)}</p>`).join("") : '<p class="method-note">Approve a learnable suggestion to create a rule.</p>'}<h3 style="margin-top:20px">Connection and data</h3><p class="method-note">${esc(statusData.username)} · ${number(statusData.counts.plays)} scrobbles · ${esc(statusData.timezone)} · ${statusData.import_state.complete ? "Import complete" : "Import in progress"}. Configure credentials and the web password in Home Assistant.</p></section>`;
 }
 function setupHTML() {
   return `<section class="panel setup"><div class="setup-mark" aria-hidden="true">◫</div><h2>Your listening, ready to explore</h2><p>Connect Last.fm to bring your listening history together. Explore trends, find returning favourites and combine versions into meaningful totals.</p><ol><li>Open this add-on’s <strong>Configuration</strong> tab in Home Assistant.</li><li>Enter your <strong>Last.fm username</strong> and <a href="https://www.last.fm/api/account/create" target="_blank" rel="noopener noreferrer">API key</a>.</li><li>Save, restart the add-on and reopen this dashboard.</li></ol><p>The first import runs in the background and resumes after restarts. Your Last.fm history is never edited.</p><a class="button primary" href="?demo=1">Explore a fictional demo ↗</a></section>`;
 }
 async function fetchStatus() {
   statusData = await api("status");
+  const yearGroup = $("#year-options");
+  const years = statusData.years || [];
+  yearGroup.innerHTML = years.map(y => `<option value="year:${y}">${y}</option>`).join("");
+  $("#period").value = state.period;
   $("#listener").textContent = statusData.username || "Your library";
   $("#connection").textContent = statusData.demo
     ? "Fictional demo"
@@ -321,6 +337,7 @@ async function load() {
   const signal = requestController.signal;
   $("#error").hidden = true;
   $("#content").setAttribute("aria-busy", "true");
+  $("#loading-status").hidden = false;
   $("#page-title").textContent = titles[state.view][0];
   $("#page-description").textContent = titles[state.view][1];
   document.querySelectorAll("[data-view]").forEach((b) => {
@@ -358,21 +375,7 @@ async function load() {
       );
     } else if (state.view === "settings") {
       await fetchStatus();
-      html = settingsHTML(
-        await api(
-          "rankings",
-          {
-            kind: state.groupKind,
-            period: "all",
-            mode: "merged",
-            entity: null,
-            id: null,
-            q: state.q,
-            offset: state.offset,
-          },
-          { signal },
-        ),
-      );
+      html = settingsHTML(await api("grouping-review", { kind: state.groupKind, tab: state.groupTab, q: state.q, offset: state.offset }, { signal }));
     } else {
       const kind = { artists: "artist", albums: "album", songs: "song" }[
         state.view
@@ -390,7 +393,10 @@ async function load() {
   } catch (error) {
     report(error);
   } finally {
-    if (serial === loadSerial) $("#content").setAttribute("aria-busy", "false");
+    if (serial === loadSerial) {
+      $("#content").setAttribute("aria-busy", "false");
+      $("#loading-status").hidden = true;
+    }
   }
 }
 async function showDetail(kind, id, groupMode = false) {
@@ -434,11 +440,11 @@ function confirmAction(title, description, fn) {
   };
   dialog.showModal();
 }
-async function groupAction(action, ids = []) {
+async function groupAction(action, ids = [], key = null) {
   await api(
     "grouping",
     {},
-    { method: "POST", body: JSON.stringify({ action, ids }) },
+    { method: "POST", body: JSON.stringify({ action, ids, key }) },
   );
   state.selected.clear();
   $("#detail-dialog").close();
@@ -453,6 +459,20 @@ async function groupAction(action, ids = []) {
 document.addEventListener("click", (event) => {
   const b = event.target.closest("button");
   if (!b || b.disabled) return;
+  if (b.dataset.groupTab) {
+    state.groupTab = b.dataset.groupTab;
+    state.offset = 0; state.q = ""; load(); return;
+  }
+  if (b.dataset.candidateMerge || b.dataset.candidateLearn) {
+    const learn = !!b.dataset.candidateLearn;
+    confirmAction(learn ? "Merge and remember this suffix?" : "Merge these versions?",
+      learn ? `Remember ${b.dataset.suffix} for ${b.dataset.artist} on future imports. Other artists and performance qualifiers remain separate. Undo removes this rule.` : "These entries will share a total. You can undo this decision.",
+      () => groupAction(learn ? "merge_learn" : "merge", (b.dataset.candidateLearn || b.dataset.candidateMerge).split(",").map(Number)));
+    return;
+  }
+  if (b.dataset.candidateKey) {
+    groupAction(b.dataset.candidateAction, [], b.dataset.candidateKey).catch(report); return;
+  }
   if (b.dataset.view) {
     changeView(b.dataset.view);
     return;
@@ -557,6 +577,11 @@ document.addEventListener("change", (event) => {
   }
 });
 document.addEventListener("input", (event) => {
+  if (event.target.classList.contains("chart-zoom")) {
+    const panel = event.target.closest(".panel");
+    panel.querySelector(".bar-chart").style.setProperty("--zoom", event.target.value);
+    return;
+  }
   if (event.target.id !== "search") return;
   clearTimeout(searchTimer);
   const value = event.target.value;
@@ -605,6 +630,7 @@ $("#theme").onclick = () => {
   try {
     localStorage.setItem("listening-theme", next);
   } catch (_) {}
+  updateThemeColour();
 };
 $("#refresh").onclick = async () => {
   try {
@@ -630,3 +656,59 @@ setInterval(async () => {
   } catch (_) {}
 }, 15000);
 load();
+
+if ($("#logout")) $("#logout").onclick = async () => {
+  try {
+    await api("logout", {}, { method: "POST", body: "{}" });
+    location.assign(new URL("login", document.baseURI));
+  } catch (error) { report(error); }
+};
+
+let modalScrollY = 0;
+function lockModalBackground() {
+  const open = !!document.querySelector("dialog[open]");
+  if (open && !document.body.classList.contains("modal-open")) {
+    modalScrollY = window.scrollY;
+    document.body.style.top = `-${modalScrollY}px`;
+    document.body.classList.add("modal-open");
+  } else if (!open && document.body.classList.contains("modal-open")) {
+    document.body.classList.remove("modal-open");
+    document.body.style.top = "";
+    window.scrollTo(0, modalScrollY);
+  }
+}
+for (const dialog of document.querySelectorAll("dialog")) {
+  new MutationObserver(lockModalBackground).observe(dialog, { attributes: true, attributeFilter: ["open"] });
+  dialog.addEventListener("close", lockModalBackground);
+}
+
+const palettes = ["violet", "ocean", "forest", "rose", "amber"];
+try { const saved = localStorage.getItem("listening-palette"); document.documentElement.dataset.palette = palettes.includes(saved) ? saved : "violet"; } catch (_) {}
+$("#palette").value = document.documentElement.dataset.palette;
+$("#palette").onchange = () => {
+  document.documentElement.dataset.palette = $("#palette").value;
+  try { localStorage.setItem("listening-palette", $("#palette").value); } catch (_) {}
+  updateThemeColour();
+};
+if (window.top === window && "serviceWorker" in navigator && window.isSecureContext) {
+  navigator.serviceWorker.register(new URL("sw.js", document.baseURI)).catch(() => {});
+}
+
+function updateThemeColour() {
+  $("meta[name=theme-color]").content = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim();
+}
+updateThemeColour();
+let installPrompt;
+window.addEventListener("beforeinstallprompt", event => {
+  if (window.top !== window) return;
+  event.preventDefault(); installPrompt = event;
+  $("#install-app").hidden = false;
+});
+$("#install-app").onclick = async () => {
+  if (!installPrompt) return;
+  await installPrompt.prompt();
+  const choice = await installPrompt.userChoice;
+  $("#install-app").hidden = true;
+  installPrompt = null;
+};
+window.addEventListener("appinstalled", () => { $("#install-app").hidden = true; installPrompt = null; });

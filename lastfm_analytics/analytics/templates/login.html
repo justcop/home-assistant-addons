@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#5b5fe9">
+  <title>Sign in · Listening Analytics</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="apple-touch-icon" href="/static/icon-192.png">
+</head>
+<body class="login-page">
+  <main class="login-card panel">
+    <img src="/static/icon-192.png" width="64" height="64" alt="">
+    <div class="eyebrow">LISTENING ANALYTICS</div>
+    <h1>Your music, understood.</h1>
+    <p>Enter the web password set in your Home Assistant add-on configuration.</p>
+    <form method="post" action="/login">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required maxlength="256">
+      {% if error %}<p class="login-error" role="alert">{{ error }}</p>{% endif %}
+      <button type="submit" class="button primary">Sign in</button>
+    </form>
+  </main>
+</body>
+</html>
