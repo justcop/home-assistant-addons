@@ -17,6 +17,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 # Publish only installed main runtime changes.
 concurrency:
@@ -41,6 +42,28 @@ jobs:
           python -m unittest discover -s .github/scripts/tests -v
           python -m compileall -q vinyl_guardian
           bash -n vinyl_guardian/run.sh
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish pre-built add-on images
+        shell: bash
+        run: |
+          VERSION="$(python - <<'PY'
+          import yaml
+          print(yaml.safe_load(open('vinyl_guardian/config.yaml'))['version'])
+          PY
+          )"
+          for ARCH in amd64 aarch64; do
+            docker buildx build vinyl_guardian \
+              --platform "linux/$ARCH" \
+              --build-arg "BUILD_ARCH=$ARCH" \
+              --build-arg "BUILD_VERSION=$VERSION" \
+              --tag "ghcr.io/justcop/vinyl-guardian-$ARCH:$VERSION" \
+              --push
+          done
       - name: Publish main version
         env:
           BUMP: ${{ inputs.bump || 'auto' }}
