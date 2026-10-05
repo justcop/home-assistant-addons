@@ -8,6 +8,7 @@ combine fingerprint agreement, physical pauses and expected track timing.
 import re
 import threading
 from copy import deepcopy
+from threading import RLock
 
 CONFIDENCE_RANK = {"low": 0, "medium": 1, "high": 2}
 BOUNDARY_STAGES = (3, 5, 10)
@@ -17,9 +18,8 @@ VERIFICATION_WINDOWS = (
 )
 EXPECTED_END_TOLERANCE = 10.0
 PENDING_SCROBBLE_TTL = 180.0
-UNKNOWN_PROBE_WINDOW = 10.0
-UNKNOWN_PROBE_INTERVAL = 10.0
-UNKNOWN_FIRST_PROBE_END = 20.0
+UNKNOWN_DURATION_RECHECK_SECONDS = 30.0
+UNKNOWN_DURATION_SCROBBLE_SECONDS = 120.0
 LASTFM_MIN_TRACK_SECONDS = 30.0
 
 
@@ -31,20 +31,29 @@ def _normalise(value):
 def identity_key(value):
     """Stable-enough identity for comparing Shazam results.
 
-    Apple/Shazam ids are preferred when present.  Falling back to artist/title
-    intentionally ignores album: the same recording can be returned with
-    different catalogue releases and should not become a false boundary.
+    Compare artist/title across catalogue releases. Strip only remaster
+    suffixes; live, remix and medley titles remain distinct. Catalogue ids
+    are a fallback when usable text is absent, not evidence of a boundary.
     """
     if not isinstance(value, dict):
         return None
+    title = str(value.get("title") or "").strip()
+    title = re.sub(
+        r"\s*(?:\((?:\d{4}\s+)?remaster(?:ed)?(?:\s+\d{4})?\)"
+        r"|\[(?:\d{4}\s+)?remaster(?:ed)?(?:\s+\d{4})?\]"
+        r"|[-–:]\s*(?:\d{4}\s+)?remaster(?:ed)?(?:\s+\d{4})?)\s*$",
+        "", title, flags=re.IGNORECASE,
+    )
+    title = _normalise(title)
+    artist = _normalise(value.get("artist"))
+    if title and artist:
+        return f"text:{artist}|{title}"
     adamid = value.get("adamid")
     if adamid not in (None, ""):
         return f"adamid:{adamid}"
     shazam_key = value.get("shazam_key")
     if shazam_key not in (None, ""):
         return f"shazam:{shazam_key}"
-    title = _normalise(value.get("title"))
-    artist = _normalise(value.get("artist"))
     if not title and not artist:
         return None
     return f"text:{artist}|{title}"
@@ -56,11 +65,11 @@ def confidence_at_least(value, minimum):
 
 def scrobble_threshold_seconds(track):
     if not isinstance(track, dict):
-        return 240.0
+        return UNKNOWN_DURATION_SCROBBLE_SECONDS
     duration = float(track.get("duration") or 0.0)
     if track.get("duration_known") and duration > 0:
         return min(duration / 2.0, 240.0)
-    return 240.0
+    return UNKNOWN_DURATION_SCROBBLE_SECONDS
 
 
 def expected_end(track):
@@ -81,11 +90,80 @@ def expected_end(track):
 def scrobble_identity_confident(track):
     if not isinstance(track, dict):
         return False
+    if track.get("identity_context_conflict"):
+        return False
     return bool(
         confidence_at_least(track.get("recognition_confidence"), "high")
         or track.get("recognition_verified")
         or track.get("boundary_confirmed")
     )
+
+
+class AlbumIdentityGuard:
+    """Hold suspicious artist substitutions, without rewriting Shazam metadata.
+
+    Two repeated fingerprints can repeat the same catalogue error. Recent
+    album evidence is a veto for an unsupported substitution, not permission
+    to invent a corrected artist. Context expires and catalogue-backed artist
+    changes remain allowed (including compilation albums).
+    """
+
+    def __init__(self, max_age=720.0):
+        self.max_age = float(max_age)
+        self.tracks = []
+        self.lock = RLock()
+
+    def conflict(self, candidate, now):
+        artist = _normalise(candidate.get("artist"))
+        if not artist:
+            return None
+        with self.lock:
+            recent = [row for row in self.tracks
+                      if 0 <= float(now) - row["observed_at"] <= self.max_age]
+            if not recent:
+                return None
+            previous = recent[-1]["track"]
+            expected = previous.get("expected_next") or {}
+            candidate_title = identity_key({**candidate, "artist": "context"})
+            expected_title = identity_key({**expected, "artist": "context"})
+            if (expected.get("title") and expected.get("artist")
+                    and candidate_title == expected_title
+                    and artist != _normalise(expected["artist"])):
+                return {"reason": "Artist conflicts with the expected album track",
+                        "expected_artist": expected["artist"],
+                        "expected_title": expected["title"]}
+            album = _normalise(candidate.get("album"))
+            lacks_catalogue = (album in ("", "unknown")
+                               and not candidate.get("album_adamid"))
+            if len(recent) >= 2 and lacks_catalogue:
+                first, last = recent[-2]["track"], previous
+                if (_normalise(first.get("artist")) == _normalise(last.get("artist"))
+                        and _normalise(first.get("album")) == _normalise(last.get("album"))
+                        and artist != _normalise(last.get("artist"))):
+                    return {"reason": "Unsupported artist change during established album playback",
+                            "expected_artist": last["artist"],
+                            "album": last["album"]}
+        return None
+
+    def observe(self, track):
+        if (not isinstance(track, dict) or not scrobble_identity_confident(track)
+                or track.get("recognition_conflicts", 0)
+                or _normalise(track.get("artist")) in ("", "unknown")
+                or _normalise(track.get("album")) in ("", "unknown")):
+            return
+        stamp = float(track.get("session_start_time") or track.get("start_timestamp") or 0)
+        key = (identity_key(track), stamp)
+        with self.lock:
+            # Metadata updates refresh the same observation, never count as a
+            # second independently recognised song or revive expired context.
+            for row in self.tracks:
+                if row["key"] == key:
+                    row["track"] = deepcopy(track)
+                    return
+            if self.tracks and stamp < self.tracks[-1]["observed_at"]:
+                return
+            self.tracks.append({"key": key, "observed_at": stamp, "track": deepcopy(track)})
+            self.tracks = self.tracks[-2:]
 
 
 def scrobble_is_eligible(track, physical_now, completed=False):
@@ -104,30 +182,26 @@ def scrobble_is_eligible(track, physical_now, completed=False):
             or track.get("start_timestamp")
             or physical_now
         )
-        inferred_track_start = float(
-            track.get("start_timestamp")
-            or session_start
-        )
+        inferred_track_start = float(track.get("start_timestamp") or session_start)
         current_segment = max(0.0, float(physical_now) - session_start)
         previously_played = float(track.get("previously_played") or 0.0)
         played = current_segment + previously_played
-
-        # Shazam's offset lets us estimate how far into the song the needle
-        # was dropped even when catalogue duration is unavailable. Reaching the
-        # end is therefore not treated as "100% played" if playback began in
-        # the middle of the track.
         starting_offset = max(0.0, session_start - inferred_track_start)
-        estimated_duration = max(
-            played,
-            starting_offset + current_segment,
-        )
+        estimated_duration = max(played, starting_offset + current_segment)
         if estimated_duration <= LASTFM_MIN_TRACK_SECONDS:
             return False
         required = min(estimated_duration / 2.0, 240.0)
         return played >= required
 
     trigger = track.get("scrobble_trigger_time")
-    return trigger is not None and float(physical_now) >= float(trigger)
+    if trigger is None or float(physical_now) < float(trigger):
+        return False
+    confirmed_at = track.get("duration_recheck_confirmed_at")
+    return bool(
+        confirmed_at is not None
+        and float(confirmed_at) >= float(trigger)
+        and not track.get("duration_recheck_pending")
+    )
 
 
 class TrackMonitor:
@@ -140,14 +214,11 @@ class TrackMonitor:
         self.expected_next_key = None
         self.verification_requested = set()
         self.verification_results = {}
-        self.unknown_probe_index = 0
-        self.unknown_candidate_key = None
-        self.unknown_candidate_match = None
-        self.unknown_candidate_count = 0
-        self.unknown_candidate_anchor = None
         self.boundary = None
         self.request_sequence = 0
         self.requests = {}
+        self.recovery_check_after = 0.0
+        self.periodic_requested_at = None
 
     def begin_track(self, track):
         self.generation += 1
@@ -156,13 +227,10 @@ class TrackMonitor:
         self.expected_next_key = identity_key(track.get("expected_next"))
         self.verification_requested.clear()
         self.verification_results.clear()
-        self.unknown_probe_index = 0
-        self.unknown_candidate_key = None
-        self.unknown_candidate_match = None
-        self.unknown_candidate_count = 0
-        self.unknown_candidate_anchor = None
         self.boundary = None
         self.requests.clear()
+        self.recovery_check_after = 0.0
+        self.periodic_requested_at = self.track_origin
 
     def clear(self):
         self.generation += 1
@@ -171,13 +239,10 @@ class TrackMonitor:
         self.expected_next_key = None
         self.verification_requested.clear()
         self.verification_results.clear()
-        self.unknown_probe_index = 0
-        self.unknown_candidate_key = None
-        self.unknown_candidate_match = None
-        self.unknown_candidate_count = 0
-        self.unknown_candidate_anchor = None
         self.boundary = None
         self.requests.clear()
+        self.recovery_check_after = 0.0
+        self.periodic_requested_at = None
 
     def boundary_active(self):
         return self.boundary is not None
@@ -188,6 +253,8 @@ class TrackMonitor:
 
     def start_boundary(self, anchor, reason, strength="medium", previous_end=None):
         anchor = float(anchor)
+        if reason == "music_recovery" and strength == "medium" and anchor < self.recovery_check_after:
+            return False
         if self.boundary is not None:
             # Preserve the first active search unless the new evidence points to
             # a materially earlier boundary.
@@ -242,7 +309,7 @@ class TrackMonitor:
                 due.append(self._request(
                     "boundary",
                     f"boundary_{stage}",
-                    anchor,
+                    anchor + 5.0 if stage == 10 and boundary["reason"] == "music_recovery" else anchor,
                     anchor + stage,
                     stage=stage,
                     anchor=anchor,
@@ -250,6 +317,21 @@ class TrackMonitor:
                     strength=boundary["strength"],
                     previous_end=boundary["previous_end"],
                 ))
+            return due
+
+        if not track.get("duration_known", True):
+            origin = self.track_origin if self.track_origin is not None else now
+            last = self.periodic_requested_at if self.periodic_requested_at is not None else origin
+            if now >= last + UNKNOWN_DURATION_RECHECK_SECONDS and not any(
+                request["kind"] == "periodic" for request in self.requests.values()
+            ):
+                # Always sample the latest audio, never replay a backlog after
+                # a delayed API call or an intervening physical boundary.
+                self.periodic_requested_at = now
+                due.append(self._request("periodic", "unknown_duration_recheck", now - 10.0, now))
+
+        if (confidence_at_least(track.get("recognition_confidence"), "high")
+                and not track.get("identity_context_conflict")):
             return due
 
         origin = float(track.get("session_start_time") or self.track_origin or now)
@@ -273,32 +355,6 @@ class TrackMonitor:
             if due:
                 return due
 
-        # If metadata cannot tell us when a track ends, use sparse rolling
-        # fingerprint probes. Two consecutive matching alternate identities are
-        # required before a gapless successor is declared, so one odd Shazam
-        # result (including mashup material) cannot rewrite a confirmed track.
-        if not track.get("duration_known"):
-            outstanding_probe = any(
-                request.get("kind") == "unknown_probe"
-                for request in self.requests.values()
-            )
-            if outstanding_probe:
-                return due
-
-            first_end = origin + UNKNOWN_FIRST_PROBE_END
-            if not confidence_at_least(track.get("recognition_confidence"), "high"):
-                first_end = max(first_end, origin + 40.0)
-            next_end = first_end + (self.unknown_probe_index * UNKNOWN_PROBE_INTERVAL)
-            if now >= next_end:
-                self.unknown_probe_index += 1
-                due.append(self._request(
-                    "unknown_probe",
-                    f"unknown_probe_{self.unknown_probe_index}",
-                    next_end - UNKNOWN_PROBE_WINDOW,
-                    next_end,
-                    stage=10,
-                    anchor=next_end - UNKNOWN_PROBE_WINDOW,
-                ))
         return due
 
     def record_result(self, request_id, match):
@@ -306,6 +362,15 @@ class TrackMonitor:
         if spec is None or spec.get("generation") != self.generation:
             return {"accepted": False, "action": None}
         key = identity_key(match)
+        if spec["kind"] == "periodic":
+            same = bool(key and key == self.track_key)
+            if key and not same and self.boundary is None:
+                # Confirm a changed identity with a separate future window.
+                # Timing is approximate without a physical gap or duration.
+                self.start_boundary(spec["end"], "periodic_identity", strength="medium")
+                self.boundary["results"][0] = {"key": key, "match": deepcopy(match)}
+            return {"accepted": True, "action": "duration_rechecked", "same": same,
+                    "match": deepcopy(match) if match else None, "request": spec}
 
         if spec["kind"] == "unknown_probe":
             if not key:
@@ -393,6 +458,11 @@ class TrackMonitor:
             "key": key,
             "match": deepcopy(match) if match else None,
         }
+        if boundary["reason"] == "music_recovery":
+            # Frequent brief rests should not start overlapping searches.
+            # Expected-end checks and strong physical boundaries remain free
+            # to bypass this short recovery-only cooldown.
+            self.recovery_check_after = max(self.recovery_check_after, spec["end"] + 15.0)
 
         same = [row for row in boundary["results"].values() if row.get("key") == self.track_key]
         alternatives = {}
@@ -428,7 +498,12 @@ class TrackMonitor:
             self.boundary = None
             return action
 
-        if winner_key and len(alternatives[winner_key]) >= 2:
+        recovery_needs_fresh = (
+            boundary["reason"] == "music_recovery"
+            and boundary["strength"] == "medium"
+        )
+        fresh_winner = boundary["results"].get(10, {}).get("key") == winner_key
+        if winner_key and len(alternatives[winner_key]) >= 2 and (not recovery_needs_fresh or fresh_winner):
             action = {
                 "accepted": True,
                 "action": "successor",
