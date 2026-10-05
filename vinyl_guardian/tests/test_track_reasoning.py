@@ -98,14 +98,69 @@ class UnknownDurationTests(unittest.TestCase):
         fresh = monitor.due_requests(1101, current)[0]
         self.assertEqual((fresh["start"], fresh["end"]), (1091, 1101))
 
-    def test_known_duration_keeps_existing_timing_and_no_periodic_requests(self):
+    def test_known_duration_checks_periodically_without_changing_scrobble_timing(self):
         current = track(confidence="high", duration=300)
         monitor = TrackMonitor()
         monitor.begin_track(current)
-        self.assertEqual(monitor.due_requests(1120, current), [])
+        self.assertEqual(monitor.due_requests(1120, current)[0]["kind"], "periodic")
         self.assertEqual(scrobble_threshold_seconds(current), 150)
         self.assertFalse(scrobble_is_eligible(current, 1149))
         self.assertTrue(scrobble_is_eligible(current, 1150))
+
+    def test_known_track_checks_continue_after_scrobble_and_failed_matches(self):
+        current = track(confidence="high", duration=180)
+        current["scrobble_fired"] = True
+        monitor = TrackMonitor()
+        monitor.begin_track(current)
+        for now in (1030,1060,1090,1120,1150,1180,1210,1240):
+            request=monitor.due_requests(now,current)[0]
+            self.assertEqual((request["start"],request["end"]),(now-10,now))
+            monitor.record_result(request["id"],None)
+        self.assertEqual(current["start_timestamp"],1000)
+        self.assertTrue(current["scrobble_fired"])
+
+    def test_known_track_gapless_change_gets_separate_confirmation(self):
+        current=track(confidence="high", duration=300)
+        monitor=TrackMonitor()
+        monitor.begin_track(current)
+        first=monitor.due_requests(1030,current)[0]
+        monitor.record_result(first["id"],match("B","2"))
+        second=monitor.due_requests(1033,current)[0]
+        self.assertGreaterEqual(second["start"],first["end"])
+        result=monitor.record_result(second["id"],match("B","2"))
+        self.assertEqual(result["action"],"successor")
+
+    def test_periodic_checks_wait_for_music_and_other_active_requests(self):
+        current=track(confidence="high", duration=300)
+        monitor=TrackMonitor()
+        monitor.begin_track(current)
+        self.assertEqual(monitor.due_requests(1030,current,music_active=False),[])
+        request=monitor.due_requests(1040,current,music_active=True)[0]
+        monitor.start_boundary(1041,"music_recovery")
+        self.assertEqual(monitor.due_requests(1046,current),[])
+        monitor.record_result(request["id"],match("A","1"))
+        self.assertTrue(monitor.due_requests(1046,current))
+        monitor.cancel_boundary()
+        self.assertEqual(monitor.due_requests(1070,current),[])
+
+    def test_known_track_periodic_handler_preserves_existing_track_state(self):
+        tree=ast.parse((Path(__file__).resolve().parents[1]/"vinyl_guardian.py").read_text())
+        function=next(node for node in tree.body if isinstance(node,ast.FunctionDef)
+                      and node.name=="process_tracking_audio_background")
+        current=track(confidence="high",duration=300)
+        current.update(album="Original album",scrobble_fired=True)
+        before=dict(current)
+        monitor=TrackMonitor()
+        monitor.begin_track(current)
+        request=monitor.due_requests(1030,current)[0]
+        env=dict(current_track=current,track_monitor=monitor,state_lock=threading.Lock(),app_state="SLEEPING",
+                 RATE=1,CHANNELS=1,RECORDING_DIR="unused",AUDIO_ONSET_THRESHOLD=0,MIN_AUDIO_SECONDS=2,
+                 recognize_shazam=None,recognize_fragment=lambda *args:(match("A","1"),0),
+                 _track_id=lambda t:t["title"],_publish_track=lambda t:None,log=lambda t:None)
+        exec(compile(ast.Module(body=[function],type_ignores=[]),"handler","exec"),env)
+        env[function.name](b"\0"*20,request["start"],request["id"])
+        for key in ("start_timestamp","session_start_time","scrobble_fired","album","duration","expected_end_time"):
+            self.assertEqual(current[key],before[key])
 
 
 class AudioWindowTests(unittest.TestCase):
@@ -244,7 +299,7 @@ class TrackReasoningTests(unittest.TestCase):
         monitor = TrackMonitor()
         monitor.begin_track(current)
         self.assertEqual(monitor.due_requests(1020.1, current), [])
-        self.assertEqual(monitor.due_requests(1030.1, current), [])
+        self.assertEqual(monitor.due_requests(1030.1, current)[0]["kind"], "periodic")
 
     def test_one_fresh_agreeing_window_verifies_weak_identity(self):
         current = track(confidence="low")

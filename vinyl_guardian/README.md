@@ -20,3 +20,12 @@ alongside each clip. Existing WAV clips remain supported by the review player,
 diagnostic ZIP exports, retention rules and offline replay/regression tools.
 Existing recordings are not converted. Calibration and continuous dataset WAV
 recordings retain their existing format.
+
+
+While music is playing, every recognised track receives a periodic Shazam check
+at 30-second intervals using the latest ten seconds of audio, regardless of
+whether its duration is known or it has already scrobbled. A matching identity
+preserves the playback clock and scrobble state. A different identity triggers
+confirmation from a separate audio window. Failed matches retain the current
+identity and are retried on the next interval. Active recognition and boundary
+checks can delay a periodic check; delayed checks use fresh audio.

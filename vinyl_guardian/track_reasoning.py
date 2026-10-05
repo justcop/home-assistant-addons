@@ -18,7 +18,8 @@ VERIFICATION_WINDOWS = (
 )
 EXPECTED_END_TOLERANCE = 10.0
 PENDING_SCROBBLE_TTL = 180.0
-UNKNOWN_DURATION_RECHECK_SECONDS = 30.0
+TRACK_RECHECK_SECONDS = 30.0
+UNKNOWN_DURATION_RECHECK_SECONDS = TRACK_RECHECK_SECONDS
 UNKNOWN_DURATION_SCROBBLE_SECONDS = 120.0
 LASTFM_MIN_TRACK_SECONDS = 30.0
 
@@ -289,7 +290,7 @@ class TrackMonitor:
         self.requests[request_id] = spec
         return spec
 
-    def due_requests(self, now, track):
+    def due_requests(self, now, track, music_active=True):
         """Return recognition windows due now.
 
         Weak initial identities get two non-overlapping ten-second verification
@@ -300,6 +301,8 @@ class TrackMonitor:
         due = []
 
         if self.boundary is not None:
+            if any(request["kind"] == "periodic" for request in self.requests.values()):
+                return due
             boundary = self.boundary
             anchor = float(boundary["anchor"])
             for stage in BOUNDARY_STAGES:
@@ -319,24 +322,7 @@ class TrackMonitor:
                 ))
             return due
 
-        if not track.get("duration_known", True):
-            origin = self.track_origin if self.track_origin is not None else now
-            last = self.periodic_requested_at if self.periodic_requested_at is not None else origin
-            if now >= last + UNKNOWN_DURATION_RECHECK_SECONDS and not any(
-                request["kind"] == "periodic" for request in self.requests.values()
-            ):
-                # Always sample the latest audio, never replay a backlog after
-                # a delayed API call or an intervening physical boundary.
-                self.periodic_requested_at = now
-                due.append(self._request("periodic", "unknown_duration_recheck", now - 10.0, now))
-
         identity_held = bool(track.get("identity_context_conflict"))
-        if (
-            confidence_at_least(track.get("recognition_confidence"), "high")
-            and not identity_held
-        ):
-            return due
-
         origin = float(track.get("session_start_time") or self.track_origin or now)
         end_hint = expected_end(track)
 
@@ -360,6 +346,14 @@ class TrackMonitor:
                 due.append(self._request("verification", name, start, end))
             if due:
                 return due
+
+        origin = self.track_origin if self.track_origin is not None else now
+        last = self.periodic_requested_at if self.periodic_requested_at is not None else origin
+        if music_active and now >= last + TRACK_RECHECK_SECONDS and not self.requests:
+            # Sample current audio after slow calls or boundary checks, without
+            # queuing stale periodic windows or overlapping an active request.
+            self.periodic_requested_at = now
+            due.append(self._request("periodic", "track_identity_recheck", now - 10.0, now))
 
         return due
 

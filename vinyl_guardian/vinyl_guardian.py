@@ -1044,11 +1044,11 @@ def process_tracking_audio_background(audio_data_bytes, window_start_timestamp, 
                     current_track.pop("scrobble_pending_reason", None)
             updated = dict(current_track)
         if action["same"]:
-            log(f"✅ Unknown-duration recheck: still {_track_id(updated)}.")
+            log(f"✅ Periodic track check: still {_track_id(updated)}.")
         elif action.get("match"):
-            log("🔎 Unknown-duration recheck heard a different song; confirming with fresh audio.")
+            log("🔎 Periodic track check heard a different song; confirming with fresh audio.")
         else:
-            log("🔎 Unknown-duration recheck had no match; waiting for fresh confirmation before scrobbling.")
+            log("🔎 Periodic track check had no match; retaining the current track and checking again.")
         _publish_track(updated)
         return
 
@@ -2326,7 +2326,7 @@ def listen_and_identify():
                     tracking_requests = (
                         []
                         if rhythm_locked
-                        else track_monitor.due_requests(now, current_track)
+                        else track_monitor.due_requests(now, current_track, music_active=is_playing)
                     )
                     if any(request["kind"] == "periodic" for request in tracking_requests):
                         current_track["duration_recheck_pending"] = True
