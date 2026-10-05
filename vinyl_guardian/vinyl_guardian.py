@@ -547,6 +547,7 @@ def _track_id(track):
 def _track_duration(match):
     duration = float((match or {}).get("duration") or 0.0)
     if duration <= 0 and match:
+        log(f"⏱️ Shazam supplied no usable duration for {_track_id(match)}; trying Apple, Last.fm and MusicBrainz.")
         duration = float(get_track_duration(
             match.get("title", ""),
             match.get("artist", ""),

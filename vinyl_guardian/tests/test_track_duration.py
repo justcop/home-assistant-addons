@@ -175,6 +175,47 @@ class DurationTests(unittest.TestCase):
         self.assertIn("using periodic Shazam checks", self.logs[-1])
         self.assertFalse(any("secret-test-key" in line for line in self.logs))
 
+    def test_logs_distinguish_missing_lengths_mismatches_and_ambiguity(self):
+        choose=self.env["_duration_from_rows"]
+        for rows, expected in [([],"no results returned"),([row(artist="Other")],"artist/title mismatches"),
+                               ([row(duration=0)],"missing, zero or invalid length"),
+                               ([row(duration=183000),row(duration=230000)],"183.0s to 230.0s")]:
+            self.assertEqual(choose(rows,"Fluorescent Adolescent","Arctic Monkeys",provider="Apple search GB"),0)
+            self.assertIn(expected,self.logs[-1])
+            self.assertIn("Apple search GB",self.logs[-1])
+
+    def test_lastfm_skipped_key_and_api_error_are_explicit(self):
+        lookup=self.env["_lastfm_track_duration"]
+        self.assertEqual(lookup("Song","Artist"),0)
+        self.assertIn("no API key configured",self.logs[-1])
+        self.env["LFM_KEY"]="private-key"
+        result=response([])
+        result.json.return_value={"error":6,"message":"private-key should not appear"}
+        self.get.return_value=result
+        self.assertEqual(lookup("Song","Artist"),0)
+        self.assertIn("API error code 6",self.logs[-1])
+        self.assertNotIn("private-key"," ".join(self.logs))
+
+    def test_http_status_is_logged_without_exception_url(self):
+        result=response([])
+        result.status_code=503
+        result.raise_for_status.side_effect=RequestException("https://private-key")
+        self.get.return_value=result
+        self.assertEqual(self.lookup(),0)
+        self.assertTrue(any("HTTP 503" in line for line in self.logs))
+        self.assertNotIn("private-key"," ".join(self.logs))
+
+    def test_musicbrainz_logs_rejected_scores_and_cooldown(self):
+        result=response([])
+        result.status_code=200
+        result.json.return_value={"recordings":[{"score":70,"title":"Song"}]}
+        self.get.return_value=result
+        self.assertEqual(self.env["_musicbrainz_track_duration"]("Song","Artist"),0)
+        self.assertIn("below 95% search score",self.logs[-1])
+        self.env["_musicbrainz_backoff_until"]=60
+        self.assertEqual(self.env["_musicbrainz_track_duration"]("Song","Artist"),0)
+        self.assertIn("cooldown",self.logs[-1])
+
 
 if __name__ == "__main__":
     unittest.main()

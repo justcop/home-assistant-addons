@@ -73,21 +73,31 @@ _musicbrainz_next_call = 0.0
 _musicbrainz_backoff_until = 0.0
 
 
-def _duration_from_rows(rows, title, artist, album=None):
+def _duration_from_rows(rows, title, artist, album=None, provider=None):
     wanted = identity_key({"title": title, "artist": artist})
     matches = []
-    for row in rows or []:
+    rejected_identity = missing_length = invalid_rows = 0
+    if not isinstance(rows, list):
+        if provider:
+            log(f"🔎 Duration {provider}: invalid or missing results list for {title} - {artist}.")
+        return 0.0
+    for row in rows:
         if not isinstance(row, dict) or row.get("kind", "song") != "song":
+            invalid_rows += 1
             continue
         actual = identity_key({"title": row.get("trackName"), "artist": row.get("artistName")})
         if actual != wanted:
+            rejected_identity += 1
             continue
         try:
             seconds = float(row.get("trackTimeMillis") or 0) / 1000.0
         except (TypeError, ValueError):
+            missing_length += 1
             continue
         if math.isfinite(seconds) and seconds > 0:
             matches.append((row, seconds))
+        else:
+            missing_length += 1
     if album and album != "Unknown":
         album_key = identity_key({"title": album, "artist": "album"})
         preferred = [item for item in matches if identity_key(
@@ -95,17 +105,28 @@ def _duration_from_rows(rows, title, artist, album=None):
         if preferred:
             matches = preferred
     if not matches:
+        if provider:
+            reason = ("no results returned" if not rows else
+                      f"{len(rows)} results: {rejected_identity} artist/title mismatches, "
+                      f"{missing_length} matching songs with missing, zero or invalid length, "
+                      f"{invalid_rows} invalid or non-song results")
+            log(f"🔎 Duration {provider}: {reason} for {title} - {artist}.")
         return 0.0
     durations = [seconds for row, seconds in matches]
     # Do not guess between substantially different recordings of one song.
     if max(durations) - min(durations) > 5.0:
+        if provider:
+            log(f"🔎 Duration {provider}: ambiguous matching recordings, lengths "
+                f"{min(durations):.1f}s to {max(durations):.1f}s for {title} - {artist}; refusing to guess.")
         return 0.0
     return durations[0]
 
 
 def _lastfm_track_duration(title, artist, album=None):
     if not LFM_KEY:
+        log(f"🔎 Duration Last.fm skipped for {title} - {artist}: no API key configured.")
         return 0.0
+    response = None
     try:
         response = requests.get("https://ws.audioscrobbler.com/2.0/", params={
             "method": "track.getInfo", "api_key": LFM_KEY, "artist": artist,
@@ -113,11 +134,17 @@ def _lastfm_track_duration(title, artist, album=None):
         }, timeout=5)
         response.raise_for_status()
         payload = response.json()
-        if not isinstance(payload, dict) or payload.get("error"):
-            log("🔎 Duration Last.fm: no usable track metadata.")
+        if not isinstance(payload, dict):
+            log(f"🔎 Duration Last.fm: invalid response for {title} - {artist}.")
+            return 0.0
+        if payload.get("error"):
+            code = payload.get("error")
+            code = code if isinstance(code, int) else "unspecified"
+            log(f"🔎 Duration Last.fm: API error code {code} for {title} - {artist}.")
             return 0.0
         track = payload.get("track")
         if not isinstance(track, dict):
+            log(f"🔎 Duration Last.fm: no track metadata returned for {title} - {artist}.")
             return 0.0
         credit = track.get("artist") or {}
         name = credit.get("name") if isinstance(credit, dict) else credit
@@ -126,22 +153,28 @@ def _lastfm_track_duration(title, artist, album=None):
         return _duration_from_rows([{
             "trackName": track.get("name"), "artistName": name,
             "trackTimeMillis": track.get("duration"), "collectionName": release_name,
-        }], title, artist, album)
+        }], title, artist, album, provider="Last.fm")
     except (requests.RequestException, ValueError, TypeError) as error:
         # Never print request URLs or exceptions containing the API key.
-        log(f"⚠️ Duration Last.fm failed: {type(error).__name__}.")
+        status = getattr(response, "status_code", None)
+        reason = f"HTTP {status}" if isinstance(status, int) and status >= 400 else type(error).__name__
+        log(f"⚠️ Duration Last.fm failed for {title} - {artist}: {reason}.")
         return 0.0
 
 
-def _musicbrainz_duration_rows(payload):
+def _musicbrainz_duration_rows(payload, diagnostics=None):
     rows = []
+    stats = diagnostics if diagnostics is not None else {}
+    stats.update(total=0, low_score=0, alternate_version=0)
     if not isinstance(payload, dict):
         return rows
     for recording in payload.get("recordings") or []:
+        stats["total"] += 1
         if not isinstance(recording, dict):
             continue
         try:
             if int(recording.get("score") or 0) < 95:
+                stats["low_score"] += 1
                 continue
         except (TypeError, ValueError):
             continue
@@ -153,6 +186,7 @@ def _musicbrainz_duration_rows(payload):
         description = str(recording.get("disambiguation") or "").lower()
         descriptors = set(re.findall(r"\b(?:live|remix|demo|karaoke|instrumental)\b", description))
         if any(word not in title.lower() for word in descriptors):
+            stats["alternate_version"] += 1
             # Descriptors often live outside the title. Do not silently use a
             # live recording's length for an otherwise identical studio title.
             continue
@@ -178,11 +212,14 @@ def _musicbrainz_track_duration(title, artist, album=None):
     with _musicbrainz_lock:
         now = time.monotonic()
         if now < _musicbrainz_backoff_until:
+            log(f"🔎 Duration MusicBrainz skipped for {title} - {artist}: rate-limit cooldown, "
+                f"{_musicbrainz_backoff_until - now:.0f}s remaining.")
             return 0.0
         wait = max(0.0, _musicbrainz_next_call - now)
         if wait:
             time.sleep(wait)
         _musicbrainz_next_call = time.monotonic() + 1.1
+    response = None
     try:
         # Escape the two literal phrases before passing them to Lucene.
         def phrase(value):
@@ -197,9 +234,22 @@ def _musicbrainz_track_duration(title, artist, album=None):
             log("🔎 Duration MusicBrainz: rate limited; pausing catalogue requests for one minute.")
             return 0.0
         response.raise_for_status()
-        return _duration_from_rows(_musicbrainz_duration_rows(response.json()), title, artist, album)
+        payload = response.json()
+        if not isinstance(payload, dict) or not isinstance(payload.get("recordings"), list):
+            log(f"🔎 Duration MusicBrainz: invalid or missing recordings list for {title} - {artist}.")
+            return 0.0
+        stats = {}
+        rows = _musicbrainz_duration_rows(payload, stats)
+        if not rows and stats["total"]:
+            log(f"🔎 Duration MusicBrainz: {stats['total']} recordings rejected, "
+                f"{stats['low_score']} below 95% search score, "
+                f"{stats['alternate_version']} live/remix/demo or other alternate versions for {title} - {artist}.")
+            return 0.0
+        return _duration_from_rows(rows, title, artist, album, provider="MusicBrainz")
     except (requests.RequestException, ValueError, TypeError) as error:
-        log(f"⚠️ Duration MusicBrainz failed: {type(error).__name__}.")
+        status = getattr(response, "status_code", None)
+        reason = f"HTTP {status}" if isinstance(status, int) and status >= 400 else type(error).__name__
+        log(f"⚠️ Duration MusicBrainz failed for {title} - {artist}: {reason}.")
         return 0.0
 
 
@@ -214,22 +264,24 @@ def get_track_duration(title, artist, adamid=None, album=None):
                               "limit": 25, "country": country}) for country in ("GB", "US"))
     for endpoint, params in lookups:
         label = f"{endpoint} {params['country']}"
+        response = None
         try:
             response = requests.get(f"https://itunes.apple.com/{endpoint}", params=params, timeout=5)
             response.raise_for_status()
             data = response.json()
             if not isinstance(data, dict):
                 raise ValueError("Invalid catalogue response")
-            duration = _duration_from_rows(data.get("results"), title, artist, album)
+            duration = _duration_from_rows(data.get("results"), title, artist, album, provider=f"Apple {label}")
             if duration > 0:
                 if len(_duration_cache) >= 256:
                     _duration_cache.pop(next(iter(_duration_cache)), None)
                 _duration_cache[cache_key] = duration
                 log(f"⏱️ Duration: {title} - {artist}: {duration:.1f}s ({label}).")
                 return duration
-            log(f"🔎 Duration {label}: no unambiguous matching song with a usable length for {title} - {artist}.")
         except (requests.RequestException, ValueError, TypeError) as error:
-            log(f"⚠️ Duration {label} failed for {title} - {artist}: {type(error).__name__}.")
+            status = getattr(response, "status_code", None)
+            reason = f"HTTP {status}" if isinstance(status, int) and status >= 400 else type(error).__name__
+            log(f"⚠️ Duration Apple {label} failed for {title} - {artist}: {reason}.")
     for provider, lookup in (("Last.fm", _lastfm_track_duration), ("MusicBrainz", _musicbrainz_track_duration)):
         duration = lookup(title, artist, album)
         if duration > 0:
@@ -238,7 +290,6 @@ def get_track_duration(title, artist, adamid=None, album=None):
             _duration_cache[cache_key] = duration
             log(f"⏱️ Duration: {title} - {artist}: {duration:.1f}s ({provider}).")
             return duration
-        log(f"🔎 Duration {provider}: no unambiguous matching song with a usable length for {title} - {artist}.")
     log(f"⏱️ Duration unavailable for {title} - {artist}; using periodic Shazam checks.")
     return 0.0
 
