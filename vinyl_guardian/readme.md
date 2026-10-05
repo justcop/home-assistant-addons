@@ -1,10 +1,11 @@
 🎵 Vinyl Guardian
+Artist conflict protection: repeated Shazam agreement does not override a conflicting expected album artist. An unknown-album match that changes artist after two confident tracks from the same album is also held. Fresh verification can correct the identity, but repeated agreement on the suspect identity cannot release its scrobble. Metadata is never rewritten from album context alone. The pending reason is exposed in track attributes. Context expires after twelve minutes; ordinary catalogue-backed artist changes remain supported. A genuine artist change with missing album metadata can therefore be held conservatively.
 Vinyl Guardian is a custom Home Assistant Add-on that bridges the gap between your analog record player and your digital smart home.
 By listening to the audio output of your turntable, Vinyl Guardian automatically detects when the needle drops, records a short snippet, identifies the song using Shazam, and publishes the track metadata natively to Home Assistant via MQTT. It even includes bulletproof, native Last.fm scrobbling that perfectly mimics digital media players.
 ✨ Features
 Zero-Key Shazam Recognition: Uses the shazamio library to fingerprint and identify tracks completely free, with no API keys or rate limits to worry about.
 Reliable Last.fm Scrobbling: Tracks longer than 30 seconds become eligible after 50% of their duration or four minutes. Delivery runs outside the audio loop, persists across restarts and retries transient failures without losing the original play timestamp.
-Smart Needle-Lift Detection: Needle lifts and pauses stop physical playtime; eligible scrobbles are retained safely while incomplete plays are not submitted.
+Smart Needle-Lift Detection: Silence pauses scrobble eligibility. Playback identity is retained for at least 30 seconds while power remains on, so internal rests are not mistaken for a needle lift. Confirmed power-off clears playback promptly.
 Resilient MQTT Auto-Discovery: Home Assistant entities use availability/LWT, reconnect automatically after broker outages, and restore live state and subscriptions without restarting the add-on.
 Audio Health Monitoring: Actively monitors the audio stream and warns you in the Add-on logs if your audio is clipping or too quiet.
 Calibration-Owned Tuning: Input gain and detector thresholds come from measured calibration profiles rather than manual threshold overrides.
@@ -21,6 +22,52 @@ Click Install.
 Before starting the Add-on, configure your settings in the UI:
 
 ### Installed runtime
+
+Duration lookup tries the supplied Apple track ID in the GB and US catalogues,
+then falls back to title/artist searches in both. Search results are validated
+against the recognised song, with the reported album preferred when present;
+covers, live versions and ambiguous lengths are rejected. Successful durations
+are cached for the running process. If Apple cannot supply a usable length,
+Last.fm's track.getInfo is tried with the existing Last.fm API key, then
+MusicBrainz recording search. Last.fm is skipped when no key is configured.
+MusicBrainz results need a high search score plus matching artist and title;
+release-specific lengths are preferred when the album matches. Descriptors
+for live, remix or demo recordings are checked as well as titles. All providers
+reject zero, invalid or conflicting lengths rather than inventing a duration.
+MusicBrainz calls are spaced at least 1.1 seconds apart and back off for one
+minute on HTTP 429. Logs identify the successful source or lookup failure
+without exposing the Last.fm key. If every provider fails, playback uses the
+periodic Shazam and two-minute confirmation fallback below.
+
+When a recognised song has no available duration, the engine rechecks Shazam
+every 30 seconds using the latest ten seconds of audio. At two minutes it
+scrobbles only after a fresh same-song confirmation covering that point. Failed
+or conflicting checks delay the scrobble. A different periodic match requires
+a separate future sample before switching tracks, allowing gapless playback
+to be followed without a duration estimate. Those transition timestamps are
+approximate. Checks continue after scrobbling; equivalent releases retain the
+same playback clock and scrobble state. No invented 20-minute duration is
+reported. Known-duration tracks keep their existing timing rules.
+
+Version 5.10.1 reconciles catalogue releases and explicit remaster suffixes of
+the same artist/title without restarting playback or scrobbling twice. Live,
+remix and medley titles remain distinct. Equivalent matches retain the current
+album metadata and sequence hint rather than replacing them with another
+release. This does not identify a mashup album from a constituent song alone.
+
+Brief rests preserve the track clock, and inconclusive pause checks do not
+extend its predicted end before it has actually elapsed. Repeated pause checks
+have a short cooldown; a changed identity after a weak pause needs agreement
+from the later, non-overlapping 5–10 second window. Expected-end checks still
+support gapless transitions. Logs distinguish pauses from expected endings.
+
+Returning music immediately clears a runout lock and its accumulated clicks.
+Runout acquisition still requires six coherent hits without active music.
+Median energy across short audio subframes prevents sustained high-crest music
+from being suppressed as a click, while isolated clicks retain their original
+handling. That measurement is included in calibration exports for exact replay.
+Album-side exception files and automatic mashup interpretation are not part of
+this patch; real recordings remain necessary to evaluate borderline quiet music.
 
 Vinyl Guardian runs the detector, audio selector and calibration screen packaged
 in its installed image. Update the app normally to receive changes; startup does
