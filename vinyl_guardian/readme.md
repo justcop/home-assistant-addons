@@ -26,9 +26,17 @@ Duration lookup tries the supplied Apple track ID in the GB and US catalogues,
 then falls back to title/artist searches in both. Search results are validated
 against the recognised song, with the reported album preferred when present;
 covers, live versions and ambiguous lengths are rejected. Successful durations
-are cached for the running process. Logs show the successful source or why each
-lookup could not provide a duration. Catalogue failures still use the periodic
-Shazam and two-minute confirmation fallback below.
+are cached for the running process. If Apple cannot supply a usable length,
+Last.fm's track.getInfo is tried with the existing Last.fm API key, then
+MusicBrainz recording search. Last.fm is skipped when no key is configured.
+MusicBrainz results need a high search score plus matching artist and title;
+release-specific lengths are preferred when the album matches. Descriptors
+for live, remix or demo recordings are checked as well as titles. All providers
+reject zero, invalid or conflicting lengths rather than inventing a duration.
+MusicBrainz calls are spaced at least 1.1 seconds apart and back off for one
+minute on HTTP 429. Logs identify the successful source or lookup failure
+without exposing the Last.fm key. If every provider fails, playback uses the
+periodic Shazam and two-minute confirmation fallback below.
 
 When a recognised song has no available duration, the engine rechecks Shazam
 every 30 seconds using the latest ten seconds of audio. At two minutes it
