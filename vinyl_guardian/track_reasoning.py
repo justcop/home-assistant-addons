@@ -330,14 +330,20 @@ class TrackMonitor:
                 self.periodic_requested_at = now
                 due.append(self._request("periodic", "unknown_duration_recheck", now - 10.0, now))
 
-        if (confidence_at_least(track.get("recognition_confidence"), "high")
-                and not track.get("identity_context_conflict")):
+        identity_held = bool(track.get("identity_context_conflict"))
+        if (
+            confidence_at_least(track.get("recognition_confidence"), "high")
+            and not identity_held
+        ):
             return due
 
         origin = float(track.get("session_start_time") or self.track_origin or now)
         end_hint = expected_end(track)
 
-        if not confidence_at_least(track.get("recognition_confidence"), "high"):
+        if (
+            not confidence_at_least(track.get("recognition_confidence"), "high")
+            or identity_held
+        ):
             for name, start_offset, end_offset in VERIFICATION_WINDOWS:
                 if name in self.verification_requested:
                     continue
@@ -371,49 +377,6 @@ class TrackMonitor:
                 self.boundary["results"][0] = {"key": key, "match": deepcopy(match)}
             return {"accepted": True, "action": "duration_rechecked", "same": same,
                     "match": deepcopy(match) if match else None, "request": spec}
-
-        if spec["kind"] == "unknown_probe":
-            if not key:
-                return {"accepted": True, "action": None, "request": spec}
-            if key == self.track_key:
-                self.unknown_candidate_key = None
-                self.unknown_candidate_match = None
-                self.unknown_candidate_count = 0
-                self.unknown_candidate_anchor = None
-                return {"accepted": True, "action": None, "request": spec}
-
-            if key == self.unknown_candidate_key:
-                self.unknown_candidate_count += 1
-            else:
-                self.unknown_candidate_key = key
-                self.unknown_candidate_match = deepcopy(match)
-                self.unknown_candidate_count = 1
-                self.unknown_candidate_anchor = float(spec["start"])
-
-            if self.unknown_candidate_count >= 2:
-                action = {
-                    "accepted": True,
-                    "action": "successor",
-                    "confidence": "high",
-                    "match": deepcopy(self.unknown_candidate_match),
-                    "anchor": float(self.unknown_candidate_anchor),
-                    "previous_end": float(self.unknown_candidate_anchor),
-                    "reason": "unknown_duration_consensus",
-                    "strength": "medium",
-                    "request": spec,
-                }
-                self.unknown_candidate_key = None
-                self.unknown_candidate_match = None
-                self.unknown_candidate_count = 0
-                self.unknown_candidate_anchor = None
-                return action
-
-            return {
-                "accepted": True,
-                "action": "unknown_candidate",
-                "match": deepcopy(match),
-                "request": spec,
-            }
 
         if spec["kind"] == "verification":
             self.verification_results[spec["name"]] = {
