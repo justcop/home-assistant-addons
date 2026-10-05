@@ -148,7 +148,7 @@ There is no offline listening-data cache. Internet exposure always needs authent
 
 ## Analysis and appearance
 
-The date selector includes calendar years present in your imported history. The current year stops at today. Timeline panels scroll horizontally within the screen; the zoom slider increases bar spacing. Dates scroll with their bars, and selecting a bar opens the underlying history.
+The date selector includes calendar years present in your imported history. The current year stops at today. Completed calendar years compare with the preceding calendar year; growth comparisons are omitted for an incomplete current year. Timeline panels scroll horizontally within the screen; the zoom slider increases bar spacing. Dates scroll with their bars, and selecting a bar opens the underlying history.
 
 The year/month calendar uses the selected date period and entity, with darker cells for higher monthly counts. On artist, album and song detail pages, it includes only that entity's plays. Months outside the selected period are unavailable. The existing weekday/hour heatmap remains in Trends.
 

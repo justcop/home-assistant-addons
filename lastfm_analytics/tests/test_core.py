@@ -635,8 +635,12 @@ def test_calendar_year_period():
     p = period({"period": "year:2024"}, ZoneInfo("Europe/London"), now=now)
     assert p["start_label"] == "01 Jan 2024" and p["end_label"] == "31 Dec 2024"
     assert p["end"] - p["start"] == 366 * 86400
+    assert p["previous_start"] == int(
+        datetime(2023, 1, 1, tzinfo=ZoneInfo("Europe/London")).timestamp()
+    )
     current = period({"period": "year:2026"}, ZoneInfo("Europe/London"), now=now)
     assert current["end"] == int(now.timestamp()) + 1
+    assert not current["compare"]
     with pytest.raises(ValueError):
         period({"period": "year:2027"}, ZoneInfo("Europe/London"), now=now)
 

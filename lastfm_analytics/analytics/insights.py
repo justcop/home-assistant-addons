@@ -63,8 +63,14 @@ def period(args, tz, now=None, earliest=None):
     return {
         "start": start,
         "end": end,
-        "previous_start": max(0, start - (end - start)),
-        "compare": name != "all",
+        "previous_start": (
+            max(0, int(datetime(year - 1, 1, 1, tzinfo=tz).timestamp()))
+            if name.startswith("year:") and year > 1970
+            else max(0, start - (end - start))
+        ),
+        # An incomplete calendar year should not be compared with a full year.
+        "compare": name != "all"
+        and not (name.startswith("year:") and year == local.year),
         "name": name,
         "timezone": str(tz),
         "start_label": datetime.fromtimestamp(start, tz).strftime("%d %b %Y"),
