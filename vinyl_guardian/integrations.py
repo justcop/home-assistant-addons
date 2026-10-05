@@ -1,11 +1,17 @@
 import time
 import asyncio
 import inspect
+import math
+import json
+import threading
+import re
 import requests
 import urllib.parse
 import pylast
 from shazamio import Shazam
 from config import *
+from track_reasoning import identity_key
+from source_reporting import SourceReporter, submit_scrobble
 
 
 # --- LAST.FM SETUP ---
@@ -22,6 +28,19 @@ if not CALIBRATION_MODE and LFM_USER and LFM_PASS and LFM_KEY and LFM_SECRET:
     except Exception as e:
         log(f"🚨 Last.fm initialization failed: {e}")
 
+source_reporter = None
+if config.get("listening_analytics_url") and config.get("listening_analytics_token"):
+    try:
+        source_reporter = SourceReporter(
+            "/data/listening-source-pending.sqlite3",
+            config["listening_analytics_url"], config["listening_analytics_token"],
+            LFM_USER, log)
+        source_reporter.start()
+    except Exception as exc:
+        log(f"Listening Analytics connection unavailable ({type(exc).__name__}). Check its URL and token settings.")
+
+
+
 def lastfm_enabled():
     return lastfm_network is not None
 
@@ -31,36 +50,197 @@ def scrobble_to_lastfm(artist, title, start_timestamp, album=None):
     if not lastfm_network:
         return False
     try:
-        kwargs = {
-            "artist": artist,
-            "title": title,
-            "timestamp": int(float(start_timestamp)),
-        }
-        if album and album != "Unknown":
-            kwargs["album"] = album
-        lastfm_network.scrobble(**kwargs)
-        log(f"🎵 Successfully scrobbled to Last.fm: {title} by {artist}")
-        return True
-    except Exception as e:
-        log(f"🚨 Last.fm Scrobble Failed (will retry): {e}")
+        report = submit_scrobble(lastfm_network, artist, title, start_timestamp, album)
+        if report is None:
+            log(f"Last.fm ignored the scrobble: {title} by {artist}")
+            return False
+    except Exception as exc:
+        log(f"Last.fm scrobble failed ({type(exc).__name__}).")
         return False
+    log(f"🎵 Successfully scrobbled to Last.fm: {title} by {artist}")
+    if source_reporter:
+        try:
+            source_reporter.enqueue(report)
+        except Exception as exc:
+            # Last.fm already accepted it. Never resubmit because reporting failed.
+            log(f"Could not queue vinyl attribution ({type(exc).__name__}).")
+    return True
 
 # --- HELPER: GET TRACK DURATION ---
-def get_track_duration(title, artist, adamid=None):
-    for attempt in range(2):
+_duration_cache = {}
+_musicbrainz_lock = threading.Lock()
+_musicbrainz_next_call = 0.0
+_musicbrainz_backoff_until = 0.0
+
+
+def _duration_from_rows(rows, title, artist, album=None):
+    wanted = identity_key({"title": title, "artist": artist})
+    matches = []
+    for row in rows or []:
+        if not isinstance(row, dict) or row.get("kind", "song") != "song":
+            continue
+        actual = identity_key({"title": row.get("trackName"), "artist": row.get("artistName")})
+        if actual != wanted:
+            continue
         try:
-            if adamid:
-                url = f"https://itunes.apple.com/lookup?id={adamid}"
-            else:
-                query = urllib.parse.quote(f"{title} {artist}")
-                url = f"https://itunes.apple.com/search?term={query}&entity=song&limit=1"
-            res = requests.get(url, timeout=10)
-            data = res.json()
-            if data.get('resultCount', 0) > 0:
-                return data['results'][0].get('trackTimeMillis', 0) / 1000.0
-        except Exception:
-            time.sleep(1)
-    return 0
+            seconds = float(row.get("trackTimeMillis") or 0) / 1000.0
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(seconds) and seconds > 0:
+            matches.append((row, seconds))
+    if album and album != "Unknown":
+        album_key = identity_key({"title": album, "artist": "album"})
+        preferred = [item for item in matches if identity_key(
+            {"title": item[0].get("collectionName"), "artist": "album"}) == album_key]
+        if preferred:
+            matches = preferred
+    if not matches:
+        return 0.0
+    durations = [seconds for row, seconds in matches]
+    # Do not guess between substantially different recordings of one song.
+    if max(durations) - min(durations) > 5.0:
+        return 0.0
+    return durations[0]
+
+
+def _lastfm_track_duration(title, artist, album=None):
+    if not LFM_KEY:
+        return 0.0
+    try:
+        response = requests.get("https://ws.audioscrobbler.com/2.0/", params={
+            "method": "track.getInfo", "api_key": LFM_KEY, "artist": artist,
+            "track": title, "autocorrect": 0, "format": "json",
+        }, timeout=5)
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict) or payload.get("error"):
+            log("🔎 Duration Last.fm: no usable track metadata.")
+            return 0.0
+        track = payload.get("track")
+        if not isinstance(track, dict):
+            return 0.0
+        credit = track.get("artist") or {}
+        name = credit.get("name") if isinstance(credit, dict) else credit
+        release = track.get("album") or {}
+        release_name = release.get("title") if isinstance(release, dict) else ""
+        return _duration_from_rows([{
+            "trackName": track.get("name"), "artistName": name,
+            "trackTimeMillis": track.get("duration"), "collectionName": release_name,
+        }], title, artist, album)
+    except (requests.RequestException, ValueError, TypeError) as error:
+        # Never print request URLs or exceptions containing the API key.
+        log(f"⚠️ Duration Last.fm failed: {type(error).__name__}.")
+        return 0.0
+
+
+def _musicbrainz_duration_rows(payload):
+    rows = []
+    if not isinstance(payload, dict):
+        return rows
+    for recording in payload.get("recordings") or []:
+        if not isinstance(recording, dict):
+            continue
+        try:
+            if int(recording.get("score") or 0) < 95:
+                continue
+        except (TypeError, ValueError):
+            continue
+        credits = recording.get("artist-credit") or []
+        artist = "".join(str(credit.get("name") or (credit.get("artist") if isinstance(credit.get("artist"), dict) else {}).get("name") or "")
+                         + str(credit.get("joinphrase") or "")
+                         for credit in credits if isinstance(credit, dict))
+        title = str(recording.get("title") or "")
+        description = str(recording.get("disambiguation") or "").lower()
+        descriptors = set(re.findall(r"\b(?:live|remix|demo|karaoke|instrumental)\b", description))
+        if any(word not in title.lower() for word in descriptors):
+            # Descriptors often live outside the title. Do not silently use a
+            # live recording's length for an otherwise identical studio title.
+            continue
+        base = {"trackName": title, "artistName": artist,
+                "trackTimeMillis": recording.get("length")}
+        releases = [item for item in recording.get("releases") or [] if isinstance(item, dict)]
+        if not releases:
+            rows.append(base)
+        for release in releases:
+            release_row = dict(base, collectionName=release.get("title"))
+            tracks = [track for medium in release.get("media") or [] if isinstance(medium, dict)
+                      for track in medium.get("track") or [] if isinstance(track, dict)]
+            if not tracks:
+                rows.append(release_row)
+            for track in tracks:
+                rows.append(dict(release_row, trackName=track.get("title") or title,
+                                 trackTimeMillis=track.get("length") or recording.get("length")))
+    return rows
+
+
+def _musicbrainz_track_duration(title, artist, album=None):
+    global _musicbrainz_next_call, _musicbrainz_backoff_until
+    with _musicbrainz_lock:
+        now = time.monotonic()
+        if now < _musicbrainz_backoff_until:
+            return 0.0
+        wait = max(0.0, _musicbrainz_next_call - now)
+        if wait:
+            time.sleep(wait)
+        _musicbrainz_next_call = time.monotonic() + 1.1
+    try:
+        # Escape the two literal phrases before passing them to Lucene.
+        def phrase(value):
+            return json.dumps(str(value), ensure_ascii=False)
+        query = f"recording:{phrase(title)} AND artist:{phrase(artist)}"
+        response = requests.get("https://musicbrainz.org/ws/2/recording/", params={
+            "query": query, "fmt": "json", "limit": 25,
+        }, headers={"User-Agent": "VinylGuardian/1.0 (https://github.com/justcop/home-assistant-addons)"}, timeout=5)
+        if response.status_code == 429:
+            with _musicbrainz_lock:
+                _musicbrainz_backoff_until = time.monotonic() + 60.0
+            log("🔎 Duration MusicBrainz: rate limited; pausing catalogue requests for one minute.")
+            return 0.0
+        response.raise_for_status()
+        return _duration_from_rows(_musicbrainz_duration_rows(response.json()), title, artist, album)
+    except (requests.RequestException, ValueError, TypeError) as error:
+        log(f"⚠️ Duration MusicBrainz failed: {type(error).__name__}.")
+        return 0.0
+
+
+def get_track_duration(title, artist, adamid=None, album=None):
+    cache_key = (identity_key({"title": title, "artist": artist}), str(adamid or ""), str(album or ""))
+    if cache_key in _duration_cache:
+        return _duration_cache[cache_key]
+    lookups = []
+    if adamid:
+        lookups.extend(("lookup", {"id": adamid, "country": country}) for country in ("GB", "US"))
+    lookups.extend(("search", {"term": f"{title} {artist}", "entity": "song",
+                              "limit": 25, "country": country}) for country in ("GB", "US"))
+    for endpoint, params in lookups:
+        label = f"{endpoint} {params['country']}"
+        try:
+            response = requests.get(f"https://itunes.apple.com/{endpoint}", params=params, timeout=5)
+            response.raise_for_status()
+            data = response.json()
+            if not isinstance(data, dict):
+                raise ValueError("Invalid catalogue response")
+            duration = _duration_from_rows(data.get("results"), title, artist, album)
+            if duration > 0:
+                if len(_duration_cache) >= 256:
+                    _duration_cache.pop(next(iter(_duration_cache)), None)
+                _duration_cache[cache_key] = duration
+                log(f"⏱️ Duration: {title} - {artist}: {duration:.1f}s ({label}).")
+                return duration
+            log(f"🔎 Duration {label}: no unambiguous matching song with a usable length for {title} - {artist}.")
+        except (requests.RequestException, ValueError, TypeError) as error:
+            log(f"⚠️ Duration {label} failed for {title} - {artist}: {type(error).__name__}.")
+    for provider, lookup in (("Last.fm", _lastfm_track_duration), ("MusicBrainz", _musicbrainz_track_duration)):
+        duration = lookup(title, artist, album)
+        if duration > 0:
+            if len(_duration_cache) >= 256:
+                _duration_cache.pop(next(iter(_duration_cache)), None)
+            _duration_cache[cache_key] = duration
+            log(f"⏱️ Duration: {title} - {artist}: {duration:.1f}s ({provider}).")
+            return duration
+        log(f"🔎 Duration {provider}: no unambiguous matching song with a usable length for {title} - {artist}.")
+    log(f"⏱️ Duration unavailable for {title} - {artist}; using periodic Shazam checks.")
+    return 0.0
 
 def _catalogue_identity(row):
     if not isinstance(row, dict):
