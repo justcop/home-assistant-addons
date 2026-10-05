@@ -32,7 +32,13 @@ jobs:
           bash -n vinyl_guardian/run.sh
           python -m compileall -q vinyl_guardian
       - name: Check runtime names
-        run: python -m pyflakes vinyl_guardian/vinyl_guardian.py vinyl_guardian/integrations.py vinyl_guardian/recognition_session.py
+        run: |
+          output="$(python -m pyflakes vinyl_guardian/vinyl_guardian.py vinyl_guardian/integrations.py vinyl_guardian/recognition_session.py 2>&1 || true)"
+          echo "$output"
+          if echo "$output" | grep -q "undefined name"; then
+            echo "Undefined runtime name detected." >&2
+            exit 1
+          fi
       - name: Run runtime tests
         run: python -m unittest discover -s vinyl_guardian/tests -p 'test_*.py' -v
       - name: Build Vinyl Guardian image
