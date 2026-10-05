@@ -35,7 +35,7 @@ jobs:
         run: |
           output="$(python -m pyflakes vinyl_guardian/vinyl_guardian.py vinyl_guardian/integrations.py vinyl_guardian/recognition_session.py 2>&1 || true)"
           echo "$output"
-          if echo "$output" | grep -q "undefined name"; then
+          if echo "$output" | grep -Eq "undefined name '[^\']+'"; then
             echo "Undefined runtime name detected." >&2
             exit 1
           fi
