@@ -653,7 +653,9 @@ def _publish_track(track, verified=False):
     global track_display_suppressed
     if not isinstance(track, dict):
         return
-    album_identity_guard.observe(track)
+    guard = globals().get("album_identity_guard")
+    if guard is not None:
+        guard.observe(track)
     with state_lock:
         if verified:
             track_display_suppressed = False
@@ -742,15 +744,17 @@ def initialise_scrobble_dispatcher():
 
 def _send_scrobble(track, mark_current=False):
     global scrobble_fired, paused_track_memory
-    if (
-        not isinstance(track, dict)
-        or track.get("scrobble_fired")
-        or scrobble_dispatcher is None
-        or not scrobble_dispatcher.enabled
-    ):
+    if not isinstance(track, dict) or track.get("scrobble_fired"):
         return False
     # Final gate also covers delayed tracks promoted by boundary evidence.
+    # Keep this before dispatcher access so a suspect identity can never leak
+    # through a delayed completion path.
     if track.get("identity_context_conflict"):
+        return False
+    if (
+        scrobble_dispatcher is None
+        or not scrobble_dispatcher.enabled
+    ):
         return False
     event_id = scrobble_event_id(track)
     if not event_id:
