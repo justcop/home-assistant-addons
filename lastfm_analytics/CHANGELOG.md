@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.7
+
+- Save Overview/Trends, detail analyses and artist/album/song rankings across restarts. Show saved results immediately while a single background worker refreshes changed data.
+- Refresh saved views nightly at 03:00 in the configured timezone, even when no browser is open. Keep up to 24 recent views per account, including separate date/source/version filters.
+- Show when saved results were updated and replace changed results automatically, preserving timeline zoom and scroll. Failed refreshes retain saved results.
+
 ## 0.2.6
 
 - Add a Listening Analytics record-and-chart logo to the Home Assistant add-on, web header, login, browser favicon and installed app icons.

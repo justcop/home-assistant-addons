@@ -304,6 +304,26 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   assert.equal(await namesCard.locator('.candidate-name').inputValue(), 'Alpha [Mix]');
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await page.unroute('**/api/grouping-review?**');
+  // A saved view stays usable while refreshing and updates without navigation.
+  let cacheReady = false;
+  await page.route("**/api/overview?**", async route => {
+    const response = await route.fetch();
+    const data = await response.json();
+    data.current.plays = cacheReady ? 11223 : 9876;
+    data._cache = { stale: !cacheReady, refreshing: !cacheReady, generated: cacheReady ? 1791201600 : 1791115200, error: false };
+    await route.fulfill({ response, json: data });
+  });
+  await page.locator('#nav [data-view="overview"]').click();
+  await page.waitForFunction(() => document.querySelector('#content .metric-value')?.textContent === '9,876');
+  assert.match(await page.locator('#cache-status').innerText(), /Saved view.*Updating/);
+  assert.equal(await page.locator('#content').getAttribute('aria-busy'), 'false');
+  await page.locator('#content [data-chart-zoom="in"]').click();
+  const cachedZoom = await page.locator('#content .chart-scroll').getAttribute('data-zoom');
+  cacheReady = true;
+  await page.waitForFunction(() => document.querySelector('#content .metric-value')?.textContent === '11,223');
+  assert.doesNotMatch(await page.locator('#cache-status').innerText(), /Updating/);
+  assert.equal(await page.locator('#content .chart-scroll').getAttribute('data-zoom'), cachedZoom);
+  await page.unroute("**/api/overview?**");
   assert.deepEqual(errors, []);
   console.log(
     "UI passed: setup, demo, dates, history, search, detail, separate, merge, undo, mobile, dark, heatmap and safe text rendering.",

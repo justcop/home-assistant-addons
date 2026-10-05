@@ -117,6 +117,7 @@
             {% if direct_login %}<button id="logout" class="button">Sign out</button>{% endif %}
           </div>
         </section>
+        <p id="cache-status" class="cache-status" role="status" hidden></p>
         <div id="content" aria-live="polite" aria-busy="true">
           <div class="loading">Loading your listening history…</div>
         </div>
@@ -145,6 +146,7 @@
           ×
         </button>
       </div>
+      <p id="detail-cache-status" class="cache-status" role="status" hidden></p>
       <div id="detail-content"></div>
     </dialog>
     <dialog id="confirm-dialog" class="confirm-dialog">
