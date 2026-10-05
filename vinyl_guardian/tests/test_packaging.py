@@ -33,7 +33,7 @@ class PackagingTests(unittest.TestCase):
 
     def test_config_only_advertises_architectures_supported_by_multiarch_base(self):
         config = yaml.safe_load((ROOT / "config.yaml").read_text())
-        self.assertEqual(set(config["arch"]), {"aarch64", "amd64"})
+        self.assertEqual(set(config["arch"]), {"amd64"})
 
     def test_manual_detector_overrides_are_not_exposed(self):
         config_text = (ROOT / "config.yaml").read_text()
