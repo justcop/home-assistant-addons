@@ -16,13 +16,15 @@ A Home Assistant add-on that turns your Last.fm history into a clear, local anal
 
 ## Install
 
+Install from the repository’s `main` branch.
+
 1. In Home Assistant, open **Settings → Add-ons → Add-on Store → Repositories**. Recent Home Assistant versions may call these Apps.
 2. Add `https://github.com/justcop/home-assistant-addons`.
 3. Find **Listening Analytics** and install it.
 4. Enter your Last.fm username and an [API key](https://www.last.fm/api/account/create) in **Configuration**. No Last.fm password is required.
 5. Start the add-on and select **Open Web UI**. Enable **Show in sidebar** for convenient phone access.
 
-The add-on does not install or change other add-ons. Home Assistant Ingress is enabled by default. An optional direct web port is disabled by default and requires a configured web password. The container supports `amd64` and `aarch64`.
+The add-on does not install or change other add-ons. Home Assistant Ingress is enabled by default. An optional direct web port is disabled by default and requires a configured web password for browser access. Vinyl source reports use their separate connection token. The container supports `amd64` and `aarch64`.
 
 ## Configuration
 
@@ -155,3 +157,34 @@ The year/month calendar uses the selected date period and entity, with darker ce
 Select Violet, Ocean, Forest, Rose or Amber in the header, then use the colour-theme button for light or dark mode. Both preferences persist on that browser. Phone detail sheets fill the viewport and prevent background scrolling, including while a confirmation dialog is open.
 
 Analysis requests show a loading status. Overview and Trends reuse server-side results for up to 60 seconds, invalidated by imports or grouping changes. The first uncached analysis of a large history can still take longer; caching does not replace the original data calculations.
+## Vinyl attribution
+
+Listening Analytics stores source attribution in the account's listening database.
+Vinyl Guardian reports only submissions explicitly accepted by Last.fm, using the
+returned corrected track and artist names and the original listening timestamp.
+Reports can arrive before history sync and remain through reconciliation and restarts.
+They do not create extra scrobbles or change Last.fm data.
+
+1. Update both add-ons. In Listening Analytics Configuration, set `source_api_token`
+   to a long random secret (at least 32 random characters).
+2. In Listening Analytics Network settings, enable its optional `8099/tcp` port,
+   for example using host port `8100`. Restart the analyser.
+3. In Vinyl Guardian Configuration, set `listening_analytics_url` to
+   `http://HOME_ASSISTANT_IP:8100` and `listening_analytics_token` to the same secret.
+   Keep the Last.fm usernames identical in both add-ons. Restart Guardian.
+4. Choose **Vinyl only** in the analyser's source selector. It applies to overview,
+   trends, rankings, listening heatmaps, history, and artist/song/album detail counts.
+   Settings shows the number of reports received. Scrobbles appear after normal sync.
+
+An add-on's direct internal hostname with port 8099 also works where accessible;
+Home Assistant ingress URLs do not. The optional port accepts authenticated source
+reports and a public health check. Listening-history APIs retain ingress-only access.
+Use a trusted local network or HTTPS, and keep this connection optional.
+
+Guardian retains only unacknowledged delivery notifications in `/data`, retries in
+its own background thread (30 seconds up to five minutes during failures), and deletes
+each notification after an acknowledgement. Retried reports are idempotent. Changing
+accounts does not relabel queued reports. Attribution starts when the connection is
+enabled; older scrobbles remain **Unknown source**, not assumed Spotify. Matching uses
+the exact timestamp plus normalised artist and title, ignoring album differences.
+Multiple indistinguishable copies of that track at the same second share attribution.

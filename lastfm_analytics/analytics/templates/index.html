@@ -97,6 +97,12 @@
             </button>
           </div>
           <div class="date-controls">
+            <label for="source" class="sr-only">Listening source</label>
+            <select id="source" title="Vinyl includes confirmed Vinyl Guardian submissions. Unmatched scrobbles have an unknown source.">
+              <option value="all">All listening</option>
+              <option value="vinyl">Vinyl only</option>
+              <option value="unknown">Unknown source</option>
+            </select>
             <label for="period" class="sr-only">Date range</label
             ><select id="period">
               <option value="7d">Last 7 days</option>

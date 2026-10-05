@@ -20,3 +20,6 @@ configuration:
   web_password:
     name: Web login password
     description: At least 12 characters. Protects the optional direct web port. Blank disables direct access. Save and restart after changes. Use HTTPS.
+  source_api_token:
+    name: Vinyl Guardian connection token
+    description: Set a long random token and copy it to Vinyl Guardian. Only source reports can use this token, not your browser or listening-history APIs.

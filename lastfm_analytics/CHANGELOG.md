@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0
+## 0.2.1
 
 - Add contained horizontal timeline scrolling and zoom, calendar-year selection, and year/month heatmaps in the library and entity details.
 - Add five persistent colour palettes, full-screen phone detail sheets and background scroll locking.
@@ -11,7 +11,13 @@
 - Improve phone layouts with persistent bottom navigation, larger touch targets, safe-area spacing and readable date controls.
 - Add web app manifest and home-screen icons, retaining Home Assistant authentication.
 - Add a configurable web password, secure login cookies, CSRF checks, login rate limiting and sign out for an optional direct HTTPS web app.
-- Keep Home Assistant Ingress access and disable direct access unless a password is configured.
+- Keep Home Assistant Ingress access and disable direct browser access unless a password is configured.
+
+## 0.2.0
+
+- Store authenticated vinyl source reports in the analyser's account database, independently of history sync and reconciliation.
+- Add All listening, Vinyl only and Unknown source filters throughout analytics and detail views.
+- Add optional local port and shared connection token for Vinyl Guardian. Show connection status and received-report count.
 
 ## 0.1.0
 

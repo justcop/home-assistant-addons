@@ -22,6 +22,7 @@ const views = [
 const state = {
   view: views.includes(initial.get("view")) ? initial.get("view") : "overview",
   period: initial.get("period") || "30d",
+  source: ["vinyl", "unknown"].includes(initial.get("source")) ? initial.get("source") : "all",
   mode: initial.get("mode") === "raw" ? "raw" : "merged",
   start: initial.get("start") || "",
   end: initial.get("end") || "",
@@ -84,6 +85,7 @@ function ago(ts) {
 function query(extra = {}) {
   const p = {
     period: state.period,
+    source: state.source,
     mode: state.mode,
     start: state.start,
     end: state.end,
@@ -264,7 +266,7 @@ function historyHTML(data) {
       lastDay = day;
       return (
         head +
-        `<tr><td>${formatDate(r.ts, { hour: "2-digit", minute: "2-digit", timeZoneName: "short" })}</td><td class="name-cell"><button class="text-button" data-detail="song" data-id="${state.mode === "raw" ? r.song_id : r.song_group}"><strong>${esc(state.mode === "raw" ? r.title : r.song_name)}</strong></button>${r.title !== r.song_name && state.mode !== "raw" ? `<small>Scrobbled as ${esc(r.title)}</small>` : ""}</td><td><button class="text-button" data-detail="artist" data-id="${esc(r.artist_key)}">${esc(r.artist)}</button></td><td>${r.album_id ? `<button class="text-button" data-detail="album" data-id="${state.mode === "raw" ? r.album_id : r.album_group}">${esc(state.mode === "raw" ? r.album : r.album_name)}</button>` : "<small>No album supplied</small>"}</td></tr>`
+        `<tr><td>${formatDate(r.ts, { hour: "2-digit", minute: "2-digit", timeZoneName: "short" })}</td><td class="name-cell"><button class="text-button" data-detail="song" data-id="${state.mode === "raw" ? r.song_id : r.song_group}"><strong>${esc(state.mode === "raw" ? r.title : r.song_name)}</strong></button>${r.title !== r.song_name && state.mode !== "raw" ? `<small>Scrobbled as ${esc(r.title)}</small>` : ""}</td><td><button class="text-button" data-detail="artist" data-id="${esc(r.artist_key)}">${esc(r.artist)}</button>${r.source === "vinyl" ? "<small>Vinyl</small>" : ""}</td><td>${r.album_id ? `<button class="text-button" data-detail="album" data-id="${state.mode === "raw" ? r.album_id : r.album_group}">${esc(state.mode === "raw" ? r.album : r.album_name)}</button>` : "<small>No album supplied</small>"}</td></tr>`
       );
     })
     .join("");
@@ -274,7 +276,7 @@ function settingsHTML(data) {
   const card = r => state.groupTab === "merged"
     ? `<article class="review-card"><h3>${esc(r.artist)}</h3><button class="text-button" data-detail="${state.groupKind}" data-id="${r.id}" data-group-detail="true">${esc(r.versions[0].name)} · ${r.versions.length} versions · ${number(r.plays)} plays</button><p>${r.versions.map(v => esc(v.name)).join(" · ")}</p></article>`
     : `<article class="review-card"><h3>${esc(r.artist)}</h3><p class="review-names">${r.names.map(esc).join("<br>")}</p><p>${esc(r.reason)}</p><div class="review-actions"><button class="button primary" data-candidate-merge="${r.ids.join(",")}">Merge these</button>${r.learnable ? `<button class="button" data-candidate-learn="${r.ids.join(",")}" data-suffix="${esc(r.suffix)}" data-artist="${esc(r.artist)}">Merge and learn suffix</button>` : ""}${state.groupTab !== "skipped" || r.dismissed ? `<button class="button" data-candidate-key="${esc(r.key)}" data-candidate-action="${state.groupTab === "skipped" ? "restore" : "dismiss"}">${state.groupTab === "skipped" ? "Reconsider" : "Keep separate"}</button>` : ""}</div></article>`;
-  return `<section class="panel"><div class="panel-head"><div><h2>Version review</h2><p>Suggestions compare titles by the same artist. Your original scrobbles stay intact.</p></div><button class="button" id="undo" ${statusData.events.some(e => !e.undone) ? "" : "disabled"}>Undo latest change</button></div><div class="review-filters"><select id="group-kind" aria-label="Review songs or albums"><option value="song" ${state.groupKind === "song" ? "selected" : ""}>Songs</option><option value="album" ${state.groupKind === "album" ? "selected" : ""}>Albums</option></select><input id="search" type="search" aria-label="Search merge candidates" placeholder="Search candidates or merges…" value="${esc(state.q)}"></div><div class="segment review-tabs">${[["suggested","Suggestions"],["skipped","Skipped candidates"],["merged","Already merged"]].map(([tab,label])=>`<button data-group-tab="${tab}" aria-pressed="${tab===state.groupTab}">${label}</button>`).join("")}</div><p class="method-note">Skipped candidates include live performances and mixes that automatic rules kept separate, plus your rejected suggestions. “Merge and learn suffix” remembers only that exact suffix for this artist and type, for future imports with a matching base entry. Undo removes the rule and its later assignments.</p><div class="review-list">${data.rows.map(card).join("") || '<div class="empty">No matches in this review.</div>'}</div>${pager(data.total)}</section><section class="panel" style="margin-top:20px"><h2>Learned rules</h2>${data.rules.length ? data.rules.map(r=>`<p class="method-note">${esc(r.artist)} · ${esc(r.kind)} · ${esc(r.suffix)}</p>`).join("") : '<p class="method-note">Approve a learnable suggestion to create a rule.</p>'}<h3 style="margin-top:20px">Connection and data</h3><p class="method-note">${esc(statusData.username)} · ${number(statusData.counts.plays)} scrobbles · ${esc(statusData.timezone)} · ${statusData.import_state.complete ? "Import complete" : "Import in progress"}. Configure credentials and the web password in Home Assistant.</p></section>`;
+  return `<section class="panel"><div class="panel-head"><div><h2>Version review</h2><p>Suggestions compare titles by the same artist. Your original scrobbles stay intact.</p></div><button class="button" id="undo" ${statusData.events.some(e => !e.undone) ? "" : "disabled"}>Undo latest change</button></div><div class="review-filters"><select id="group-kind" aria-label="Review songs or albums"><option value="song" ${state.groupKind === "song" ? "selected" : ""}>Songs</option><option value="album" ${state.groupKind === "album" ? "selected" : ""}>Albums</option></select><input id="search" type="search" aria-label="Search merge candidates" placeholder="Search candidates or merges…" value="${esc(state.q)}"></div><div class="segment review-tabs">${[["suggested","Suggestions"],["skipped","Skipped candidates"],["merged","Already merged"]].map(([tab,label])=>`<button data-group-tab="${tab}" aria-pressed="${tab===state.groupTab}">${label}</button>`).join("")}</div><p class="method-note">Skipped candidates include live performances and mixes that automatic rules kept separate, plus your rejected suggestions. “Merge and learn suffix” remembers only that exact suffix for this artist and type, for future imports with a matching base entry. Undo removes the rule and its later assignments.</p><div class="review-list">${data.rows.map(card).join("") || '<div class="empty">No matches in this review.</div>'}</div>${pager(data.total)}</section><section class="panel" style="margin-top:20px"><h2>Learned rules</h2>${data.rules.length ? data.rules.map(r=>`<p class="method-note">${esc(r.artist)} · ${esc(r.kind)} · ${esc(r.suffix)}</p>`).join("") : '<p class="method-note">Approve a learnable suggestion to create a rule.</p>'}<h3 style="margin-top:20px">Connection and data</h3><p class="method-note">${esc(statusData.username)} · ${number(statusData.counts.plays)} scrobbles · ${esc(statusData.timezone)} · ${statusData.import_state.complete ? "Import complete" : "Import in progress"}. Configure credentials and the web password in Home Assistant. Vinyl reporting: ${statusData.source_reporting_enabled ? "enabled" : "not configured"}, ${number(statusData.source_reports)} reports received.</p></section>`;
 }
 function setupHTML() {
   return `<section class="panel setup"><div class="setup-mark" aria-hidden="true">◫</div><h2>Your listening, ready to explore</h2><p>Connect Last.fm to bring your listening history together. Explore trends, find returning favourites and combine versions into meaningful totals.</p><ol><li>Open this add-on’s <strong>Configuration</strong> tab in Home Assistant.</li><li>Enter your <strong>Last.fm username</strong> and <a href="https://www.last.fm/api/account/create" target="_blank" rel="noopener noreferrer">API key</a>.</li><li>Save, restart the add-on and reopen this dashboard.</li></ol><p>The first import runs in the background and resumes after restarts. Your Last.fm history is never edited.</p><a class="button primary" href="?demo=1">Explore a fictional demo ↗</a></section>`;
@@ -323,7 +325,7 @@ async function fetchStatus() {
     banner = `<span><strong>Importing your history.</strong> ${number(statusData.counts.plays)} plays saved. ${pct}% of the date span checked. You can explore while it runs.<div class="progress-track"><span style="width:${pct}%"></span></div></span>`;
   }
   const playing = statusData.now_playing.track;
-  $("#now-playing").hidden = !playing;
+  $("#now-playing").hidden = !playing || state.source !== "all";
   $("#now-playing").innerHTML = playing
     ? `<span class="playing-dot"></span><span><strong>Now playing</strong> ${esc(playing.title)} · ${esc(playing.artist)}</span><small>Reported by Last.fm at ${formatDate(statusData.now_playing.checked_at, { hour: "2-digit", minute: "2-digit" })}</small>`
     : "";
@@ -339,7 +341,7 @@ async function load() {
   $("#content").setAttribute("aria-busy", "true");
   $("#loading-status").hidden = false;
   $("#page-title").textContent = titles[state.view][0];
-  $("#page-description").textContent = titles[state.view][1];
+  $("#page-description").textContent = titles[state.view][1] + (state.source === "vinyl" ? " Showing confirmed vinyl scrobbles." : state.source === "unknown" ? " Showing scrobbles without confirmed attribution." : "");
   document.querySelectorAll("[data-view]").forEach((b) => {
     if (b.closest("nav") || b.classList.contains("settings-nav"))
       b.setAttribute(
@@ -354,6 +356,8 @@ async function load() {
     );
   $("#toolbar").hidden = state.view === "settings";
   $("#period").value = state.period;
+  $("#source").value = state.source;
+  $("#now-playing").hidden = state.source !== "all" || !statusData?.now_playing?.track;
   $("#custom-dates").hidden = state.period !== "custom";
   $("#start").value = state.start;
   $("#end").value = state.end;
@@ -420,7 +424,7 @@ async function showDetail(kind, id, groupMode = false) {
     ]);
     if (serial !== detailSerial || !dialog.open) return;
     $("#detail-content").innerHTML =
-      `<h2>${esc(detail.name)}</h2><p>${esc(detail.artist)}</p>${metrics(data, mode)}<section class="panel">${panelHead("Listening history", "Select a bar to inspect individual scrobbles.")}${chart(data, { kind, id, name: detail.name }, mode)}</section>${detail.versions.length ? `<div class="panel-head" style="margin-top:23px"><div><h2>Versions</h2><p>All-time plays, including versions outside the selected period.</p></div></div><div class="table-wrap"><table><thead><tr><th>Scrobbled name</th><th class="num">Plays</th><th>First / latest play</th><th></th></tr></thead><tbody>${detail.versions.map((v) => `<tr><td class="name-cell"><strong>${esc(v.name)}</strong><small>${v.manual ? "Manual decision" : "Automatic grouping"}</small></td><td class="num">${number(v.plays)}</td><td><small>${formatDate(v.first_play)}<br>${formatDate(v.last_play)}</small></td><td>${detail.versions.length > 1 ? `<button class="button" data-separate="${v.id}" data-name="${esc(v.name)}">Separate</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : ""}<div class="dialog-actions" style="margin-top:18px"><button class="button primary" data-show-history="${kind}" data-id="${esc(id)}" data-name="${esc(detail.name)}" data-mode="${mode}" data-all="${groupMode}">View scrobbles →</button></div>`;
+      `<h2>${esc(detail.name)}</h2><p>${esc(detail.artist)}</p>${metrics(data, mode)}<section class="panel">${panelHead("Listening history", "Select a bar to inspect individual scrobbles.")}${chart(data, { kind, id, name: detail.name }, mode)}</section>${detail.versions.length ? `<div class="panel-head" style="margin-top:23px"><div><h2>Versions</h2><p>All-time plays for the selected source, including versions outside the selected period.</p></div></div><div class="table-wrap"><table><thead><tr><th>Scrobbled name</th><th class="num">Plays</th><th>First / latest play</th><th></th></tr></thead><tbody>${detail.versions.map((v) => `<tr><td class="name-cell"><strong>${esc(v.name)}</strong><small>${v.manual ? "Manual decision" : "Automatic grouping"}</small></td><td class="num">${number(v.plays)}</td><td><small>${formatDate(v.first_play)}<br>${formatDate(v.last_play)}</small></td><td>${detail.versions.length > 1 ? `<button class="button" data-separate="${v.id}" data-name="${esc(v.name)}">Separate</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : ""}<div class="dialog-actions" style="margin-top:18px"><button class="button primary" data-show-history="${kind}" data-id="${esc(id)}" data-name="${esc(detail.name)}" data-mode="${mode}" data-all="${groupMode}">View scrobbles →</button></div>`;
   } catch (error) {
     $("#detail-content").innerHTML =
       `<div class="empty">${esc(error.message)}</div>`;
@@ -596,6 +600,11 @@ document.addEventListener("input", (event) => {
     }
   }, 300);
 });
+$("#source").onchange = () => {
+  state.source = $("#source").value;
+  state.offset = 0;
+  load();
+};
 $("#period").onchange = () => {
   state.period = $("#period").value;
   state.offset = 0;

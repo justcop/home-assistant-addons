@@ -50,7 +50,7 @@ jobs:
           done
           LOGIN_SCREENSHOT="$RUNNER_TEMP/listening-analytics-ui/login-mobile.png" node tests/auth_ui.cjs
       - name: Build add-on container
-        run: docker build --build-arg BUILD_VERSION=0.2.0 --build-arg BUILD_ARCH=amd64 -t listening-analytics:test .
+        run: docker build --build-arg BUILD_VERSION=0.2.1 --build-arg BUILD_ARCH=amd64 -t listening-analytics:test .
       - name: Check container health and shutdown
         run: |
           docker run -d --name listening-analytics-smoke listening-analytics:test
