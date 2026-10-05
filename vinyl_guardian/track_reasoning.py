@@ -7,6 +7,7 @@ combine fingerprint agreement, physical pauses and expected track timing.
 
 import re
 from copy import deepcopy
+from threading import RLock
 
 CONFIDENCE_RANK = {"low": 0, "medium": 1, "high": 2}
 BOUNDARY_STAGES = (3, 5, 10)
@@ -87,11 +88,80 @@ def expected_end(track):
 def scrobble_identity_confident(track):
     if not isinstance(track, dict):
         return False
+    if track.get("identity_context_conflict"):
+        return False
     return bool(
         confidence_at_least(track.get("recognition_confidence"), "high")
         or track.get("recognition_verified")
         or track.get("boundary_confirmed")
     )
+
+
+class AlbumIdentityGuard:
+    """Hold suspicious artist substitutions, without rewriting Shazam metadata.
+
+    Two repeated fingerprints can repeat the same catalogue error. Recent
+    album evidence is a veto for an unsupported substitution, not permission
+    to invent a corrected artist. Context expires and catalogue-backed artist
+    changes remain allowed (including compilation albums).
+    """
+
+    def __init__(self, max_age=720.0):
+        self.max_age = float(max_age)
+        self.tracks = []
+        self.lock = RLock()
+
+    def conflict(self, candidate, now):
+        artist = _normalise(candidate.get("artist"))
+        if not artist:
+            return None
+        with self.lock:
+            recent = [row for row in self.tracks
+                      if 0 <= float(now) - row["observed_at"] <= self.max_age]
+            if not recent:
+                return None
+            previous = recent[-1]["track"]
+            expected = previous.get("expected_next") or {}
+            candidate_title = identity_key({**candidate, "artist": "context"})
+            expected_title = identity_key({**expected, "artist": "context"})
+            if (expected.get("title") and expected.get("artist")
+                    and candidate_title == expected_title
+                    and artist != _normalise(expected["artist"])):
+                return {"reason": "Artist conflicts with the expected album track",
+                        "expected_artist": expected["artist"],
+                        "expected_title": expected["title"]}
+            album = _normalise(candidate.get("album"))
+            lacks_catalogue = (album in ("", "unknown")
+                               and not candidate.get("album_adamid"))
+            if len(recent) >= 2 and lacks_catalogue:
+                first, last = recent[-2]["track"], previous
+                if (_normalise(first.get("artist")) == _normalise(last.get("artist"))
+                        and _normalise(first.get("album")) == _normalise(last.get("album"))
+                        and artist != _normalise(last.get("artist"))):
+                    return {"reason": "Unsupported artist change during established album playback",
+                            "expected_artist": last["artist"],
+                            "album": last["album"]}
+        return None
+
+    def observe(self, track):
+        if (not isinstance(track, dict) or not scrobble_identity_confident(track)
+                or track.get("recognition_conflicts", 0)
+                or _normalise(track.get("artist")) in ("", "unknown")
+                or _normalise(track.get("album")) in ("", "unknown")):
+            return
+        stamp = float(track.get("session_start_time") or track.get("start_timestamp") or 0)
+        key = (identity_key(track), stamp)
+        with self.lock:
+            # Metadata updates refresh the same observation, never count as a
+            # second independently recognised song or revive expired context.
+            for row in self.tracks:
+                if row["key"] == key:
+                    row["track"] = deepcopy(track)
+                    return
+            if self.tracks and stamp < self.tracks[-1]["observed_at"]:
+                return
+            self.tracks.append({"key": key, "observed_at": stamp, "track": deepcopy(track)})
+            self.tracks = self.tracks[-2:]
 
 
 def scrobble_is_eligible(track, physical_now):
@@ -235,7 +305,8 @@ class TrackMonitor:
                 self.periodic_requested_at = now
                 due.append(self._request("periodic", "unknown_duration_recheck", now - 10.0, now))
 
-        if confidence_at_least(track.get("recognition_confidence"), "high"):
+        if (confidence_at_least(track.get("recognition_confidence"), "high")
+                and not track.get("identity_context_conflict")):
             return due
 
         origin = float(track.get("session_start_time") or self.track_origin or now)

@@ -34,6 +34,7 @@ from recognition_session import RecognitionSession, recognize_fragment
 from track_reasoning import (
     TrackMonitor,
     PendingScrobbleQueue,
+    AlbumIdentityGuard,
     identity_key,
     expected_end,
     scrobble_identity_confident,
@@ -55,6 +56,7 @@ state_lock = threading.Lock()
 recognition_session = RecognitionSession()
 track_monitor = TrackMonitor()
 pending_scrobbles = PendingScrobbleQueue()
+album_identity_guard = AlbumIdentityGuard()
 app_state = "IDLE"
 current_attempt = 1
 wake_up_time = 0
@@ -493,6 +495,11 @@ def _make_track(match, session_start, start_timestamp, confidence, support=1,
     }
     if duration_known:
         track["expected_end_time"] = float(start_timestamp) + duration
+    context_conflict = album_identity_guard.conflict(track, float(session_start))
+    if context_conflict:
+        track["identity_context_conflict"] = context_conflict
+        track["scrobble_pending_reason"] = context_conflict["reason"]
+        log(f"⚖️ Holding scrobble for {_track_id(track)}: {context_conflict['reason']}.")
     return track
 
 
@@ -543,6 +550,7 @@ def _start_track_enrichment(track):
 def _publish_track(track):
     if not isinstance(track, dict):
         return
+    album_identity_guard.observe(track)
     if mqtt_client.is_connected():
         mqtt_client.publish(
             "vinyl_guardian/track",
@@ -559,6 +567,9 @@ def _publish_track(track):
 def _send_scrobble(track, mark_current=False):
     global scrobble_fired, last_scrobbled_track, paused_track_memory
     if not isinstance(track, dict) or track.get("scrobble_fired"):
+        return False
+    # Final gate also covers delayed tracks promoted by boundary evidence.
+    if track.get("identity_context_conflict"):
         return False
     track_id = _track_id(track)
     if not track_id:
@@ -824,7 +835,8 @@ def process_tracking_audio_background(audio_data_bytes, window_start_timestamp, 
             if action["same"]:
                 current_track["recognition_verified"] = True
                 current_track["recognition_confidence"] = "high"
-                current_track.pop("scrobble_pending_reason", None)
+                if not current_track.get("identity_context_conflict"):
+                    current_track.pop("scrobble_pending_reason", None)
             updated = dict(current_track)
         if action["same"]:
             log(f"✅ Unknown-duration recheck: still {_track_id(updated)}.")
@@ -2098,8 +2110,8 @@ def listen_and_identify():
                         _send_scrobble(current_track, mark_current=True)
                     else:
                         current_track["scrobble_pending_reason"] = (
-                            "Eligible, but contradictory recognition evidence "
-                            "is still being resolved"
+                            current_track.get("identity_context_conflict", {}).get("reason")
+                            or "Eligible, but contradictory recognition evidence is still being resolved"
                         )
 
                 pending_scrobbles.expire(now)

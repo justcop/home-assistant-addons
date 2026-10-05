@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from track_reasoning import (
     PendingScrobbleQueue,
+    AlbumIdentityGuard,
     TrackMonitor,
     expected_end,
     identity_key,
@@ -139,6 +140,7 @@ class AudioWindowTests(unittest.TestCase):
         tree = ast.parse((Path(__file__).resolve().parents[1] / "vinyl_guardian.py").read_text())
         function = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_make_track")
         env = dict(_track_duration=lambda m: 0, identity_key=identity_key,
+                   album_identity_guard=AlbumIdentityGuard(),
                    UNKNOWN_DURATION_SCROBBLE_SECONDS=UNKNOWN_DURATION_SCROBBLE_SECONDS)
         exec(compile(ast.Module(body=[function], type_ignores=[]), "make", "exec"), env)
         current = env[function.name](match("A", "1"), 1000, 1000, "high")
