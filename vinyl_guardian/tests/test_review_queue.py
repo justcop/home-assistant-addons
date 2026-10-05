@@ -63,6 +63,30 @@ class ReviewQueueTests(unittest.TestCase):
             # UI normalises old marks for display but does not silently rewrite.
             self.assertEqual(clips, [])
 
+    def test_legacy_shadow_signature_stays_reviewable(self):
+        with tempfile.TemporaryDirectory() as root:
+            path=self.make_sample(root)
+            payload=json.loads(path.read_text())
+            payload["details"]={"production":[True,False,True]}
+            path.write_text(json.dumps(payload))
+            sample=list_samples(root)["samples"][0]
+            self.assertEqual(sample["production"],{"turntable_on":True,"music_active":False,"runout_locked":True})
+            self.assertIsNone(sample["production_status"])
+            self.assertTrue(audio_bytes(root,"sample"))
+
+    def test_malformed_optional_metadata_does_not_break_queue(self):
+        with tempfile.TemporaryDirectory() as root:
+            for name,details in [("list-details",[1]),("invalid-production",{"production":["bad"]}),
+                                 ("valid",{"production":{"status":"Playing","music_active":True}})]:
+                path=self.make_sample(root,name=name)
+                payload=json.loads(path.read_text());payload["details"]=details
+                path.write_text(json.dumps(payload))
+            Path(root,"experiments","event_audio","not-an-object.json").write_text('[]')
+            queue=list_samples(root)
+            self.assertEqual(queue["pending"],3)
+            valid=next(item for item in queue["samples"] if item["id"]=="valid")
+            self.assertEqual(valid["production_status"],"Playing")
+
 
 if __name__ == "__main__":
     unittest.main()

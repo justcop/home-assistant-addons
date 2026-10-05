@@ -859,8 +859,10 @@ class ExperimentHarness:
                         label=trusted,
                         details={
                             "shadow": name,
-                            "production": prod_signature,
-                            "shadow_state": shadow_signature,
+                            "production": {key: frame.get(key) for key in
+                                           ("status", "turntable_on", "music_active", "runout_locked")},
+                            "shadow_state": {key: shadow.get(key) for key in
+                                             ("status", "turntable_on", "music_active", "runout_locked")},
                         },
                         min_gap_sec=60.0,
                     ):

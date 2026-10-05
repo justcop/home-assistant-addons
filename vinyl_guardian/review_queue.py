@@ -44,6 +44,8 @@ def _sidecar(recording_directory, sample_id):
 
 
 def _normalise_review(metadata):
+    details = metadata.get("details")
+    details = details if isinstance(details, dict) else {}
     review = metadata.get("review")
     if not isinstance(review, dict):
         review = {}
@@ -62,7 +64,7 @@ def _normalise_review(metadata):
             review = {
                 "status": "pending",
                 "suggested_label": (
-                    (metadata.get("details") or {}).get("suggested_label")
+                    details.get("suggested_label")
                     or metadata.get("label")
                 ),
             }
@@ -79,13 +81,21 @@ def list_samples(recording_directory, limit=100):
             continue
         try:
             metadata = json.loads(path.read_text())
+            if not isinstance(metadata, dict):
+                continue
             review = _normalise_review(metadata)
             wav_name = Path(str(audio_name(metadata))).name
             wav = root / wav_name
             if not wav.is_file() or wav.is_symlink():
                 continue
-            details = metadata.get("details") or {}
-            production = details.get("production") or {}
+            details = metadata.get("details")
+            details = details if isinstance(details, dict) else {}
+            production = details.get("production")
+            if isinstance(production, list) and len(production) == 3 and all(isinstance(value, bool) for value in production):
+                # Legacy shadow captures stored the power/music/runout signature.
+                production = dict(zip(("turntable_on", "music_active", "runout_locked"), production))
+            elif not isinstance(production, dict):
+                production = {}
             rows.append({
                 "id": path.stem,
                 "event": metadata.get("event"),
