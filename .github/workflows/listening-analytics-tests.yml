@@ -38,8 +38,19 @@ jobs:
             sleep 1
           done
           node tests/ui.cjs
+      - name: Exercise direct HTTPS login and web app installation metadata
+        run: |
+          openssl req -x509 -newkey rsa:2048 -nodes -keyout "$RUNNER_TEMP/listening.key" -out "$RUNNER_TEMP/listening.crt" -days 1 -subj /CN=localhost
+          PYTHONPATH=. python tests/auth_server.py --data-dir "$RUNNER_TEMP/listening-auth-data" --certificate "$RUNNER_TEMP/listening.crt" --key "$RUNNER_TEMP/listening.key" > "$RUNNER_TEMP/listening-auth-server.log" 2>&1 &
+          auth_server_pid=$!
+          trap 'kill "$auth_server_pid" 2>/dev/null || true' EXIT
+          for attempt in 1 2 3 4 5; do
+            curl -kfs https://127.0.0.1:8107/health >/dev/null && break
+            sleep 1
+          done
+          LOGIN_SCREENSHOT="$RUNNER_TEMP/listening-analytics-ui/login-mobile.png" node tests/auth_ui.cjs
       - name: Build add-on container
-        run: docker build --build-arg BUILD_VERSION=0.1.0 --build-arg BUILD_ARCH=amd64 -t listening-analytics:test .
+        run: docker build --build-arg BUILD_VERSION=0.2.1 --build-arg BUILD_ARCH=amd64 -t listening-analytics:test .
       - name: Check container health and shutdown
         run: |
           docker run -d --name listening-analytics-smoke listening-analytics:test

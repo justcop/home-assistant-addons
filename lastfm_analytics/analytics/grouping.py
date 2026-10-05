@@ -37,3 +37,27 @@ def auto_key(artist, title, kind):
     return json.dumps(
         [normalise(artist), normalise(canonical_title(title, kind))], ensure_ascii=False
     )
+
+
+PERFORMANCE = re.compile(
+    r"\b(live|acoustic|remix|mix|demo|instrumental|karaoke|radio|edit|session|version)\b",
+    re.I,
+)
+
+
+def review_title(title):
+    """Identify a potential suffix without declaring two recordings equivalent."""
+    match = re.match(
+        r"^(.*?)\s*(?:\(([^()]+)\)|\[([^\[\]]+)\]|\s[-–—]\s(.+))$", title.strip()
+    )
+    if match and match.group(1).strip():
+        base = match.group(1).strip()
+        suffix = title.strip()[len(base) :]
+        qualifier = next(x for x in match.groups()[1:] if x is not None)
+        return base, suffix, bool(PERFORMANCE.search(qualifier))
+    return title.strip(), "", False
+
+
+def review_key(title):
+    base, _, _ = review_title(title)
+    return re.sub(r"[^\w]", "", normalise(base))

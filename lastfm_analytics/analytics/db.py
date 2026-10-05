@@ -6,7 +6,7 @@ import time
 from collections import Counter
 from pathlib import Path
 
-from .grouping import auto_key, canonical_title, normalise
+from .grouping import auto_key, canonical_title, normalise, review_title
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -92,6 +92,10 @@ class Database:
     def set_meta(self, key, value):
         with self.connect() as db:
             self.put(db, key, value)
+            if key == "import":
+                self.put(
+                    db, "analysis_revision", self.get(db, "analysis_revision", 0) + 1
+                )
 
     def variant(self, db, kind, artist, name):
         existing = db.execute(
@@ -110,10 +114,37 @@ class Database:
                 (kind, artist, canonical_title(name, kind)),
             ).lastrowid
             db.execute("INSERT INTO aliases VALUES (?,?,?)", (kind, key, group))
-        return db.execute(
+        vid = db.execute(
             "INSERT INTO variants(kind,artist,name,auto_key) VALUES (?,?,?,?)",
             (kind, artist, name, key),
         ).lastrowid
+        rules = self.get(db, "learned_rules", [])
+        changed = False
+        for rule in rules:
+            if rule["kind"] != kind or rule["artist_key"] != normalise(artist):
+                continue
+            # A base title may arrive after its suffixed version in the import.
+            for variant in db.execute(
+                "SELECT id,name FROM variants WHERE kind=? AND artist=? AND override_group IS NULL",
+                (kind, artist),
+            ).fetchall():
+                base, suffix, protected = review_title(variant["name"])
+                if protected or normalise(suffix) != normalise(rule["suffix"]):
+                    continue
+                target = db.execute(
+                    "SELECT group_id FROM aliases WHERE kind=? AND auto_key=?",
+                    (kind, auto_key(artist, base, kind)),
+                ).fetchone()
+                if target:
+                    db.execute(
+                        "UPDATE variants SET override_group=? WHERE id=?",
+                        (target[0], variant["id"]),
+                    )
+                    rule["applied"].append(variant["id"])
+                    changed = True
+        if changed:
+            self.put(db, "learned_rules", rules)
+        return vid
 
     def apply_window(self, start, end, rows, reconcile=False, checkpoint=None):
         """One transaction: a complete window, its multiplicities, and its cursor.
@@ -155,6 +186,7 @@ class Database:
                         album,
                     ),
                 )
+            self.put(db, "analysis_revision", self.get(db, "analysis_revision", 0) + 1)
             for key, value in (checkpoint or {}).items():
                 self.put(db, key, value)
 
@@ -168,7 +200,11 @@ class Database:
         if report.get("source") != "vinyl":
             raise ValueError("Unsupported listening source")
         ts = report.get("timestamp")
-        if isinstance(ts, bool) or not isinstance(ts, int) or not 0 < ts <= time.time() + 300:
+        if (
+            isinstance(ts, bool)
+            or not isinstance(ts, int)
+            or not 0 < ts <= time.time() + 300
+        ):
             raise ValueError("Invalid listening timestamp")
         keys = []
         for field in ("artist", "title"):
@@ -177,9 +213,12 @@ class Database:
                 raise ValueError("Invalid track identity")
             keys.append(normalise(value))
         with self.connect() as db:
-            db.execute("""INSERT INTO source_reports VALUES (?,?,?,?,?,?)
+            db.execute(
+                """INSERT INTO source_reports VALUES (?,?,?,?,?,?)
                 ON CONFLICT(username,ts,artist_key,title_key) DO NOTHING""",
-                (username.casefold(), ts, *keys, "vinyl", int(time.time())))
+                (username.casefold(), ts, *keys, "vinyl", int(time.time())),
+            )
+            self.put(db, "analysis_revision", self.get(db, "analysis_revision", 0) + 1)
 
     def change_groups(self, action, ids):
         try:
@@ -194,7 +233,26 @@ class Database:
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             snapshot = {"aliases": [], "variants": []}
-            if action == "merge":
+            if action in ("merge", "merge_learn"):
+                if action == "merge_learn":
+                    source = db.execute(
+                        f"SELECT * FROM resolved_variants WHERE group_id IN ({marks})",
+                        ids,
+                    ).fetchall()
+                    parts = [review_title(v["name"]) for v in source]
+                    suffixes = {normalise(suffix) for _, suffix, _ in parts if suffix}
+                    if (
+                        any(protected for _, _, protected in parts)
+                        or len(suffixes) != 1
+                        or not any(not suffix for _, suffix, _ in parts)
+                    ):
+                        raise ValueError(
+                            "This candidate cannot safely teach a suffix rule"
+                        )
+                    if len({normalise(base) for base, _, _ in parts}) != 1:
+                        raise ValueError(
+                            "A learned rule requires exactly matching base titles"
+                        )
                 if len(ids) < 2:
                     raise ValueError("Select at least two groups")
                 groups = db.execute(
@@ -223,6 +281,19 @@ class Database:
                     [ids[0], *ids],
                 )
                 description = f"Merged {len(ids)} {groups[0]['kind']} groups"
+                if action == "merge_learn":
+                    rules = self.get(db, "learned_rules", [])
+                    snapshot["learned_rules"] = rules
+                    rule = {
+                        "id": time.time_ns(),
+                        "kind": groups[0]["kind"],
+                        "artist": groups[0]["artist"],
+                        "artist_key": normalise(groups[0]["artist"]),
+                        "suffix": next(suffix for _, suffix, _ in parts if suffix),
+                        "applied": [],
+                    }
+                    self.put(db, "learned_rules", [*rules, rule])
+                    description += f" and learned {rule['suffix']} for {rule['artist']}"
             elif action == "separate":
                 variants = db.execute(
                     f"SELECT * FROM variants WHERE id IN ({marks})", ids
@@ -245,6 +316,7 @@ class Database:
                 description = f"Separated {len(ids)} versions"
             else:
                 raise ValueError("Unknown grouping action")
+            self.put(db, "analysis_revision", self.get(db, "analysis_revision", 0) + 1)
             db.execute(
                 "INSERT INTO grouping_events(ts,description,before_json) VALUES (?,?,?)",
                 (int(time.time()), description, json.dumps(snapshot)),
@@ -259,6 +331,18 @@ class Database:
             if not event:
                 raise ValueError("No grouping change to undo")
             before = json.loads(event["before_json"])
+            if "learned_rules" in before:
+                previous_ids = {r["id"] for r in before["learned_rules"]}
+                for rule in self.get(db, "learned_rules", []):
+                    if rule["id"] not in previous_ids:
+                        for vid in rule["applied"]:
+                            db.execute(
+                                "UPDATE variants SET override_group=NULL WHERE id=?",
+                                (vid,),
+                            )
+                self.put(db, "learned_rules", before["learned_rules"])
+            if "dismissed_candidates" in before:
+                self.put(db, "dismissed_candidates", before["dismissed_candidates"])
             for a in before["aliases"]:
                 db.execute(
                     "UPDATE aliases SET group_id=? WHERE kind=? AND auto_key=?",
@@ -269,4 +353,5 @@ class Database:
                     "UPDATE variants SET override_group=? WHERE id=?",
                     (v["override_group"], v["id"]),
                 )
+            self.put(db, "analysis_revision", self.get(db, "analysis_revision", 0) + 1)
             db.execute("UPDATE grouping_events SET undone=1 WHERE id=?", (event["id"],))

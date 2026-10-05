@@ -9,7 +9,9 @@ A Home Assistant add-on that turns your Last.fm history into a clear, local anal
 - Click chart bars or ranking entries to see the underlying scrobbles.
 - Switch between original Last.fm entries and combined song or album totals.
 - Merge groups, separate individual versions and undo decisions. The original scrobbles remain intact.
-- Use a clean light or dark interface on desktop and mobile.
+- Use five colour palettes in light or dark mode, with a phone interface and an installable HTTPS web app.
+- Scroll and zoom long timelines, select individual calendar years, and explore year/month heatmaps for your library, artists, albums and songs.
+- Review proposed merges, skipped candidates and existing merges; optionally learn an exact artist-specific suffix from an approved suggestion.
 - Try a clearly labelled fictional demo before connecting an account. Demo data uses its own database and makes no Last.fm requests.
 
 ## Install
@@ -17,14 +19,12 @@ A Home Assistant add-on that turns your Last.fm history into a clear, local anal
 Install from the repository’s `main` branch.
 
 1. In Home Assistant, open **Settings → Add-ons → Add-on Store → Repositories**. Recent Home Assistant versions may call these Apps.
-2. Add `https://github.com/justcop/home-assistant-addons#lastfm-analytics`.
-3. Find **Listening Analytics** and install it. This builds the image locally, so the first installation may take a few minutes.
-4. Enter your Last.fm username and an [API key](https://www.last.fm/api/account/create) in **Configuration**. You need the API key, not the API secret. No Last.fm password is required.
-5. Start the add-on and select **Open Web UI**. You can enable **Show in sidebar**.
+2. Add `https://github.com/justcop/home-assistant-addons`.
+3. Find **Listening Analytics** and install it.
+4. Enter your Last.fm username and an [API key](https://www.last.fm/api/account/create) in **Configuration**. No Last.fm password is required.
+5. Start the add-on and select **Open Web UI**. Enable **Show in sidebar** for convenient phone access.
 
-If your existing add-on repository is already installed from `main`, leave it as it is. The branch repository is for this preview. Alternatively, copy only the `lastfm_analytics` folder into `/addons/lastfm_analytics` on a Home Assistant OS/Supervised host, reload the local add-on store and install from **Local add-ons**. After this PR is merged, the regular `https://github.com/justcop/home-assistant-addons` repository will include this add-on.
-
-The add-on does not install or change other add-ons. It exposes only Home Assistant Ingress, with no published LAN port. Home Assistant handles access to the dashboard. The container supports `amd64` and `aarch64`.
+The add-on does not install or change other add-ons. Home Assistant Ingress is enabled by default. An optional direct web port is disabled by default and requires a configured web password for browser access. Vinyl source reports use their separate connection token. The container supports `amd64` and `aarch64`.
 
 ## Configuration
 
@@ -35,6 +35,7 @@ timezone: Europe/London
 sync_interval_seconds: 300
 reconcile_days: 7
 demo_mode: false
+web_password: ""
 ```
 
 | Option                  | Default         | Meaning                                                                                     |
@@ -45,6 +46,8 @@ demo_mode: false
 | `sync_interval_seconds` | `300`           | Regular sync interval, between 60 and 86,400 seconds.                                       |
 | `reconcile_days`        | `7`             | Recent days rechecked daily for edits, deletions and delayed submissions, between 2 and 90. |
 | `demo_mode`             | `false`         | Run the isolated fictional demo without making Last.fm requests.                            |
+
+`web_password` enables the optional direct login and must contain 12 to 256 characters. Leave it blank to block direct access.
 
 Save configuration and restart after changes. Username changes open a separate account database; they do not mix histories. Changing back restores that account's existing import and grouping decisions. Changing an API key keeps its account history.
 
@@ -70,9 +73,11 @@ Original scrobble names and JSON are retained. Grouping is a local mapping over 
 - Album groups also recognise simple deluxe, expanded and special-edition suffixes.
 - Case, Unicode compatibility forms, curly apostrophes and repeated spaces normalise for automatic matching. Punctuation with potential meaning is retained.
 - Live, acoustic, mix, remix and other unrecognised qualifiers stay separate. Different artists are never automatically or manually combined.
-- Open **Settings & grouping**, search, select two or more groups and choose **Merge selected**. The first selected group's name is retained.
-- Open any combined song or album to see its original versions and all-time counts. **Separate** gives a version its own group and persists that decision through future imports.
-- **Undo latest change** reverses manual decisions in reverse order. Newly imported automatic variants follow restored mappings too.
+- Open **Settings & grouping** for **Suggestions**, **Skipped candidates** and **Already merged**, with song/album selection and search. This view does not enumerate every unmerged song.
+- Suggestions compare the same artist and base title with suffix or punctuation differences. They are candidates, not proof of identical recordings. Skipped candidates explain retained live/mix qualifiers and rejected suggestions. Entries with no plausible match are omitted.
+- **Merge these** combines a suggested or skipped pair. **Keep separate** remembers your rejection. **Reconsider** restores a dismissed suggestion. You can inspect merged groups and separate individual versions.
+- **Merge and learn suffix** is offered for a single unprotected suffix with an exact matching base title. It remembers that suffix only for the selected artist and song/album type, for future imported entries with a corresponding base entry. It never learns live, acoustic or mix qualifiers. Other artists remain unaffected.
+- **Undo latest change** reverses manual decisions in reverse order. It also removes any rule learned by that decision and restores later versions assigned by that rule.
 
 A song can be grouped across different albums. Album identity is based on the scrobbled track artist and album name. Compilation releases may therefore appear under several artists; this version does not infer a missing album artist.
 
@@ -126,6 +131,32 @@ This first version has been tested with fixtures and a local browser. It has not
 - [Home Assistant add-on configuration](https://developers.home-assistant.io/docs/add-ons/configuration/)
 - [Home Assistant Ingress](https://developers.home-assistant.io/docs/add-ons/presentation/#ingress)
 
+## Phone and remote access
+
+The phone layout has persistent bottom navigation, large touch controls, safe-area spacing and light/dark themes. Use it in your phone browser or the Home Assistant Companion app.
+
+For a standalone web app address:
+
+1. Set **Web login password** (`web_password`) in the Home Assistant add-on configuration. Use a unique password of at least 12 characters. Save and restart.
+2. In the add-on **Network** section, assign a host port to `8099/tcp`, for example `8109`. The port is disabled by default.
+3. Put an HTTPS reverse proxy in front of that port, forwarding to `http://YOUR_HA_IP:8109`. Only the HTTPS proxy should be reachable from the internet. Do not publish the plain HTTP port to the internet.
+4. Open your HTTPS address on your phone, sign in, then use your browser's **Install app** button when offered, or your browser’s **Install app** or **Add to Home Screen** option.
+
+Production login cookies require HTTPS. Login over plain HTTP will not persist. A login lasts seven days; changing the password and restarting invalidates existing logins. Sign out is available in the page header. Failed attempts are limited to ten per client address in ten minutes, with an overall limit on password checks. Behind a reverse proxy, clients may share the proxy's limit. The app ignores forwarded IP headers for authentication and rate limits.
+
+Home Assistant Ingress continues to use your existing Home Assistant login and does not ask for the separate password. Ingress session URLs can expire, so use Home Assistant or its Companion app sidebar for reliable access through Ingress. A separately proxied HTTPS address provides the stable URL for home-screen use.
+
+There is no offline listening-data cache. Internet exposure always needs authentication: the dashboard contains history and can change grouping decisions or trigger syncs. Keep the container and reverse proxy updated. Password protection is implemented and tested, but this is not an independent security audit or a guarantee against every vulnerability.
+
+## Analysis and appearance
+
+The date selector includes calendar years present in your imported history. The current year stops at today. Completed calendar years compare with the preceding calendar year; growth comparisons are omitted for an incomplete current year. Timeline panels scroll horizontally within the screen; the zoom slider increases bar spacing. Dates scroll with their bars, and selecting a bar opens the underlying history.
+
+The year/month calendar uses the selected date period and entity, with darker cells for higher monthly counts. On artist, album and song detail pages, it includes only that entity's plays. Months outside the selected period are unavailable. The existing weekday/hour heatmap remains in Trends.
+
+Select Violet, Ocean, Forest, Rose or Amber in the header, then use the colour-theme button for light or dark mode. Both preferences persist on that browser. Phone detail sheets fill the viewport and prevent background scrolling, including while a confirmation dialog is open.
+
+Analysis requests show a loading status. Overview and Trends reuse server-side results for up to 60 seconds, invalidated by imports or grouping changes. The first uncached analysis of a large history can still take longer; caching does not replace the original data calculations.
 ## Vinyl attribution
 
 Listening Analytics stores source attribution in the account's listening database.
