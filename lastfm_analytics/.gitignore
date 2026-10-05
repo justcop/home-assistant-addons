@@ -1,0 +1,8 @@
+__pycache__/
+.pytest_cache/
+.venv/
+dev-data/
+*.sqlite3*
+options.json
+node_modules/
+package-lock.json

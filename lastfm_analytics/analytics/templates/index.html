@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <base href="{{ base }}" />
+    <meta name="csrf-token" content="{{ csrf }}" />
+    <title>Listening Analytics</title>
+    <link rel="stylesheet" href="static/style.css" />
+    <script src="static/app.js" defer></script>
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <a class="brand" href="./" aria-label="Listening Analytics home"
+          ><span class="brand-icon" aria-hidden="true"
+            ><i></i><i></i><i></i><i></i></span
+          ><span>Listening<span class="brand-sub">ANALYTICS</span></span></a
+        >
+        <div class="nav-label">YOUR LIBRARY</div>
+        <nav aria-label="Main navigation" id="nav">
+          <button data-view="overview" aria-current="page">
+            <span aria-hidden="true">◫</span>Overview
+          </button>
+          <button data-view="trends">
+            <span aria-hidden="true">↗</span>Trends
+          </button>
+          <button data-view="artists">
+            <span aria-hidden="true">◎</span>Artists
+          </button>
+          <button data-view="albums">
+            <span aria-hidden="true">▣</span>Albums
+          </button>
+          <button data-view="songs">
+            <span aria-hidden="true">♫</span>Songs
+          </button>
+          <button data-view="history">
+            <span aria-hidden="true">◷</span>History
+          </button>
+        </nav>
+        <div class="sidebar-bottom">
+          <button class="settings-nav" data-view="settings">
+            ⚙ <span>Settings & grouping</span>
+          </button>
+          <div class="profile">
+            <span class="avatar">L</span>
+            <div>
+              <strong id="listener">Your library</strong
+              ><span id="connection">Connect Last.fm</span>
+            </div>
+          </div>
+          <div class="sidebar-note">Your music. A clearer picture.</div>
+        </div>
+      </aside>
+      <main>
+        <div id="banner" hidden></div>
+        <header class="page-header">
+          <div>
+            <div class="eyebrow">LISTENING ANALYTICS</div>
+            <h1 id="page-title">Overview</h1>
+            <p id="page-description">
+              Understand the patterns behind your plays.
+            </p>
+          </div>
+          <div class="header-actions">
+            <button
+              id="theme"
+              class="icon-button"
+              aria-label="Switch colour theme"
+              title="Switch colour theme"
+            >
+              ◐</button
+            ><span id="sync-label" class="sync-label">Loading…</span
+            ><button
+              id="refresh"
+              class="button"
+              title="Check Last.fm for new scrobbles"
+            >
+              ↻ Sync
+            </button>
+          </div>
+        </header>
+        <div class="toolbar" id="toolbar">
+          <div class="segment" aria-label="Ranking mode">
+            <button data-mode="merged" aria-pressed="true">
+              Combined versions</button
+            ><button data-mode="raw" aria-pressed="false">
+              Last.fm entries
+            </button>
+          </div>
+          <div class="date-controls">
+            <label for="period" class="sr-only">Date range</label
+            ><select id="period">
+              <option value="7d">Last 7 days</option>
+              <option value="30d" selected>Last 30 days</option>
+              <option value="90d">Last 90 days</option>
+              <option value="365d">Last 365 days</option>
+              <option value="all">All time</option>
+              <option value="custom">Custom dates</option></select
+            ><span id="custom-dates" hidden
+              ><label>From <input type="date" id="start" /></label
+              ><label>To <input type="date" id="end" /></label
+              ><button id="apply-dates" class="button">Apply</button></span
+            >
+          </div>
+        </div>
+        <div id="now-playing" class="now-playing" hidden></div>
+        <div id="error" role="alert" hidden></div>
+        <div id="content" aria-live="polite" aria-busy="true">
+          <div class="loading">Loading your listening history…</div>
+        </div>
+        <footer>
+          <span
+            >Powered by
+            <a
+              href="https://www.last.fm"
+              target="_blank"
+              rel="noopener noreferrer"
+              >Last.fm</a
+            >
+            · Local listening analytics</span
+          ><span id="footer-note">Play counts, grounded in your history</span>
+        </footer>
+      </main>
+    </div>
+    <dialog id="detail-dialog" class="detail-dialog">
+      <div class="dialog-head">
+        <span class="eyebrow" id="detail-kind">DETAIL</span
+        ><button
+          class="icon-button"
+          id="close-detail"
+          aria-label="Close details"
+        >
+          ×
+        </button>
+      </div>
+      <div id="detail-content"></div>
+    </dialog>
+    <dialog id="confirm-dialog" class="confirm-dialog">
+      <h2 id="confirm-title">Confirm grouping</h2>
+      <p id="confirm-description"></p>
+      <div class="dialog-actions">
+        <button id="confirm-cancel" class="button">Cancel</button
+        ><button id="confirm-ok" class="button primary">Confirm</button>
+      </div>
+    </dialog>
+    <div id="toast" role="status" hidden></div>
+  </body>
+</html>
