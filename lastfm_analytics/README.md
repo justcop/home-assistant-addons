@@ -188,3 +188,9 @@ accounts does not relabel queued reports. Attribution starts when the connection
 enabled; older scrobbles remain **Unknown source**, not assumed Spotify. Matching uses
 the exact timestamp plus normalised artist and title, ignoring album differences.
 Multiple indistinguishable copies of that track at the same second share attribution.
+
+## Startup problems
+
+If the add-on repeatedly stops during startup, v0.2.2 reports the failing configuration field. Check **Web login password** first: it must be blank, or contain 12 to 256 characters. Blank disables direct browser access and retains Home Assistant Ingress. Save changes and restart. Null values for optional credentials are treated as blank.
+
+Errors identify settings without printing their values. Data storage access problems have a separate message. Never post your password, API key, connection token or full options.json when sharing logs.

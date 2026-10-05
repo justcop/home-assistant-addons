@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.2
+
+- Identify invalid startup settings by name without printing credentials, including web password length errors.
+- Treat null optional credentials and passwords as blank, keeping direct browser access disabled.
+- Report storage access failures separately from configuration errors.
+
 ## 0.2.1
 
 - Add contained horizontal timeline scrolling and zoom, calendar-year selection, and year/month heatmaps in the library and entity details.

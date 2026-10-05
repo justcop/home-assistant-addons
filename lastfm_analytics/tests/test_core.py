@@ -725,3 +725,55 @@ def test_rejected_candidate_persists_and_can_be_undone(tmp_path):
     ]
     db.undo_grouping()
     assert len(client.get("/api/grouping-review").json["rows"]) == 1
+
+
+def test_startup_identifies_invalid_password_without_logging_it(tmp_path, monkeypatch):
+    import sys
+    from analytics.__main__ import main
+
+    secret = "short-secret"
+    (tmp_path / "options.json").write_text(
+        json.dumps({"web_password": secret[:-1], "api_key": "never-log-my-api-key"})
+    )
+    monkeypatch.setattr(sys, "argv", ["analytics", "--data-dir", str(tmp_path)])
+    with pytest.raises(SystemExit) as failure:
+        main()
+    message = str(failure.value)
+    assert "web_password" in message and "12 to 256" in message
+    assert secret[:-1] not in message and "never-log-my-api-key" not in message
+
+
+def test_null_optional_options_are_treated_as_blank(tmp_path):
+    from analytics.web import load_config
+
+    (tmp_path / "options.json").write_text(
+        json.dumps(
+            {
+                "web_password": None,
+                "source_api_token": None,
+                "api_key": None,
+                "username": None,
+            }
+        )
+    )
+    config = load_config(tmp_path)
+    assert all(
+        config[key] == ""
+        for key in ("web_password", "source_api_token", "api_key", "username")
+    )
+    app = create_app(tmp_path, start_worker=False)
+    assert app.test_client().get("/api/status").status_code == 403
+
+
+def test_invalid_config_values_have_credential_free_errors(tmp_path):
+    from analytics.web import ConfigurationError, load_config
+
+    for options, field in [
+        ({"sync_interval_seconds": "secret-value"}, "sync_interval_seconds"),
+        ({"timezone": "secret-value"}, "timezone"),
+        ({"web_password": 12345}, "web_password"),
+    ]:
+        (tmp_path / "options.json").write_text(json.dumps(options))
+        with pytest.raises(ConfigurationError) as failure:
+            load_config(tmp_path)
+        assert field in str(failure.value) and "secret-value" not in str(failure.value)

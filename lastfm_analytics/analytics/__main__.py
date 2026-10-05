@@ -2,7 +2,7 @@ import argparse
 import os
 import signal
 from waitress import create_server
-from .web import create_app
+from .web import ConfigurationError, create_app
 
 
 def main():
@@ -18,9 +18,16 @@ def main():
     os.umask(0o077)
     try:
         app = create_app(args.data_dir, development=args.development)
-    except (ValueError, OSError):
+    except ConfigurationError as exc:
+        raise SystemExit(f"Unable to start Listening Analytics: {exc}") from None
+    except OSError as exc:
+        reason = exc.strerror or "file access failed"
         raise SystemExit(
-            "Unable to start Listening Analytics. Check add-on configuration and data directory permissions."
+            f"Unable to start Listening Analytics: data storage could not be accessed ({reason}). Check the add-on data directory permissions."
+        ) from None
+    except ValueError:
+        raise SystemExit(
+            "Unable to start Listening Analytics: startup validation failed. Check the add-on configuration."
         ) from None
     server = create_server(
         app,

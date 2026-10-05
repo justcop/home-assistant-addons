@@ -40,41 +40,75 @@ DEFAULTS = {
 }
 
 
-def load_config(data_dir):
-    path = Path(data_dir) / "options.json"
-    config = {**DEFAULTS, **(json.loads(path.read_text()) if path.exists() else {})}
+class ConfigurationError(ValueError):
+    """A fixed, credential-free explanation suitable for startup logs."""
+
+
+def validate_config(config):
+    config = {**DEFAULTS, **config}
+    for key in ("username", "api_key", "web_password", "source_api_token"):
+        if config[key] is None:
+            config[key] = ""
     config["username"] = str(config["username"]).strip()
     config["api_key"] = str(config["api_key"]).strip()
     if len(config["username"]) > 128 or len(config["api_key"]) > 256:
-        raise ValueError("Username or API key is too long")
+        raise ConfigurationError("Last.fm username or API key is too long")
     for key, low, high in [
         ("sync_interval_seconds", 60, 86400),
         ("reconcile_days", 2, 90),
     ]:
-        config[key] = int(config[key])
+        try:
+            config[key] = int(config[key])
+        except (TypeError, ValueError, OverflowError):
+            raise ConfigurationError(
+                f"{key} must be a whole number between {low} and {high}"
+            ) from None
         if not low <= config[key] <= high:
-            raise ValueError(f"{key} must be between {low} and {high}")
+            raise ConfigurationError(f"{key} must be between {low} and {high}")
     try:
         ZoneInfo(config["timezone"])
-    except (ZoneInfoNotFoundError, TypeError):
-        raise ValueError("Use an IANA timezone such as Europe/London") from None
+    except (ZoneInfoNotFoundError, TypeError, ValueError):
+        raise ConfigurationError(
+            "timezone must be an IANA timezone such as Europe/London"
+        ) from None
     if not isinstance(config["demo_mode"], bool):
-        raise ValueError("demo_mode must be true or false")
+        raise ConfigurationError("demo_mode must be true or false")
     if not isinstance(config["web_password"], str):
-        raise ValueError("Web password must be text")
+        raise ConfigurationError(
+            "web_password must be text, or blank to disable direct browser access"
+        )
     if config["web_password"] and not 12 <= len(config["web_password"]) <= 256:
-        raise ValueError("Web password must have between 12 and 256 characters")
+        raise ConfigurationError(
+            "web_password must contain 12 to 256 characters, or be blank to disable direct browser access. Change Web login password in the Home Assistant add-on Configuration tab, save and restart."
+        )
+    if not isinstance(config["source_api_token"], str):
+        raise ConfigurationError(
+            "source_api_token must be text, or blank to disable source reports"
+        )
     return config
 
 
+def load_config(data_dir):
+    path = Path(data_dir) / "options.json"
+    try:
+        options = json.loads(path.read_text()) if path.exists() else {}
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        raise ConfigurationError(
+            "options.json is invalid. Save the add-on configuration again in Home Assistant."
+        ) from None
+    if not isinstance(options, dict):
+        raise ConfigurationError(
+            "options.json must contain an options object. Save the add-on configuration again in Home Assistant."
+        )
+    return validate_config(options)
+
+
 def create_app(data_dir="/data", config=None, development=False, start_worker=True):
-    config = {**DEFAULTS, **config} if config is not None else load_config(data_dir)
+    config = validate_config(config) if config is not None else load_config(data_dir)
     tz = ZoneInfo(config["timezone"])
     app = Flask(__name__)
     app.config["MAX_CONTENT_LENGTH"] = 65536
     password = config["web_password"]
-    if password and not 12 <= len(password) <= 256:
-        raise ValueError("Web password must have between 12 and 256 characters")
     secret_path = Path(data_dir) / "web-session-secret"
     secret_path.parent.mkdir(parents=True, exist_ok=True)
     try:
