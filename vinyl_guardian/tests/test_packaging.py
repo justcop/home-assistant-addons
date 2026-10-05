@@ -8,6 +8,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PackagingTests(unittest.TestCase):
+    def test_runtime_source_defines_recognition_target(self):
+        source = (ROOT / "vinyl_guardian.py").read_text()
+        self.assertIn(
+            "target = math.ceil(RATE / CHUNK * recognition_session.final_stage)",
+            source,
+        )
+        self.assertNotIn(
+            "strand the 10s stage forever.\\n    target =",
+            source,
+        )
+
     def test_runtime_dependencies_are_exactly_pinned(self):
         requirements = [
             line.strip()
