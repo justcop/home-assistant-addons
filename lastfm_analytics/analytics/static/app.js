@@ -200,7 +200,7 @@ function chart(data, filter = null, mode = state.mode) {
   const ds = filter
     ? ` data-entity="${esc(filter.kind)}" data-id="${esc(filter.id)}" data-name="${esc(filter.name)}" data-history-mode="${mode}"`
     : "";
-  return `<div class="chart-tools"><label>Zoom <input class="chart-zoom" type="range" min="1" max="8" step="0.5" value="1" aria-label="Timeline zoom"></label><small>Scroll sideways to explore. Select a bar for scrobbles.</small></div><div class="chart-layout"><div class="chart-axis"><span>${number(rounded)}</span><span>${number(rounded * 0.75)}</span><span>${number(rounded * 0.5)}</span><span>${number(rounded * 0.25)}</span><span>0</span></div><div class="chart-scroll" tabindex="0" aria-label="Scrollable listening timeline"><div class="bar-chart" style="--bins:${bins.length}" role="group" aria-label="Scrobbles by ${bins[0]?.label.length === 7 ? "month" : "day"}, select a bar to inspect history">${bins.map((b,i) => `<button data-label="${i % 6 === 0 ? esc(b.label) : ""}" data-chart-start="${b.start}" data-chart-end="${b.end}"${ds} style="height:${Math.max(0.5, (b.plays / rounded) * 100)}%" title="${b.label}: ${number(b.plays)} scrobbles. Open history." aria-label="${b.label}, ${number(b.plays)} scrobbles"></button>`).join("")}</div></div></div><div class="chart-foot"><span><strong>${number(data.current.plays)}</strong> scrobbles in this period</span><span>${best.plays ? `Peak: <strong>${esc(best.label)}</strong>` : "No plays yet"}</span></div>${calendarHeatmap(data, filter, mode)}`;
+  return `<div class="chart-tools"><div class="chart-zoom-buttons" role="group" aria-label="Timeline zoom"><button class="button" data-chart-zoom="out" aria-label="Zoom out">−</button><button class="button" data-chart-zoom="reset" aria-label="Reset timeline zoom">Reset</button><button class="button" data-chart-zoom="in" aria-label="Zoom in">+</button></div><small>Pinch to zoom. Scroll sideways. Select a bar for scrobbles.</small></div><div class="chart-layout"><div class="chart-axis"><span>${number(rounded)}</span><span>${number(rounded * 0.75)}</span><span>${number(rounded * 0.5)}</span><span>${number(rounded * 0.25)}</span><span>0</span></div><div class="chart-scroll" tabindex="0" aria-label="Scrollable listening timeline"><div class="bar-chart" style="--bins:${bins.length}" role="group" aria-label="Scrobbles by ${bins[0]?.label.length === 7 ? "month" : "day"}, select a bar to inspect history">${bins.map((b,i) => `<button data-label="${i % 6 === 0 ? esc(b.label) : ""}" data-chart-start="${b.start}" data-chart-end="${b.end}"${ds} style="height:${Math.max(0.5, (b.plays / rounded) * 100)}%" title="${b.label}: ${number(b.plays)} scrobbles. Open history." aria-label="${b.label}, ${number(b.plays)} scrobbles"></button>`).join("")}</div></div></div><div class="chart-foot"><span><strong>${number(data.current.plays)}</strong> scrobbles in this period</span><span>${best.plays ? `Peak: <strong>${esc(best.label)}</strong>` : "No plays yet"}</span></div>${calendarHeatmap(data, filter, mode)}`;
 }
 function detailAttrs(kind, row) {
   return `data-detail="${kind}" data-id="${esc(row.id)}"`;
@@ -274,9 +274,9 @@ function historyHTML(data) {
 }
 function settingsHTML(data) {
   const card = r => state.groupTab === "merged"
-    ? `<article class="review-card"><h3>${esc(r.artist)}</h3><button class="text-button" data-detail="${state.groupKind}" data-id="${r.id}" data-group-detail="true">${esc(r.versions[0].name)} · ${r.versions.length} versions · ${number(r.plays)} plays</button><p>${r.versions.map(v => esc(v.name)).join(" · ")}</p></article>`
-    : `<article class="review-card"><h3>${esc(r.artist)}</h3><p class="review-names">${r.names.map(esc).join("<br>")}</p><p>${esc(r.reason)}</p><div class="review-actions"><button class="button primary" data-candidate-merge="${r.ids.join(",")}">Merge these</button>${r.learnable ? `<button class="button" data-candidate-learn="${r.ids.join(",")}" data-suffix="${esc(r.suffix)}" data-artist="${esc(r.artist)}">Merge and learn suffix</button>` : ""}${state.groupTab !== "skipped" || r.dismissed ? `<button class="button" data-candidate-key="${esc(r.key)}" data-candidate-action="${state.groupTab === "skipped" ? "restore" : "dismiss"}">${state.groupTab === "skipped" ? "Reconsider" : "Keep separate"}</button>` : ""}</div></article>`;
-  return `<section class="panel"><div class="panel-head"><div><h2>Version review</h2><p>Suggestions compare titles by the same artist. Your original scrobbles stay intact.</p></div><button class="button" id="undo" ${statusData.events.some(e => !e.undone) ? "" : "disabled"}>Undo latest change</button></div><div class="review-filters"><select id="group-kind" aria-label="Review songs or albums"><option value="song" ${state.groupKind === "song" ? "selected" : ""}>Songs</option><option value="album" ${state.groupKind === "album" ? "selected" : ""}>Albums</option></select><input id="search" type="search" aria-label="Search merge candidates" placeholder="Search candidates or merges…" value="${esc(state.q)}"></div><div class="segment review-tabs">${[["suggested","Suggestions"],["skipped","Skipped candidates"],["merged","Already merged"]].map(([tab,label])=>`<button data-group-tab="${tab}" aria-pressed="${tab===state.groupTab}">${label}</button>`).join("")}</div><p class="method-note">Skipped candidates include live performances and mixes that automatic rules kept separate, plus your rejected suggestions. “Merge and learn suffix” remembers only that exact suffix for this artist and type, for future imports with a matching base entry. Undo removes the rule and its later assignments.</p><div class="review-list">${data.rows.map(card).join("") || '<div class="empty">No matches in this review.</div>'}</div>${pager(data.total)}</section><section class="panel" style="margin-top:20px"><h2>Learned rules</h2>${data.rules.length ? data.rules.map(r=>`<p class="method-note">${esc(r.artist)} · ${esc(r.kind)} · ${esc(r.suffix)}</p>`).join("") : '<p class="method-note">Approve a learnable suggestion to create a rule.</p>'}<h3 style="margin-top:20px">Connection and data</h3><p class="method-note">${esc(statusData.username)} · ${number(statusData.counts.plays)} scrobbles · ${esc(statusData.timezone)} · ${statusData.import_state.complete ? "Import complete" : "Import in progress"}. Configure credentials and the web password in Home Assistant. Vinyl reporting: ${statusData.source_reporting_enabled ? "enabled" : "not configured"}, ${number(statusData.source_reports)} reports received.</p></section>`;
+    ? `<article class="review-card"><h3>${esc(r.artist)}</h3><button class="text-button" data-detail="${state.groupKind}" data-id="${r.id}" data-group-detail="true">${esc(r.name)} · ${r.versions.length} versions · ${number(r.plays)} plays</button><p>${r.versions.map(v => esc(v.name)).join(" · ")}</p></article>`
+    : `<article class="review-card"><h3>${esc(r.artist)}</h3><fieldset class="review-choices"><legend>Choose the versions to combine</legend>${r.versions.map(v => `<label><input type="checkbox" class="candidate-version" value="${v.id}" data-name="${esc(v.name)}"><span>${esc(v.name)}<small>${number(v.plays)} scrobbles</small></span></label>`).join("")}</fieldset><label class="merge-name">Combined name<input class="candidate-name" type="text" maxlength="1000" placeholder="Select versions, then choose a name" disabled></label><p>${esc(r.reason)}</p><div class="review-actions"><button class="button primary" data-candidate-merge="${r.ids.join(",")}" disabled>Merge selected</button>${r.learnable ? `<button class="button" data-candidate-learn="${r.ids.join(",")}" data-suffix="${esc(r.suffix)}" data-artist="${esc(r.artist)}" title="Select every listed version to learn this suffix" disabled>Merge and learn suffix</button>` : ""}${state.groupTab !== "skipped" || r.dismissed ? `<button class="button" data-candidate-key="${esc(r.key)}" data-candidate-action="${state.groupTab === "skipped" ? "restore" : "dismiss"}">${state.groupTab === "skipped" ? "Reconsider" : "Keep separate"}</button>` : ""}</div></article>`;
+  return `<section class="panel"><div class="panel-head"><div><h2>Version review</h2><p>Select two or more versions to combine. Unselected versions keep their current grouping.</p></div><button class="button" id="undo" ${statusData.events.some(e => !e.undone) ? "" : "disabled"}>Undo latest change</button></div><div class="review-filters"><select id="group-kind" aria-label="Review songs or albums"><option value="song" ${state.groupKind === "song" ? "selected" : ""}>Songs</option><option value="album" ${state.groupKind === "album" ? "selected" : ""}>Albums</option></select><input id="search" type="search" aria-label="Search merge candidates" placeholder="Search candidates or merges…" value="${esc(state.q)}"></div><div class="segment review-tabs">${[["suggested","Suggestions"],["skipped","Skipped candidates"],["merged","Already merged"]].map(([tab,label])=>`<button data-group-tab="${tab}" aria-pressed="${tab===state.groupTab}">${label}</button>`).join("")}</div><p class="method-note">Skipped candidates include live performances and mixes that automatic rules kept separate, plus your rejected suggestions. “Merge and learn suffix” remembers only that exact suffix for this artist and type, for future imports with a matching base entry. Undo removes the rule and its later assignments.</p><div class="review-list">${data.rows.map(card).join("") || '<div class="empty">No matches in this review.</div>'}</div>${pager(data.total)}</section><section class="panel" style="margin-top:20px"><h2>Learned rules</h2>${data.rules.length ? data.rules.map(r=>`<p class="method-note">${esc(r.artist)} · ${esc(r.kind)} · ${esc(r.suffix)}</p>`).join("") : '<p class="method-note">Approve a learnable suggestion to create a rule.</p>'}<h3 style="margin-top:20px">Connection and data</h3><p class="method-note">${esc(statusData.username)} · ${number(statusData.counts.plays)} scrobbles · ${esc(statusData.timezone)} · ${statusData.import_state.complete ? "Import complete" : "Import in progress"}. Configure credentials and the web password in Home Assistant. Vinyl reporting: ${statusData.source_reporting_enabled ? "enabled" : "not configured"}, ${number(statusData.source_reports)} reports received.</p></section>`;
 }
 function setupHTML() {
   return `<section class="panel setup"><div class="setup-mark" aria-hidden="true">◫</div><h2>Your listening, ready to explore</h2><p>Connect Last.fm to bring your listening history together. Explore trends, find returning favourites and combine versions into meaningful totals.</p><ol><li>Open this add-on’s <strong>Configuration</strong> tab in Home Assistant.</li><li>Enter your <strong>Last.fm username</strong> and <a href="https://www.last.fm/api/account/create" target="_blank" rel="noopener noreferrer">API key</a>.</li><li>Save, restart the add-on and reopen this dashboard.</li></ol><p>The first import runs in the background and resumes after restarts. Your Last.fm history is never edited.</p><a class="button primary" href="?demo=1">Explore a fictional demo ↗</a></section>`;
@@ -355,6 +355,7 @@ async function load() {
       b.setAttribute("aria-pressed", b.dataset.mode === state.mode),
     );
   $("#toolbar").hidden = state.view === "settings";
+  $("#settings-preferences").hidden = state.view !== "settings";
   $("#period").value = state.period;
   $("#source").value = state.source;
   $("#now-playing").hidden = state.source !== "all" || !statusData?.now_playing?.track;
@@ -444,11 +445,11 @@ function confirmAction(title, description, fn) {
   };
   dialog.showModal();
 }
-async function groupAction(action, ids = [], key = null) {
+async function groupAction(action, ids = [], key = null, name = undefined) {
   await api(
     "grouping",
     {},
-    { method: "POST", body: JSON.stringify({ action, ids, key }) },
+    { method: "POST", body: JSON.stringify({ action, ids, key, name }) },
   );
   state.selected.clear();
   $("#detail-dialog").close();
@@ -467,11 +468,22 @@ document.addEventListener("click", (event) => {
     state.groupTab = b.dataset.groupTab;
     state.offset = 0; state.q = ""; load(); return;
   }
+  if (b.dataset.chartZoom) {
+    const scroller = b.closest(".panel").querySelector(".chart-scroll");
+    const zoom = Number(scroller.dataset.zoom || 1);
+    setChartZoom(scroller, b.dataset.chartZoom === "reset" ? 1 : zoom * (b.dataset.chartZoom === "in" ? 1.5 : 1 / 1.5));
+    return;
+  }
   if (b.dataset.candidateMerge || b.dataset.candidateLearn) {
     const learn = !!b.dataset.candidateLearn;
-    confirmAction(learn ? "Merge and remember this suffix?" : "Merge these versions?",
-      learn ? `Remember ${b.dataset.suffix} for ${b.dataset.artist} on future imports. Other artists and performance qualifiers remain separate. Undo removes this rule.` : "These entries will share a total. You can undo this decision.",
-      () => groupAction(learn ? "merge_learn" : "merge", (b.dataset.candidateLearn || b.dataset.candidateMerge).split(",").map(Number)));
+    const selected = [...b.closest(".review-card").querySelectorAll(".candidate-version:checked")];
+    if (selected.length < 2) return;
+    const name = b.closest(".review-card").querySelector(".candidate-name").value.trim();
+    if (!name) { toast("Choose a combined name first."); return; }
+    confirmAction(learn ? "Merge and remember this suffix?" : "Merge selected versions?",
+      `${selected.map(v => `“${v.dataset.name}”`).join(", ")} will share a total under “${name}”. ` +
+      (learn ? `Remember ${b.dataset.suffix} for ${b.dataset.artist} on future imports. Undo removes this rule.` : "Unselected versions keep their current grouping. You can undo this decision."),
+      () => groupAction(learn ? "merge_learn" : "merge_versions", learn ? b.dataset.candidateLearn.split(",").map(Number) : selected.map(v => Number(v.value)), "", name));
     return;
   }
   if (b.dataset.candidateKey) {
@@ -565,6 +577,19 @@ document.addEventListener("click", (event) => {
   }
 });
 document.addEventListener("change", (event) => {
+  if (event.target.classList.contains("candidate-version")) {
+    const card = event.target.closest(".review-card");
+    const selected = card.querySelectorAll(".candidate-version:checked").length;
+    const total = card.querySelectorAll(".candidate-version").length;
+    const button = card.querySelector("[data-candidate-merge]");
+    button.disabled = selected < 2;
+    button.textContent = selected < 2 ? "Merge selected" : `Merge ${selected} selected`;
+    const name = card.querySelector(".candidate-name");
+    name.disabled = selected < 2;
+    if (!name.dataset.edited) name.value = card.querySelector(".candidate-version:checked")?.dataset.name || "";
+    const learn = card.querySelector("[data-candidate-learn]");
+    if (learn) learn.disabled = selected !== total;
+  }
   if (event.target.classList.contains("group-select")) {
     const el = event.target;
     if (el.checked) state.selected.set(el.dataset.id, el.dataset.name);
@@ -581,11 +606,7 @@ document.addEventListener("change", (event) => {
   }
 });
 document.addEventListener("input", (event) => {
-  if (event.target.classList.contains("chart-zoom")) {
-    const panel = event.target.closest(".panel");
-    panel.querySelector(".bar-chart").style.setProperty("--zoom", event.target.value);
-    return;
-  }
+  if (event.target.classList.contains("candidate-name")) event.target.dataset.edited = "true";
   if (event.target.id !== "search") return;
   clearTimeout(searchTimer);
   const value = event.target.value;
@@ -721,3 +742,66 @@ $("#install-app").onclick = async () => {
   installPrompt = null;
 };
 window.addEventListener("appinstalled", () => { $("#install-app").hidden = true; installPrompt = null; });
+
+// Zoom around the gesture's midpoint so the same part of the timeline stays
+// under the fingers. One-finger scrolling remains native to the browser.
+function setChartZoom(scroller, requested, anchor = scroller.clientWidth / 2, contentPoint = null) {
+  const chart = scroller.querySelector(".bar-chart");
+  const oldWidth = chart.getBoundingClientRect().width;
+  const point = contentPoint ?? (scroller.scrollLeft + anchor) / oldWidth;
+  const zoom = Math.max(1, Math.min(8, requested));
+  scroller.dataset.zoom = zoom;
+  chart.style.setProperty("--zoom", zoom);
+  scroller.scrollLeft = point * chart.getBoundingClientRect().width - anchor;
+  const tools = scroller.closest(".panel").querySelector(".chart-zoom-buttons");
+  if (tools) {
+    tools.querySelector('[data-chart-zoom="out"]').disabled = zoom <= 1;
+    tools.querySelector('[data-chart-zoom="in"]').disabled = zoom >= 8;
+  }
+}
+const chartGestures = new WeakMap();
+function touchGeometry(event, scroller) {
+  const [a, b] = event.touches;
+  return {
+    distance: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY),
+    anchor: (a.clientX + b.clientX) / 2 - scroller.getBoundingClientRect().left,
+  };
+}
+document.addEventListener("touchstart", event => {
+  const scroller = event.target.closest(".chart-scroll");
+  if (!scroller || event.touches.length !== 2) return;
+  const geometry = touchGeometry(event, scroller);
+  const width = scroller.querySelector(".bar-chart").getBoundingClientRect().width;
+  chartGestures.set(scroller, {
+    distance: Math.max(1, geometry.distance),
+    zoom: Number(scroller.dataset.zoom || 1),
+    point: (scroller.scrollLeft + geometry.anchor) / width,
+  });
+  scroller.dataset.gestureUntil = "Infinity";
+  if (event.cancelable) event.preventDefault();
+}, { passive: false });
+document.addEventListener("touchmove", event => {
+  const scroller = event.target.closest(".chart-scroll");
+  const gesture = scroller && chartGestures.get(scroller);
+  if (!gesture || event.touches.length !== 2) return;
+  const geometry = touchGeometry(event, scroller);
+  setChartZoom(scroller, gesture.zoom * geometry.distance / gesture.distance, geometry.anchor, gesture.point);
+  if (event.cancelable) event.preventDefault();
+}, { passive: false });
+function endChartGesture(event) {
+  const scroller = event.target.closest(".chart-scroll");
+  if (scroller && chartGestures.has(scroller) && event.touches.length < 2) {
+    chartGestures.delete(scroller);
+    scroller.dataset.gestureUntil = String(Date.now() + 400);
+  }
+}
+document.addEventListener("touchend", endChartGesture);
+document.addEventListener("touchcancel", endChartGesture);
+// Touch scrolling/pinching must not open a bar as a synthetic tap afterwards.
+document.addEventListener("click", event => {
+  const scroller = event.target.closest(".chart-scroll");
+  if (scroller && Number(scroller.dataset.gestureUntil || 0) > Date.now()) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }
+}, true);

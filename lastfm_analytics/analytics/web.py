@@ -515,7 +515,7 @@ self.addEventListener('fetch', event => {
         elif data.get("action") == "undo":
             db.undo_grouping()
         else:
-            db.change_groups(data.get("action"), data.get("ids", []))
+            db.change_groups(data.get("action"), data.get("ids", []), data.get("name"))
         return jsonify(ok=True)
 
     @app.post("/api/sync")

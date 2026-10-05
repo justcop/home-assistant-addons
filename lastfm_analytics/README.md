@@ -194,3 +194,17 @@ Multiple indistinguishable copies of that track at the same second share attribu
 If the add-on repeatedly stops during startup, v0.2.2 reports the failing configuration field. Check **Web login password** first: it must be blank, or contain 12 to 256 characters. Blank disables direct browser access and retains Home Assistant Ingress. Save changes and restart. Null values for optional credentials are treated as blank.
 
 Errors identify settings without printing their values. Data storage access problems have a separate message. Never post your password, API key, connection token or full options.json when sharing logs.
+
+## Reviewing version choices
+
+Each merge suggestion lists individual scrobbled versions with checkboxes. Select
+at least two, edit **Combined name**, and use **Merge selected**. This can select
+a subset of an existing automatic group without bringing its other members along.
+Unselected entries retain their current grouping. **Undo latest change** restores
+the previous grouping and display names. Suffix learning requires selecting every
+listed version in a learnable suggestion; partial choices never teach a broad rule.
+
+Sign-out and colour/light-dark controls are in Settings. The small Sync button sits
+next to Settings. Pinch timeline graphs to zoom around your fingers, use one finger
+to scroll sideways, or use the zoom/reset buttons. The year/month heatmap fits the
+phone width with a smaller year gutter.

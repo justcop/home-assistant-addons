@@ -15,7 +15,7 @@ def review(db, kind="song", tab="suggested", q="", offset=0):
             dict(r)
             for r in conn.execute(
                 f"""SELECT v.id, v.group_id, v.artist, v.name, v.override_group, a.group_id alias_group,
-          COUNT(s.id) plays FROM resolved_variants v JOIN aliases a ON a.kind=v.kind AND a.auto_key=v.auto_key JOIN scrobbles s ON s.{column}=v.id
+          g.name group_name, COUNT(s.id) plays FROM resolved_variants v JOIN groups g ON g.id=v.group_id JOIN aliases a ON a.kind=v.kind AND a.auto_key=v.auto_key JOIN scrobbles s ON s.{column}=v.id
           WHERE s.active=1 AND v.kind=? GROUP BY v.id""",
                 (kind,),
             )
@@ -28,6 +28,7 @@ def review(db, kind="song", tab="suggested", q="", offset=0):
                 {
                     "id": v["group_id"],
                     "artist": v["artist"],
+                    "name": v["group_name"],
                     "versions": [],
                     "plays": 0,
                 },
@@ -79,6 +80,10 @@ def review(db, kind="song", tab="suggested", q="", offset=0):
                             "ids": ids,
                             "artist": left["artist"],
                             "names": names,
+                            "versions": [
+                                {k: v[k] for k in ("id", "name", "plays", "group_id")}
+                                for g in (left, right) for v in g["versions"]
+                            ],
                             "plays": left["plays"] + right["plays"],
                             "learnable": learnable,
                             "dismissed": rejected,
@@ -110,7 +115,7 @@ def review(db, kind="song", tab="suggested", q="", offset=0):
                 if needle
                 in normalise(
                     r["artist"]
-                    + " "
+                    + " " + r.get("name", "") + " "
                     + " ".join(
                         r.get("names", [v["name"] for v in r.get("versions", [])])
                     )
