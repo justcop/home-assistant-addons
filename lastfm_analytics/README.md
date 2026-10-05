@@ -219,3 +219,19 @@ labelled with the album name, favouring the most played album for the selected s
 Artwork is independent of the selected date period. Blank, default or unavailable
 covers are omitted. History without image metadata cannot supply a cover until
 Last.fm provides one in an imported scrobble. No MusicBrainz matching is needed.
+
+## Display and navigation
+
+The default date range is **All time**. **Reset** beside the date range returns to
+all-time listening across all sources, clearing custom dates, search, item filters
+and pagination. Tap the record icon beside it to toggle **Vinyl only**.
+
+Choose **Combined versions** or **Last.fm entries** in Settings. The preference is
+remembered on this browser. Merge names offer a dropdown of the selected versions
+with their scrobble counts. Names without brackets sort first, then by most
+scrobbles. You can choose another listed name or edit the text directly.
+
+Menus and details create browser navigation history. Back returns to the previous
+menu or closes a detail first; Forward reopens it. Previous filters and searches
+are restored. Diary song names have a wider column, with horizontal table scrolling
+on narrow phones.

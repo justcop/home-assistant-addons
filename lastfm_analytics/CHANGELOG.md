@@ -1,8 +1,18 @@
 # Changelog
 
-## 0.2.4
+## 0.2.5
 
 - Add remote Last.fm album thumbnails to artist, album and song details without storing image files or fetching metadata during page load. Artist/song artwork is labelled with its representative album. Missing or failed covers leave the statistics usable.
+
+## 0.2.4
+
+
+- Move combined/original version display into Settings and remember the preference.
+- Offer selected version names as merge-name choices, preferring names without brackets then the highest scrobble count, with free text editing retained.
+- Default to all-time statistics and add Reset to clear date, source, search and item filters.
+- Replace the prominent source dropdown with a small highlighted Vinyl only record toggle, and enlarge the statistics icons.
+- Widen the diary song column and retain table scrolling on phones.
+- Add menu and detail navigation history so browser/Android Back and Forward restore the previous view and filters.
 
 ## 0.2.3
 

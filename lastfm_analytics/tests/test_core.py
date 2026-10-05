@@ -267,20 +267,25 @@ def test_actual_stats_discovery_dates_and_raw_vs_merged(db):
             play(ts - 50, artist="New Artist", album=""),
         ],
     )
-    data = overview(db, {}, "Europe/London", now)
+    data = overview(db, {"period": "30d"}, "Europe/London", now)
     assert (
         data["current"] == {"plays": 3, "artists": 2, "songs": 2, "albums": 1}
         and data["discovery"]["plays"] is None
     )
     db.set_meta("import", {"complete": True})
-    data = overview(db, {}, "Europe/London", now)
+    data = overview(db, {"period": "30d"}, "Europe/London", now)
     assert data["discovery"]["plays"] == 1 and data["discovery"]["artists"] == 1
     assert data["grouping"]["raw_songs"] == 3 and data["grouping"]["songs"] == 2
     assert (
         sum(b["plays"] for b in data["timeline"]) == 3
         and sum(sum(h) for h in data["hours"]) == 3
     )
-    assert overview(db, {"mode": "raw"}, "Europe/London", now)["current"]["songs"] == 3
+    assert (
+        overview(db, {"mode": "raw", "period": "30d"}, "Europe/London", now)["current"][
+            "songs"
+        ]
+        == 3
+    )
     p = data["period"]
     assert p["end"] - p["start"] == p["start"] - p["previous_start"]
 
@@ -819,3 +824,13 @@ def test_artwork_ignores_untrusted_urls_and_placeholder(db, url):
     db.apply_window(0, 200, [row])
     with db.connect() as conn:
         assert details(conn, "song", 1, False)["artwork"] is None
+
+
+def test_default_period_is_all_time(db):
+    now = datetime(2026, 10, 5, 12, tzinfo=timezone.utc)
+    ts = int(now.timestamp())
+    db.apply_window(0, ts, [play(ts - 400 * 86400), play(ts - 60)])
+    data = overview(db, {}, "Europe/London", now)
+    assert data["period"]["name"] == "all"
+    assert data["current"]["plays"] == 2
+    assert data["previous"] is None

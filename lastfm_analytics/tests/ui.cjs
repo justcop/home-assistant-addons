@@ -24,6 +24,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   await page.getByRole("link", { name: "Explore a fictional demo" }).click();
   await page.locator("#content .metrics").waitFor();
   assert.match(await page.locator("#banner").innerText(), /Fictional demo/);
+  assert.equal(await page.locator("#period").inputValue(), "all");
   await page.screenshot({
     path: path.join(output, "overview-light.png"),
     fullPage: true,
@@ -224,6 +225,85 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   await page.locator("#search").fill("<img src=x onerror=alert(1)>");
   await page.waitForTimeout(450);
   assert.equal(await page.locator("#content img").count(), 0);
+  // Defaults, compact vinyl toggle, readable diary columns and in-app Back.
+  await page.locator('#reset-filters').click();
+  await page.waitForFunction(() => document.querySelector('#content').getAttribute('aria-busy') === 'false');
+  assert.equal(await page.locator('#period').inputValue(),'all');
+  assert.equal(await page.locator('#source').getAttribute('aria-pressed'),'false');
+  assert.equal(await page.locator('#search').inputValue(),'');
+  const songCell = await page.locator('.history-table tbody tr:not(.history-day)').first().locator('td').nth(1).boundingBox();
+  assert.ok(songCell.width >= 260);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),false);
+  await page.locator('#nav [data-view="overview"]').click();
+  await page.locator('#source').click();
+  await page.waitForFunction(() => document.querySelector('#content').getAttribute('aria-busy') === 'false');
+  assert.equal(await page.locator('#source').getAttribute('aria-pressed'),'true');
+  await page.locator('#period').selectOption('30d');
+  await page.locator('#reset-filters').click();
+  await page.waitForFunction(() => document.querySelector('#content').getAttribute('aria-busy') === 'false');
+  await page.locator('#content .metrics').waitFor();
+  assert.equal(await page.locator('#period').inputValue(),'all');
+  assert.equal(await page.locator('#source').getAttribute('aria-pressed'),'false');
+  const metricFont = await page.locator('.metric-label span').first().evaluate(n=>getComputedStyle(n).fontSize);
+  assert.ok(parseFloat(metricFont) >= 24, metricFont);
+  await page.locator('#nav [data-view="trends"]').click();
+  await page.locator('#content .heatmap').waitFor();
+  await page.locator('#nav [data-view="songs"]').click();
+  await page.locator('#content table').waitFor();
+  await page.goBack();
+  await page.locator('#content .heatmap').waitFor();
+  assert.equal(await page.locator('#page-title').innerText(),'Listening trends');
+  await page.goBack();
+  await page.locator('#content .list-row').first().waitFor();
+  assert.equal(await page.locator('#page-title').innerText(),'Overview');
+  await page.locator('#content .list-row').first().click();
+  await page.locator('#detail-dialog .calendar-heatmap').waitFor();
+  await page.goBack();
+  await page.waitForFunction(()=>!document.querySelector('#detail-dialog').open);
+  assert.equal(await page.locator('#page-title').innerText(),'Overview');
+  await page.goForward();
+  await page.locator('#detail-dialog .calendar-heatmap').waitFor();
+  await page.locator('#close-detail').click();
+  await page.waitForFunction(()=>!document.querySelector('#detail-dialog').open);
+  // Version display is a saved Settings preference, and merge names are choices.
+  assert.equal(await page.locator('#toolbar [data-mode]').count(), 0);
+  await page.locator('.settings-nav').click();
+  await page.locator('#settings-preferences [data-mode="raw"]').click();
+  assert.equal(await page.evaluate(() => localStorage.getItem('listening-version-mode')), 'raw');
+  await page.goto((process.env.APP_URL || 'http://127.0.0.1:8105/') + '?demo=1');
+  await page.locator('#content .metrics').waitFor();
+  assert.equal(await page.locator('[data-mode="raw"]').getAttribute('aria-pressed'), 'true');
+  assert.equal(await page.locator('[data-mode="raw"]').isVisible(), false);
+  await page.route('**/api/grouping-review?**', async route => {
+    await route.fulfill({json:{rows:[{artist:'Fixture artist', ids:[501,502], key:'song:501:502',
+      versions:[
+        {id:1001,name:'Alpha [Mix]',plays:300,group_id:501},
+        {id:1002,name:'Alpha',plays:3,group_id:501},
+        {id:1003,name:'ALPHA',plays:40,group_id:502},
+        {id:1004,name:'Alpha (Remaster)',plays:200,group_id:502}],
+      reason:'Fixture choices', learnable:false}], total:1,offset:0,rules:[]}});
+  });
+  await page.locator('.settings-nav').click();
+  const namesCard = page.locator('.review-card').first();
+  await namesCard.locator('.candidate-version').nth(0).check();
+  await namesCard.locator('.candidate-version').nth(1).check();
+  assert.equal(await namesCard.locator('.candidate-name').inputValue(), 'Alpha');
+  await namesCard.locator('.candidate-version').nth(2).check();
+  await namesCard.locator('.candidate-version').nth(3).check();
+  assert.equal(await namesCard.locator('.candidate-name').inputValue(), 'ALPHA');
+  assert.equal(await namesCard.locator('.candidate-name-choice option').count(), 5);
+  await namesCard.locator('.candidate-name-choice').selectOption('1002');
+  assert.equal(await namesCard.locator('.candidate-name').inputValue(), 'Alpha');
+  await namesCard.locator('.candidate-version').nth(1).uncheck();
+  assert.equal(await namesCard.locator('.candidate-name').inputValue(), 'ALPHA');
+  await namesCard.locator('.candidate-name').fill('My custom name');
+  assert.equal(await namesCard.locator('.candidate-name-choice').inputValue(), 'custom');
+  await namesCard.locator('.candidate-version').nth(3).uncheck();
+  assert.equal(await namesCard.locator('.candidate-name').inputValue(), 'My custom name');
+  await namesCard.locator('.candidate-name-choice').selectOption('1001');
+  assert.equal(await namesCard.locator('.candidate-name').inputValue(), 'Alpha [Mix]');
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.unroute('**/api/grouping-review?**');
   assert.deepEqual(errors, []);
   console.log(
     "UI passed: setup, demo, dates, history, search, detail, separate, merge, undo, mobile, dark, heatmap and safe text rendering.",

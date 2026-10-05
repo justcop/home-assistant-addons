@@ -10,6 +10,8 @@ const esc = (value) =>
   );
 const number = (n) => new Intl.NumberFormat("en-GB").format(n ?? 0);
 const initial = new URLSearchParams(location.search);
+let savedMode = "merged";
+try { savedMode = localStorage.getItem("listening-version-mode") || "merged"; } catch (_) {}
 const views = [
   "overview",
   "trends",
@@ -21,15 +23,15 @@ const views = [
 ];
 const state = {
   view: views.includes(initial.get("view")) ? initial.get("view") : "overview",
-  period: initial.get("period") || "30d",
+  period: initial.get("period") || "all",
   source: ["vinyl", "unknown"].includes(initial.get("source")) ? initial.get("source") : "all",
-  mode: initial.get("mode") === "raw" ? "raw" : "merged",
+  mode: (initial.get("mode") || savedMode) === "raw" ? "raw" : "merged",
   start: initial.get("start") || "",
   end: initial.get("end") || "",
   demo: initial.get("demo") === "1",
-  q: "",
-  offset: 0,
-  filter: null,
+  q: initial.get("q") || "",
+  offset: Math.max(0, Number(initial.get("offset")) || 0),
+  filter: initial.get("entity") && initial.get("id") ? {kind:initial.get("entity"),id:initial.get("id"),name:initial.get("name") || initial.get("entity")} : null,
   groupKind: "song",
   groupTab: "suggested",
   selected: new Map(),
@@ -137,10 +139,39 @@ function report(error) {
   $("#error").textContent = error.message;
   $("#error").hidden = false;
 }
-function urlState() {
-  const q = query({ view: state.view, entity: null, id: null });
-  history.replaceState(null, "", `${location.pathname}?${q}`);
+function navigationState() {
+  const keys = ["view", "period", "source", "mode", "start", "end", "demo", "q", "offset", "filter", "groupKind", "groupTab"];
+  return Object.fromEntries(keys.map(key => [key, state[key]]));
 }
+function urlState(historyMode = "push") {
+  if (historyMode === "none") return;
+  const nav = navigationState();
+  const q = query({ view: state.view, q:state.q, offset:state.offset || null, name:state.filter?.name });
+  const url = `${location.pathname}?${q}`;
+  const current = history.state;
+  if (!current?.listening || historyMode === "replace") {
+    history.replaceState({listening:true, nav, detail:null}, "", url);
+  } else if (JSON.stringify(current.nav) !== JSON.stringify(nav)) {
+    history.pushState({listening:true, nav, detail:null}, "", url);
+  } else if (current.detail && !$("#detail-dialog").open) {
+    history.replaceState({listening:true, nav, detail:null}, "", url);
+  }
+}
+window.addEventListener("popstate", async event => {
+  if (!event.state?.listening) return;
+  clearTimeout(searchTimer);
+  detailSerial++;
+  $("#confirm-dialog").close();
+  $("#detail-dialog").close();
+  Object.assign(state, event.state.nav);
+  state.selected.clear();
+  const serial = loadSerial + 1;
+  await load({historyMode:"none"});
+  if (serial === loadSerial && event.state.detail) {
+    const {kind,id,groupMode} = event.state.detail;
+    showDetail(kind, id, groupMode, true);
+  }
+});
 function changeView(view) {
   state.view = view;
   state.q = "";
@@ -270,12 +301,35 @@ function historyHTML(data) {
       );
     })
     .join("");
-  return `${state.filter ? `<div class="filter-chip">${esc(state.filter.name)}<button class="icon-button" id="clear-filter" aria-label="Clear history filter">×</button></div>` : ""}<section class="panel table-panel"><div class="table-head"><div><h2>Your listening diary</h2><small>${number(data.total)} scrobbles · ${esc(statusData.timezone)}</small></div><input id="search" type="search" aria-label="Search history" placeholder="Search songs, artists or albums…" value="${esc(state.q)}"></div><div class="table-wrap"><table><thead><tr><th>Time</th><th>Song</th><th>Artist</th><th>Album</th></tr></thead><tbody>${rows || '<tr><td colspan="4" class="empty">No scrobbles match this selection.</td></tr>'}</tbody></table></div>${pager(data.total)}</section>`;
+  return `${state.filter ? `<div class="filter-chip">${esc(state.filter.name)}<button class="icon-button" id="clear-filter" aria-label="Clear history filter">×</button></div>` : ""}<section class="panel table-panel"><div class="table-head"><div><h2>Your listening diary</h2><small>${number(data.total)} scrobbles · ${esc(statusData.timezone)}</small></div><input id="search" type="search" aria-label="Search history" placeholder="Search songs, artists or albums…" value="${esc(state.q)}"></div><div class="table-wrap"><table class="history-table"><colgroup><col class="history-time"><col class="history-song"><col class="history-artist"><col class="history-album"></colgroup><thead><tr><th>Time</th><th>Song</th><th>Artist</th><th>Album</th></tr></thead><tbody>${rows || '<tr><td colspan="4" class="empty">No scrobbles match this selection.</td></tr>'}</tbody></table></div>${pager(data.total)}</section>`;
 }
+function updateCandidateName(card) {
+  const choices = [...card.querySelectorAll(".candidate-version:checked")]
+    .sort((a, b) => Number(/[()[\]{}]/.test(a.dataset.name)) - Number(/[()[\]{}]/.test(b.dataset.name))
+      || Number(b.dataset.plays) - Number(a.dataset.plays)
+      || a.dataset.name.localeCompare(b.dataset.name));
+  const input = card.querySelector(".candidate-name");
+  const select = card.querySelector(".candidate-name-choice");
+  input.disabled = select.disabled = choices.length < 2;
+  select.innerHTML = choices.map(v => `<option value="${v.value}" data-name="${esc(v.dataset.name)}">${esc(v.dataset.name)} (${number(v.dataset.plays)} scrobbles)</option>`).join("")
+    + '<option value="custom">Custom name…</option>';
+  if (input.dataset.edited) {
+    select.value = "custom";
+    return;
+  }
+  const preferred = choices.find(v => v.value === select.dataset.chosen) || choices[0];
+  if (preferred) {
+    select.value = preferred.value;
+    input.value = preferred.dataset.name;
+  } else {
+    input.value = "";
+  }
+}
+
 function settingsHTML(data) {
   const card = r => state.groupTab === "merged"
     ? `<article class="review-card"><h3>${esc(r.artist)}</h3><button class="text-button" data-detail="${state.groupKind}" data-id="${r.id}" data-group-detail="true">${esc(r.name)} · ${r.versions.length} versions · ${number(r.plays)} plays</button><p>${r.versions.map(v => esc(v.name)).join(" · ")}</p></article>`
-    : `<article class="review-card"><h3>${esc(r.artist)}</h3><fieldset class="review-choices"><legend>Choose the versions to combine</legend>${r.versions.map(v => `<label><input type="checkbox" class="candidate-version" value="${v.id}" data-name="${esc(v.name)}"><span>${esc(v.name)}<small>${number(v.plays)} scrobbles</small></span></label>`).join("")}</fieldset><label class="merge-name">Combined name<input class="candidate-name" type="text" maxlength="1000" placeholder="Select versions, then choose a name" disabled></label><p>${esc(r.reason)}</p><div class="review-actions"><button class="button primary" data-candidate-merge="${r.ids.join(",")}" disabled>Merge selected</button>${r.learnable ? `<button class="button" data-candidate-learn="${r.ids.join(",")}" data-suffix="${esc(r.suffix)}" data-artist="${esc(r.artist)}" title="Select every listed version to learn this suffix" disabled>Merge and learn suffix</button>` : ""}${state.groupTab !== "skipped" || r.dismissed ? `<button class="button" data-candidate-key="${esc(r.key)}" data-candidate-action="${state.groupTab === "skipped" ? "restore" : "dismiss"}">${state.groupTab === "skipped" ? "Reconsider" : "Keep separate"}</button>` : ""}</div></article>`;
+    : `<article class="review-card"><h3>${esc(r.artist)}</h3><fieldset class="review-choices"><legend>Choose the versions to combine</legend>${r.versions.map(v => `<label><input type="checkbox" class="candidate-version" value="${v.id}" data-name="${esc(v.name)}" data-plays="${v.plays}"><span>${esc(v.name)}<small>${number(v.plays)} scrobbles</small></span></label>`).join("")}</fieldset><label class="merge-name">Name from selected versions<select class="candidate-name-choice" disabled><option value="">Select at least two versions</option></select></label><label class="merge-name">Combined name, editable<input class="candidate-name" type="text" maxlength="1000" placeholder="Select versions, then choose a name" disabled></label><p>${esc(r.reason)}</p><div class="review-actions"><button class="button primary" data-candidate-merge="${r.ids.join(",")}" disabled>Merge selected</button>${r.learnable ? `<button class="button" data-candidate-learn="${r.ids.join(",")}" data-suffix="${esc(r.suffix)}" data-artist="${esc(r.artist)}" title="Select every listed version to learn this suffix" disabled>Merge and learn suffix</button>` : ""}${state.groupTab !== "skipped" || r.dismissed ? `<button class="button" data-candidate-key="${esc(r.key)}" data-candidate-action="${state.groupTab === "skipped" ? "restore" : "dismiss"}">${state.groupTab === "skipped" ? "Reconsider" : "Keep separate"}</button>` : ""}</div></article>`;
   return `<section class="panel"><div class="panel-head"><div><h2>Version review</h2><p>Select two or more versions to combine. Unselected versions keep their current grouping.</p></div><button class="button" id="undo" ${statusData.events.some(e => !e.undone) ? "" : "disabled"}>Undo latest change</button></div><div class="review-filters"><select id="group-kind" aria-label="Review songs or albums"><option value="song" ${state.groupKind === "song" ? "selected" : ""}>Songs</option><option value="album" ${state.groupKind === "album" ? "selected" : ""}>Albums</option></select><input id="search" type="search" aria-label="Search merge candidates" placeholder="Search candidates or merges…" value="${esc(state.q)}"></div><div class="segment review-tabs">${[["suggested","Suggestions"],["skipped","Skipped candidates"],["merged","Already merged"]].map(([tab,label])=>`<button data-group-tab="${tab}" aria-pressed="${tab===state.groupTab}">${label}</button>`).join("")}</div><p class="method-note">Skipped candidates include live performances and mixes that automatic rules kept separate, plus your rejected suggestions. “Merge and learn suffix” remembers only that exact suffix for this artist and type, for future imports with a matching base entry. Undo removes the rule and its later assignments.</p><div class="review-list">${data.rows.map(card).join("") || '<div class="empty">No matches in this review.</div>'}</div>${pager(data.total)}</section><section class="panel" style="margin-top:20px"><h2>Learned rules</h2>${data.rules.length ? data.rules.map(r=>`<p class="method-note">${esc(r.artist)} · ${esc(r.kind)} · ${esc(r.suffix)}</p>`).join("") : '<p class="method-note">Approve a learnable suggestion to create a rule.</p>'}<h3 style="margin-top:20px">Connection and data</h3><p class="method-note">${esc(statusData.username)} · ${number(statusData.counts.plays)} scrobbles · ${esc(statusData.timezone)} · ${statusData.import_state.complete ? "Import complete" : "Import in progress"}. Configure credentials and the web password in Home Assistant. Vinyl reporting: ${statusData.source_reporting_enabled ? "enabled" : "not configured"}, ${number(statusData.source_reports)} reports received.</p></section>`;
 }
 function setupHTML() {
@@ -332,7 +386,7 @@ async function fetchStatus() {
   $("#banner").innerHTML = banner;
   $("#banner").hidden = !banner;
 }
-async function load() {
+async function load({historyMode = "push"} = {}) {
   const serial = ++loadSerial;
   requestController?.abort();
   requestController = new AbortController();
@@ -357,12 +411,13 @@ async function load() {
   $("#toolbar").hidden = state.view === "settings";
   $("#settings-preferences").hidden = state.view !== "settings";
   $("#period").value = state.period;
-  $("#source").value = state.source;
+  $("#source").setAttribute("aria-pressed", state.source === "vinyl");
+  $("#source").title = state.source === "vinyl" ? "Vinyl only is active. Show all listening" : "Show vinyl listening only";
   $("#now-playing").hidden = state.source !== "all" || !statusData?.now_playing?.track;
   $("#custom-dates").hidden = state.period !== "custom";
   $("#start").value = state.start;
   $("#end").value = state.end;
-  urlState();
+  urlState(historyMode);
   try {
     if (!statusData) await fetchStatus();
     if (serial !== loadSerial) return;
@@ -404,7 +459,10 @@ async function load() {
     }
   }
 }
-async function showDetail(kind, id, groupMode = false) {
+async function showDetail(kind, id, groupMode = false, restoring = false) {
+  if (!restoring) {
+    history.pushState({listening:true, nav:navigationState(), detail:{kind,id,groupMode}}, "", location.href);
+  }
   const serial = ++detailSerial;
   const dialog = $("#detail-dialog");
   const mode = groupMode ? "merged" : state.mode;
@@ -512,6 +570,7 @@ document.addEventListener("click", (event) => {
   }
   if (b.dataset.mode) {
     state.mode = b.dataset.mode;
+    try { localStorage.setItem("listening-version-mode", state.mode); } catch (_) {}
     state.filter = null;
     state.offset = 0;
     load();
@@ -579,6 +638,18 @@ document.addEventListener("click", (event) => {
   }
 });
 document.addEventListener("change", (event) => {
+  if (event.target.classList.contains("candidate-name-choice")) {
+    const select = event.target;
+    const input = select.closest(".review-card").querySelector(".candidate-name");
+    if (select.value === "custom") {
+      input.dataset.edited = "true";
+      input.focus(); input.select();
+    } else {
+      input.value = select.selectedOptions[0].dataset.name;
+      delete input.dataset.edited;
+      select.dataset.chosen = select.value;
+    }
+  }
   if (event.target.classList.contains("candidate-version")) {
     const card = event.target.closest(".review-card");
     const selected = card.querySelectorAll(".candidate-version:checked").length;
@@ -586,9 +657,7 @@ document.addEventListener("change", (event) => {
     const button = card.querySelector("[data-candidate-merge]");
     button.disabled = selected < 2;
     button.textContent = selected < 2 ? "Merge selected" : `Merge ${selected} selected`;
-    const name = card.querySelector(".candidate-name");
-    name.disabled = selected < 2;
-    if (!name.dataset.edited) name.value = card.querySelector(".candidate-version:checked")?.dataset.name || "";
+    updateCandidateName(card);
     const learn = card.querySelector("[data-candidate-learn]");
     if (learn) learn.disabled = selected !== total;
   }
@@ -608,14 +677,17 @@ document.addEventListener("change", (event) => {
   }
 });
 document.addEventListener("input", (event) => {
-  if (event.target.classList.contains("candidate-name")) event.target.dataset.edited = "true";
+  if (event.target.classList.contains("candidate-name")) {
+    event.target.dataset.edited = "true";
+    event.target.closest(".review-card").querySelector(".candidate-name-choice").value = "custom";
+  }
   if (event.target.id !== "search") return;
   clearTimeout(searchTimer);
   const value = event.target.value;
   searchTimer = setTimeout(async () => {
     state.q = value;
     state.offset = 0;
-    await load();
+    await load({historyMode:"replace"});
     const search = $("#search");
     if (search) {
       search.focus();
@@ -623,8 +695,16 @@ document.addEventListener("input", (event) => {
     }
   }, 300);
 });
-$("#source").onchange = () => {
-  state.source = $("#source").value;
+$("#source").onclick = () => {
+  state.source = state.source === "vinyl" ? "all" : "vinyl";
+  state.offset = 0;
+  load();
+};
+$("#reset-filters").onclick = () => {
+  state.period = "all";
+  state.source = "all";
+  state.start = state.end = state.q = "";
+  state.filter = null;
   state.offset = 0;
   load();
 };
@@ -650,10 +730,13 @@ $("#apply-dates").onclick = () => {
   state.offset = 0;
   load();
 };
-$("#close-detail").onclick = () => {
+function closeDetail() {
   $("#detail-dialog").close();
   detailSerial++;
-};
+  if (history.state?.detail) history.back();
+}
+$("#close-detail").onclick = closeDetail;
+$("#detail-dialog").addEventListener("cancel", event => {event.preventDefault(); closeDetail();});
 $("#confirm-cancel").onclick = () => $("#confirm-dialog").close();
 $("#theme").onclick = () => {
   const next =
