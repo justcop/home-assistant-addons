@@ -361,7 +361,13 @@ def get_expected_next_track(album_adamid, current_adamid=None, title="", artist=
 # --- RECOGNITION ENGINE (SHAZAM) ---
 def recognize_shazam(wav_path):
     if DEBUG: log("Uploading to Shazam...")
+    started = time.monotonic()
     try:
+        try:
+            wav_bytes = os.path.getsize(wav_path)
+        except OSError:
+            wav_bytes = 0
+
         async def _recognize():
             # Each concurrent request owns its connection pool and event loop.
             recognizer = Shazam()
@@ -377,12 +383,35 @@ def recognize_shazam(wav_path):
                         if inspect.isawaitable(result):
                             await result
                     except Exception as error:
-                        log(f"⚠️ Shazam connection cleanup failed: {error}")
+                        log(f"⚠️ Shazam connection cleanup failed: {type(error).__name__}")
+
         res_json = asyncio.run(_recognize())
-       
-        if isinstance(res_json, dict) and 'track' in res_json and isinstance(res_json.get('matches'), list) and len(res_json['matches']) > 0:
+        elapsed = time.monotonic() - started
+
+        if not isinstance(res_json, dict):
+            log(
+                f"🔎 Shazam returned {type(res_json).__name__}, not a response object "
+                f"after {elapsed:.2f}s ({wav_bytes} byte WAV)."
+            )
+            return None
+
+        matches = res_json.get("matches")
+        match_count = len(matches) if isinstance(matches, list) else -1
+        track_present = isinstance(res_json.get("track"), dict)
+        if match_count <= 0 or not track_present:
+            keys = ",".join(sorted(str(key) for key in res_json.keys())[:12])
+            log(
+                f"🔎 Shazam response: matches={max(match_count, 0)}, "
+                f"track={'yes' if track_present else 'no'}, {elapsed:.2f}s, "
+                f"{wav_bytes} byte WAV, keys=[{keys}]."
+            )
+            return None
+
+        if 'track' in res_json and isinstance(matches, list) and len(matches) > 0:
             track = res_json['track']
-            if not isinstance(track, dict): return None
+            if not isinstance(track, dict):
+                log(f"🔎 Shazam track payload was {type(track).__name__}, expected object.")
+                return None
             title = track.get('title', 'Unknown')
             artist = track.get('subtitle', 'Unknown')
             album = "Unknown"
