@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.6
+
+- Add a Listening Analytics record-and-chart logo to the Home Assistant add-on, web header, login, browser favicon and installed app icons.
+
 ## 0.2.5
 
 - Add remote Last.fm album thumbnails to artist, album and song details without storing image files or fetching metadata during page load. Artist/song artwork is labelled with its representative album. Missing or failed covers leave the statistics usable.

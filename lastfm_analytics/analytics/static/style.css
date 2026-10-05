@@ -137,28 +137,12 @@ small {
   margin-top: 5px;
 }
 .brand-icon {
-  display: flex;
-  align-items: end;
-  gap: 3px;
-  height: 26px;
-  width: 27px;
-}
-.brand-icon i {
-  width: 4px;
-  border-radius: 2px;
-  background: var(--accent);
-}
-.brand-icon i:nth-child(1) {
-  height: 10px;
-}
-.brand-icon i:nth-child(2) {
-  height: 23px;
-}
-.brand-icon i:nth-child(3) {
-  height: 16px;
-}
-.brand-icon i:nth-child(4) {
-  height: 28px;
+  display: block;
+  height: 36px;
+  width: 36px;
+  flex-shrink: 0;
+  border-radius: 9px;
+  object-fit: contain;
 }
 .nav-label {
   font-size: 10px;
@@ -1137,8 +1121,8 @@ input[type="checkbox"] {
     display: none;
   }
   .brand-icon {
-    height: 22px;
-    transform: scale(0.8);
+    height: 30px;
+    width: 30px;
   }
   nav {
     display: flex;
