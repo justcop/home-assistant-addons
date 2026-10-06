@@ -1,0 +1,17 @@
+name: GitHub Actions Cleanup
+version: "1.0.0"
+slug: github_actions_cleanup
+description: One-shot cleanup of stored GitHub Actions artifacts to reclaim Actions storage
+arch:
+  - aarch64
+  - amd64
+startup: once
+boot: manual_only
+options:
+  repository: justcop/glasto-switcher
+  github_token: ""
+  confirm_delete: false
+schema:
+  repository: str
+  github_token: password
+  confirm_delete: bool
