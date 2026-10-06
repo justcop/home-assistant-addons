@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Money Locations</title>
+    <link rel="stylesheet" href="style.css" />
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <div class="shell">
+      <aside>
+        <a class="brand" href="#overview"
+          ><span class="mark">£</span
+          ><span>Money<br /><strong>Locations</strong></span></a
+        >
+        <nav aria-label="Main navigation">
+          <a href="#overview">Overview</a><a href="#checkin">Monthly check-in</a
+          ><a href="#history">History</a><a href="#accounts">Accounts</a
+          ><a href="#settings">Backups & settings</a>
+        </nav>
+        <div class="aside-note">
+          A clearer picture<br />of your money.<br /><small>Local • GBP</small>
+        </div>
+      </aside>
+      <main>
+        <header>
+          <div class="eyebrow">YOUR FINANCIAL PICTURE</div>
+          <div id="save-status" role="status"></div>
+        </header>
+        <div id="error" role="alert" hidden></div>
+        <div id="view"><p>Loading your accounts…</p></div>
+      </main>
+    </div>
+  </body>
+</html>
