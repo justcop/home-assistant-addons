@@ -1,3 +1,7 @@
+# 0.2.11
+
+- Link Listening Analytics to owned albums and artists in AudioShelf, with separate record store search links.
+
 # 0.2.10
 
 - Artist detail pages show artist photos and transparent logos from TheAudioDB when available. Background lookups cache remote URLs and retain album cover fallback.

@@ -1,4 +1,7 @@
 configuration:
+  listening_analytics_origin:
+    name: Listening Analytics origin
+    description: Optional Listening Analytics scheme and hostname, with port if needed and no path. Allows only authenticated read-only shelf link checks from that address.
   data_directory:
     name: Collection folder
     description: Local persistent folder for the database and backups. Default /share/audioshelf.

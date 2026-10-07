@@ -17,6 +17,7 @@ from werkzeug.security import check_password_hash
 from types import SimpleNamespace
 
 from .accounts import Accounts
+from .listening_links import shelf_matches
 
 from .artwork import Artwork
 from .errors import AppError
@@ -168,6 +169,12 @@ def create_app(options=None):
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['Referrer-Policy'] = 'no-referrer'
         response.headers['Content-Security-Policy'] = "default-src 'self'; img-src 'self' https://coverartarchive.org https://*.archive.org https://*.scdn.co data:; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'"
+        if request.path == '/api/listening-links':
+            allowed = str(options.get('listening_analytics_origin', '')).rstrip('/')
+            if allowed and request.headers.get('Origin') == allowed:
+                response.headers['Access-Control-Allow-Origin'] = allowed
+                response.headers['Access-Control-Allow-Credentials'] = 'true'
+                response.vary.add('Origin')
         response.headers['X-Frame-Options'] = 'SAMEORIGIN'
         return response
 
@@ -394,6 +401,17 @@ def create_app(options=None):
     def support_revoke(grant_id):
         owner_reauth(); security.revoke_grant(grant_id)
         return jsonify(ok=True)
+
+    @app.get('/api/listening-links')
+    def listening_links():
+        kind = request.args.get('kind')
+        if kind not in {'artist', 'album', 'song'}:
+            raise AppError('Unknown listening entity.')
+        artist = request.args.get('artist', '')[:256]
+        name = request.args.get('name', '')[:256]
+        albums = request.args.getlist('album')[:10]
+        return jsonify(matches=shelf_matches(store, kind, artist, name, albums),
+                       account=g.account['username'])
 
     @app.get('/api/shelf')
     def shelf():

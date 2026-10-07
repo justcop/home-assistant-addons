@@ -1,3 +1,7 @@
+# 0.6.2
+
+- Link Listening Analytics to owned albums and artists in AudioShelf, with separate record store search links.
+
 # 0.6.1
 
 - Stack sign-in labels and fields vertically in a compact responsive form. Keep the trust-browser checkbox and sign-in button beneath the credentials, with clear spacing on phones and desktop.

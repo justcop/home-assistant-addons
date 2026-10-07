@@ -39,6 +39,7 @@ DEFAULTS = {
     "demo_mode": False,
     "web_password": "",
     "source_api_token": "",
+    "audioshelf_url": "",
 }
 
 
@@ -87,6 +88,13 @@ def validate_config(config):
         raise ConfigurationError(
             "source_api_token must be text, or blank to disable source reports"
         )
+    value = str(config.get("audioshelf_url") or "").strip().rstrip("/")
+    if value:
+        from urllib.parse import urlsplit
+        parsed = urlsplit(value)
+        if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment or any(c in value for c in "\\'\" \r\n;"):
+            raise ConfigurationError("AudioShelf URL must be an HTTPS web address")
+    config["audioshelf_url"] = value
     return config
 
 
@@ -312,7 +320,7 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://lastfm.freetls.fastly.net https://lastfm-img2.akamaized.net https://e-cdns-images.dzcdn.net https://www.theaudiodb.com https://theaudiodb.com; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+            f"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://lastfm.freetls.fastly.net https://lastfm-img2.akamaized.net https://e-cdns-images.dzcdn.net https://www.theaudiodb.com https://theaudiodb.com; connect-src 'self' {config['audioshelf_url']}; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
         )
         return response
 
@@ -435,6 +443,7 @@ self.addEventListener('fetch', event => {
             return jsonify(
                 years=years,
                 version=__version__,
+                audioshelf_url=config["audioshelf_url"],
                 source_reporting_enabled=bool(config["source_api_token"]),
                 source_reports=conn.execute(
                     "SELECT COUNT(*) FROM source_reports"
@@ -505,6 +514,10 @@ self.addEventListener('fetch', event => {
                 conn, request.args.get("entity"), request.args.get("id"),
                 request.args.get("mode") == "raw", request.args,
             )
+        with db.connect() as conn:
+            result["listening_albums"] = [a["album"] for a in insights.artwork_albums(
+                conn, request.args.get("entity"), request.args.get("id"),
+                request.args.get("mode") == "raw", request.args)[0]]
         result.update(detail_artwork(db, result))
         return jsonify(result)
 

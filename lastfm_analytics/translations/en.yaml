@@ -1,4 +1,7 @@
 configuration:
+  audioshelf_url:
+    name: AudioShelf web address
+    description: Optional HTTPS AudioShelf address for record store and owned shelf links. Sign in to AudioShelf in this browser.
   username:
     name: Last.fm username
     description: The account whose available listening history you want to import.

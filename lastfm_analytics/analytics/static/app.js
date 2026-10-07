@@ -528,6 +528,38 @@ function spotifyLink(detail, kind) {
   const url = "https://open.spotify.com/search/" + encodeURIComponent(query);
   return `<a class="button spotify-link" href="${url}" target="_blank" rel="noopener noreferrer" aria-label="Find ${esc(detail.name)} on Spotify">♫ Find on Spotify</a>`;
 }
+function audioShelfLink(base, path, label) {
+  return `<a class="button" href="${esc(base + '/' + path)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>`;
+}
+function recordStoreLink(detail, kind) {
+  const base = statusData.audioshelf_url;
+  if (!base || statusData.demo) return '';
+  const artist = kind === 'artist' ? detail.name : detail.artist;
+  const album = kind === 'album' ? detail.name : detail.listening_albums?.[0];
+  const searchKind = kind === 'artist' || !album ? 'artist' : 'album';
+  const query = searchKind === 'artist' ? artist : album;
+  return audioShelfLink(base, `#store/${searchKind}/${encodeURIComponent(query)}`, 'Find in record store');
+}
+async function loadShelfLinks(detail, kind, serial) {
+  const base = statusData.audioshelf_url;
+  if (!base || statusData.demo) return;
+  const params = new URLSearchParams({kind, artist:kind === 'artist' ? detail.name : detail.artist, name:detail.name});
+  (detail.listening_albums || []).forEach(album => params.append('album', album));
+  try {
+    const response = await fetch(base + '/api/listening-links?' + params, {credentials:'include', signal:AbortSignal.timeout(5000)});
+    if (serial !== detailSerial || !$('#detail-dialog').open) return;
+    const slot = $('#shelf-link-slot');
+    if (!response.ok) {
+      slot.innerHTML = '<small class="method-note">Sign in to AudioShelf to check your shelf.</small>';
+      return;
+    }
+    const data = await response.json();
+    slot.innerHTML = (data.matches || []).filter(m => /^#(?:shelf|album)\/[a-zA-Z0-9%-]+$/.test(m.path)).map(m => audioShelfLink(base, m.path,
+      data.matches.length > 1 ? `On your shelf: ${m.label}` : 'On your shelf')).join(' ');
+  } catch (_) {
+    if (serial === detailSerial && $('#detail-dialog').open) $('#shelf-link-slot').innerHTML = '<small class="method-note">Shelf check unavailable.</small>';
+  }
+}
 function bindArtworkError(detail) {
   document.querySelectorAll("#detail-content .detail-artwork img").forEach(img => {
     img.onerror = () => { img.remove(); };
@@ -560,8 +592,9 @@ async function showDetail(kind, id, groupMode = false, restoring = false) {
     if (serial !== detailSerial || !dialog.open) return;
     const renderDetail = (data) => {
     replaceCachedView("#detail-content",
-      `<div class="detail-heading"><div id="detail-artwork-slot">${artworkHTML(detail, kind)}</div><div><h2>${esc(detail.name)}</h2><p>${esc(detail.artist)}</p>${spotifyLink(detail, kind)}</div></div>${metrics(data, mode, {kind, id, name:detail.name}, groupMode)}<section class="panel">${panelHead("Listening history", "Select a bar to inspect individual scrobbles.")}${chart(data, { kind, id, name: detail.name }, mode)}</section>${detail.versions.length ? `<div class="panel-head" style="margin-top:23px"><div><h2>Versions</h2><p>All-time plays for the selected source, including versions outside the selected period.</p></div></div><div class="table-wrap"><table><thead><tr><th>Scrobbled name</th><th class="num">Plays</th><th>First / latest play</th><th></th></tr></thead><tbody>${detail.versions.map((v) => `<tr><td class="name-cell"><strong>${esc(v.name)}</strong><small>${v.manual ? "Manual decision" : "Automatic grouping"}</small></td><td class="num">${number(v.plays)}</td><td><small>${formatDate(v.first_play)}<br>${formatDate(v.last_play)}</small></td><td>${detail.versions.length > 1 ? `<button class="button" data-separate="${v.id}" data-name="${esc(v.name)}">Separate</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : ""}<div class="dialog-actions" style="margin-top:18px"><button class="button primary" data-show-history="${kind}" data-id="${esc(id)}" data-name="${esc(detail.name)}" data-mode="${mode}" data-all="${groupMode}">View scrobbles →</button></div>`);
+      `<div class="detail-heading"><div id="detail-artwork-slot">${artworkHTML(detail, kind)}</div><div><h2>${esc(detail.name)}</h2><p>${esc(detail.artist)}</p>${spotifyLink(detail, kind)} ${recordStoreLink(detail, kind)} <span id="shelf-link-slot"></span></div></div>${metrics(data, mode, {kind, id, name:detail.name}, groupMode)}<section class="panel">${panelHead("Listening history", "Select a bar to inspect individual scrobbles.")}${chart(data, { kind, id, name: detail.name }, mode)}</section>${detail.versions.length ? `<div class="panel-head" style="margin-top:23px"><div><h2>Versions</h2><p>All-time plays for the selected source, including versions outside the selected period.</p></div></div><div class="table-wrap"><table><thead><tr><th>Scrobbled name</th><th class="num">Plays</th><th>First / latest play</th><th></th></tr></thead><tbody>${detail.versions.map((v) => `<tr><td class="name-cell"><strong>${esc(v.name)}</strong><small>${v.manual ? "Manual decision" : "Automatic grouping"}</small></td><td class="num">${number(v.plays)}</td><td><small>${formatDate(v.first_play)}<br>${formatDate(v.last_play)}</small></td><td>${detail.versions.length > 1 ? `<button class="button" data-separate="${v.id}" data-name="${esc(v.name)}">Separate</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : ""}<div class="dialog-actions" style="margin-top:18px"><button class="button primary" data-show-history="${kind}" data-id="${esc(id)}" data-name="${esc(detail.name)}" data-mode="${mode}" data-all="${groupMode}">View scrobbles →</button></div>`);
     bindArtworkError(detail);
+    loadShelfLinks(detail, kind, serial);
     };
     renderDetail(data);
     watchCachedView("detail", "overview", extra, data, renderDetail, () => serial === detailSerial && dialog.open, "#detail-cache-status");

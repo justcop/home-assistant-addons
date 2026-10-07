@@ -17,3 +17,12 @@ MusicBrainz country preferences default to GB, US, worldwide and Europe, with ot
 Choose from ten themes under **Settings → Appearance**. In **Album settings**, choose artwork from another eligible edition or download a diagnostic report after reproducing an issue. Existing tracklists and manual mappings survive settings changes; changing the original tracklist explicitly clears its mappings after confirmation.
 
 Lost authenticator: in Home Assistant AudioShelf Configuration, set **2FA recovery request (advanced)** to a new value (for example `reset-1`), save and restart. Then log in with your normal password. The request is processed once; use a different value for a future reset. Re-enrol 2FA in AudioShelf Security settings.
+
+
+## Links between Listening Analytics and AudioShelf
+
+Update both add-ons. Set `audioshelf_url` in Listening Analytics to the HTTPS AudioShelf address, for example `https://audioshelf.justcop.co.uk`. In AudioShelf, set `listening_analytics_origin` to the origin of the Listening Analytics address (scheme and hostname, with port if needed, without a path). Sign in to AudioShelf in the same browser using the account whose shelf you want to browse.
+
+“On your shelf” appears only after an authenticated check finds matching owned records. Artist links open the full shelf and scroll to that artist. Album links open the saved album page. Song links use saved tracklists, preferring the album from listening history. Multiple matching albums show separate links. “Find in record store” remains available regardless of ownership and opens a search. No credentials or shelf data are copied to Listening Analytics.
+
+The browser must permit the AudioShelf session cookie for the check. Using HTTPS subdomains of the same domain works with the existing cookie settings. Across unrelated domains, browser cookie restrictions may prevent shelf checks; record store links still work. In Home Assistant ingress, use the origin of the Home Assistant page as `listening_analytics_origin`.

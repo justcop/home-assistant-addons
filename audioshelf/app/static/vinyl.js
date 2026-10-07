@@ -15,7 +15,7 @@ function vinylCards(albums,room=document.documentElement.dataset.room){return `<
 function artistDivider(artist,count,store=false){return `<div class="artist-divider"><a href="#artist/${id(artist.id)}${store?'/store':''}">${escapeHtml(artist.name)} <span aria-hidden="true">↗</span></a><span>${count} ${count===1?'record':'records'}</span></div>`;}
 function vinylShelf(shelf){
   return vinylHeading('Your listening room','My shelf.','Something good deserves a whole side of your day.',`<strong>${shelf.albums.length}</strong><span>records collected</span>`)+
-    (!shelf.albums.length?empty('Your first record awaits.','Find an artist, choose an album, make it yours.'):`<div class="room-toolbar"><label for="shelf-filter">Find a record</label><input id="shelf-filter" type="search" placeholder="Artist or album" value="${escapeHtml(shelfFilter)}"><a class="quiet" href="#store">Make room for another ↗</a></div><div class="collection-shelves">${shelf.artists.map(a=>{const albums=shelf.albums.filter(b=>b.artists.some(artist=>artist.id===a.id));return `<section class="artist-shelf" data-shelf-artist="${escapeHtml(a.name.toLowerCase())}">${artistDivider(a,albums.length)}${vinylCards(albums,'shelf')}</section>`;}).join('')}</div><p id="shelf-no-results" class="muted" hidden>No records match that search.</p>`);
+    (!shelf.albums.length?empty('Your first record awaits.','Find an artist, choose an album, make it yours.'):`<div class="room-toolbar"><label for="shelf-filter">Find a record</label><input id="shelf-filter" type="search" placeholder="Artist or album" value="${escapeHtml(shelfFilter)}"><a class="quiet" href="#store">Make room for another ↗</a></div><div class="collection-shelves">${shelf.artists.map(a=>{const albums=shelf.albums.filter(b=>b.artists.some(artist=>artist.id===a.id));return `<section class="artist-shelf" data-shelf-id="${escapeHtml(a.id)}" data-shelf-artist="${escapeHtml(a.name.toLowerCase())}">${artistDivider(a,albums.length)}${vinylCards(albums,'shelf')}</section>`;}).join('')}</div><p id="shelf-no-results" class="muted" hidden>No records match that search.</p>`);
 }
 function vinylStore(shelf){
   if(storeSearch.kind==='album'){const owned=new Set(shelf.albums.map(a=>a.id));for(const a of storeSearch.results||[])a.on_shelf=owned.has(a.id);}
@@ -47,7 +47,15 @@ function saveBrowsing(hash){
 }
 function restoreBrowsing(generation){
   filterShelf();
-  requestAnimationFrame(()=>{if(generation===routeGeneration)window.scrollTo(0,browsingPositions.get(location.hash||'#shelf')||0);});
+  requestAnimationFrame(()=>{
+    if(generation!==routeGeneration)return;
+    const parts=location.hash.slice(1).split('/');
+    if(parts[0]==='shelf'&&parts[1]){
+      const target=[...document.querySelectorAll('[data-shelf-id]')].find(el=>el.dataset.shelfId===decodeURIComponent(parts[1]));
+      if(target){target.scrollIntoView({block:'start'});return;}
+    }
+    window.scrollTo(0,browsingPositions.get(location.hash||'#shelf')||0);
+  });
 }
 function filterShelf(){
   const term=shelfFilter.trim().toLocaleLowerCase();let visible=0;

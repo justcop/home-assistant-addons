@@ -193,13 +193,22 @@ async function route(){
     if(!statusInfo.authenticated){content.innerHTML=loginView();return;}
     let html;
     if(view==='shelf'){
+      if(key)shelfFilter='';
+      if(key&&!isVinyl())shelfView='artists';
       const shelf=await api('shelf');
       html=`<div class="eyebrow">The collection</div><div class="shelf-heading"><h1>My shelf.</h1><span class="collection-mark">A little less noise.</span></div><p class="intro">The records you love, all in one place.</p><div class="toolbar"><div class="segmented"><button class="${shelfView==='artists'?'active':''}" data-action="shelf-view" data-view="artists">Artists</button><button class="${shelfView==='albums'?'active':''}" data-action="shelf-view" data-view="albums">Albums</button></div><span class="count">${shelf.albums.length} ${shelf.albums.length===1?'record':'records'} · ${shelf.artists.length} ${shelf.artists.length===1?'artist':'artists'}</span></div>`;
       if(!shelf.albums.length)html+=empty('Your first record awaits.','Find an artist, choose an album, make it yours.');
       else if(shelfView==='albums')html+=cards(shelf.albums);
-      else html+=`<input class="filter" id="artist-filter" placeholder="Find an artist on your shelf" aria-label="Filter shelf artists"><div class="artist-list">${shelf.artists.map(a=>`<a class="artist-row" data-filter="${escapeHtml(a.name.toLowerCase())}" href="#artist/${id(a.id)}"><span class="artist-initial">${escapeHtml(a.name[0])}</span><span><span class="artist-name">${escapeHtml(a.name)}</span><span class="artist-note">${a.album_count} ${a.album_count===1?'record':'records'} on your shelf</span></span><span class="row-arrow" aria-hidden="true">↗</span></a>`).join('')}</div>`;
+      else html+=`<input class="filter" id="artist-filter" placeholder="Find an artist on your shelf" aria-label="Filter shelf artists"><div class="artist-list">${shelf.artists.map(a=>`<a class="artist-row" data-shelf-id="${escapeHtml(a.id)}" data-filter="${escapeHtml(a.name.toLowerCase())}" href="#artist/${id(a.id)}"><span class="artist-initial">${escapeHtml(a.name[0])}</span><span><span class="artist-name">${escapeHtml(a.name)}</span><span class="artist-note">${a.album_count} ${a.album_count===1?'record':'records'} on your shelf</span></span><span class="row-arrow" aria-hidden="true">↗</span></a>`).join('')}</div>`;
       if(isVinyl())html=vinylShelf(shelf);
     }else if(view==='store'){
+      if(['artist','album'].includes(key)&&mode){
+        searchKind=key;
+        storeSearch={kind:key,query:decodeURIComponent(mode),results:null};
+        const result=await api(`search?q=${id(storeSearch.query)}&kind=${key}`);
+        if(generation!==routeGeneration)return;
+        storeSearch.results=result.results;
+      }
       const shelf=await api('shelf');
       html=`<div class="eyebrow">A proper record store</div><h1>Find your next record.</h1><p class="intro">Explore the studio albums. Collect what you love.</p><div class="segmented"><button class="${searchKind==='artist'?'active':''}" data-action="search-kind" data-kind="artist">Artists</button><button class="${searchKind==='album'?'active':''}" data-action="search-kind" data-kind="album">Albums</button></div><form id="search-form" class="search-form"><input name="q" type="search" placeholder="${searchKind==='artist'?'Search artists':'Search albums'}" aria-label="Search record store" required><button class="primary">Search</button></form><p class="search-hint">Original releases, in chronological order. Singles, live albums and compilations stay outside.</p><div id="search-results">${shelf.artists.length?`<h2>More from your artists</h2>${shelf.artists.map(a=>`<a class="search-result" href="#artist/${id(a.id)}/store"><strong>${escapeHtml(a.name)}</strong><small>Browse their studio albums ↗</small></a>`).join('')}`:'<p class="muted">Start with an artist you love.</p>'}</div>`;
       if(isVinyl())html=vinylStore(shelf);
@@ -216,6 +225,11 @@ async function route(){
     else {location.hash='shelf';return;}
     if(generation!==routeGeneration)return;
     content.innerHTML=(statusInfo.role==='view'?'<div class="note">View-only temporary access. Changes and playback are disabled.</div>':'')+html;applyPermissions(content);settingsDirty=false;restoreBrowsing(generation);refreshPlayback();
+    if(view==='store'&&['artist','album'].includes(key)&&mode&&!isVinyl()){
+      const results=document.querySelector('#search-results');
+      results.innerHTML=searchKind==='album'?cards(storeSearch.results):storeSearch.results.map(a=>`<a class="search-result" href="#artist/${id(a.id)}/store"><strong>${escapeHtml(a.name)}</strong></a>`).join('');
+      document.querySelector('#search-form input').value=storeSearch.query;
+    }
   }catch(error){if(generation===routeGeneration)content.innerHTML=`<div class="error-panel"><h2>Couldn’t open this page.</h2><p>${escapeHtml(error.message)}</p><button class="secondary" data-action="retry">Try again</button> <a class="quiet" href="#settings">Settings</a>${view==='album'?` <a class="secondary" href="api/albums/${id(key)}/diagnostics" download>Download diagnostic report</a>`:''}</div>`;}
 }
 function applyPermissions(root){

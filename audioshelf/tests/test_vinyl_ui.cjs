@@ -39,6 +39,16 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.locator('.shelf-rack').first().waitFor();
     assert.equal(await page.locator('.sleeve').count(),14);
     assert.equal(await page.locator('html').getAttribute('data-interface'),'vinyl');
+    // External artist links retain the full shelf and land at the artist section.
+    await page.goto(base+'/#shelf/f181961b-20f7-459e-89de-920ef03c7ed0');
+    await page.locator('[data-shelf-id]').first().waitFor();
+    await page.waitForFunction(()=>Math.abs(document.querySelector('[data-shelf-id]').getBoundingClientRect().top)<3);
+    assert.equal(await page.locator('.sleeve').count(),14);
+    await page.goto(base+'/#store/artist/The%20Artist');
+    await page.locator('.artist-bin').first().waitFor();
+    assert.equal(await page.locator('#search-form input').inputValue(),'The Artist');
+    await page.goto(base+'/#shelf');
+    await page.locator('.shelf-rack').first().waitFor();
     await page.locator('.cover').first().evaluate(img=>img.decode());
     await noOverflow();await shot('shelf-desktop');
     await page.getByRole('searchbox',{name:'Find a record'}).fill('does not exist');

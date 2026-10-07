@@ -130,6 +130,7 @@ def test_detail_endpoint_cached_fallback_and_scoped_lists(tmp_path):
     try:
         initial = client.get('/api/detail' + query).json
         assert initial['name'] == 'The Beatles'
+        assert initial['listening_albums'] == ['Abbey Road']
         worker.jobs.join()
         assert client.get('/api/artwork' + query).json['artwork']['url'] == URL
         assert client.get('/api/detail' + query).json['artwork']['url'] == URL
