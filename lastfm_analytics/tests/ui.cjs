@@ -328,6 +328,8 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   await page.locator('#nav [data-view="overview"]').click();
   await page.locator('#content [data-detail="artist"][data-id="the beatles"]').click();
   await page.locator('#detail-dialog [data-browse="albums"]').waitFor();
+  const artistSpotify = await page.locator('#detail-dialog .spotify-link').getAttribute('href');
+  assert.match(decodeURIComponent(artistSpotify), /artist:"The Beatles"/);
   for (const [view, title] of [['albums', 'Albums'], ['songs', 'Songs'], ['history', 'Listening history'], ['artists', 'Artists']]) {
     await page.locator(`#detail-dialog [data-browse="${view}"]`).click();
     await page.locator('#content table').waitFor();
@@ -345,6 +347,8 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   await page.locator('#detail-dialog [data-browse="albums"]').click();
   await page.locator('#content [data-detail="album"]').first().click();
   await page.locator('#detail-dialog [data-browse="songs"]').waitFor();
+  const albumSpotify = await page.locator('#detail-dialog .spotify-link').getAttribute('href');
+  assert.match(decodeURIComponent(albumSpotify), /album:"Abbey Road".*artist:"The Beatles"/);
   const albumId = await page.locator('#detail-dialog [data-browse="songs"]').getAttribute('data-id');
   await page.locator('#detail-dialog [data-browse="songs"]').click();
   await page.locator('#content table').waitFor();
