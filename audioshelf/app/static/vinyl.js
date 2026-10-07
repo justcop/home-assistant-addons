@@ -3,6 +3,13 @@
 let albumOrigin='', storeSearch={kind:'artist',query:'',results:null}, shelfFilter='';
 let playbackState=null, playbackBusy=false, playbackChecked=0, playbackEpoch=0, playbackCommand=0, playbackStart=null;
 const browsingPositions=new Map();
+let expandedShelfArtist=null;
+const shelfLayouts=new Map();
+function shelfLayout(){
+  const key=browserPreferenceKey('audioshelf-shelf-layout');
+  if(!shelfLayouts.has(key)){let value;try{value=localStorage.getItem(key);}catch{}shelfLayouts.set(key,value==='dividers'?'dividers':'open');}
+  return shelfLayouts.get(key);
+}
 if('scrollRestoration' in history)history.scrollRestoration='manual';
 function isVinyl(){return document.documentElement.dataset.interface==='vinyl';}
 function applyInterface(value){
@@ -15,7 +22,7 @@ function vinylCards(albums,room=document.documentElement.dataset.room){return `<
 function artistDivider(artist,count,store=false){return `<div class="artist-divider"><a href="#artist/${id(artist.id)}${store?'/store':''}">${escapeHtml(artist.name)} <span aria-hidden="true">↗</span></a><span>${count} ${count===1?'record':'records'}</span></div>`;}
 function vinylShelf(shelf){
   return vinylHeading('Your listening room','My shelf.','Something good deserves a whole side of your day.',`<strong>${shelf.albums.length}</strong><span>records collected</span>`)+
-    (!shelf.albums.length?empty('Your first record awaits.','Find an artist, choose an album, make it yours.'):`<div class="room-toolbar"><label for="shelf-filter">Find a record</label><input id="shelf-filter" type="search" placeholder="Artist or album" value="${escapeHtml(shelfFilter)}"><a class="quiet" href="#store">Make room for another ↗</a></div><div class="collection-shelves">${shelf.artists.map(a=>{const albums=shelf.albums.filter(b=>b.artists.some(artist=>artist.id===a.id));return `<section class="artist-shelf" data-shelf-id="${escapeHtml(a.id)}" data-shelf-artist="${escapeHtml(a.name.toLowerCase())}">${artistDivider(a,albums.length)}${vinylCards(albums,'shelf')}</section>`;}).join('')}</div><p id="shelf-no-results" class="muted" hidden>No records match that search.</p>`);
+    (!shelf.albums.length?empty('Your first record awaits.','Find an artist, choose an album, make it yours.'):`<div class="room-toolbar"><label for="shelf-filter">Find a record</label><input id="shelf-filter" type="search" placeholder="Artist or album" value="${escapeHtml(shelfFilter)}"><a class="quiet" href="#store">Make room for another ↗</a></div><div class="segmented shelf-layout" role="group" aria-label="Shelf layout">${[['open','Open shelves'],['dividers','Artist dividers']].map(([value,label])=>`<button data-action="shelf-layout" data-layout="${value}" class="${shelfLayout()===value?'active':''}" aria-pressed="${shelfLayout()===value}">${label}</button>`).join('')}</div><div class="collection-shelves" data-layout="${shelfLayout()}">${shelf.artists.map(a=>{const albums=shelf.albums.filter(b=>b.artists.some(artist=>artist.id===a.id));return `<section class="artist-shelf" data-shelf-id="${escapeHtml(a.id)}" data-shelf-artist="${escapeHtml(a.name.toLowerCase())}">${artistDivider(a,albums.length)}<button class="shelf-artist-toggle" data-action="shelf-artist" aria-expanded="false" aria-controls="shelf-records-${escapeHtml(a.id)}"><strong>${escapeHtml(a.name)}</strong><span>${albums.length} ${albums.length===1?'record':'records'}</span><span class="shelf-chevron" aria-hidden="true">⌄</span></button><div class="shelf-records" id="shelf-records-${escapeHtml(a.id)}">${vinylCards(albums,'shelf')}<a class="quiet shelf-artist-link" href="#artist/${id(a.id)}">More from ${escapeHtml(a.name)} ↗</a></div></section>`;}).join('')}</div><p id="shelf-no-results" class="muted" hidden>No records match that search.</p>`);
 }
 function vinylStore(shelf){
   if(storeSearch.kind==='album'){const owned=new Set(shelf.albums.map(a=>a.id));for(const a of storeSearch.results||[])a.on_shelf=owned.has(a.id);}
@@ -52,7 +59,7 @@ function restoreBrowsing(generation){
     const parts=location.hash.slice(1).split('/');
     if(parts[0]==='shelf'&&parts[1]){
       const target=[...document.querySelectorAll('[data-shelf-id]')].find(el=>el.dataset.shelfId===decodeURIComponent(parts[1]));
-      if(target){target.scrollIntoView({block:'start'});return;}
+      if(target){expandedShelfArtist=target.dataset.shelfId;updateShelfLayout();target.scrollIntoView({block:'start'});return;}
     }
     window.scrollTo(0,browsingPositions.get(location.hash||'#shelf')||0);
   });
@@ -65,6 +72,34 @@ function filterShelf(){
     section.hidden=count===0;visible+=count;
   });
   const empty=document.querySelector('#shelf-no-results');if(empty)empty.hidden=visible>0;
+  updateShelfLayout();
+}
+function updateShelfLayout(){
+  const collection=document.querySelector('.collection-shelves');if(!collection)return;
+  const compact=shelfLayout()==='dividers';collection.dataset.layout=compact?'dividers':'open';
+  document.querySelectorAll('[data-action="shelf-layout"]').forEach(button=>{
+    const active=button.dataset.layout===shelfLayout();button.classList.toggle('active',active);button.setAttribute('aria-pressed',String(active));
+  });
+  collection.querySelectorAll('[data-shelf-id]').forEach(section=>{
+    const open=section.dataset.shelfId===expandedShelfArtist;
+    section.querySelector('.shelf-artist-toggle').setAttribute('aria-expanded',String(open));
+    section.querySelector('.shelf-records').hidden=compact&&!open;
+  });
+}
+function changeShelfLayout(value){
+  if(!['open','dividers'].includes(value))return;
+  if(value==='dividers'&&shelfLayout()!=='dividers')expandedShelfArtist=null;
+  const key=browserPreferenceKey('audioshelf-shelf-layout');shelfLayouts.set(key,value);
+  try{localStorage.setItem(key,value);}catch{}
+  updateShelfLayout();
+}
+function toggleShelfArtist(button){
+  const section=button.closest('[data-shelf-id]');
+  const top=button.getBoundingClientRect().top;
+  expandedShelfArtist=expandedShelfArtist===section.dataset.shelfId?null:section.dataset.shelfId;
+  updateShelfLayout();
+  // Closing an earlier shelf must not pull the newly tapped divider off screen.
+  window.scrollBy(0,button.getBoundingClientRect().top-top);
 }
 function markCollected(albumId,owned=true){for(const album of storeSearch.results||[])if(album.id===albumId)album.on_shelf=owned;}
 document.addEventListener('input',event=>{if(event.target.id==='shelf-filter'){shelfFilter=event.target.value;filterShelf();}});

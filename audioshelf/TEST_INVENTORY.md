@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-07T17:44:02+01:00 (Europe/London).
+Reviewed: 2026-10-07T18:09:11+01:00 (Europe/London).
 
-Reviewed owned-only shelf lookup, precise artist and track matching, read-only origin-limited authentication checks, and browser deep-link navigation regressions.
+Reviewed compact shelf browser coverage: one artist expanded, keyboard access, filtering, return from album, saved browser layout, external artist links and 320/390px overflow. Existing Classic, accounts and playback flows retained. Browser execution and container build run in CI.
 
-<!-- inventory: {"reviewed_at": "2026-10-07T17:44:02+01:00", "review_note": "Reviewed owned-only shelf lookup, precise artist and track matching, read-only origin-limited authentication checks, and browser deep-link navigation regressions.", "source_sha256": "84b26d5315dc677e54a7b6a0451c5ce99436bbc2f51e5c79c490a3c78ba0a17b"} -->
+<!-- inventory: {"reviewed_at": "2026-10-07T18:09:11+01:00", "review_note": "Reviewed compact shelf browser coverage: one artist expanded, keyboard access, filtering, return from album, saved browser layout, external artist links and 320/390px overflow. Existing Classic, accounts and playback flows retained. Browser execution and container build run in CI.", "source_sha256": "1d9e1e491e796dcca00f3fc53623268db5f59753429d3266346223f54c7eed2a"} -->
 
 ## Backend cases (281)
 
