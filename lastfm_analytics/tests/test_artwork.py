@@ -18,6 +18,14 @@ def response(artist='The Beatles', name='Abbey Road', url=URL):
         image=[{'size': 'large', '#text': url}])}).encode())
 
 
+def deezer_response(url='https://e-cdns-images.dzcdn.net/images/cover/fixture/250x250.jpg'):
+    return io.BytesIO(json.dumps({'data': [{
+        'title': 'Abbey Road',
+        'artist': {'name': 'The Beatles'},
+        'cover_medium': url,
+    }]}).encode())
+
+
 def test_cover_uses_older_scrobbles_and_less_played_albums(tmp_path):
     db = Database(tmp_path / 'history.sqlite3')
     rows = [play(i) for i in range(100, 130)]
@@ -67,6 +75,27 @@ def test_background_lookup_is_deduplicated_and_persists_url_only(tmp_path):
         assert len(calls) == 1
     finally:
         release.set()
+        worker.close()
+
+
+def test_deezer_fallback_is_cached_and_labelled(tmp_path):
+    db = Database(tmp_path / 'history.sqlite3')
+    calls = []
+    def opener(request, timeout):
+        calls.append(request.full_url)
+        if 'audioscrobbler.com' in request.full_url:
+            return response(url='')
+        return deezer_response()
+    worker = ArtworkWorker('key', opener=opener)
+    try:
+        assert worker.resolve(db, ALBUMS)['artwork_pending']
+        worker.jobs.join()
+        result = worker.resolve(db, ALBUMS)
+        assert result['artwork']['source'] == 'Deezer'
+        assert result['artwork']['url'].startswith('https://e-cdns-images.dzcdn.net/')
+        assert any('api.deezer.com/search/album' in url for url in calls)
+        assert not result['artwork_pending']
+    finally:
         worker.close()
 
 
