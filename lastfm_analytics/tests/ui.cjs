@@ -178,27 +178,17 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   await cdp.send('Emulation.setTouchEmulationEnabled', {enabled:true,maxTouchPoints:2});
   assert.equal(await page.evaluate(() => navigator.maxTouchPoints), 2);
   const touches = distance => [{x:centre-distance,y,id:1},{x:centre+distance,y,id:2}];
-  console.log('Pinch surface', await page.evaluate(({centre,y}) => ({
-    viewport:[innerWidth,innerHeight],
-    bounds:document.querySelector('#content .chart-scroll').getBoundingClientRect().toJSON(),
-    targets:[-30,30].map(offset => document.elementFromPoint(centre+offset,y)?.outerHTML.slice(0,250)),
-  }), {centre,y}));
-  await page.evaluate(() => {
-    window.pinchEvents = [];
-    for (const type of ['touchstart','touchmove','touchend','touchcancel'])
-      document.addEventListener(type, event => window.pinchEvents.push({type, touches:event.touches.length,target:event.target.outerHTML.slice(0,250)}), {capture:true});
-  });
+  // A notification from an earlier action must not intercept chart gestures.
+  await page.locator('#toast').evaluate(n => n.hidden = false);
+  assert.equal(await page.locator('#toast').evaluate(n => getComputedStyle(n).pointerEvents), 'none');
+  assert.ok(await page.evaluate(({centre,y}) => [-30,30].every(offset =>
+    document.elementFromPoint(centre+offset,y)?.closest('#content .chart-scroll')
+  ), {centre,y}));
   const pinchBefore = await scroller.locator('.bar-chart').evaluate(n => n.getBoundingClientRect().width);
   await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:touches(30)});
   // CDP input can be acknowledged before Chromium delivers the touch event.
   // Wait for each gesture phase before ending it or measuring its result.
-  try {
-    await page.waitForFunction(() => document.querySelector('#content .chart-scroll').dataset.gestureUntil === 'Infinity', null, {timeout:5000});
-  } catch (error) {
-    console.log('Pinch events', await page.evaluate(() => window.pinchEvents));
-    await page.screenshot({path:path.join(output,'pinch-failure.png')});
-    throw error;
-  }
+  await page.waitForFunction(() => document.querySelector('#content .chart-scroll').dataset.gestureUntil === 'Infinity');
   await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:touches(60)});
   await page.waitForFunction(before => document.querySelector('#content .bar-chart').getBoundingClientRect().width > before * 1.8, pinchBefore);
   await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});

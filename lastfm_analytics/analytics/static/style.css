@@ -950,6 +950,7 @@ dialog::backdrop {
   gap: 10px;
 }
 #toast {
+  pointer-events: none;
   position: fixed;
   bottom: 25px;
   left: 50%;
