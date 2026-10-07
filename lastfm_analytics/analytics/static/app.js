@@ -560,9 +560,20 @@ async function loadShelfLinks(detail, kind, serial) {
     if (serial === detailSerial && $('#detail-dialog').open) $('#shelf-link-slot').innerHTML = '<small class="method-note">Shelf check unavailable.</small>';
   }
 }
-function bindArtworkError(detail) {
+function bindArtworkError(detail, kind) {
   document.querySelectorAll("#detail-content .detail-artwork img").forEach(img => {
-    img.onerror = () => { img.remove(); };
+    img.onerror = () => {
+      const url = img.getAttribute("src");
+      if (detail.artist_photo === url) detail.artist_photo = null;
+      if (detail.artist_logo === url) detail.artist_logo = null;
+      if (detail.artwork?.url === url) detail.artwork = null;
+      const figure = img.closest("figure");
+      img.remove();
+      if (!figure.querySelector("img")) {
+        $("#detail-artwork-slot").innerHTML = artworkHTML(detail, kind);
+        bindArtworkError(detail, kind);
+      }
+    };
   });
 }
 async function showDetail(kind, id, groupMode = false, restoring = false) {
@@ -593,7 +604,7 @@ async function showDetail(kind, id, groupMode = false, restoring = false) {
     const renderDetail = (data) => {
     replaceCachedView("#detail-content",
       `<div class="detail-heading"><div id="detail-artwork-slot">${artworkHTML(detail, kind)}</div><div><h2>${esc(detail.name)}</h2><p>${esc(detail.artist)}</p>${spotifyLink(detail, kind)} ${recordStoreLink(detail, kind)} <span id="shelf-link-slot"></span></div></div>${metrics(data, mode, {kind, id, name:detail.name}, groupMode)}<section class="panel">${panelHead("Listening history", "Select a bar to inspect individual scrobbles.")}${chart(data, { kind, id, name: detail.name }, mode)}</section>${detail.versions.length ? `<div class="panel-head" style="margin-top:23px"><div><h2>Versions</h2><p>All-time plays for the selected source, including versions outside the selected period.</p></div></div><div class="table-wrap"><table><thead><tr><th>Scrobbled name</th><th class="num">Plays</th><th>First / latest play</th><th></th></tr></thead><tbody>${detail.versions.map((v) => `<tr><td class="name-cell"><strong>${esc(v.name)}</strong><small>${v.manual ? "Manual decision" : "Automatic grouping"}</small></td><td class="num">${number(v.plays)}</td><td><small>${formatDate(v.first_play)}<br>${formatDate(v.last_play)}</small></td><td>${detail.versions.length > 1 ? `<button class="button" data-separate="${v.id}" data-name="${esc(v.name)}">Separate</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : ""}<div class="dialog-actions" style="margin-top:18px"><button class="button primary" data-show-history="${kind}" data-id="${esc(id)}" data-name="${esc(detail.name)}" data-mode="${mode}" data-all="${groupMode}">View scrobbles →</button></div>`);
-    bindArtworkError(detail);
+    bindArtworkError(detail, kind);
     loadShelfLinks(detail, kind, serial);
     };
     renderDetail(data);
@@ -605,14 +616,15 @@ async function showDetail(kind, id, groupMode = false, restoring = false) {
         let result;
         try { result = await api("artwork", extra); } catch (_) { continue; }
         if (serial !== detailSerial || !dialog.open) return;
+        const previousArtwork = artworkHTML(detail, kind);
         Object.assign(detail, result);
-        if (!result.artwork_pending) {
+        if (artworkHTML(detail, kind) !== previousArtwork) {
           $("#detail-artwork-slot").innerHTML = artworkHTML(detail, kind);
-          bindArtworkError(detail);
-          break;
+          bindArtworkError(detail, kind);
         }
+        if (!result.artwork_pending) break;
       }
-      if (detail.artwork_pending && serial === detailSerial && dialog.open) {
+      if (detail.artwork_pending && !detail.artwork && !detail.artist_photo && !detail.artist_logo && serial === detailSerial && dialog.open) {
         detail.artwork_pending = false;
         $("#detail-artwork-slot").innerHTML = '<p class="method-note">Artwork is taking longer to load. Reopen these details to retry.</p>';
       }

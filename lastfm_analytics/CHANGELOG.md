@@ -1,12 +1,19 @@
-# 0.2.11
+# Changelog
+
+## 0.2.12
+
+- Accept TheAudioDB's R2 image CDN in metadata validation and browser image policy. This fixes photos and logos that were previously rejected as unavailable.
+- Add TheAudioDB album covers as another fallback, match recognised remaster/deluxe album suffixes conservatively, and retain artist identity checks.
+- Display photos and covers as soon as they arrive while other lookups continue. Preserve usable images if another image fails.
+- Retry previously cached misses after upgrading, preserve successful URL metadata, allow slower provider responses and pace each provider request. Cache provider outages briefly rather than treating them as day-long missing artwork.
+
+## 0.2.11
 
 - Link Listening Analytics to owned albums and artists in AudioShelf, with separate record store search links.
 
-# 0.2.10
+## 0.2.10
 
 - Artist detail pages show artist photos and transparent logos from TheAudioDB when available. Background lookups cache remote URLs and retain album cover fallback.
-
-# Changelog
 
 ## 0.2.9
 

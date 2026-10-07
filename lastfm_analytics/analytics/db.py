@@ -66,6 +66,11 @@ class Database:
             db.execute("PRAGMA journal_mode=WAL")
             db.executescript(SCHEMA)
             db.execute("PRAGMA user_version=2")
+            if self.get(db, "artwork_pipeline", 0) < 2:
+                # Previous releases rejected AudioDB's CDN and cached misses.
+                # Preserve usable URLs but retry those misses on first access.
+                db.execute("DELETE FROM artwork_urls WHERE url IS NULL")
+                self.put(db, "artwork_pipeline", 2)
 
     @contextlib.contextmanager
     def connect(self):
