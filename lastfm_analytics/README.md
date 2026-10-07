@@ -267,3 +267,9 @@ rebuild saved results to avoid mixing old and new analytics formats. Explicit me
 and undo actions clear saved views so the next result reflects your decision. If
 the add-on is stopped overnight, views refresh when it starts again; it cannot
 calculate while stopped. No Last.fm API calls are added by view refreshes.
+
+Artwork lookups also accept TheAudioDB’s current R2 CDN and use its album search
+before the Deezer fallback. Recognised remaster/deluxe suffixes may use the base
+album’s cover, with the artist still verified. Arriving artwork is shown even if
+other lookups are pending. Upgrading to 0.2.12 clears old cached misses once while
+preserving successful URLs. Provider failures retry after five minutes.

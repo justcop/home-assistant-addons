@@ -8,7 +8,7 @@ import time
 import urllib.parse
 import urllib.request
 
-from .grouping import normalise
+from .grouping import normalise, canonical_title
 
 
 def image_url(images):
@@ -30,7 +30,12 @@ def image_url(images):
 
 
 def artwork_source(url):
-    return "Deezer" if urllib.parse.urlsplit(url).netloc == "e-cdns-images.dzcdn.net" else "Last.fm"
+    host = urllib.parse.urlsplit(url).netloc
+    if host == "e-cdns-images.dzcdn.net":
+        return "Deezer"
+    if host in ("www.theaudiodb.com", "theaudiodb.com", "r2.theaudiodb.com"):
+        return "TheAudioDB"
+    return "Last.fm"
 
 
 def deezer_image(url):
@@ -40,6 +45,21 @@ def deezer_image(url):
     if parsed.scheme == "https" and parsed.netloc == "e-cdns-images.dzcdn.net":
         return url
     return None
+
+
+def audiodb_image(url, kind):
+    if not isinstance(url, str) or len(url) > 2048:
+        return None
+    parsed = urllib.parse.urlsplit(url)
+    if (parsed.scheme in ("http", "https")
+            and parsed.netloc in ("www.theaudiodb.com", "theaudiodb.com", "r2.theaudiodb.com")
+            and parsed.path.startswith(f"/images/media/{kind}/")):
+        return urllib.parse.urlunsplit(parsed._replace(scheme="https"))
+    return None
+
+
+def album_match(a, b):
+    return normalise(canonical_title(a, "album")) == normalise(canonical_title(b, "album"))
 
 
 class ArtworkWorker:
@@ -52,6 +72,7 @@ class ArtworkWorker:
         self.pending = set()
         self.lock = threading.Lock()
         self.thread = None
+        self.last_request = {}
 
     def resolve_artist(self, db, artist):
         result = self.resolve(db, [dict(artist=artist, album="__artist_assets_v1__")])
@@ -66,16 +87,16 @@ class ArtworkWorker:
             urllib.parse.urlencode({"s": artist}),
             headers={"User-Agent": "ListeningAnalytics (Home Assistant companion)"})
         rows = self._read_json(request).get("artists") or []
+        if not isinstance(rows, list):
+            raise ValueError("Invalid artist metadata")
         for row in rows:
-            if not isinstance(row, dict) or normalise(str(row.get("strArtist", ""))) != normalise(artist):
+            if not isinstance(row, dict) or normalise(artist) not in (normalise(str(row.get("strArtist", ""))), normalise(str(row.get("strArtistAlternate") or ""))):
                 continue
             assets = {}
             for field, key in (("strArtistThumb", "photo"), ("strArtistLogo", "logo")):
                 url = row.get(field)
-                if not isinstance(url, str) or len(url) > 2048:
-                    continue
-                parsed = urllib.parse.urlsplit(url)
-                if parsed.scheme == "https" and parsed.netloc in ("www.theaudiodb.com", "theaudiodb.com") and parsed.path.startswith("/images/media/artist/"):
+                url = audiodb_image(url, "artist")
+                if url:
                     assets[key] = url
             return json.dumps(assets) if assets else None
         return None
@@ -111,7 +132,14 @@ class ArtworkWorker:
         return {"artwork": None, "artwork_pending": waiting}
 
     def _read_json(self, request):
-        with self.opener(request, timeout=5) as response:
+        host = urllib.parse.urlsplit(request.full_url).netloc
+        # AudioDB permits 30 requests/minute, including album + artist calls.
+        if self.opener == urllib.request.urlopen:
+            delay = 2.1 - (time.monotonic() - self.last_request.get(host, 0))
+            if self.stop.wait(max(0, delay)):
+                raise OSError("Artwork lookup stopped")
+            self.last_request[host] = time.monotonic()
+        with self.opener(request, timeout=10) as response:
             raw = response.read(512 * 1024 + 1)
         if len(raw) > 512 * 1024:
             raise ValueError("Oversized metadata")
@@ -134,13 +162,13 @@ class ArtworkWorker:
         if not isinstance(entry, dict):
             return None
         if (normalise(str(entry.get("artist", ""))) != normalise(artist)
-                or normalise(str(entry.get("name", ""))) != normalise(album)):
+                or not album_match(str(entry.get("name", "")), album)):
             return None
         return image_url(entry.get("image"))
 
     def fetch_deezer(self, artist, album):
         query = urllib.parse.urlencode({
-            "q": f'artist:"{artist}" album:"{album}"',
+            "q": f'artist:"{artist}" album:"{canonical_title(album, "album")}"',
             "limit": 8,
         })
         request = urllib.request.Request(
@@ -159,7 +187,7 @@ class ArtworkWorker:
                 continue
             if normalise(str(entry_artist.get("name", ""))) != normalise(artist):
                 continue
-            if normalise(str(entry.get("title", ""))) != normalise(album):
+            if not album_match(str(entry.get("title", "")), album):
                 continue
             for key in ("cover_medium", "cover_big", "cover"):
                 url = deezer_image(entry.get(key))
@@ -167,17 +195,41 @@ class ArtworkWorker:
                     return url
         return None
 
-    def fetch(self, artist, album):
-        # Last.fm remains the first choice because imported history already comes
-        # from it. Deezer is a no-key fallback for albums whose Last.fm artwork
-        # is missing, which is common for older scrobbles and some catalogue entries.
-        try:
-            url = self.fetch_lastfm(artist, album)
+    def fetch_audiodb_album(self, artist, album):
+        request = urllib.request.Request(
+            "https://www.theaudiodb.com/api/v1/json/123/searchalbum.php?" +
+            urllib.parse.urlencode({"s": artist, "a": canonical_title(album, "album")}),
+            headers={"User-Agent": "ListeningAnalytics (Home Assistant companion)"})
+        rows = self._read_json(request).get("album") or []
+        if not isinstance(rows, list):
+            raise ValueError("Invalid album metadata")
+        for entry in rows:
+            if not isinstance(entry, dict):
+                continue
+            if normalise(str(entry.get("strArtist", ""))) != normalise(artist):
+                continue
+            if not album_match(str(entry.get("strAlbum", "")), album):
+                continue
+            url = audiodb_image(entry.get("strAlbumThumb"), "album")
             if url:
                 return url
-        except (OSError, ValueError, TypeError):
-            pass
-        return self.fetch_deezer(artist, album)
+        return None
+
+    def fetch(self, artist, album):
+        failed = False
+        providers = ([self.fetch_lastfm] if self.api_key else []) + [
+            self.fetch_audiodb_album, self.fetch_deezer]
+        for provider in providers:
+            try:
+                url = provider(artist, album)
+                if url:
+                    return url
+            except (OSError, ValueError, TypeError):
+                failed = True
+        # Do not turn a provider outage into a day-long "no artwork" result.
+        if failed:
+            raise ValueError("Artwork services temporarily unavailable")
+        return None
 
     def process(self, job):
         db, artist, album, key, job_key = job

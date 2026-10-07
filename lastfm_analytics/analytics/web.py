@@ -320,7 +320,7 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Content-Security-Policy"] = (
-            f"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://lastfm.freetls.fastly.net https://lastfm-img2.akamaized.net https://e-cdns-images.dzcdn.net https://www.theaudiodb.com https://theaudiodb.com; connect-src 'self' {config['audioshelf_url']}; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+            f"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://lastfm.freetls.fastly.net https://lastfm-img2.akamaized.net https://e-cdns-images.dzcdn.net https://www.theaudiodb.com https://theaudiodb.com https://r2.theaudiodb.com; connect-src 'self' {config['audioshelf_url']}; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
         )
         return response
 

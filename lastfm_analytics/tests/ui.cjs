@@ -175,12 +175,24 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   const rect = await scroller.boundingBox();
   const centre = rect.x + rect.width / 2, y = rect.y + rect.height / 2;
   const cdp = await page.context().newCDPSession(page);
-  await cdp.send('Emulation.setTouchEmulationEnabled', {enabled:true});
+  await cdp.send('Emulation.setTouchEmulationEnabled', {enabled:true,maxTouchPoints:2});
+  assert.equal(await page.evaluate(() => navigator.maxTouchPoints), 2);
   const touches = distance => [{x:centre-distance,y,id:1},{x:centre+distance,y,id:2}];
+  // A notification from an earlier action must not intercept chart gestures.
+  await page.locator('#toast').evaluate(n => n.hidden = false);
+  assert.equal(await page.locator('#toast').evaluate(n => getComputedStyle(n).pointerEvents), 'none');
+  assert.ok(await page.evaluate(({centre,y}) => [-30,30].every(offset =>
+    document.elementFromPoint(centre+offset,y)?.closest('#content .chart-scroll')
+  ), {centre,y}));
   const pinchBefore = await scroller.locator('.bar-chart').evaluate(n => n.getBoundingClientRect().width);
   await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:touches(30)});
+  // CDP input can be acknowledged before Chromium delivers the touch event.
+  // Wait for each gesture phase before ending it or measuring its result.
+  await page.waitForFunction(() => document.querySelector('#content .chart-scroll').dataset.gestureUntil === 'Infinity');
   await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:touches(60)});
+  await page.waitForFunction(before => document.querySelector('#content .bar-chart').getBoundingClientRect().width > before * 1.8, pinchBefore);
   await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+  await page.waitForFunction(() => document.querySelector('#content .chart-scroll').dataset.gestureUntil !== 'Infinity');
   const pinchAfter = await scroller.locator('.bar-chart').evaluate(n => n.getBoundingClientRect().width);
   assert.ok(pinchAfter > pinchBefore * 1.8);
   assert.equal(await page.evaluate(() => visualViewport.scale),1);
@@ -190,6 +202,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   for (const x of [centre+30,centre,centre-30,centre-50])
     await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x,y,id:1}]});
   await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+  await page.waitForFunction(before => document.querySelector('#content .chart-scroll').scrollLeft > before, scrollBefore);
   assert.ok(await scroller.evaluate(n=>n.scrollLeft)>scrollBefore);
   await cdp.send('Emulation.setTouchEmulationEnabled', {enabled:false});
   await page.unroute("**/api/overview?**");
@@ -380,6 +393,35 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   await page.unroute('**/api/detail?*');
   await page.unroute('**/api/artwork?*');
   await page.unroute('https://lastfm.freetls.fastly.net/**');
+  // AudioDB's current R2 CDN is allowed, and a photo appears while album jobs remain pending.
+  await page.locator('#close-detail').click();
+  await page.waitForFunction(() => !document.querySelector('#detail-dialog').open);
+  await page.route('**/api/detail?*', async route => {
+    const response = await route.fetch();
+    const data = await response.json();
+    Object.assign(data, {artwork:null, artist_photo:null, artist_logo:null, artwork_pending:true});
+    await route.fulfill({response,json:data});
+  });
+  let partialPolls = 0;
+  await page.route('**/api/artwork?*', route => {
+    partialPolls++;
+    return route.fulfill({json:{artwork:null, artwork_pending:true,
+      artist_photo:'https://r2.theaudiodb.com/images/media/artist/thumb/beatles.jpg',
+      artist_logo:null, artist_name:'The Beatles'}});
+  });
+  await page.route('https://r2.theaudiodb.com/**', route => route.fulfill({path:path.join(__dirname,'../analytics/static/icon-192.png'),contentType:'image/png'}));
+  await page.locator('#content [data-detail="artist"][data-id="the beatles"]').click();
+  await page.locator('#detail-artwork-slot img').waitFor();
+  await page.waitForFunction(() => document.querySelector('#detail-artwork-slot img')?.naturalWidth > 0);
+  assert.ok(partialPolls >= 1);
+  assert.equal(await page.locator('#detail-artwork-slot img').getAttribute('src'), 'https://r2.theaudiodb.com/images/media/artist/thumb/beatles.jpg');
+  assert.match(await page.locator('#detail-artwork-slot').innerText(), /TheAudioDB/);
+  await page.screenshot({path:path.join(output,'audiodb-r2-photo-mobile.png')});
+  await page.locator('#close-detail').click();
+  await page.waitForFunction(() => !document.querySelector('#detail-dialog').open);
+  await page.unroute('**/api/detail?*');
+  await page.unroute('**/api/artwork?*');
+  await page.unroute('https://r2.theaudiodb.com/**');
   assert.deepEqual(errors, []);
   console.log(
     "UI passed: setup, demo, dates, history, search, detail, separate, merge, undo, mobile, dark, heatmap and safe text rendering.",

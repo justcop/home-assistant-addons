@@ -49,7 +49,7 @@ def test_background_lookup_is_deduplicated_and_persists_url_only(tmp_path):
     calls = []
     def opener(request, timeout):
         calls.append(parse_qs(urlsplit(request.full_url).query))
-        assert timeout == 5
+        assert timeout == 10
         started.set()
         assert release.wait(3)
         return response()
@@ -148,8 +148,8 @@ def test_detail_endpoint_cached_fallback_and_scoped_lists(tmp_path):
 
 
 def test_artist_photo_logo_cache_and_identity(tmp_path):
-    photo = 'https://www.theaudiodb.com/images/media/artist/thumb/beatles.jpg'
-    logo = 'https://www.theaudiodb.com/images/media/artist/logo/beatles.png'
+    photo = 'https://r2.theaudiodb.com/images/media/artist/thumb/beatles.jpg'
+    logo = 'https://r2.theaudiodb.com/images/media/artist/logo/beatles.png'
     calls = []
     def opener(request, timeout):
         calls.append(request.full_url)
@@ -172,5 +172,58 @@ def test_artist_photo_logo_cache_and_identity(tmp_path):
         assert json.loads(worker.fetch_artist('The Beatles')) == {'logo': logo}
         reopened = ArtworkWorker('', enabled=False)
         assert reopened.resolve_artist(Database(db.path), 'The Beatles') == result
+    finally:
+        worker.close()
+
+
+def test_audiodb_cdn_and_edition_album_fallback(tmp_path):
+    url = 'https://r2.theaudiodb.com/images/media/album/thumb/abbey.jpg'
+    calls = []
+    def opener(request, timeout):
+        calls.append(request.full_url)
+        if 'audioscrobbler.com' in request.full_url:
+            return response(url='')
+        return io.BytesIO(json.dumps({'album': [dict(strArtist='The Beatles',
+            strAlbum='Abbey Road', strAlbumThumb=url)]}).encode())
+    worker = ArtworkWorker('key', opener=opener)
+    assert worker.fetch('The Beatles', 'Abbey Road (2009 Remaster)') == url
+    assert parse_qs(urlsplit(calls[-1]).query)['a'] == ['Abbey Road']
+    assert worker.fetch_audiodb_album('Oasis', 'Abbey Road') is None
+    assert worker.fetch_audiodb_album('The Beatles', 'Abbey Road (Live)') is None
+    from analytics.artwork import artwork_source, audiodb_image
+    assert artwork_source(url) == 'TheAudioDB'
+    assert audiodb_image(url.replace('https:', 'http:'), 'album') == url
+    assert audiodb_image(url.replace('r2.theaudiodb.com', 'r2.theaudiodb.com.evil.test'), 'album') is None
+    assert audiodb_image(url, 'artist') is None
+
+
+def test_old_failed_cache_is_expired_once_but_urls_survive(tmp_path):
+    import sqlite3
+    import time
+    path = tmp_path / 'old.sqlite3'
+    with sqlite3.connect(path) as conn:
+        conn.execute('CREATE TABLE artwork_urls (artist_key TEXT,album_key TEXT,url TEXT,expires INTEGER,PRIMARY KEY(artist_key,album_key))')
+        conn.executemany('INSERT INTO artwork_urls VALUES (?,?,?,?)', [
+            ('the beatles', 'abbey road', None, time.time()+86400),
+            ('oasis', 'definitely maybe', URL, time.time()+86400)])
+    db = Database(path)
+    with db.connect() as conn:
+        assert conn.execute('SELECT artist_key FROM artwork_urls').fetchall()[0][0] == 'oasis'
+        conn.execute('INSERT INTO artwork_urls VALUES (?,?,?,?)', ('radiohead', 'ok computer', None, 9999999999))
+    Database(path)
+    with db.connect() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM artwork_urls').fetchone()[0] == 2
+
+
+def test_provider_outage_is_short_lived(tmp_path):
+    import time
+    db = Database(tmp_path / 'errors.sqlite3')
+    worker = ArtworkWorker('', opener=lambda *_a, **_k: io.BytesIO(b'<html>Site Unavailable</html>'))
+    try:
+        worker.resolve(db, ALBUMS)
+        worker.jobs.join()
+        with db.connect() as conn:
+            expires = conn.execute('SELECT expires FROM artwork_urls').fetchone()[0]
+        assert 290 < expires-time.time() <= 300
     finally:
         worker.close()
