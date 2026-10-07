@@ -27,10 +27,14 @@ An album-first collection for your phone. MusicBrainz supplies artists, studio a
 
 Browse artists, explore their studio albums in release order, add records to your shelf, and play their original tracks. Generic catalogue rules exclude singles, compilations, live albums and remixes; a curated series or explicit album override can include an original soundtrack album. Reissues within the same MusicBrainz release group appear as one album. Genuine collaborative albums appear under each credited artist.
 
+## Shelf layout
+
+On My shelf in the Vinyl interface, choose **Open shelves** to see every album cover, or **Artist dividers** for a compact artist list. Tap a divider to open its records. Opening another closes the previous artist. Search works in either view, and returning from an album keeps your open artist and browsing position. The layout choice is remembered for each account in this browser.
+
 ## Install
 
 1. In Home Assistant, refresh the add-on store for the existing repository: `https://github.com/justcop/home-assistant-addons`.
-2. Install **AudioShelf**, version **0.6.0**. Enable the sidebar entry if wanted, then start it.
+2. Install **AudioShelf**, version **0.6.3**. Enable the sidebar entry if wanted, then start it.
 3. Use **Open Web UI** for Home Assistant ingress. The standalone UI is also exposed on port **8098** by default, for your existing external-access system.
 4. Open the Record Store, search for an artist, browse their studio albums, and add one to your shelf. Spotify is not needed to collect records.
 
@@ -90,7 +94,7 @@ Options can come from `/data/options.json`, another JSON file selected by `AUDIO
 .venv/bin/python -m pytest tests -q
 node --check app/static/app.js
 bash -n run.sh
-docker build --build-arg BUILD_VERSION=0.6.0 --build-arg BUILD_ARCH=amd64 -t audioshelf .
+docker build --build-arg BUILD_VERSION=0.6.3 --build-arg BUILD_ARCH=amd64 -t audioshelf .
 ```
 
 ## Artwork and replaceable cache

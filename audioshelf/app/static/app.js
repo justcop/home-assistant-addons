@@ -234,7 +234,7 @@ async function route(){
 }
 function applyPermissions(root){
   if(statusInfo.role!=='view')return;
-  const allowed=new Set(['retry','refresh-status','search-kind','shelf-view','load-releases','logout']);
+  const allowed=new Set(['retry','refresh-status','search-kind','shelf-view','shelf-layout','shelf-artist','load-releases','logout']);
   root.querySelectorAll('button[data-action]').forEach(button=>{if(!allowed.has(button.dataset.action))button.disabled=true;});
   root.querySelectorAll('form').forEach(form=>{if(form.id!=='search-form')form.querySelectorAll('input,select,button').forEach(control=>control.disabled=true);});
 }
@@ -372,6 +372,8 @@ document.addEventListener('click',async event=>{
   try {
     if(action==='retry'||action==='refresh-status')await route();
     if(action==='interface'){const result=await api('settings','PUT',{interface:button.dataset.id});statusInfo.interface=result.interface;applyInterface(result.interface);await route();toast(`${result.interface==='vinyl'?'Vinyl':'Classic'} interface saved.`);}
+    if(action==='shelf-layout')changeShelfLayout(button.dataset.layout);
+    if(action==='shelf-artist')toggleShelfArtist(button);
     if(action==='shelf-view'){shelfView=button.dataset.view;await route();}
     if(action==='search-kind'){searchKind=button.dataset.kind;storeSearch={kind:searchKind,query:'',results:null};await route();}
     if(action==='add'){

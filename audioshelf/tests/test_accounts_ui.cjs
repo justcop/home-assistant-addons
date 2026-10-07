@@ -43,6 +43,7 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
     }
     await page.setViewportSize({width:390,height:844});await login('owner','fixture-owner-password');
     assert.equal((await api('shelf')).albums.length,14);
+    await page.getByRole('button',{name:'Artist dividers',exact:true}).click();
     await settings();await page.getByRole('button',{name:'Manage accounts',exact:true}).click();
     const creation=page.locator('[data-account-form][data-operation="create"]');
     for(const username of ['alice','bob']){
@@ -74,6 +75,8 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
     await page.getByRole('button',{name:'Add The Original Album to shelf',exact:true}).click();
     await page.locator('#toast').filter({hasText:'The Original Album added'}).waitFor();
     assert.equal((await api('shelf')).albums.length,1);
+    await page.locator('[data-nav="shelf"]').click();
+    await page.locator('.collection-shelves[data-layout="open"]').waitFor();
     await api('settings','PUT',{interface:'classic',theme:'midnight'});await page.reload();
     await settings();await page.getByLabel('Open Spotify after pressing Play on this browser').check();await page.getByRole('button',{name:'Open Security settings'}).click();
     const passwordForm=page.locator('[data-security-form][data-operation="password"]');
@@ -90,6 +93,7 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
     await signout();await login('owner','fixture-owner-password');
     assert.equal((await api('shelf')).albums.length,14);assert.equal((await api('status')).spotify_connected,true);
     assert.equal((await api('status')).interface,'vinyl');
+    await page.locator('.collection-shelves[data-layout="dividers"]').waitFor();
     assert.deepEqual(errors,[]);
     console.log('Account browser flows passed: create, switch, independent libraries/Spotify/preferences, and personal password change.');
   }finally{if(browser)await browser.close();server.kill();}

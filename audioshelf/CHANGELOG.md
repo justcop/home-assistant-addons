@@ -1,3 +1,8 @@
+# 0.6.3
+
+- Switch between the existing open shelves and compact artist dividers. Expand one artist at a time, search the collection, and return from an album to the same open artist. The layout choice is remembered per account in this browser.
+- Artist links from Listening Analytics open the matching divider automatically.
+
 # 0.6.2
 
 - Link Listening Analytics to owned albums and artists in AudioShelf, with separate record store search links.

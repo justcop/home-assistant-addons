@@ -35,3 +35,22 @@
 #turntable progress::-webkit-progress-value{background:var(--wine)}
 #turntable progress::-moz-progress-bar{background:var(--wine)}
 @media(max-width:700px){#turntable .track-progress{margin-top:7px;gap:7px}[data-interface=vinyl] #toast{bottom:175px}}
+
+/* Compact browsing uses the same paper, type and shelf ledges as Open shelves. */
+.shelf-layout{margin:-18px 0 28px;width:fit-content;max-width:100%}
+.shelf-layout button{min-height:44px}
+.shelf-artist-toggle,.shelf-artist-link{display:none}
+.collection-shelves[data-layout=dividers] .artist-shelf{margin:0 0 8px}
+.collection-shelves[data-layout=dividers] .artist-divider{display:none}
+.collection-shelves[data-layout=dividers] .shelf-artist-toggle{display:flex;align-items:center;gap:16px;width:100%;min-height:56px;padding:12px 18px;text-align:left;background:var(--paper);color:var(--ink);border:1px solid var(--line);border-left:3px solid var(--wine);border-radius:3px;box-shadow:0 2px 0 var(--soft)}
+.collection-shelves[data-layout=dividers] .artist-shelf:nth-child(3n+2) .shelf-artist-toggle{border-left-color:var(--green)}
+.collection-shelves[data-layout=dividers] .artist-shelf:nth-child(3n) .shelf-artist-toggle{border-left-color:var(--muted)}
+.shelf-artist-toggle strong{flex:1;min-width:0;overflow-wrap:anywhere;font:600 18px Georgia,serif}
+.shelf-artist-toggle>span{font-size:11px;color:var(--muted);white-space:nowrap}
+.shelf-artist-toggle .shelf-chevron{font-size:20px;line-height:1}
+.shelf-artist-toggle[aria-expanded=true] .shelf-chevron{transform:rotate(180deg)}
+.collection-shelves[data-layout=dividers] .shelf-artist-toggle[aria-expanded=true]{background:var(--soft);position:sticky;top:0;z-index:5}
+.collection-shelves[data-layout=dividers] .shelf-records{padding:28px 0 22px}
+.collection-shelves[data-layout=dividers] .shelf-artist-link{display:inline-block;margin-top:18px}
+.shelf-records[hidden]{display:none}
+@media(max-width:700px){.shelf-layout{margin-top:-10px;width:100%}.shelf-layout button{flex:1;padding:10px 8px}.collection-shelves[data-layout=dividers] .shelf-artist-toggle{padding:12px;gap:10px}.shelf-artist-toggle strong{font-size:17px}}
