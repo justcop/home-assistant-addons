@@ -29,6 +29,19 @@ def image_url(images):
     return None
 
 
+def artwork_source(url):
+    return "Deezer" if urllib.parse.urlsplit(url).netloc == "e-cdns-images.dzcdn.net" else "Last.fm"
+
+
+def deezer_image(url):
+    if not isinstance(url, str) or len(url) > 2048:
+        return None
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme == "https" and parsed.netloc == "e-cdns-images.dzcdn.net":
+        return url
+    return None
+
+
 class ArtworkWorker:
     def __init__(self, api_key, enabled=True, opener=None):
         self.api_key = api_key
@@ -53,7 +66,7 @@ class ArtworkWorker:
             if cached and cached["expires"] > time.time():
                 if cached["url"]:
                     return {"artwork": dict(url=cached["url"], artist=artist,
-                                            album=name, source="Last.fm"), "artwork_pending": False}
+                                            album=name, source=artwork_source(cached["url"])), "artwork_pending": False}
                 continue
             if self.enabled:
                 job_key = (str(db.path), *key)
@@ -70,19 +83,25 @@ class ArtworkWorker:
                             self.thread.start()
         return {"artwork": None, "artwork_pending": waiting}
 
-    def fetch(self, artist, album):
+    def _read_json(self, request):
+        with self.opener(request, timeout=5) as response:
+            raw = response.read(512 * 1024 + 1)
+        if len(raw) > 512 * 1024:
+            raise ValueError("Oversized metadata")
+        payload = json.loads(raw)
+        if not isinstance(payload, dict):
+            raise ValueError("Metadata unavailable")
+        return payload
+
+    def fetch_lastfm(self, artist, album):
         params = dict(method="album.getInfo", artist=artist, album=album,
                       api_key=self.api_key, format="json", autocorrect=0)
         request = urllib.request.Request(
             "https://ws.audioscrobbler.com/2.0/?" + urllib.parse.urlencode(params),
             headers={"User-Agent": "ListeningAnalytics (Home Assistant companion)"},
         )
-        with self.opener(request, timeout=5) as response:
-            raw = response.read(512 * 1024 + 1)
-        if len(raw) > 512 * 1024:
-            raise ValueError("Oversized metadata")
-        payload = json.loads(raw)
-        if not isinstance(payload, dict) or (payload.get("error") and payload["error"] != 6):
+        payload = self._read_json(request)
+        if payload.get("error") and payload["error"] != 6:
             raise ValueError("Metadata unavailable")
         entry = payload.get("album", {})
         if not isinstance(entry, dict):
@@ -91,6 +110,47 @@ class ArtworkWorker:
                 or normalise(str(entry.get("name", ""))) != normalise(album)):
             return None
         return image_url(entry.get("image"))
+
+    def fetch_deezer(self, artist, album):
+        query = urllib.parse.urlencode({
+            "q": f'artist:"{artist}" album:"{album}"',
+            "limit": 8,
+        })
+        request = urllib.request.Request(
+            "https://api.deezer.com/search/album?" + query,
+            headers={"User-Agent": "ListeningAnalytics (Home Assistant companion)"},
+        )
+        payload = self._read_json(request)
+        rows = payload.get("data", [])
+        if not isinstance(rows, list):
+            return None
+        for entry in rows:
+            if not isinstance(entry, dict):
+                continue
+            entry_artist = entry.get("artist", {})
+            if not isinstance(entry_artist, dict):
+                continue
+            if normalise(str(entry_artist.get("name", ""))) != normalise(artist):
+                continue
+            if normalise(str(entry.get("title", ""))) != normalise(album):
+                continue
+            for key in ("cover_medium", "cover_big", "cover"):
+                url = deezer_image(entry.get(key))
+                if url:
+                    return url
+        return None
+
+    def fetch(self, artist, album):
+        # Last.fm remains the first choice because imported history already comes
+        # from it. Deezer is a no-key fallback for albums whose Last.fm artwork
+        # is missing, which is common for older scrobbles and some catalogue entries.
+        try:
+            url = self.fetch_lastfm(artist, album)
+            if url:
+                return url
+        except (OSError, ValueError, TypeError):
+            pass
+        return self.fetch_deezer(artist, album)
 
     def process(self, job):
         db, artist, album, key, job_key = job
