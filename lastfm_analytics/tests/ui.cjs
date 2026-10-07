@@ -179,8 +179,13 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   const touches = distance => [{x:centre-distance,y,id:1},{x:centre+distance,y,id:2}];
   const pinchBefore = await scroller.locator('.bar-chart').evaluate(n => n.getBoundingClientRect().width);
   await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:touches(30)});
+  // CDP input can be acknowledged before Chromium delivers the touch event.
+  // Wait for each gesture phase before ending it or measuring its result.
+  await page.waitForFunction(() => document.querySelector('#content .chart-scroll').dataset.gestureUntil === 'Infinity');
   await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:touches(60)});
+  await page.waitForFunction(before => document.querySelector('#content .bar-chart').getBoundingClientRect().width > before * 1.8, pinchBefore);
   await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+  await page.waitForFunction(() => document.querySelector('#content .chart-scroll').dataset.gestureUntil !== 'Infinity');
   const pinchAfter = await scroller.locator('.bar-chart').evaluate(n => n.getBoundingClientRect().width);
   assert.ok(pinchAfter > pinchBefore * 1.8);
   assert.equal(await page.evaluate(() => visualViewport.scale),1);
@@ -190,6 +195,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   for (const x of [centre+30,centre,centre-30,centre-50])
     await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x,y,id:1}]});
   await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+  await page.waitForFunction(before => document.querySelector('#content .chart-scroll').scrollLeft > before, scrollBefore);
   assert.ok(await scroller.evaluate(n=>n.scrollLeft)>scrollBefore);
   await cdp.send('Emulation.setTouchEmulationEnabled', {enabled:false});
   await page.unroute("**/api/overview?**");
