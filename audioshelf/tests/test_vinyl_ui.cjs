@@ -42,7 +42,7 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     // External artist links retain the full shelf and land at the artist section.
     await page.goto(base+'/#shelf/f181961b-20f7-459e-89de-920ef03c7ed0');
     await page.locator('[data-shelf-id]').first().waitFor();
-    await page.waitForFunction(()=>Math.abs(document.querySelector('[data-shelf-id]').getBoundingClientRect().top)<3);
+    await page.waitForFunction(()=>Math.abs(document.querySelector('[data-shelf-id]').getBoundingClientRect().top-parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop))<3);
     assert.equal(await page.locator('.sleeve').count(),14);
     await page.goto(base+'/#store/artist/The%20Artist');
     await page.locator('.artist-bin').first().waitFor();

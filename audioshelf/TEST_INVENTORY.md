@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-07T18:09:11+01:00 (Europe/London).
+Reviewed: 2026-10-08T00:00:12+01:00 (Europe/London).
 
-Reviewed compact shelf browser coverage: one artist expanded, keyboard access, filtering, return from album, saved browser layout, external artist links and 320/390px overflow. Existing Classic, accounts and playback flows retained. Browser execution and container build run in CI.
+Reviewed compact shelf browser coverage for single expansion, keyboard access, filtering, album return, browser persistence, account isolation, external artist links respecting scroll padding, and 320/390px overflow. Existing Classic, accounts and playback flows retained; full browser and container checks run in CI.
 
-<!-- inventory: {"reviewed_at": "2026-10-07T18:09:11+01:00", "review_note": "Reviewed compact shelf browser coverage: one artist expanded, keyboard access, filtering, return from album, saved browser layout, external artist links and 320/390px overflow. Existing Classic, accounts and playback flows retained. Browser execution and container build run in CI.", "source_sha256": "1d9e1e491e796dcca00f3fc53623268db5f59753429d3266346223f54c7eed2a"} -->
+<!-- inventory: {"reviewed_at": "2026-10-08T00:00:12+01:00", "review_note": "Reviewed compact shelf browser coverage for single expansion, keyboard access, filtering, album return, browser persistence, account isolation, external artist links respecting scroll padding, and 320/390px overflow. Existing Classic, accounts and playback flows retained; full browser and container checks run in CI.", "source_sha256": "505f570cb2fe20430fbe4d0f8dd5a12f81f24d90f99a3d6fcd11cc83a789aea7"} -->
 
 ## Backend cases (281)
 
