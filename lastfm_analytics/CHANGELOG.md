@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.9
+
+- Add a Spotify action to artist, album and song detail pages. It opens a Spotify search already scoped to the selected artist, album or track and does not require Spotify credentials.
+- Fall back to Deezer's public album metadata when Last.fm has no usable cover image. Keep remote URL-only caching, trusted image hosts and the existing paced background lookup.
+
 ## 0.2.8
 
 - Prevent an in-flight background read from restoring the browser session after sign-out. Direct browser sessions now expire seven days after sign-in.
