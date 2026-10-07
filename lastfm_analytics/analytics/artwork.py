@@ -45,13 +45,40 @@ def deezer_image(url):
 class ArtworkWorker:
     def __init__(self, api_key, enabled=True, opener=None):
         self.api_key = api_key
-        self.enabled = enabled and bool(api_key)
+        self.enabled = enabled
         self.opener = opener or urllib.request.urlopen
         self.stop = threading.Event()
         self.jobs = queue.Queue(maxsize=64)
         self.pending = set()
         self.lock = threading.Lock()
         self.thread = None
+
+    def resolve_artist(self, db, artist):
+        result = self.resolve(db, [dict(artist=artist, album="__artist_assets_v1__")])
+        art = result["artwork"]
+        assets = json.loads(art["url"]) if art else {}
+        return dict(artist_photo=assets.get("photo"), artist_logo=assets.get("logo"),
+                    artist_name=artist, artwork_pending=result["artwork_pending"])
+
+    def fetch_artist(self, artist):
+        request = urllib.request.Request(
+            "https://www.theaudiodb.com/api/v1/json/123/search.php?" +
+            urllib.parse.urlencode({"s": artist}),
+            headers={"User-Agent": "ListeningAnalytics (Home Assistant companion)"})
+        rows = self._read_json(request).get("artists") or []
+        for row in rows:
+            if not isinstance(row, dict) or normalise(str(row.get("strArtist", ""))) != normalise(artist):
+                continue
+            assets = {}
+            for field, key in (("strArtistThumb", "photo"), ("strArtistLogo", "logo")):
+                url = row.get(field)
+                if not isinstance(url, str) or len(url) > 2048:
+                    continue
+                parsed = urllib.parse.urlsplit(url)
+                if parsed.scheme == "https" and parsed.netloc in ("www.theaudiodb.com", "theaudiodb.com") and parsed.path.startswith("/images/media/artist/"):
+                    assets[key] = url
+            return json.dumps(assets) if assets else None
+        return None
 
     def resolve(self, db, albums):
         waiting = False
@@ -156,7 +183,7 @@ class ArtworkWorker:
         db, artist, album, key, job_key = job
         try:
             try:
-                url = self.fetch(artist, album)
+                url = self.fetch_artist(artist) if album == "__artist_assets_v1__" else self.fetch(artist, album)
                 ttl = 30 * 86400 if url else 86400
             except (OSError, ValueError, TypeError):
                 url, ttl = None, 300
@@ -182,7 +209,7 @@ class ArtworkWorker:
                 pass
             finally:
                 self.jobs.task_done()
-            self.stop.wait(1)
+            self.stop.wait(2.1)
 
     def close(self):
         self.stop.set()

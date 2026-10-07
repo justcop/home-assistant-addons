@@ -144,3 +144,32 @@ def test_detail_endpoint_cached_fallback_and_scoped_lists(tmp_path):
     finally:
         worker.close()
         app.extensions['view_cache'].close()
+
+
+def test_artist_photo_logo_cache_and_identity(tmp_path):
+    photo = 'https://www.theaudiodb.com/images/media/artist/thumb/beatles.jpg'
+    logo = 'https://www.theaudiodb.com/images/media/artist/logo/beatles.png'
+    calls = []
+    def opener(request, timeout):
+        calls.append(request.full_url)
+        return io.BytesIO(json.dumps({'artists': [dict(strArtist='The Beatles',
+            strArtistThumb=photo, strArtistLogo=logo)]}).encode())
+    db = Database(tmp_path / 'artist.sqlite3')
+    worker = ArtworkWorker('', opener=opener)
+    try:
+        assert worker.resolve_artist(db, 'The Beatles')['artwork_pending']
+        worker.jobs.join()
+        result = worker.resolve_artist(db, 'The Beatles')
+        assert result['artist_photo'] == photo
+        assert result['artist_logo'] == logo
+        assert not result['artwork_pending']
+        assert len(calls) == 1
+        assert worker.fetch_artist('Oasis') is None
+        worker.opener = lambda *_a, **_k: io.BytesIO(json.dumps({'artists': [dict(
+            strArtist='The Beatles', strArtistThumb='https://evil.example/photo',
+            strArtistLogo=logo)]}).encode())
+        assert json.loads(worker.fetch_artist('The Beatles')) == {'logo': logo}
+        reopened = ArtworkWorker('', enabled=False)
+        assert reopened.resolve_artist(Database(db.path), 'The Beatles') == result
+    finally:
+        worker.close()

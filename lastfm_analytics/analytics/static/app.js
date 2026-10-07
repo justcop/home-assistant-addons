@@ -511,6 +511,9 @@ async function load({historyMode = "push"} = {}) {
   }
 }
 function artworkHTML(detail, kind) {
+  if (kind === "artist" && (detail.artist_photo || detail.artist_logo)) {
+    return `<figure class="detail-artwork artist-assets">${detail.artist_photo ? `<img src="${esc(detail.artist_photo)}" alt="${esc(detail.artist_name || detail.name)} artist photo" width="112" height="112" decoding="async" referrerpolicy="no-referrer">` : ""}${detail.artist_logo ? `<img class="artist-logo" src="${esc(detail.artist_logo)}" alt="${esc(detail.artist_name || detail.name)} logo" decoding="async" referrerpolicy="no-referrer">` : ""}<figcaption>TheAudioDB</figcaption></figure>`;
+  }
   if (!detail.artwork) return `<p class="method-note" role="status">${detail.artwork_pending ? "Loading album artwork…" : "No album artwork available"}</p>`;
   const art = detail.artwork;
   return `<figure class="detail-artwork"><img src="${esc(art.url)}" alt="Cover of ${esc(art.album)} by ${esc(art.artist)}" width="112" height="112" decoding="async" referrerpolicy="no-referrer"><figcaption>${kind === "album" ? "Album cover" : esc(art.album)} · ${esc(art.source || "Last.fm")}</figcaption></figure>`;
@@ -526,12 +529,9 @@ function spotifyLink(detail, kind) {
   return `<a class="button spotify-link" href="${url}" target="_blank" rel="noopener noreferrer" aria-label="Find ${esc(detail.name)} on Spotify">♫ Find on Spotify</a>`;
 }
 function bindArtworkError(detail) {
-  const cover = $("#detail-content .detail-artwork img");
-  if (cover) cover.addEventListener("error", () => {
-    detail.artwork = null;
-    detail.artwork_pending = false;
-    $("#detail-artwork-slot").innerHTML = '<p class="method-note">Album artwork could not be loaded</p>';
-  }, {once:true});
+  document.querySelectorAll("#detail-content .detail-artwork img").forEach(img => {
+    img.onerror = () => { img.remove(); };
+  });
 }
 async function showDetail(kind, id, groupMode = false, restoring = false) {
   if (!restoring) {

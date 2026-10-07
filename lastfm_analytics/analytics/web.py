@@ -312,7 +312,7 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://lastfm.freetls.fastly.net https://lastfm-img2.akamaized.net https://e-cdns-images.dzcdn.net; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://lastfm.freetls.fastly.net https://lastfm-img2.akamaized.net https://e-cdns-images.dzcdn.net https://www.theaudiodb.com https://theaudiodb.com; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
         )
         return response
 
@@ -476,6 +476,16 @@ self.addEventListener('fetch', event => {
             artwork = result.get("artwork") if result else insights.cover_art(
                 conn, kind, value, raw, request.args)
             albums = insights.artwork_albums(conn, kind, value, raw, request.args)[0]
+        if kind == "artist" and not is_demo():
+            with db.connect() as conn:
+                row = conn.execute("SELECT artist FROM scrobbles WHERE artist_key=? LIMIT 1", (value,)).fetchone()
+            if row:
+                assets = artwork_worker.resolve_artist(db, row[0])
+                if artwork:
+                    return dict(artwork=artwork, **assets)
+                fallback = artwork_worker.resolve(db, albums)
+                assets["artwork_pending"] |= fallback["artwork_pending"]
+                return dict(artwork=fallback["artwork"], **assets)
         if artwork:
             return dict(artwork=artwork, artwork_pending=False)
         if is_demo():

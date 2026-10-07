@@ -1,3 +1,7 @@
+# 0.2.10
+
+- Artist detail pages show artist photos and transparent logos from TheAudioDB when available. Background lookups cache remote URLs and retain album cover fallback.
+
 # Changelog
 
 ## 0.2.9
