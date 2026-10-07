@@ -292,6 +292,12 @@ main {
 .button:hover {
   border-color: var(--accent);
 }
+.spotify-link {
+  display: inline-block;
+  margin-top: 10px;
+  color: var(--ink);
+  text-decoration: none;
+}
 .button.primary {
   background: var(--accent);
   color: var(--surface);
