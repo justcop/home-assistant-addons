@@ -312,7 +312,7 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://lastfm.freetls.fastly.net https://lastfm-img2.akamaized.net; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://lastfm.freetls.fastly.net https://lastfm-img2.akamaized.net https://e-cdns-images.dzcdn.net; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
         )
         return response
 
