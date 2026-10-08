@@ -58,3 +58,15 @@ def test_playback_does_not_misidentify_shared_or_uncollected_tracks(application,
     assert client.get('/api/spotify/playback').json['album_id'] is None
     state['currently_playing_type'] = 'episode'
     assert client.get('/api/spotify/playback').json == {'active': False}
+
+
+def test_shelf_furniture_persists_and_rejects_invalid_choices(application, client):
+    store = application.extensions['store']
+    assert client.get('/api/settings').json['shelf_style'] == 'floating'
+    assert post(client, '/api/settings', {'shelf_style': 'cabinet'}, method='PUT').json['shelf_style'] == 'cabinet'
+    assert client.get('/api/status').json['shelf_style'] == 'cabinet'
+    assert Store(store.directory, store.cache_directory).setting('shelf_style') == 'cabinet'
+    for invalid in ('wood', None, [], {}):
+        assert post(client, '/api/settings', {'shelf_style': invalid, 'theme': 'midnight'}, method='PUT').status_code == 400
+    assert store.setting('shelf_style') == 'cabinet'
+    assert store.setting('theme', 'record-store') == 'record-store'

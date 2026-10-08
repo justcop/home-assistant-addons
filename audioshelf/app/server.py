@@ -225,17 +225,17 @@ def create_app(options=None):
         if authenticated():
             result.update(account={'id':g.account['id'], 'username':g.account['username'], 'admin':g.account['id']=='owner' and identity()['role']=='owner'}, role=identity()['role'], spotify_configured=spotify.configured, spotify_connected=spotify.connected,
                           spotify_redirect_uri=spotify.redirect_uri, data_directory=str(store.directory), cache_directory=str(store.cache_directory), market=spotify.market,
-                          release_filters=store.release_filters(), interface=store.setting('interface', 'vinyl'), theme=store.setting('theme', 'record-store'), themes=THEMES, preferred_device=store.setting('preferred_device'))
+                          release_filters=store.release_filters(), interface=store.setting('interface', 'vinyl'), shelf_style=store.setting('shelf_style', 'floating'), theme=store.setting('theme', 'record-store'), themes=THEMES, preferred_device=store.setting('preferred_device'))
         return jsonify(result)
 
     @app.get('/api/settings')
     def settings():
-        return jsonify(release_filters=store.release_filters(), interface=store.setting('interface', 'vinyl'), theme=store.setting('theme', 'record-store'), themes=THEMES, preferred_device=store.setting('preferred_device'))
+        return jsonify(release_filters=store.release_filters(), interface=store.setting('interface', 'vinyl'), shelf_style=store.setting('shelf_style', 'floating'), theme=store.setting('theme', 'record-store'), themes=THEMES, preferred_device=store.setting('preferred_device'))
 
     @app.put('/api/settings')
     def save_settings():
         body = request.json
-        if not isinstance(body, dict) or not set(body).intersection({'release_filters', 'theme', 'preferred_device', 'interface'}):
+        if not isinstance(body, dict) or not set(body).intersection({'release_filters', 'theme', 'preferred_device', 'interface', 'shelf_style'}):
             raise AppError('Supply release filters, an appearance preference or a preferred device.')
         filters = validate_filters(body['release_filters']) if 'release_filters' in body else None
         theme = body.get('theme')
@@ -244,6 +244,9 @@ def create_app(options=None):
         interface = body.get('interface')
         if 'interface' in body and interface not in ('vinyl', 'classic'):
             raise AppError('Choose the Vinyl or Classic interface.')
+        shelf_style = body.get('shelf_style')
+        if 'shelf_style' in body and shelf_style not in ('floating', 'cabinet'):
+            raise AppError('Choose floating shelves or the white record cabinet.')
         preferred = body.get('preferred_device')
         if 'preferred_device' in body and preferred is not None:
             if not isinstance(preferred, dict) or set(preferred) != {'id', 'name', 'type'} or not all(isinstance(v, str) and 0 < len(v) <= 200 for v in preferred.values()):
@@ -254,6 +257,8 @@ def create_app(options=None):
                 raise AppError('That device is unavailable. Refresh devices and try again.')
             preferred = {k: preferred[k] for k in ('id', 'name', 'type')}
         with store.catalogue_lock:
+            if shelf_style is not None:
+                store.set_setting('shelf_style', shelf_style)
             if interface is not None:
                 store.set_setting('interface', interface)
             if 'preferred_device' in body:
@@ -262,7 +267,7 @@ def create_app(options=None):
                 store.set_release_filters(filters)
             if theme is not None:
                 store.set_setting('theme', theme)
-        return jsonify(release_filters=store.release_filters(), interface=store.setting('interface', 'vinyl'), theme=store.setting('theme', 'record-store'), preferred_device=store.setting('preferred_device'))
+        return jsonify(release_filters=store.release_filters(), interface=store.setting('interface', 'vinyl'), shelf_style=store.setting('shelf_style', 'floating'), theme=store.setting('theme', 'record-store'), preferred_device=store.setting('preferred_device'))
 
     @app.post('/api/login')
     def login():

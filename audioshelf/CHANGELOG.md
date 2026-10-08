@@ -1,3 +1,8 @@
+# 0.6.4
+
+- Choose continuous white floating shelves or a white record cabinet in Appearance settings, saved per account across devices. Full-width ledges continue through partially filled rows.
+- Start with artists collapsed. A small Expand all / Collapse all button replaces the two layout tabs; individual artists still open one at a time.
+
 # 0.6.3
 
 - Switch between the existing open shelves and compact artist dividers. Expand one artist at a time, search the collection, and return from an album to the same open artist. The layout choice is remembered per account in this browser.
