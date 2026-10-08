@@ -328,6 +328,12 @@ function updateCandidateName(card) {
 
 function settingsHTML(data) {
   if (state.groupKind === "artist") {
+    const suggested = (data.suggestions || []).map(item =>
+      '<article class="review-card"><strong>' + esc(item.names.join(' ↔ ')) +
+      '</strong><p class="method-note">' + esc(item.reason) + ' · ' + number(item.plays) + ' scrobbles</p>' +
+      '<button class="button primary" data-suggest-artist-a="' + esc(item.ids[0]) +
+      '" data-suggest-artist-b="' + esc(item.ids[1]) +
+      '" data-suggest-name="' + esc(item.names[0]) + '">Review merge</button></article>').join('');
     const entries = data.rows.map(a => '<article class="review-card"><label><input class="group-select" type="checkbox" data-id="' +
       esc(a.id) + '" data-name="' + esc(a.name) + '" ' +
       (state.selected.has(String(a.id)) ? 'checked' : '') + '><strong>' + esc(a.name) +
@@ -341,7 +347,8 @@ function settingsHTML(data) {
       '<div class="selection-bar"><span id="selected-count">' + state.selected.size + ' selected</span>' +
       '<label>Combined artist name <input id="artist-name" type="text" maxlength="1000" placeholder="Use the selected artist name"></label>' +
       '<button class="button primary" id="merge-artists" ' + (state.selected.size < 2 ? 'disabled' : '') + '>Merge selected artists</button></div>' +
-      '<div class="review-list">' + (entries || '<div class="empty">No artists found.</div>') + '</div>' +
+      (suggested ? '<h3 class="settings-version-heading">Suggested artist matches</h3><p class="method-note">Suggestions only. Nothing combines until you approve the pair.</p><div class="review-list">' + suggested + '</div>' : '') +
+      '<h3 class="settings-version-heading">All artists</h3><div class="review-list">' + (entries || '<div class="empty">No artists found.</div>') + '</div>' +
       pager(data.total) + '</section>';
   }
   const card = r => state.groupTab === "merged"
@@ -559,12 +566,14 @@ function spotifyLink(detail, kind) {
 function detailHeaderHTML(detail, kind) {
   const links = `${spotifyLink(detail, kind)} ${recordStoreLink(detail, kind)} <span id="shelf-link-slot"></span>`;
   if (kind === "artist") {
-    return `<div class="artist-detail-hero"><div id="artist-logo-slot" class="artist-logo-stage">${artistLogoHTML(detail)}</div><div class="detail-heading artist-detail-heading"><div id="detail-artwork-slot">${artworkHTML(detail, kind)}</div><div class="artist-actions">${links}</div></div></div>`;
+    return `<div class="artist-detail-hero"><div id="artist-logo-slot" class="artist-logo-stage">${artistLogoHTML(detail)}</div><div class="detail-heading detail-media-actions artist-detail-heading"><div id="detail-artwork-slot">${artworkHTML(detail, kind)}</div><div class="artist-actions">${links}</div></div></div>`;
   }
-  return `<div class="detail-heading"><div id="detail-artwork-slot">${artworkHTML(detail, kind)}</div><div><h2>${esc(detail.name)}</h2><p>${esc(detail.artist)}</p>${links}</div></div>`;
+  return `<div class="detail-entity-hero"><div class="detail-entity-title"><h2>${esc(detail.name)}</h2><p>${esc(detail.artist)}</p></div><div class="detail-heading detail-media-actions"><div id="detail-artwork-slot">${artworkHTML(detail, kind)}</div><div class="artist-actions">${links}</div></div></div>`;
 }
 function audioShelfLink(base, path, label) {
-  return `<a class="button" href="${esc(base + '/' + path)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>`;
+  // Same-window HTTPS navigation gives installed AudioShelf a chance to handle
+  // its registered web-app scope instead of forcing an ordinary new browser tab.
+  return `<a class="button" href="${esc(base + '/' + path)}">${esc(label)}</a>`;
 }
 function recordStoreLink(detail, kind) {
   const base = statusData.audioshelf_url;
@@ -839,6 +848,14 @@ document.addEventListener("click", (event) => {
     load();
   }
   if (b.id === "undo") groupAction("undo").catch(report);
+  if (b.dataset.suggestArtistA && b.dataset.suggestArtistB) {
+    const ids = [b.dataset.suggestArtistA, b.dataset.suggestArtistB];
+    const name = b.dataset.suggestName;
+    confirmAction("Merge these artist identities?",
+      "This proposed match is not automatic. Only approve if they are the same artist. Matching songs and albums will combine; Undo restores the original identities.",
+      () => groupAction("merge_artists", ids, null, name));
+    return;
+  }
   if (b.id === "merge-artists") {
     const entries = [...state.selected.entries()];
     const name = $("#artist-name").value.trim() || entries[0][1];

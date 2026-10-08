@@ -15,6 +15,33 @@ def p():
     return {"start": 0, "end": 5000, "previous_start": 0, "compare": False}
 
 
+def test_artist_suggestions_are_general_but_do_not_auto_merge(tmp_path):
+    from analytics.grouping import artist_suggestion_key
+    from analytics.web import create_app
+    assert artist_suggestion_key("Courteeners") == artist_suggestion_key("The Courteeners")
+    assert artist_suggestion_key("Sigur Rós") == artist_suggestion_key("Sigur Ros")
+    assert artist_suggestion_key("The National") != artist_suggestion_key("National Orchestra")
+    app = create_app(tmp_path, config={"username":"user","api_key":"fixture"},
+                     development=True, start_worker=False)
+    db = app.extensions["database"]
+    try:
+        db.apply_window(0, 1000, [
+            play(100, "Courteeners", "Not Nineteen Forever", "St Jude"),
+            play(200, "The Courteeners", "Not Nineteen Forever", "St Jude"),
+        ])
+        with db.connect() as conn:
+            assert len(rankings(conn, p(), "artist")) == 2
+        result = app.test_client().get("/api/artists-review").json
+        assert any(set(item["names"]) == {"Courteeners", "The Courteeners"}
+                   for item in result["suggestions"]), result
+        db.change_artists([normalise("Courteeners"), normalise("The Courteeners")])
+        with db.connect() as conn:
+            assert len(rankings(conn, p(), "artist")) == 1
+    finally:
+        app.extensions["artwork_worker"].close()
+        app.extensions["view_cache"].close()
+
+
 def test_artist_merge_combines_exact_song_album_and_undo(tmp_path):
     db = Database(tmp_path / "listening.sqlite3")
     first = "Sigur Rós"

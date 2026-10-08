@@ -139,7 +139,6 @@ class Database:
                 # Preserve usable URLs but retry those misses on first access.
                 db.execute("DELETE FROM artwork_urls WHERE url IS NULL")
                 self.put(db, "artwork_pipeline", 2)
-
     @contextlib.contextmanager
     def connect(self):
         db = sqlite3.connect(self.path, timeout=30)
