@@ -127,3 +127,16 @@
   #turntable .now-playing-skips button{width:25px}
   #turntable .now-playing-details small{font-size:6px}
 }
+
+/* Compact four-line information stack so 70px art does not stretch the player. */
+#turntable .now-playing-details small{display:block;margin:0 0 3px;line-height:1.1}
+#turntable .now-playing-details strong{font-size:16px;line-height:1.15}
+#turntable .now-playing-details>span{display:block;margin-top:3px;line-height:1.15}
+#turntable .now-playing-details .track-progress{margin-top:4px;line-height:1;gap:6px}
+#turntable .now-playing-details .track-progress span{line-height:1}
+@media(max-width:700px){
+  #turntable .now-playing-details small{margin-bottom:2px}
+  #turntable .now-playing-details strong{font-size:14px}
+  #turntable .now-playing-details>span{margin-top:2px}
+  #turntable .now-playing-details .track-progress{margin-top:3px}
+}
