@@ -1,14 +1,15 @@
 :root {
   color-scheme: light;
-  --bg: #f4f5f0;
+  --bg: #f4f6fa;
   --paper: #fff;
-  --ink: #183b32;
-  --muted: #687871;
-  --line: #dce4db;
-  --green: #275e48;
-  --lime: #d7e9b1;
+  --ink: #1e293b;
+  --muted: #64748b;
+  --line: #dce3ed;
+  --green: #147a3d;
+  --accent: #285bb0;
+  --lime: #dbeafe;
   --warn: #946614;
-  --red: #a33434;
+  --red: #c02936;
 }
 * {
   box-sizing: border-box;
@@ -29,8 +30,8 @@ body {
   min-height: 100vh;
 }
 aside {
-  background: #183b32;
-  color: #f3f6ed;
+  background: #1e293b;
+  color: #f8fafc;
   padding: 36px 24px;
   display: flex;
   flex-direction: column;
@@ -49,9 +50,9 @@ aside {
   place-items: center;
   width: 46px;
   height: 46px;
-  border: 1px solid #7ea08b;
+  border: 1px solid #718096;
   border-radius: 14px;
-  color: #d7e9b1;
+  color: #dbeafe;
   font: 30px Georgia;
 }
 nav {
@@ -60,20 +61,20 @@ nav {
   margin-top: 48px;
 }
 nav a {
-  color: #c8d8ce;
+  color: #cbd5e1;
   text-decoration: none;
   padding: 12px;
   border-radius: 8px;
 }
 nav a.active,
 nav a:hover {
-  background: #325648;
+  background: #334155;
   color: #fff;
 }
 .aside-note {
   margin-top: auto;
   padding-top: 80px;
-  color: #b2c7b8;
+  color: #b8c5d6;
   font-size: 17px;
 }
 .aside-note small {
@@ -157,13 +158,13 @@ button,
 }
 button:hover,
 .button:hover {
-  background: #edf3e7;
+  background: #eef2f8;
 }
 button.primary,
 .button.primary {
-  background: var(--green);
+  background: var(--accent);
   color: white;
-  border-color: var(--green);
+  border-color: var(--accent);
 }
 button:disabled {
   opacity: 0.5;
@@ -187,11 +188,12 @@ button:disabled {
   padding: 22px;
 }
 .card.hero {
-  background: var(--ink);
-  color: white;
+  background: #edf3fd;
+  border-color: #cbdcf5;
+  color: var(--ink);
 }
 .card.hero .muted {
-  color: #c6d5cb;
+  color: #64748b;
 }
 .metric {
   display: block;
@@ -219,7 +221,7 @@ button:disabled {
   display: inline-block;
   border-radius: 20px;
   padding: 3px 9px;
-  background: #eef3e8;
+  background: #eef2f8;
   font-size: 11px;
   font-weight: 650;
   white-space: nowrap;
@@ -237,8 +239,8 @@ button:disabled {
   margin: 16px 0;
 }
 .notice.good {
-  background: #edf5e7;
-  border-color: #d6e4cb;
+  background: #eff6ff;
+  border-color: #cbdcf5;
 }
 #error {
   position: sticky;
@@ -275,7 +277,7 @@ th {
 }
 td {
   padding: 13px 10px;
-  border-bottom: 1px solid #edf0ea;
+  border-bottom: 1px solid #edf1f6;
   vertical-align: middle;
 }
 tr:last-child td {
@@ -298,11 +300,11 @@ tr:last-child td {
   overflow: visible;
 }
 .chart .area {
-  fill: #eaf1dd;
+  fill: #e4edfc;
 }
 .chart .line {
   fill: none;
-  stroke: #376a4e;
+  stroke: #3565b5;
   stroke-width: 2.5;
 }
 .chart text {
@@ -310,7 +312,7 @@ tr:last-child td {
   font-size: 11px;
 }
 .chart .grid {
-  stroke: #e7ece3;
+  stroke: #e5eaf2;
 }
 .breakdown {
   display: grid;
@@ -347,7 +349,7 @@ textarea {
   font: inherit;
   color: var(--ink);
   padding: 10px 12px;
-  border: 1px solid #bacabd;
+  border: 1px solid #b9c4d2;
   border-radius: 7px;
   background: #fff;
   width: 100%;
@@ -356,12 +358,12 @@ textarea {
 input[type="checkbox"] {
   width: auto;
   margin: 0 7px 0 0;
-  accent-color: var(--green);
+  accent-color: var(--accent);
 }
 input:focus,
 select:focus,
 textarea:focus {
-  outline: 2px solid #a6c58f;
+  outline: 2px solid #8aaee6;
   outline-offset: 2px;
 }
 input[type="number"] {
@@ -401,7 +403,7 @@ textarea {
 }
 .flows summary {
   cursor: pointer;
-  color: var(--green);
+  color: var(--accent);
   font-size: 12px;
 }
 .flows .form-grid {
@@ -412,7 +414,7 @@ textarea {
 .sticky-actions {
   position: sticky;
   bottom: 0;
-  background: #f4f5f0f5;
+  background: #f4f6faf5;
   border-top: 1px solid var(--line);
   padding: 16px 0;
   display: flex;
@@ -440,7 +442,7 @@ textarea {
 .history-button {
   border: 0;
   padding: 0;
-  color: var(--green);
+  color: var(--accent);
   text-decoration: underline;
   background: none;
 }
@@ -454,7 +456,7 @@ textarea {
   margin: 7px 0 14px;
 }
 .reconcile {
-  background: #f1f5eb;
+  background: #eef3fa;
   border-radius: 9px;
   padding: 16px;
 }
@@ -465,11 +467,11 @@ details summary {
   cursor: pointer;
 }
 a {
-  color: var(--green);
+  color: var(--accent);
 }
 .checkline {
   padding: 14px;
-  background: #edf3e8;
+  background: #eef3fa;
   border-radius: 8px;
   margin: 18px 0;
 }
@@ -632,8 +634,15 @@ a {
 #logout { margin-left: auto; }
 img.mark { object-fit: contain; padding: 0; }
 
-#moneyhub-view small { display: block; color: var(--muted, #61716a); }
+#moneyhub-view small { display: block; color: var(--muted, #64748b); }
 #moneyhub-view select { max-width: 260px; }
 #moneyhub-view td { vertical-align: top; }
 .hub-checkbox { display: flex; align-items: center; gap: 10px; }
 .hub-checkbox input { width: auto; }
+
+.zero { color: var(--ink); }
+.financial-value { font-variant-numeric: tabular-nums; }
+.chart text.positive { fill: var(--green); }
+.chart text.negative { fill: var(--red); }
+.income-sources { display: grid; gap: 8px; margin-bottom: 18px; max-width: 500px; }
+.income-source { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 0; border-bottom: 1px solid var(--line); }

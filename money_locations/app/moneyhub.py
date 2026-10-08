@@ -232,7 +232,7 @@ class Moneyhub:
             self.last_login=time.time()
             if verify:
                 return self.client.verify(data.get('code',''))
-            if data.get('use_saved') is True:
+            if (self.saved_email and self.saved_password) or data.get('use_saved') is True:
                 if not self.saved_email or not self.saved_password:
                     raise LifeStageError('Add lifestage_email and lifestage_password in the add-on configuration, then restart.')
                 data={'email':self.saved_email,'password':self.saved_password}

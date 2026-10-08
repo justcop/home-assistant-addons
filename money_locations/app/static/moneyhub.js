@@ -2,7 +2,7 @@
 let hubPoll = null;
 let hubFilter = {q: "", account: "", offset: 0};
 let hubDates = null;
-const hubAmount = (value, currency) => value == null ? "No balance" : `${esc(currency || "Unknown currency")} ${Number(value).toLocaleString("en-GB", {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+const hubAmount = (value, currency) => value == null ? "No balance" : coloured(value, `${esc(currency || "Unknown currency")} ${Number(value).toLocaleString("en-GB", {minimumFractionDigits: 2, maximumFractionDigits: 2})}`);
 
 function hubStatus(s) {
   return `<p role="status">${s.job.running ? esc(s.job.message) : s.connected ? "LifeStage session saved" : "Reconnect to fetch new data"}. ${s.transaction_count} stored transactions across ${s.account_count} source accounts.</p>
@@ -22,11 +22,11 @@ async function moneyhubPage() {
     hubDates={start:start.toISOString().slice(0,10),end:today()};
   }
   return heading("LifeStage & transactions", "Pull your Moneyhub / WPS LifeStage accounts and transactions into Money Locations.") +
-  `<div id="moneyhub-view">
+  `<div id="moneyhub-view" data-saved-login="${status.saved_login ? "yes" : "no"}">
   <section class="panel"><h2>Connection</h2><div id="hub-status">${hubStatus(status)}</div>
   ${status.connected ? `<div class="actions"><button data-hub="reauth">Reauthenticate</button><button data-hub="disconnect">Disconnect</button></div>` : ""}
-  ${status.saved_login ? `<p><button data-hub="saved-login" class="primary">Use saved LifeStage login</button></p>` : ""}
-  <form id="hub-login" ${status.connected || status.needs_code ? "hidden" : ""}><div class="form-grid">
+  ${status.saved_login && !status.connected && !status.needs_code ? `<p><button data-hub="saved-login" class="primary">Connect LifeStage</button></p>` : ""}
+  <form id="hub-login" ${status.saved_login || status.connected || status.needs_code ? "hidden" : ""}><div class="form-grid">
     ${input("LifeStage email", 'id="hub-email" type="email" autocomplete="username" required')}
     ${input("LifeStage password", 'id="hub-password" type="password" autocomplete="current-password" required')}
     </div><p><button class="primary" type="submit">Connect LifeStage</button></p><p class="muted subtle">Details entered here are used for this login only. Alternatively, save lifestage_email and lifestage_password in the add-on configuration. The app keeps the resulting session and asks for a verification code when required.</p></form>
@@ -99,6 +99,11 @@ function bindMoneyhub() {
     clearError();
     try {
       switch(button.dataset.hub) {
+        case "reauth":
+          if (container.dataset.savedLogin !== "yes") {
+            $("#hub-login").hidden=false;$("#hub-verify").hidden=true;$("#hub-email").focus();break;
+          }
+          // Saved settings always supply the login; only the code needs input.
         case "saved-login": {
           const result=await api("moneyhub/login",{use_saved:true});
           if (result.needs_code) {
@@ -106,8 +111,7 @@ function bindMoneyhub() {
           } else await route();
           break;
         }
-        case "reauth":
-          $("#hub-login").hidden=false;$("#hub-verify").hidden=true;$("#hub-email").focus();break;
+
         case "disconnect":
           await api("moneyhub/disconnect",{});await route();break;
         case "map": {

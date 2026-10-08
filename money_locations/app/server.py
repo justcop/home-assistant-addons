@@ -178,6 +178,16 @@ def apply_action(state, action, data):
             raise ValueError('Enter a source name up to 100 characters.')
         if name not in state['income_sources']:
             state['income_sources'].append(name)
+    elif action == 'remove_income_source':
+        name = str(data['name']).strip()
+        if name not in state['income_sources']:
+            raise ValueError('Income source not found.')
+        state['income_sources'].remove(name)
+        # Retain recorded history, but remove empty placeholders from old drafts.
+        for snapshot in state['snapshots']:
+            value = snapshot.get('income', {}).get(name)
+            if value in (None, '') or (snapshot['status'] == 'draft' and money(value) == 0):
+                snapshot.get('income', {}).pop(name, None)
     elif action == 'import':
         imported = data['state']
         validate_state(imported)

@@ -213,6 +213,29 @@ class Calculations(unittest.TestCase):
             apply_action(st,'snapshot',{'snapshot':later_candidate})
 
 
+class IncomeSources(unittest.TestCase):
+    def test_removal_retains_recorded_income_and_drops_empty_drafts(self):
+        st, draft = fixture()
+        apply_action(st, 'income_source', {'name': 'Test source'})
+        st['snapshots'][0]['income']['Test source'] = '123.45'
+        draft['income']['Test source'] = ''
+        before = report(st, st['snapshots'][0])
+        apply_action(st, 'remove_income_source', {'name': 'Test source'})
+        self.assertNotIn('Test source', st['income_sources'])
+        self.assertNotIn('Test source', draft['income'])
+        self.assertEqual(st['snapshots'][0]['income']['Test source'], '123.45')
+        self.assertEqual(report(st, st['snapshots'][0]), before)
+        self.assertNotIn('Test source', new_snapshot(st, '2026-03-01')['income'])
+
+    def test_removal_retains_nonzero_draft_income(self):
+        st, draft = fixture()
+        draft['income']['Salary'] = '100'
+        apply_action(st, 'remove_income_source', {'name': 'Salary'})
+        self.assertEqual(draft['income']['Salary'], '100')
+        with self.assertRaises(ValueError):
+            apply_action(st, 'remove_income_source', {'name': 'Salary'})
+
+
 class Persistence(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.path=Path(self.tmp.name)/'test.sqlite';self.store=Store(self.path)

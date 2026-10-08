@@ -103,10 +103,18 @@ const assert = require("node:assert/strict");
     await page.locator("#import").click();
     await page.getByRole("heading", { name: "Your money, clearly." }).waitFor();
     assert.match(await page.locator("#view").innerText(), /£6,000.00/);
+    assert.equal(await page.locator('.metric .positive').first().innerText(), '£6,000.00');
+    await page.getByRole('link', {name: 'Backups & settings', exact: true}).click();
+    await page.locator('#source-name').fill('Test source');
+    await page.locator('#add-source').click();
+    await page.getByRole('button', {name: 'Remove Test source income source', exact: true}).click();
+    await page.getByRole('button', {name: 'Remove Test source income source', exact: true}).waitFor({state: 'hidden'});
+    await page.getByRole('link', {name: 'Overview', exact: true}).click();
     await page.getByRole("link", { name: "New check-in" }).click();
     await page.locator("#new-date").fill("2026-02-01");
     await page.locator("#new-snapshot").click();
     await page.locator("#snapshot-form").waitFor();
+    assert.equal(await page.locator('[data-income="Test source"]').count(), 0);
     await page.locator("#finalize").click();
     await page.locator("#error").waitFor({ state: "visible" });
     assert.match(
@@ -115,6 +123,8 @@ const assert = require("node:assert/strict");
     );
     for (const id of ["bank", "sipp", "mortgage"])
       await page.locator(`[data-unchanged="${id}"]`).click();
+    assert.equal(await page.locator('[data-account="mortgage"][data-field="amount"]').evaluate(el => el.classList.contains('negative')), true);
+    assert.equal(await page.locator('[data-account="bank"][data-field="amount"]').evaluate(el => el.classList.contains('positive')), true);
     await page
       .locator('[data-account="bank"][data-field="amount"]')
       .fill("11200");
@@ -201,8 +211,7 @@ const assert = require("node:assert/strict");
     assert.match(await page.locator("#view").innerText(), /£1,100.00/);
     await page.getByRole("link", {name: "LifeStage & transactions", exact: true}).click();
     await page.getByRole("heading", {name: "LifeStage & transactions", exact: true}).waitFor();
-    await page.getByLabel("LifeStage email", {exact: true}).fill("example@example.test");
-    await page.getByLabel("LifeStage password", {exact: true}).fill("fixture-password");
+    assert.equal(await page.locator("#hub-login").isVisible(), false);
     await page.getByRole("button", {name: "Connect LifeStage", exact: true}).click();
     await page.getByLabel("LifeStage verification code", {exact: true}).fill("123456");
     await page.waitForTimeout(2100); // User enters 2FA after the login throttle interval.
@@ -227,7 +236,7 @@ const assert = require("node:assert/strict");
     assert.equal(allData.snapshots.at(-1).balances.bank.confirmed,true);
     assert.equal(JSON.stringify(allData).includes("fixture-password"),false);
     await page.waitForTimeout(2100);
-    await page.getByRole("button", {name: "Use saved LifeStage login", exact: true}).click();
+    await page.getByRole("button", {name: "Connect LifeStage", exact: true}).click();
     await page.getByLabel("LifeStage verification code", {exact: true}).waitFor();
     assert.equal(await page.getByLabel("LifeStage password", {exact: true}).inputValue(), "");
     await page.getByRole("button", {name: "Log out", exact: true}).click();
