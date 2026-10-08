@@ -190,13 +190,25 @@ def timeline(conn, p, tz, extra="", params=()):
     fmt = "%Y-%m" if monthly else "%Y-%m-%d"
     counts, hours = Counter(), [[0] * 24 for _ in range(7)]
     joins = JOINS if "sv." in extra or "av." in extra else "FROM scrobbles s"
-    for (ts,) in conn.execute(
-        f"SELECT s.ts {joins} WHERE s.active=1 AND s.ts>=? AND s.ts<? {extra}",
-        [p["start"], p["end"], *params],
-    ):
+    # UK transitions occur at UTC whole-hour boundaries. Grouping by UTC
+    # hour in SQLite is dramatically cheaper than materialising every play,
+    # while mapping each bucket back to local time preserves both DST hours.
+    # Other zones retain the exact per-play implementation.
+    if str(tz) in ("Europe/London", "UTC", "Etc/UTC"):
+        stream = conn.execute(
+            f"""SELECT (s.ts / 3600) * 3600 AS bucket, COUNT(*) AS plays
+            {joins} WHERE s.active=1 AND s.ts>=? AND s.ts<? {extra}
+            GROUP BY bucket""", [p["start"], p["end"], *params],
+        )
+    else:
+        stream = ((r[0], 1) for r in conn.execute(
+            f"SELECT s.ts {joins} WHERE s.active=1 AND s.ts>=? AND s.ts<? {extra}",
+            [p["start"], p["end"], *params],
+        ))
+    for ts, plays in stream:
         local = datetime.fromtimestamp(ts, tz)
-        counts[local.strftime(fmt)] += 1
-        hours[local.weekday()][local.hour] += 1
+        counts[local.strftime(fmt)] += plays
+        hours[local.weekday()][local.hour] += plays
     point = datetime.fromtimestamp(p["start"], tz).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
