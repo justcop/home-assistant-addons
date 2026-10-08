@@ -1,3 +1,9 @@
+# 0.6.5
+
+- Browse every artist as a single horizontally scrolling rail of cover art, with a continuous white shelf underneath. Tap covers to inspect the album; titles and years stay on the album page in compact mode.
+- Expand one artist or Expand all to see the detailed grid, with album title and year in a fixed space immediately above the matching cover. Keep the white floating shelf and cabinet styles in Appearance.
+- Preserve artist search, album navigation and returning to the right place on the shelf.
+
 # 0.6.4
 
 - Choose continuous white floating shelves or a white record cabinet in Appearance settings, saved per account across devices. Full-width ledges continue through partially filled rows.

@@ -5,7 +5,7 @@ let playbackState=null, playbackBusy=false, playbackChecked=0, playbackEpoch=0, 
 const browsingPositions=new Map();
 let expandedShelfArtist=null;
 let allShelvesExpanded=false;
-function shelfLayout(){return allShelvesExpanded?'open':'dividers';}
+function shelfLayout(){return allShelvesExpanded?'expanded':'rail';}
 if('scrollRestoration' in history)history.scrollRestoration='manual';
 function isVinyl(){return document.documentElement.dataset.interface==='vinyl';}
 function applyInterface(value){
@@ -19,7 +19,7 @@ function vinylCards(albums,room=document.documentElement.dataset.room){return `<
 function artistDivider(artist,count,store=false){return `<div class="artist-divider"><a href="#artist/${id(artist.id)}${store?'/store':''}">${escapeHtml(artist.name)} <span aria-hidden="true">↗</span></a><span>${count} ${count===1?'record':'records'}</span></div>`;}
 function vinylShelf(shelf){
   return vinylHeading('Your listening room','My shelf.','Something good deserves a whole side of your day.',`<strong>${shelf.albums.length}</strong><span>records collected</span>`)+
-    (!shelf.albums.length?empty('Your first record awaits.','Find an artist, choose an album, make it yours.'):`<div class="room-toolbar"><label for="shelf-filter">Find a record</label><input id="shelf-filter" type="search" placeholder="Artist or album" value="${escapeHtml(shelfFilter)}"><a class="quiet" href="#store">Make room for another ↗</a></div><div class="shelf-layout"><button class="quiet" data-action="shelf-expand-all" aria-expanded="${allShelvesExpanded}">${allShelvesExpanded?'Collapse all':'Expand all'}</button></div><div class="collection-shelves" data-layout="${shelfLayout()}">${shelf.artists.map(a=>{const albums=shelf.albums.filter(b=>b.artists.some(artist=>artist.id===a.id));return `<section class="artist-shelf" data-shelf-id="${escapeHtml(a.id)}" data-shelf-artist="${escapeHtml(a.name.toLowerCase())}">${artistDivider(a,albums.length)}<button class="shelf-artist-toggle" data-action="shelf-artist" aria-expanded="false" aria-controls="shelf-records-${escapeHtml(a.id)}"><strong>${escapeHtml(a.name)}</strong><span>${albums.length} ${albums.length===1?'record':'records'}</span><span class="shelf-chevron" aria-hidden="true">⌄</span></button><div class="shelf-records" id="shelf-records-${escapeHtml(a.id)}">${vinylCards(albums,'shelf')}<a class="quiet shelf-artist-link" href="#artist/${id(a.id)}">More from ${escapeHtml(a.name)} ↗</a></div></section>`;}).join('')}</div><p id="shelf-no-results" class="muted" hidden>No records match that search.</p>`);
+    (!shelf.albums.length?empty('Your first record awaits.','Find an artist, choose an album, make it yours.'):`<div class="room-toolbar"><label for="shelf-filter">Find a record</label><input id="shelf-filter" type="search" placeholder="Artist or album" value="${escapeHtml(shelfFilter)}"><a class="quiet" href="#store">Make room for another ↗</a></div><div class="shelf-layout"><button class="quiet" data-action="shelf-expand-all" aria-expanded="${allShelvesExpanded}">${allShelvesExpanded?'Collapse all':'Expand all'}</button></div><div class="collection-shelves" data-layout="${shelfLayout()}">${shelf.artists.map(a=>{const albums=shelf.albums.filter(b=>b.artists.some(artist=>artist.id===a.id));return `<section class="artist-shelf" data-shelf-id="${escapeHtml(a.id)}" data-shelf-artist="${escapeHtml(a.name.toLowerCase())}">${artistDivider(a,albums.length)}<button class="shelf-artist-toggle" data-action="shelf-artist" aria-expanded="false" aria-controls="shelf-records-${escapeHtml(a.id)}"><strong>${escapeHtml(a.name)}</strong><span>${albums.length} ${albums.length===1?'record':'records'}</span><span class="shelf-chevron" aria-hidden="true">⌄</span></button><div class="shelf-records" id="shelf-records-${escapeHtml(a.id)}">${vinylCards(albums,'shelf')}<span class="rail-ledge" aria-hidden="true"></span><a class="quiet shelf-artist-link" href="#artist/${id(a.id)}">More from ${escapeHtml(a.name)} ↗</a></div></section>`;}).join('')}</div><p id="shelf-no-results" class="muted" hidden>No records match that search.</p>`);
 }
 function vinylStore(shelf){
   if(storeSearch.kind==='album'){const owned=new Set(shelf.albums.map(a=>a.id));for(const a of storeSearch.results||[])a.on_shelf=owned.has(a.id);}
@@ -75,14 +75,16 @@ function filterShelf(){
 }
 function updateShelfLayout(){
   const collection=document.querySelector('.collection-shelves');if(!collection)return;
-  const compact=shelfLayout()==='dividers';collection.dataset.layout=compact?'dividers':'open';
+  collection.dataset.layout=shelfLayout();
   const button=document.querySelector('[data-action="shelf-expand-all"]');
-  if(button){button.textContent=compact?'Expand all':'Collapse all';button.setAttribute('aria-expanded',String(!compact));}
+  if(button){button.textContent=allShelvesExpanded?'Collapse all':'Expand all';button.setAttribute('aria-expanded',String(allShelvesExpanded));}
   collection.querySelectorAll('[data-shelf-id]').forEach(section=>{
-    const open=!compact||section.dataset.shelfId===expandedShelfArtist;
-    section.querySelector('.shelf-artist-toggle').setAttribute('aria-expanded',String(open));
-    section.querySelector('.shelf-records').hidden=compact&&!open;
+    const expanded=allShelvesExpanded||section.dataset.shelfId===expandedShelfArtist;
+    section.dataset.view=expanded?'expanded':'rail';
+    section.querySelector('.shelf-artist-toggle').setAttribute('aria-expanded',String(expanded));
+    section.querySelector('.shelf-records').hidden=false;
   });
+  arrangeShelfRows();
 }
 function toggleAllShelves(){
   allShelvesExpanded=!allShelvesExpanded;expandedShelfArtist=null;updateShelfLayout();
@@ -103,10 +105,16 @@ function arrangeShelfRows(){
     const cards=[...rack.querySelectorAll('.sleeve')];
     cards.forEach((card,index)=>{if(!card.hasAttribute('data-shelf-order'))card.dataset.shelfOrder=index;});
     cards.sort((a,b)=>Number(a.dataset.shelfOrder)-Number(b.dataset.shelfOrder));
-    const visible=cards.filter(card=>!card.hidden), hidden=cards.filter(card=>card.hidden);
-    const signature=columns+':'+visible.map(card=>card.dataset.album).join(',');
+    const visible=cards.filter(card=>!card.hidden),hidden=cards.filter(card=>card.hidden);
+    const rail=rack.closest('.artist-shelf[data-shelf-id]')?.dataset.view==='rail';
+    const signature=(rail?'rail':String(columns))+':'+visible.map(card=>card.dataset.album).join(',');
     if(rack.dataset.rows===signature)return;
     rack.dataset.rows=signature;
+    if(rail){
+      // The rail is a single scroll container. No artificial rows or repeating dividers.
+      rack.replaceChildren(...visible,...hidden);
+      return;
+    }
     const fragment=document.createDocumentFragment();
     for(let n=0;n<visible.length;n+=columns){
       const row=document.createElement('div');row.className='shelf-row';
