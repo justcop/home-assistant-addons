@@ -194,6 +194,25 @@ class Calculations(unittest.TestCase):
             apply_action(st,'snapshot',{'snapshot':final})
 
 
+    def test_reopened_periods_must_be_refinalised_in_order(self):
+        st,s=fixture()
+        candidate=copy.deepcopy(s)
+        candidate['status']='final'
+        apply_action(st,'snapshot',{'snapshot':candidate})
+        later=new_snapshot(st,'2026-03-01')
+        later['activity_complete']=True
+        for aid,b in later['balances'].items():
+            b['amount']=candidate['balances'][aid]['amount']
+            b['confirmed']=True
+        later['status']='final'
+        st['snapshots'].append(later)
+        apply_action(st,'reopen_snapshot',{'id':candidate['id']})
+        later_candidate=copy.deepcopy(next(x for x in st['snapshots'] if x['id']==later['id']))
+        later_candidate['status']='final'
+        with self.assertRaisesRegex(ValueError,'earlier draft snapshot'):
+            apply_action(st,'snapshot',{'snapshot':later_candidate})
+
+
 class Persistence(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.path=Path(self.tmp.name)/'test.sqlite';self.store=Store(self.path)
