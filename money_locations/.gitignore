@@ -3,3 +3,5 @@ __pycache__/
 *.sqlite*
 data/
 private*/
+
+lifestage-session*

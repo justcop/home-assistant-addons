@@ -631,3 +631,9 @@ a {
 #login-error { color: #a52b38; }
 #logout { margin-left: auto; }
 img.mark { object-fit: contain; padding: 0; }
+
+#moneyhub-view small { display: block; color: var(--muted, #61716a); }
+#moneyhub-view select { max-width: 260px; }
+#moneyhub-view td { vertical-align: top; }
+.hub-checkbox { display: flex; align-items: center; gap: 10px; }
+.hub-checkbox input { width: auto; }

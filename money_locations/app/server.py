@@ -1,7 +1,7 @@
 """Dependency-free, password-protected web service with transactional local persistence."""
 from copy import deepcopy
 from contextlib import closing
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import csv
 import hashlib
@@ -19,11 +19,12 @@ import sqlite3
 import uuid
 from urllib.parse import urlsplit, parse_qs
 
-from model import blank_state, validate_state, new_snapshot, problems, report, all_reports, money
-from moneyhub import MoneyhubClient, MoneyhubError, extract_rows
+from model import blank_state, validate_state, new_snapshot, problems, report, all_reports, money, previous_snapshot
+
+from moneyhub import Moneyhub, init_schema, export_data, restore_data, validate_export
 
 ROOT = Path(__file__).parent
-MAX_BODY = 20 * 1024 * 1024
+MAX_BODY = 100 * 1024 * 1024
 MAX_LOGIN_BODY = 1024
 
 
@@ -38,12 +39,8 @@ class Store:
         with closing(self.connect()) as con, con:
             con.execute('CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL, body TEXT NOT NULL)')
             con.execute('CREATE TABLE IF NOT EXISTS backups (id INTEGER PRIMARY KEY, created TEXT, reason TEXT, revision INTEGER, body TEXT)')
-            con.execute('CREATE TABLE IF NOT EXISTS moneyhub_settings (id INTEGER PRIMARY KEY CHECK(id=1), email TEXT NOT NULL, tenant_id TEXT NOT NULL, device_id TEXT NOT NULL)')
-            con.execute('CREATE TABLE IF NOT EXISTS moneyhub_imports (id INTEGER PRIMARY KEY, pulled TEXT NOT NULL, start_date TEXT NOT NULL, end_date TEXT NOT NULL, account_count INTEGER NOT NULL, transaction_count INTEGER NOT NULL)')
-            con.execute('CREATE TABLE IF NOT EXISTS moneyhub_accounts (uid TEXT PRIMARY KEY, active INTEGER NOT NULL, pulled TEXT NOT NULL, body TEXT NOT NULL)')
-            con.execute('CREATE TABLE IF NOT EXISTS moneyhub_transactions (uid TEXT PRIMARY KEY, account_uid TEXT, txn_date TEXT, modified TEXT, deleted INTEGER NOT NULL, pulled TEXT NOT NULL, body TEXT NOT NULL)')
             con.execute('INSERT OR IGNORE INTO state VALUES (1, 0, ?)', (json.dumps(blank_state()),))
-            con.execute("INSERT OR IGNORE INTO moneyhub_settings VALUES (1, '', '', '')")
+            init_schema(con)
 
     def connect(self):
         return sqlite3.connect(self.path, timeout=30)
@@ -52,6 +49,19 @@ class Store:
         with closing(self.connect()) as con, con:
             revision, body = con.execute('SELECT revision, body FROM state WHERE id=1').fetchone()
         return revision, json.loads(body)
+
+    def has_provider_data(self):
+        with closing(self.connect()) as con:
+            return bool(con.execute('SELECT 1 FROM mh_accounts UNION ALL SELECT 1 FROM mh_transactions LIMIT 1').fetchone())
+
+    def export(self):
+        with closing(self.connect()) as con:
+            con.execute('BEGIN')
+            state=json.loads(con.execute('SELECT body FROM state WHERE id=1').fetchone()[0])
+            provider=export_data(con)
+            if provider['accounts'] or provider['transactions'] or provider['mappings'] or provider['meta']:
+                state['moneyhub']=provider
+            return state
 
     def mutate(self, revision, reason, change):
         with closing(self.connect()) as con, con:
@@ -62,6 +72,19 @@ class Store:
             state = json.loads(body)
             output = change(state)
             validate_state(state)
+            provider=state.pop('moneyhub',None)
+            if provider is not None:
+                validate_export(provider,state)
+                backup_body=json.loads(body)
+                backup_body['moneyhub']=export_data(con)
+                body=json.dumps(backup_body,allow_nan=False)
+                restore_data(con,provider,state)
+            # Legacy snapshot-only imports preserve source records but remove
+            # mappings whose local accounts no longer exist.
+            ids={a['id'] for a in state['accounts']}
+            for (uid,aid) in con.execute('SELECT uid,account_id FROM mh_mapping').fetchall():
+                if aid not in ids:
+                    con.execute('DELETE FROM mh_mapping WHERE uid=?',(uid,))
             con.execute('INSERT INTO backups(created,reason,revision,body) VALUES(?,?,?,?)',
                         (datetime.now(timezone.utc).isoformat(), reason, current, body))
             # Keep substantial checkpoints independently of frequent draft saves.
@@ -80,133 +103,6 @@ class Store:
         if not row:
             raise ValueError('Backup not found.')
         return json.loads(row[0])
-
-
-    def moneyhub_settings(self):
-        with closing(self.connect()) as con, con:
-            email, tenant_id, device_id = con.execute(
-                'SELECT email,tenant_id,device_id FROM moneyhub_settings WHERE id=1'
-            ).fetchone()
-        return {'email': email, 'tenant_id': tenant_id, 'device_id': device_id}
-
-    def set_moneyhub_settings(self, email, tenant_id, device_id):
-        email = str(email or '').strip()
-        tenant_id = str(tenant_id or '').strip()
-        device_id = str(device_id or '').strip()
-        if len(email) > 320 or len(tenant_id) > 200 or len(device_id) > 200:
-            raise ValueError('LifeStage connector settings are too long.')
-        with closing(self.connect()) as con, con:
-            con.execute(
-                'UPDATE moneyhub_settings SET email=?,tenant_id=?,device_id=? WHERE id=1',
-                (email, tenant_id, device_id),
-            )
-
-    def moneyhub_summary(self):
-        with closing(self.connect()) as con, con:
-            email, tenant_id, device_id = con.execute(
-                'SELECT email,tenant_id,device_id FROM moneyhub_settings WHERE id=1'
-            ).fetchone()
-            account_count = con.execute('SELECT COUNT(*) FROM moneyhub_accounts').fetchone()[0]
-            transaction_count = con.execute('SELECT COUNT(*) FROM moneyhub_transactions').fetchone()[0]
-            row = con.execute(
-                'SELECT pulled,start_date,end_date,account_count,transaction_count FROM moneyhub_imports ORDER BY id DESC LIMIT 1'
-            ).fetchone()
-        last_pull = None
-        if row:
-            last_pull = dict(zip(
-                ('pulled','start_date','end_date','account_count','transaction_count'), row
-            ))
-        return {
-            'email': email,
-            'tenant_id': tenant_id,
-            'device_id': device_id,
-            'account_count': account_count,
-            'transaction_count': transaction_count,
-            'last_pull': last_pull,
-        }
-
-    def save_moneyhub_pull(self, start_date, end_date, active_payload, accounts_payload, transactions_payload):
-        active_rows = extract_rows(active_payload, 'accounts', 'activeAccounts')
-        account_rows = extract_rows(accounts_payload, 'accounts')
-        transaction_rows = extract_rows(transactions_payload, 'transactions')
-        pulled = datetime.now(timezone.utc).isoformat()
-        active_ids = set()
-        for row in active_rows:
-            if isinstance(row, dict):
-                uid = row.get('uid') or row.get('accountUid') or row.get('id')
-            elif isinstance(row, (str, int)):
-                uid = row
-            else:
-                uid = None
-            if uid:
-                active_ids.add(str(uid))
-        stored_accounts = 0
-        stored_transactions = 0
-        with closing(self.connect()) as con, con:
-            for row in account_rows:
-                if not isinstance(row, dict):
-                    continue
-                uid = row.get('uid') or row.get('accountUid') or row.get('id')
-                if not uid:
-                    continue
-                uid = str(uid)
-                con.execute(
-                    'INSERT INTO moneyhub_accounts(uid,active,pulled,body) VALUES(?,?,?,?) '
-                    'ON CONFLICT(uid) DO UPDATE SET active=excluded.active,pulled=excluded.pulled,body=excluded.body',
-                    (uid, 1 if uid in active_ids else 0, pulled, json.dumps(row, allow_nan=False)),
-                )
-                stored_accounts += 1
-            for row in transaction_rows:
-                if not isinstance(row, dict) or not row.get('uid'):
-                    continue
-                uid = str(row['uid'])
-                con.execute(
-                    'INSERT INTO moneyhub_transactions(uid,account_uid,txn_date,modified,deleted,pulled,body) VALUES(?,?,?,?,?,?,?) '
-                    'ON CONFLICT(uid) DO UPDATE SET account_uid=excluded.account_uid,txn_date=excluded.txn_date,modified=excluded.modified,deleted=excluded.deleted,pulled=excluded.pulled,body=excluded.body',
-                    (
-                        uid,
-                        str(row.get('accountUid') or ''),
-                        str(row.get('date') or ''),
-                        str(row.get('dateModified') or ''),
-                        1 if row.get('deleted') else 0,
-                        pulled,
-                        json.dumps(row, allow_nan=False),
-                    ),
-                )
-                stored_transactions += 1
-            con.execute(
-                'INSERT INTO moneyhub_imports(pulled,start_date,end_date,account_count,transaction_count) VALUES(?,?,?,?,?)',
-                (pulled, start_date, end_date, stored_accounts, stored_transactions),
-            )
-        return {
-            'pulled': pulled,
-            'accounts_received': stored_accounts,
-            'transactions_received': stored_transactions,
-        }
-
-
-    def moneyhub_recent_transactions(self, limit=20):
-        limit = max(1, min(int(limit), 100))
-        with closing(self.connect()) as con, con:
-            rows = con.execute(
-                'SELECT body FROM moneyhub_transactions WHERE deleted=0 '
-                'ORDER BY txn_date DESC, modified DESC, uid DESC LIMIT ?',
-                (limit,),
-            ).fetchall()
-        output = []
-        for (body,) in rows:
-            row = json.loads(body)
-            output.append({
-                'uid': row.get('uid'),
-                'accountUid': row.get('accountUid'),
-                'date': row.get('date'),
-                'amount': row.get('amount'),
-                'currency': row.get('currency'),
-                'description': row.get('cleanDescription') or row.get('description') or row.get('transactionInformation'),
-                'categoryId': row.get('categoryId'),
-                'status': row.get('status'),
-            })
-        return output
 
 
 def apply_action(state, action, data):
@@ -357,26 +253,25 @@ class Handler(BaseHTTPRequestHandler):
             if path == '/api/auth/status':
                 self.reply(200, {'authenticated': self.authenticated(), 'configured': bool(self.server.password_hash) or self.server.local})
                 return
-            if path in ('/','/index.html','/app.js','/style.css','/icon.png'):
+            if path in ('/','/index.html','/app.js','/style.css','/icon.png','/moneyhub.js'):
                 name='index.html' if path=='/' else path[1:]
                 self.reply(200,(ROOT/'static'/name).read_bytes(), mimetypes.guess_type(name)[0] or 'text/plain')
                 return
             if path.startswith('/api/') and not self.authenticated():
                 self.reply(401, {'error': 'Please log in to access your financial data.'})
                 return
-            if path=='/api/backups':
-                self.reply(200,self.server.store.backups())
-                return
             if path=='/api/moneyhub/status':
-                summary = self.server.store.moneyhub_summary()
-                with self.server.moneyhub_lock:
-                    summary['auth_status'] = self.server.moneyhub.status if self.server.moneyhub else 'signed_out'
-                self.reply(200, summary)
+                self.reply(200,self.server.moneyhub.status())
+                return
+            if path=='/api/moneyhub/accounts':
+                self.reply(200,self.server.moneyhub.accounts())
                 return
             if path=='/api/moneyhub/transactions':
-                query = parse_qs(urlsplit(self.path).query)
-                limit = int(query.get('limit', ['20'])[0])
-                self.reply(200, self.server.store.moneyhub_recent_transactions(limit))
+                query=parse_qs(urlsplit(self.path).query)
+                self.reply(200,self.server.moneyhub.transactions(query.get('q',[''])[0],query.get('account',[''])[0],query.get('offset',[0])[0]))
+                return
+            if path=='/api/backups':
+                self.reply(200,self.server.store.backups())
                 return
             if path=='/api/backup':
                 bid=int(parse_qs(urlsplit(self.path).query)['id'][0])
@@ -387,9 +282,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             revision,state = self.server.store.read()
             if path=='/api/state':
-                self.reply(200, {'revision':revision,'state':state,'reports':all_reports(state)})
+                self.reply(200, {'revision':revision,'state':state,'reports':all_reports(state),'has_imported_data':self.server.store.has_provider_data()})
             elif path=='/api/export':
-                self.reply(200,state,attachment='money-locations.json')
+                self.reply(200,self.server.store.export(),attachment='money-locations.json')
             else:
                 output=io.StringIO()
                 writer=csv.writer(output)
@@ -418,9 +313,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply(401, {'error': 'Please log in to access your financial data.'})
                 return
             size=int(self.headers.get('Content-Length','0'))
-            limit = MAX_LOGIN_BODY if is_login else MAX_BODY
+            limit = 8192 if path.startswith('/api/moneyhub/') else MAX_LOGIN_BODY if is_login else MAX_BODY
             if not 0<size<=limit:
-                raise ValueError('Login request is too large.' if is_login else 'Upload must be between 1 byte and 20 MB.')
+                raise ValueError('Login request is too large.' if is_login else 'Upload must be between 1 byte and 100 MB.')
             data=json.loads(self.rfile.read(size),parse_constant=lambda _: (_ for _ in ()).throw(ValueError('Invalid number.')))
             if is_login:
                 if not self.server.password_hash:
@@ -458,55 +353,27 @@ class Handler(BaseHTTPRequestHandler):
                         self.server.sessions.pop(cookie['money_session'].value, None)
                 self.reply(200, {'ok': True}, cookie=self.session_cookie('', 0))
                 return
-            if path == '/api/moneyhub/disconnect':
-                with self.server.moneyhub_lock:
-                    self.server.moneyhub = None
-                self.reply(200, {'status': 'signed_out'})
-                return
-            if path == '/api/moneyhub/login':
-                email = str(data.get('email', '')).strip()
-                tenant_id = str(data.get('tenant_id', '')).strip()
-                password = str(data.get('password', ''))
-                settings = self.server.store.moneyhub_settings()
-                device_id = settings.get('device_id') or str(uuid.uuid4())
-                client = MoneyhubClient(email, tenant_id, device_id=device_id)
-                result = client.start_login(password)
-                self.server.store.set_moneyhub_settings(email, tenant_id, client.device_id)
-                with self.server.moneyhub_lock:
-                    self.server.moneyhub = client
-                self.reply(200, result)
-                return
-            if path == '/api/moneyhub/verify':
-                with self.server.moneyhub_lock:
-                    client = self.server.moneyhub
-                if not client:
-                    raise ValueError('Start LifeStage login first.')
-                result = client.verify_totp(data.get('totp'))
-                self.reply(200, result)
-                return
-            if path == '/api/moneyhub/pull':
-                start_date = str(data.get('start_date', ''))
-                end_date = str(data.get('end_date', ''))
-                start = date.fromisoformat(start_date)
-                end = date.fromisoformat(end_date)
-                if end < start:
-                    raise ValueError('LifeStage pull end date must be on or after the start date.')
-                if (end - start).days > 3700:
-                    raise ValueError('LifeStage pull range is too large.')
-                with self.server.moneyhub_lock:
-                    client = self.server.moneyhub
-                if not client or not client.authenticated:
-                    raise ValueError('Authenticate with LifeStage before pulling data.')
-                payload = client.pull(start_date, end_date)
-                result = self.server.store.save_moneyhub_pull(
-                    start_date,
-                    end_date,
-                    payload['active_accounts'],
-                    payload['accounts'],
-                    payload['transactions'],
-                )
-                result['summary'] = self.server.store.moneyhub_summary()
-                self.reply(200, result)
+            if path.startswith('/api/moneyhub/'):
+                hub=self.server.moneyhub
+                operation=path.rsplit('/',1)[-1]
+                if operation=='login':
+                    result=hub.authenticate(data)
+                elif operation=='verify':
+                    result=hub.authenticate(data,verify=True)
+                elif operation=='disconnect':
+                    hub.disconnect(); result={'ok':True}
+                elif operation=='sync':
+                    result=hub.start_sync(data.get('start'),data.get('end'))
+                elif operation=='settings':
+                    hub.settings(data.get('background')); result={'ok':True}
+                elif operation=='map':
+                    hub.map_account(data.get('uid'),data.get('account_id'),data.get('multiplier',1)); result={'ok':True}
+                elif operation=='draft':
+                    revision,result_id=self.server.store.mutate(data['revision'],'moneyhub_draft',hub.fill_draft)
+                    result={'revision':revision,'result':result_id}
+                else:
+                    self.reply(404,{'error':'Not found.'});return
+                self.reply(200,result)
                 return
             if path=='/api/preview':
                 _,state=self.server.store.read()
@@ -520,7 +387,17 @@ class Handler(BaseHTTPRequestHandler):
                 return
             action=data['action']
             reason='draft' if action=='snapshot' and data['snapshot']['status']=='draft' else action
-            revision,result=self.server.store.mutate(data['revision'],reason,lambda s:apply_action(s,action,data))
+            if action=='import':
+                if data.get('state',{}).get('moneyhub') is not None and self.server.store.has_provider_data() and data.get('confirm')!='RESTORE':
+                    raise ValueError('Type RESTORE to replace existing LifeStage records. A recovery copy is retained.')
+                if not self.server.moneyhub.lock.acquire(blocking=False):
+                    raise Conflict('Wait for the current LifeStage operation before restoring data.')
+                try:
+                    revision,result=self.server.store.mutate(data['revision'],reason,lambda s:apply_action(s,action,data))
+                finally:
+                    self.server.moneyhub.lock.release()
+            else:
+                revision,result=self.server.store.mutate(data['revision'],reason,lambda s:apply_action(s,action,data))
             self.reply(200,{'revision':revision,'result':result})
         except Conflict as exc:
             self.reply(409,{'error':str(exc)})
@@ -530,9 +407,10 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(500,{'error':'The operation could not be saved. Your previous data is unchanged.'})
 
 
-def create_server(path, host='0.0.0.0', port=8099, local=False, password='', direct=False):
+def create_server(path, host='0.0.0.0', port=8099, local=False, password='', direct=False, moneyhub=None):
     server=ThreadingHTTPServer((host,port),Handler)
     server.store=Store(path)
+    server.moneyhub=moneyhub or Moneyhub(path)
     server.local=local
     server.direct=direct
     server.salt=secrets.token_bytes(32)
@@ -540,8 +418,6 @@ def create_server(path, host='0.0.0.0', port=8099, local=False, password='', dir
     server.sessions={}
     server.failures={}
     server.auth_lock=threading.Lock()
-    server.moneyhub=None
-    server.moneyhub_lock=threading.Lock()
     return server
 
 
@@ -583,9 +459,11 @@ if __name__=='__main__':
     password=options.get('web_password', '')
     shared=None if local else os.environ.get('MONEY_SHARED','/share/money_locations')
     path=persistent_path(data_dir, shared)
-    server=create_server(path,host='127.0.0.1' if local else '0.0.0.0',port=int(os.environ.get('PORT','8099')),local=local,password=password)
+    hub=Moneyhub(path,saved_email=options.get('lifestage_email',''),saved_password=options.get('lifestage_password',''))
+    server=create_server(path,moneyhub=hub,host='127.0.0.1' if local else '0.0.0.0',port=int(os.environ.get('PORT','8099')),local=local,password=password)
     if not local and password:
-        direct=create_server(path,port=8100,password=password,direct=True)
+        direct=create_server(path,port=8100,password=password,direct=True,moneyhub=server.moneyhub)
         threading.Thread(target=direct.serve_forever, daemon=True).start()
+    threading.Thread(target=server.moneyhub.background_loop,daemon=True).start()
     print('Money Locations ready; database: '+str(path), flush=True)
     server.serve_forever()

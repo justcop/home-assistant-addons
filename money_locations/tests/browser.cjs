@@ -13,7 +13,7 @@ const assert = require("node:assert/strict");
   const port = "18129";
   const server = spawn(
     process.env.PYTHON || "python",
-    [path.join(__dirname, "../app/server.py")],
+    [path.join(__dirname, "browser_fixture_server.py")],
     {
       env: { ...process.env, MONEY_LOCAL: "1", MONEY_DATA: temp, PORT: port },
       stdio: ["ignore", "pipe", "pipe"],
@@ -199,12 +199,43 @@ const assert = require("node:assert/strict");
     await page.locator("#finalize").click();
     await page.getByRole("heading", { name: "Period review" }).waitFor();
     assert.match(await page.locator("#view").innerText(), /£1,100.00/);
+    await page.getByRole("link", {name: "LifeStage & transactions", exact: true}).click();
+    await page.getByRole("heading", {name: "LifeStage & transactions", exact: true}).waitFor();
+    await page.getByLabel("LifeStage email", {exact: true}).fill("example@example.test");
+    await page.getByLabel("LifeStage password", {exact: true}).fill("fixture-password");
+    await page.getByRole("button", {name: "Connect LifeStage", exact: true}).click();
+    await page.getByLabel("LifeStage verification code", {exact: true}).fill("123456");
+    await page.waitForTimeout(2100); // User enters 2FA after the login throttle interval.
+    await page.getByRole("button", {name: "Verify code", exact: true}).click();
+    await page.getByRole("button", {name: "Disconnect", exact: true}).waitFor();
+    await page.getByRole("button", {name: "Sync now", exact: true}).click();
+    await page.getByText("Example purchase", {exact: true}).waitFor();
+    await page.getByLabel("Map Example bank", {exact: true}).selectOption("bank");
+    await page.getByRole("button", {name: "Save mapping", exact: true}).click();
+    await page.getByRole("button", {name: "Create today’s draft from mapped balances", exact: true}).click();
+    await page.locator("#snapshot-form").waitFor();
+    assert.equal(await page.getByLabel("Example bank balance", {exact: true}).inputValue(), "123.45");
+    assert.equal(await page.locator("#confirmed-bank").innerText(), "Needs confirmation");
+    await page.getByRole("button", {name: "Confirm imported balance", exact: true}).click();
+    await page.getByRole("link", {name: "LifeStage & transactions", exact: true}).click();
+    await page.getByRole("button", {name: "Disconnect", exact: true}).click();
+    await page.getByRole("button", {name: "Connect LifeStage", exact: true}).waitFor();
+    assert.equal(await page.getByText("Example purchase", {exact: true}).count(),1);
+    const allData=await (await page.request.get(base+"/api/export")).json();
+    assert.equal(allData.moneyhub.transactions.length,1);
+    assert.equal(allData.moneyhub.mappings[0].account_id,"bank");
+    assert.equal(allData.snapshots.at(-1).balances.bank.confirmed,true);
+    assert.equal(JSON.stringify(allData).includes("fixture-password"),false);
+    await page.waitForTimeout(2100);
+    await page.getByRole("button", {name: "Use saved LifeStage login", exact: true}).click();
+    await page.getByLabel("LifeStage verification code", {exact: true}).waitFor();
+    assert.equal(await page.getByLabel("LifeStage password", {exact: true}).inputValue(), "");
     await page.getByRole("button", {name: "Log out", exact: true}).click();
     await page.getByLabel("Password", {exact: true}).waitFor();
     assert.equal((await page.request.get(base + "/api/export")).status(), 401);
     assert.deepEqual(errors, []);
     console.log(
-      "Browser checks passed: password login/logout and export protection, import, missing-balance guard, unchanged confirmation, draft persistence, SIPP relief, finalisation, final edits, mobile width, backup/export and property toggle.",
+      "Browser checks passed: LifeStage 2FA, sync, mapping, confirmed draft and disconnect; password login/logout and export protection, import, missing-balance guard, unchanged confirmation, draft persistence, SIPP relief, finalisation, final edits, mobile width, backup/export and property toggle.",
     );
   } finally {
     if (browser) await browser.close();
