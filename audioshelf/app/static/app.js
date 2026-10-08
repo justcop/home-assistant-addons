@@ -95,7 +95,7 @@ function cancelPendingPlayback(){
 }
 function playbackSettings(){
   const preferred=statusInfo.preferred_device;
-  return `<section class="settings-block"><h2>Playback device</h2><p>Preferred device: ${preferred?escapeHtml(preferred.name):'Choose a device before playback'}. This choice is saved for this account across your devices.</p><button class="secondary" data-action="devices">Choose Spotify device</button><label class="check-option"><input type="checkbox" id="open-spotify" ${shouldOpenSpotify()?'checked':''}> Open Spotify after pressing Play on this browser</label><p class="muted">Opening Spotify does not change your selected playback device. If your device is unavailable, open Spotify and stay there while AudioShelf waits for it. Your browser may ask permission to open the app.</p></section>`;
+  return `<section class="settings-block"><h2>Playback device</h2><p>Preferred device: ${preferred?escapeHtml(preferred.name):'Choose a device before playback'}. This choice is saved for this account across your devices.</p><button class="secondary" data-action="devices">Choose Spotify device</button><label class="check-option"><input type="checkbox" id="show-skip-controls" ${statusInfo.show_skip_controls?'checked':''}> Show previous and next buttons in Now Playing</label><p class="muted">Off by default for album-first listening. Tap the spinning record to pause or resume.</p><label class="check-option"><input type="checkbox" id="open-spotify" ${shouldOpenSpotify()?'checked':''}> Open Spotify after pressing Play on this browser</label><p class="muted">Opening Spotify does not change your selected playback device. If your device is unavailable, open Spotify and stay there while AudioShelf waits for it. Your browser may ask permission to open the app.</p></section>`;
 }
 function devicePicker(){
   showModal(`<h2>Choose playback device</h2><p>Choose where your synced tracklist should play. Open Spotify if your device is missing.</p><button class="choice" data-action="device" data-index="-1">Clear preferred device</button>${spotifyDevices.map((d,index)=>`<button class="choice" data-action="device" data-index="${index}" ${d.is_restricted?'disabled':''}>${escapeHtml(d.name)}<small>${escapeHtml(d.type)}${d.is_active?' · Active':''}${d.is_restricted?' · Cannot be controlled':''}</small></button>`).join('')}${spotifyDevices.length?'':'<p>No devices are available yet.</p>'}<div class="actions"><a class="secondary" href="spotify:">Open Spotify</a><button class="secondary" data-action="devices">Refresh devices</button></div>`);
@@ -162,6 +162,17 @@ window.addEventListener('focus',retryPendingPlayback);
 document.addEventListener('visibilitychange',retryPendingPlayback);
 setInterval(retryPendingPlayback,2000);
 modal.addEventListener('close',cancelPendingPlayback);
+document.addEventListener('change',async event=>{
+  if(event.target.id==='show-skip-controls'){
+    const box=event.target,enabled=box.checked;box.disabled=true;
+    try{
+      const updated=await api('settings','PUT',{show_skip_controls:enabled});
+      statusInfo.show_skip_controls=updated.show_skip_controls;
+      renderTurntable();toast('Playback controls updated.');
+    }catch(error){box.checked=!enabled;toast(error.message);}
+    finally{box.disabled=statusInfo.role==='view';}
+  }
+});
 document.addEventListener('change',event=>{if(event.target.id==='open-spotify'){try{localStorage.setItem(browserPreferenceKey('audioshelf-open-spotify'),String(event.target.checked));}catch{event.target.checked=false;toast('This browser could not save the preference.');}}});
 let securityInfo=null;
 function reauthFields(){return securityInfo?.ingress?'<p>Authorised by your Home Assistant login.</p>':`<label>Confirm your password<input type="password" name="password" autocomplete="current-password" required></label>${securityInfo?.two_factor?'<label>Fresh authenticator or recovery code<input name="code" autocomplete="one-time-code" required></label>':''}`;}
@@ -376,6 +387,16 @@ document.addEventListener('click',async event=>{
     if(action==='shelf-style'){const result=await api('settings','PUT',{shelf_style:button.dataset.id});statusInfo.shelf_style=result.shelf_style;applyInterface(statusInfo.interface);await route();toast('Shelf style saved.');}
     if(action==='shelf-artist')toggleShelfArtist(button);
     if(action==='shelf-view'){shelfView=button.dataset.view;await route();}
+    if(action==='now-playing-album'){
+      const destination=await api('spotify/album-destination');
+      if(destination.view==='album'&&destination.album_id){
+        albumOrigin=destination.on_shelf?'#shelf':'#store';
+        location.hash='#album/'+id(destination.album_id);
+      }else if(destination.view==='store-search'){
+        location.hash='#store/album/'+id(destination.query);
+      }
+    }
+    if(action==='spotify-control')await controlSpotify(button.dataset.command);
     if(action==='search-kind'){searchKind=button.dataset.kind;storeSearch={kind:searchKind,query:'',results:null};await route();}
     if(action==='add'){
       const a=await api(`albums/${id(button.dataset.id)}/shelf`,'POST');markCollected(a.id);toast(`${a.title} added to your shelf.`);
