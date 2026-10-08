@@ -125,3 +125,22 @@ def test_filtered_overview_keeps_song_album_joins(tmp_path):
         report = overview(db, {"period": "all", "entity": entity, "id": str(gid)}, "Europe/London")
         assert report["current"]["plays"] == 1
         assert report["top_artists"][0]["plays"] == 1
+
+
+def test_manual_song_merge_across_approved_artist_aliases(tmp_path):
+    db = Database(tmp_path / "listening.sqlite3")
+    db.apply_window(0, 1000, [
+        play(100, "Sigur Rós", "New Song"),
+        play(200, "Sigur Ros", "New Song (Radio Edit)"),
+    ])
+    db.change_artists([normalise("Sigur Rós"), normalise("Sigur Ros")])
+    with db.connect() as conn:
+        groups = [r[0] for r in conn.execute(
+            "SELECT DISTINCT group_id FROM resolved_variants WHERE kind='song'"
+        )]
+    assert len(groups) == 2
+    db.change_groups("merge", groups)
+    with db.connect() as conn:
+        assert len({r[0] for r in conn.execute(
+            "SELECT group_id FROM resolved_variants WHERE kind='song'"
+        )}) == 1
