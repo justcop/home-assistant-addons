@@ -1537,7 +1537,7 @@ dialog { overscroll-behavior: contain; }
 .artist-detail-hero { width: 100%; margin-bottom: 22px; min-width: 0; }
 .artist-logo-stage { display: flex; justify-content: center; align-items: center; width: 100%; min-width: 0; padding: 5px 0 18px; background: transparent; }
 .artist-title-fallback { margin: 0; text-align: center; font-size: clamp(28px, 5vw, 40px); font-weight: 750; letter-spacing: -.03em; overflow-wrap: anywhere; }
-.artist-logo-stage .artist-logo { display: none; }
+.artist-logo-stage:not(.logo-ready) .artist-logo { display: none; }
 .artist-logo-stage.logo-ready .artist-logo { display: block; }
 .artist-logo-stage.logo-ready .artist-title-fallback { display: none; }
 .artist-logo-stage .artist-logo { display: block; width: auto; height: auto; max-width: min(100%, 740px); max-height: 170px; object-fit: contain; border: 0; border-radius: 0; box-shadow: none; padding: 0; background: transparent; }
@@ -1560,4 +1560,15 @@ dialog { overscroll-behavior: contain; }
   .artist-detail-heading .detail-artwork.artist-photo { width: 136px; }
   .artist-detail-heading .detail-artwork.artist-photo img { width: 136px; height: 136px; }
   .spotify-link.button { padding: 10px 12px; min-height: 42px; }
+}
+
+/* The wide logo is the title; the old ARTIST/status strip must not consume space. */
+.detail-dialog.artist-detail-open .dialog-head { position: absolute; top: 14px; right: 18px; z-index: 4; margin: 0; padding: 0; background: transparent; }
+.detail-dialog.artist-detail-open #detail-kind,
+.detail-dialog.artist-detail-open #detail-cache-status { display: none !important; }
+.detail-dialog.artist-detail-open #close-detail { width: 36px; height: 36px; padding: 0; display: grid; place-items: center; border-radius: 50%; background: var(--surface2); }
+.detail-dialog.artist-detail-open #close-detail:hover { color: var(--ink); }
+@media (max-width: 620px) {
+  .detail-dialog.artist-detail-open .dialog-head { display: none; }
+  .detail-dialog.artist-detail-open .artist-logo-stage { padding-top: 0; }
 }
