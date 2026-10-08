@@ -169,11 +169,10 @@ class Database:
 
     def set_meta(self, key, value):
         with self.connect() as db:
+            old = self.get(db, key)
             self.put(db, key, value)
-            if key == "import":
-                self.put(
-                    db, "analysis_revision", self.get(db, "analysis_revision", 0) + 1
-                )
+            if key == "import" and bool((old or {}).get("complete")) != bool((value or {}).get("complete")):
+                self.put(db, "analysis_revision", self.get(db, "analysis_revision", 0) + 1)
 
     def variant(self, db, kind, artist, name):
         existing = db.execute(
@@ -187,14 +186,31 @@ class Database:
             "SELECT group_id FROM aliases WHERE kind=? AND auto_key=?", (kind, key)
         ).fetchone()
         if not alias:
-            group = db.execute(
+            # A newly imported title joins identical titles belonging to a
+            # manually merged artist, but not previously separated versions.
+            root = db.execute(
+                "SELECT canonical_key FROM artist_aliases WHERE artist_key=?",
+                (normalise(artist),),
+            ).fetchone()
+            shared = None
+            if root:
+                candidates = db.execute(
+                    """SELECT v.name, v.override_group, rv.group_id, v.artist
+                    FROM resolved_variants rv JOIN variants v ON v.id=rv.id
+                    JOIN artist_aliases aa ON aa.artist_key=source_key(v.artist)
+                    WHERE v.kind=? AND v.exact_key=? AND aa.canonical_key=?""",
+                    (kind, normalise(name), root[0]),
+                ).fetchall()
+                shared = next((r["group_id"] for r in candidates
+                               if r["override_group"] is None), None)
+            group = shared or db.execute(
                 "INSERT INTO groups(kind,artist,name) VALUES (?,?,?)",
                 (kind, artist, canonical_title(name, kind)),
             ).lastrowid
             db.execute("INSERT INTO aliases VALUES (?,?,?)", (kind, key, group))
         vid = db.execute(
-            "INSERT INTO variants(kind,artist,name,auto_key) VALUES (?,?,?,?)",
-            (kind, artist, name, key),
+            "INSERT INTO variants(kind,artist,name,auto_key,exact_key) VALUES (?,?,?,?,?)",
+            (kind, artist, name, key, normalise(name)),
         ).lastrowid
         rules = self.get(db, "learned_rules", [])
         changed = False
@@ -232,15 +248,33 @@ class Database:
         """
         counts = Counter()
         with self.connect() as db:
+            previous = (
+                {(r["fingerprint"], r["occurrence"]) for r in db.execute(
+                    "SELECT fingerprint,occurrence FROM scrobbles WHERE active=1 AND ts>=? AND ts<?",
+                    (start, end))}
+                if reconcile else None
+            )
+            before_changes = db.total_changes
             if reconcile:
                 db.execute(
-                    "UPDATE scrobbles SET active=0 WHERE ts>=? AND ts<?", (start, end)
+                    "UPDATE scrobbles SET active=0 WHERE active=1 AND ts>=? AND ts<?", (start, end)
                 )
+            artist_keys = {}
             for row in rows:
                 if not start <= row["ts"] < end:
                     raise ValueError("Scrobble outside committed window")
                 fingerprint = hashlib.sha256(identity(row).encode()).hexdigest()
                 counts[fingerprint] += 1
+                artist_key = normalise(row["artist"])
+                if artist_key not in artist_keys:
+                    db.execute(
+                        "INSERT OR IGNORE INTO artist_aliases VALUES (?,?,?)",
+                        (artist_key, artist_key, row["artist"]),
+                    )
+                    artist_keys[artist_key] = db.execute(
+                        "SELECT canonical_key FROM artist_aliases WHERE artist_key=?",
+                        (artist_key,),
+                    ).fetchone()[0]
                 song = self.variant(db, "song", row["artist"], row["title"])
                 album = (
                     self.variant(db, "album", row["artist"], row["album"])
@@ -248,23 +282,30 @@ class Database:
                     else None
                 )
                 db.execute(
-                    """INSERT INTO scrobbles(fingerprint,occurrence,ts,artist,artist_key,title,album,raw_json,song_id,album_id)
-                    VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(fingerprint,occurrence)
-                    DO UPDATE SET active=1""",
+                    """INSERT INTO scrobbles(fingerprint,occurrence,ts,artist,artist_key,title,album,raw_json,artist_group_key,song_id,album_id)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(fingerprint,occurrence)
+                    DO UPDATE SET active=1 WHERE active<>1""",
                     (
                         fingerprint,
                         counts[fingerprint],
                         row["ts"],
                         row["artist"],
-                        normalise(row["artist"]),
+                        artist_key,
                         row["title"],
                         row["album"],
-                        json.dumps(row.get("raw", {}), ensure_ascii=False),
+                        json.dumps(compact_raw(row.get("raw", {})), ensure_ascii=False),
+                        artist_keys[artist_key],
                         song,
                         album,
                     ),
                 )
-            self.put(db, "analysis_revision", self.get(db, "analysis_revision", 0) + 1)
+            changed = (previous != set(counts.items()) if reconcile
+                       else db.total_changes != before_changes)
+            for key, value in (checkpoint or {}).items():
+                if key == "import" and bool(self.get(db, key, {}).get("complete")) != bool(value.get("complete")):
+                    changed = True
+            if changed:
+                self.put(db, "analysis_revision", self.get(db, "analysis_revision", 0) + 1)
             for key, value in (checkpoint or {}).items():
                 self.put(db, key, value)
 
@@ -291,12 +332,14 @@ class Database:
                 raise ValueError("Invalid track identity")
             keys.append(normalise(value))
         with self.connect() as db:
+            before_changes = db.total_changes
             db.execute(
                 """INSERT INTO source_reports VALUES (?,?,?,?,?,?)
                 ON CONFLICT(username,ts,artist_key,title_key) DO NOTHING""",
                 (username.casefold(), ts, *keys, "vinyl", int(time.time())),
             )
-            self.put(db, "analysis_revision", self.get(db, "analysis_revision", 0) + 1)
+            if db.total_changes > before_changes:
+                self.put(db, "analysis_revision", self.get(db, "analysis_revision", 0) + 1)
 
     def change_groups(self, action, ids, name=None):
         if name is not None:
