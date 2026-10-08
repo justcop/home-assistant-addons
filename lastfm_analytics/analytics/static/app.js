@@ -638,8 +638,9 @@ async function showDetail(kind, id, groupMode = false, restoring = false) {
     // Artwork is independent of the heavy analytics calculation.
     if (detail.artwork_pending) {
       (async () => {
-        for (let attempt = 0; attempt < 30; attempt++) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
+        // Space out background artwork checks rather than polling every second.
+        for (const delay of [1000, 1800, 3000, 5000, 8000, 11000]) {
+          await new Promise(resolve => setTimeout(resolve, delay));
           if (serial !== detailSerial || !dialog.open) return;
           let next;
           try { next = await api("artwork", extra); } catch (_) { continue; }
