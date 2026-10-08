@@ -541,7 +541,7 @@ self.addEventListener('fetch', event => {
                        COALESCE((SELECT display_name FROM artist_aliases
                        WHERE artist_key=s.artist_group_key), MIN(s.artist)) AS name,
                        COUNT(DISTINCT s.artist_key) AS versions,
-                       GROUP_CONCAT(DISTINCT s.artist) AS originals
+                       json_group_array(DISTINCT s.artist) AS originals
                        FROM scrobbles s WHERE s.active=1
                        GROUP BY s.artist_group_key ORDER BY plays DESC"""
                 )
@@ -550,7 +550,7 @@ self.addEventListener('fetch', event => {
             artists = [a for a in artists if needle in normalise(
                 a["name"] + " " + (a["originals"] or ""))]
         for a in artists:
-            a["originals"] = (a["originals"] or "").split(",")
+            a["originals"] = json.loads(a["originals"] or "[]")
         return jsonify(rows=artists[offset:offset+50], total=len(artists), offset=offset)
 
     @app.get("/api/grouping-review")
