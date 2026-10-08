@@ -105,7 +105,7 @@ def entity_scope(args):
     if not kind:
         return "", []
     if kind == "artist":
-        return " AND s.artist_key=?", [value]
+        return " AND s.artist_group_key=?", [value]
     if kind in ("song", "album"):
         col = ("sv" if kind == "song" else "av") + (".id" if raw else ".group_id")
         try:
@@ -118,7 +118,7 @@ def entity_scope(args):
 def summaries(conn, p, extra, params, raw):
     song = "sv.id" if raw else "sv.group_id"
     album = "av.id" if raw else "av.group_id"
-    sql = f"""SELECT COUNT(*) AS plays, COUNT(DISTINCT s.artist_key) AS artists,
+    sql = f"""SELECT COUNT(*) AS plays, COUNT(DISTINCT s.artist_group_key) AS artists,
        COUNT(DISTINCT {song}) AS songs, COUNT(DISTINCT {album}) AS albums
        {JOINS} WHERE s.active=1 AND s.ts>=? AND s.ts<? {extra}"""
     current = dict(conn.execute(sql, [p["start"], p["end"], *params]).fetchone())
@@ -134,7 +134,7 @@ def rankings(
     conn, p, kind, raw=False, search="", limit=50, offset=0, extra="", params=()
 ):
     if kind == "artist":
-        key, name, artist = "s.artist_key", "MIN(s.artist)", "''"
+        key, name, artist = "s.artist_group_key", "COALESCE((SELECT display_name FROM artist_aliases WHERE artist_key=s.artist_group_key),MIN(s.artist))", "''"
         condition, variants = "", "1"
     elif kind == "song":
         key, name, artist = (
@@ -152,12 +152,13 @@ def rankings(
         condition, variants = " AND s.album_id IS NOT NULL", "COUNT(DISTINCT av.id)"
     else:
         raise ValueError("Unknown ranking")
+    joins = "FROM scrobbles s" if kind == "artist" else JOINS
     query = f"""WITH ranked AS (
       SELECT {key} AS id, {name} AS name, {artist} AS artist,
        SUM(CASE WHEN s.ts>=? THEN 1 ELSE 0 END) AS plays,
        SUM(CASE WHEN s.ts<? THEN 1 ELSE 0 END) AS previous,
        {variants} AS versions, MAX(s.ts) AS last_play
-       {JOINS} WHERE s.active=1 AND s.ts>=? AND s.ts<? {condition} {extra}
+       {joins} WHERE s.active=1 AND s.ts>=? AND s.ts<? {condition} {extra}
        GROUP BY {key}) SELECT *, COUNT(*) OVER() AS total_rows FROM ranked
        WHERE plays>0 AND (instr(lower(name),lower(?))>0 OR instr(lower(artist),lower(?))>0)
        ORDER BY plays DESC, name COLLATE NOCASE, id LIMIT ? OFFSET ?"""
@@ -188,8 +189,9 @@ def timeline(conn, p, tz, extra="", params=()):
     monthly = p["end"] - p["start"] > 370 * 86400
     fmt = "%Y-%m" if monthly else "%Y-%m-%d"
     counts, hours = Counter(), [[0] * 24 for _ in range(7)]
+    joins = JOINS if "sv." in extra or "av." in extra else "FROM scrobbles s"
     for (ts,) in conn.execute(
-        f"SELECT s.ts {JOINS} WHERE s.active=1 AND s.ts>=? AND s.ts<? {extra}",
+        f"SELECT s.ts {joins} WHERE s.active=1 AND s.ts>=? AND s.ts<? {extra}",
         [p["start"], p["end"], *params],
     ):
         local = datetime.fromtimestamp(ts, tz)
@@ -242,9 +244,9 @@ def overview(database, args, tz_name, now=None):
         # First heard is evaluated against the selected source across all history.
         discovery = conn.execute(
             f"""WITH firsts AS (
-          SELECT s.artist_key, MIN(s.ts) first_ts FROM scrobbles s WHERE s.active=1 {source_extra} GROUP BY s.artist_key)
-          SELECT COUNT(DISTINCT s.artist_key), COUNT(*) {JOINS}
-          JOIN firsts f ON f.artist_key=s.artist_key
+          SELECT s.artist_group_key, MIN(s.ts) first_ts FROM scrobbles s WHERE s.active=1 {source_extra} GROUP BY s.artist_group_key)
+          SELECT COUNT(DISTINCT s.artist_group_key), COUNT(*) FROM scrobbles s
+          JOIN firsts f ON f.artist_group_key=s.artist_group_key
           WHERE s.active=1 AND s.ts>=? AND s.ts<? AND f.first_ts>=? {extra}""",
             [p["start"], p["end"], p["start"], *params],
         ).fetchone()
@@ -252,12 +254,14 @@ def overview(database, args, tz_name, now=None):
             dict(r)
             for r in conn.execute(
                 f"""WITH prior AS (
-          SELECT s.artist_key, MAX(s.ts) last_ts FROM scrobbles s WHERE s.active=1 AND s.ts<? {source_extra} GROUP BY s.artist_key)
-          SELECT s.artist_key AS id, MIN(s.artist) AS name, COUNT(*) AS plays,
-          (MIN(s.ts)-prior.last_ts)/86400 AS gap_days {JOINS}
-          JOIN prior ON prior.artist_key=s.artist_key
+          SELECT s.artist_group_key, MAX(s.ts) last_ts FROM scrobbles s WHERE s.active=1 AND s.ts<? {source_extra} GROUP BY s.artist_group_key)
+          SELECT s.artist_group_key AS id,
+          COALESCE((SELECT display_name FROM artist_aliases WHERE artist_key=s.artist_group_key),MIN(s.artist)) AS name,
+          COUNT(*) AS plays,
+          (MIN(s.ts)-prior.last_ts)/86400 AS gap_days FROM scrobbles s
+          JOIN prior ON prior.artist_group_key=s.artist_group_key
           WHERE s.active=1 AND s.ts>=? AND s.ts<? {extra}
-          GROUP BY s.artist_key HAVING MIN(s.ts)-prior.last_ts>=7776000
+          GROUP BY s.artist_group_key HAVING MIN(s.ts)-prior.last_ts>=7776000
           ORDER BY gap_days DESC LIMIT 5""",
                 [p["start"], p["start"], p["end"], *params],
             )
@@ -314,7 +318,7 @@ def history(conn, p, args, tz):
          AND sr.artist_key=s.artist_key AND sr.title_key=source_key(s.title)
          AND sr.source='vinyl') THEN 'vinyl' ELSE 'unknown' END AS source,
        sv.group_id AS song_group,av.group_id AS album_group,s.song_id,s.album_id,
-       sg.name AS song_name,ag.name AS album_name,s.artist_key """
+       sg.name AS song_name,ag.name AS album_name,s.artist_group_key AS artist_key """
             + JOINS
             + where
             + " ORDER BY s.ts DESC,s.id DESC LIMIT 50 OFFSET ?",
@@ -329,7 +333,7 @@ def history(conn, p, args, tz):
 def artwork_albums(conn, kind, value, raw, args):
     extra, params = source_scope(args or {})
     if kind == "artist":
-        scope, values = "s.artist_key=?", (value,)
+        scope, values = "s.artist_group_key=?", (value,)
     elif kind in ("song", "album"):
         variant = "sv" if kind == "song" else "av"
         column = "id" if raw else "group_id"
@@ -371,7 +375,10 @@ def details(conn, kind, value, raw, args=None):
     source_extra, source_params = source_scope(args or {})
     if kind == "artist":
         name = conn.execute(
-            "SELECT artist FROM scrobbles WHERE artist_key=? LIMIT 1", (value,)
+            """SELECT COALESCE(
+                (SELECT display_name FROM artist_aliases WHERE artist_key=?),
+                (SELECT artist FROM scrobbles WHERE artist_group_key=? LIMIT 1))""",
+                (value, value)
         ).fetchone()
         if not name:
             raise ValueError("Artist not found")
