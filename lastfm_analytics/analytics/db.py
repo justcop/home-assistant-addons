@@ -414,6 +414,13 @@ class Database:
                  json.dumps(before, ensure_ascii=False)),
             )
 
+    @staticmethod
+    def artist_identity(db, artist):
+        key = normalise(artist)
+        row = db.execute("SELECT canonical_key FROM artist_aliases WHERE artist_key=?",
+                         (key,)).fetchone()
+        return row[0] if row else key
+
     def change_groups(self, action, ids, name=None):
         if name is not None:
             if not isinstance(name, str) or not name.strip() or len(name) > 1000:
@@ -458,7 +465,7 @@ class Database:
                 ).fetchall()
                 if len(groups) != len(ids) or len({g["kind"] for g in groups}) != 1:
                     raise ValueError("Merge groups of the same type")
-                if len({normalise(g["artist"]) for g in groups}) != 1:
+                if len({self.artist_identity(db, g["artist"]) for g in groups}) != 1:
                     raise ValueError("Merge versions by the same artist")
                 variants = db.execute(
                     f"SELECT id,override_group FROM resolved_variants WHERE group_id IN ({marks})",
@@ -504,7 +511,7 @@ class Database:
                 ).fetchall()
                 if len(variants) != len(ids) or len({v["kind"] for v in variants}) != 1:
                     raise ValueError("Merge versions of the same type")
-                if len({normalise(v["artist"]) for v in variants}) != 1:
+                if len({self.artist_identity(db, v["artist"]) for v in variants}) != 1:
                     raise ValueError("Merge versions by the same artist")
                 first = next(v for v in variants if v["id"] == ids[0])
                 gid = db.execute(
