@@ -2,7 +2,7 @@
 
 ## First import
 
-1. Install and start the add-on, then open its web interface.
+1. Install the add-on, set `web_password` in its Configuration tab, then start it and open its web interface. Ingress uses Home Assistant’s sidebar / Open web UI. Enter the same password on the app login screen.
 2. In **Backups & settings**, select the separately supplied history JSON and choose **Import history**.
 3. Check the latest financial position, account classifications and active account list.
 
@@ -66,7 +66,13 @@ Inactive accounts remain in history. A previously non-zero account must still be
 
 ## Backups and recovery
 
-The database is stored in `/data/money.sqlite`. Home Assistant backs up this add-on's `/data` directory. Updates preserve it. Do not uninstall the add-on without a backup.
+The authoritative database is stored in `/share/money_locations/money.sqlite`. This dedicated shared folder survives add-on updates and uninstall/reinstall, including changing from a local development installation to a repository installation on the same Home Assistant host. The folder is private to the household; other add-ons with access to `/share` can also access it.
+
+Version 0.2.0 automatically copies an existing `/data/money.sqlite` into this folder on first startup, preserving its revisions and recovery checkpoints. The old copy is left untouched for recovery. An existing shared database is never overwritten. Migration errors stop startup instead of silently starting with empty data. The startup log shows the database path.
+
+**Include the Home Assistant `share` folder in your backups**, or export JSON regularly. An add-on-only backup of `/data` no longer contains the current database. A full backup with `share` does. Restoring an older add-on-only backup does not overwrite a newer shared database; use the app’s JSON restore to deliberately replace it.
+
+In version 0.1.0, ordinary updates and restarts preserved `/data`, but uninstalling removed it. A change of add-on repository/slug also creates a different `/data` directory. If history has already disappeared, check the old installation’s recovery copies or restore its Home Assistant backup and export JSON; otherwise reimport the original history JSON. This release cannot recover a database already deleted without a backup.
 
 Every successful write retains a copy of the preceding state inside the database. The app retains 40 non-draft checkpoints plus 10 draft checkpoints. These recovery copies protect against editing mistakes, but are on the same device: export a complete JSON backup or take Home Assistant backups for device-loss recovery.
 
@@ -77,3 +83,9 @@ To restore, download a recovery copy or use an exported JSON file. Select it und
 ## Current scope
 
 GBP and a single household dataset. No bank connections, Google Drive synchronisation, statement imports, OCR or AI. Pension entitlement outside tracked accounts is not valued. Historical account-level returns cannot be recovered from aggregate category flows. No API credentials are needed.
+
+## Login and access
+
+Set `web_password` in the add-on Configuration tab and restart. Passwords are verified with a salted PBKDF2 hash in memory; they are never stored in the financial dataset or exports. Sessions expire after 12 hours, and restarting or changing the password logs everybody out. Five failed attempts temporarily block further logins. Password login protects both Ingress and direct access, including exports and recovery copies. Without a password, production shows configuration instructions and provides no financial API access.
+
+Ingress stays on port 8099 and accepts only the Home Assistant ingress proxy. For optional direct LAN access, enable the separate **8100/tcp** network port in Home Assistant. It is disabled by default, and its listener starts only when a password is configured. Direct HTTP should be used on a trusted LAN; use HTTPS through Home Assistant Ingress or an HTTPS reverse proxy for remote access. No port forwarding is required for Ingress.

@@ -12,13 +12,13 @@ A local financial tracker for Home Assistant. Record a snapshot of account balan
 - Editable past snapshots with automatically recalculated later results.
 - Historical category-level contributions, without inventing individual account returns.
 - SQLite persistence, recovery copies, complete JSON export/restore and CSV balance export.
-- Home Assistant Ingress only. No Google credentials, AI service or external finance API is required.
+- Home Assistant Ingress and optional password-protected direct access. No Google credentials, AI service or external finance API is required.
 
 ## Install
 
-Add this repository in the Home Assistant add-on store, refresh the store, then install **Money Locations**. Start it and choose **Open Web UI**.
+Add this repository in the Home Assistant add-on store, refresh the store, then install **Money Locations**. Set `web_password` in Configuration, start it and choose **Open Web UI**.
 
-For a branch build, add the repository URL with `#feat/money-locations` appended, or use that branch and the `money_locations` directory in your development manager.
+For a branch build, add the repository URL with `#fix/money-login-storage` appended, or use the `fix/money-login-storage` branch and the `money_locations` directory in your development manager.
 
 Open **Backups & settings**, choose your private `Money-Locations-history.json` file and press **Import history**. Financial data is deliberately not bundled in the repository. Alternatively, add accounts and create an opening snapshot manually.
 
@@ -33,6 +33,8 @@ python -m unittest discover -s money_locations/tests -v
 MONEY_LOCAL=1 MONEY_DATA=/tmp/money-locations python money_locations/app/server.py
 ```
 
-Local development listens only on `127.0.0.1:8099`. In Home Assistant the service accepts only the Ingress proxy at `172.30.32.2`; no host port is exposed. Tests use synthetic financial examples.
+Local development listens only on `127.0.0.1:8099`. In Home Assistant the service accepts only the Ingress proxy at `172.30.32.2`; optional direct access uses a separate port 8100, disabled by default. Tests use synthetic financial examples.
 
 The repository contains no CI workflow for this app. Home Assistant builds the small image locally.
+
+Set `web_password` before starting. Open through Home Assistant Ingress; optional direct access uses a separately enabled 8100/tcp port. Include `share` in Home Assistant backups. See [DOCS.md](DOCS.md) for migration and recovery details.

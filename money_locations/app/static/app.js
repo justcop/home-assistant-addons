@@ -63,6 +63,7 @@ async function api(path, body) {
       : {},
   );
   const data = await r.json();
+  if (r.status === 401 && path !== "auth/login") showLogin();
   if (!r.ok) throw Error(data.error || "Request failed");
   return data;
 }
@@ -286,7 +287,7 @@ function settings() {
       "Backups & settings",
       "Your data stays here. Export a complete copy whenever you need it.",
     ) +
-    `<section class="panel"><h2>Import or restore</h2><p>Select a Money Locations JSON file. Importing replaces the current dataset and saves a recovery copy first.</p><input type="file" id="import-file" accept=".json,application/json"><div class="actions">${state.snapshots.length ? input("Type RESTORE to replace current data", 'id="restore-confirm"') : ""}<button id="import" class="primary">${state.snapshots.length ? "Restore file" : "Import history"}</button></div></section><section class="panel"><h2>Export your data</h2><div class="actions"><a class="button primary" href="api/export" download>Complete backup (JSON)</a><a class="button" href="api/csv" download>Balance history (CSV)</a><button id="show-backups">Recovery copies</button></div><p class="muted subtle">The JSON export includes all accounts, balances, activity, draft snapshots, notes and valuations. CSV is a balance-and-flow table for spreadsheets. Home Assistant backups include the app’s data.</p><div id="backups"></div></section><section class="panel"><h2>Home valuations</h2><p class="muted">Enter your share of the property value. The latest valuation on or before each snapshot is used.</p><div class="form-grid">${input("Valuation date", 'id="valuation-date" type="date"', today())}${input("Value of your share (£)", 'id="valuation-value" type="number" min="0" step="0.01"')}${input("Notes", 'id="valuation-notes"')}</div><p><button id="add-valuation">Save valuation</button></p>${state.valuations
+    `<section class="panel"><h2>Import or restore</h2><p>Select a Money Locations JSON file. Importing replaces the current dataset and saves a recovery copy first.</p><input type="file" id="import-file" accept=".json,application/json"><div class="actions">${state.snapshots.length ? input("Type RESTORE to replace current data", 'id="restore-confirm"') : ""}<button id="import" class="primary">${state.snapshots.length ? "Restore file" : "Import history"}</button></div></section><section class="panel"><h2>Export your data</h2><div class="actions"><a class="button primary" href="api/export" download>Complete backup (JSON)</a><a class="button" href="api/csv" download>Balance history (CSV)</a><button id="show-backups">Recovery copies</button></div><p class="muted subtle">The JSON export includes all accounts, balances, activity, draft snapshots, notes and valuations. CSV is a balance-and-flow table for spreadsheets. Data survives reinstalls in /share/money_locations. Include the share folder in Home Assistant backups.</p><div id="backups"></div></section><section class="panel"><h2>Home valuations</h2><p class="muted">Enter your share of the property value. The latest valuation on or before each snapshot is used.</p><div class="form-grid">${input("Valuation date", 'id="valuation-date" type="date"', today())}${input("Value of your share (£)", 'id="valuation-value" type="number" min="0" step="0.01"')}${input("Notes", 'id="valuation-notes"')}</div><p><button id="add-valuation">Save valuation</button></p>${state.valuations
       .sort((a, b) => b.date.localeCompare(a.date))
       .map(
         (v) =>
@@ -587,11 +588,49 @@ document.addEventListener("click", async (e) => {
     b.disabled = false;
   }
 });
-window.addEventListener("hashchange", route);
+window.addEventListener("hashchange", () => { if (state && $("#login").hidden) route(); });
 window.addEventListener("beforeunload", (e) => {
   if (dirty) {
     e.preventDefault();
     e.returnValue = "";
   }
 });
-route();
+function showLogin(configured = true) {
+  document.querySelector('.shell').hidden = true;
+  $('#login').hidden = false;
+  $('#login-form').hidden = !configured;
+  $('#login-note').textContent = configured ? 'Log in to your financial picture.' : 'Set web_password in the Home Assistant add-on configuration, then restart the add-on.';
+  clearTimeout(timer);
+  $('#view').replaceChildren();
+}
+async function start() {
+  try {
+    const auth = await api('auth/status');
+    if (!auth.authenticated) return showLogin(auth.configured);
+    $('#login').hidden = true;
+    document.querySelector('.shell').hidden = false;
+    await route();
+  } catch (e) { error(e); }
+}
+$('#login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const button = e.target.querySelector('button');
+  button.disabled = true;
+  $('#login-error').textContent = '';
+  try {
+    await api('auth/login', {password: $('#password').value});
+    $('#password').value = '';
+    await start();
+  } catch (e) { $('#login-error').textContent = e.message; }
+  finally { button.disabled = false; }
+});
+$('#logout').addEventListener('click', async () => {
+  try {
+    if (editing && dirty && editing.status === "draft") await saveEdit();
+    await saveChain;
+    if (dirty) { error(Error('Save your changes before logging out.')); return; }
+    await api('auth/logout', {});
+    showLogin();
+  } catch (e) { error(e); }
+});
+start();

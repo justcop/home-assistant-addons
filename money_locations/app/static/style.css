@@ -623,3 +623,11 @@ a {
     font-size: 20px;
   }
 }
+
+[hidden] { display: none !important; }
+.login { max-width: 380px; margin: 8vh auto; padding: 28px; background: white; border-radius: 20px; }
+.login form { display: grid; gap: 12px; }
+.login img { border-radius: 20px; }
+#login-error { color: #a52b38; }
+#logout { margin-left: auto; }
+img.mark { object-fit: contain; padding: 0; }
