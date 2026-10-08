@@ -1,5 +1,6 @@
 """Dependency-free, password-protected web service with transactional local persistence."""
 from copy import deepcopy
+from contextlib import closing
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import csv
@@ -22,6 +23,7 @@ from model import blank_state, validate_state, new_snapshot, problems, report, a
 
 ROOT = Path(__file__).parent
 MAX_BODY = 20 * 1024 * 1024
+MAX_LOGIN_BODY = 1024
 
 
 class Conflict(Exception):
@@ -32,7 +34,7 @@ class Store:
     def __init__(self, path):
         self.path = str(path)
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-        with self.connect() as con:
+        with closing(self.connect()) as con, con:
             con.execute('CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL, body TEXT NOT NULL)')
             con.execute('CREATE TABLE IF NOT EXISTS backups (id INTEGER PRIMARY KEY, created TEXT, reason TEXT, revision INTEGER, body TEXT)')
             con.execute('INSERT OR IGNORE INTO state VALUES (1, 0, ?)', (json.dumps(blank_state()),))
@@ -41,12 +43,12 @@ class Store:
         return sqlite3.connect(self.path, timeout=30)
 
     def read(self):
-        with self.connect() as con:
+        with closing(self.connect()) as con, con:
             revision, body = con.execute('SELECT revision, body FROM state WHERE id=1').fetchone()
         return revision, json.loads(body)
 
     def mutate(self, revision, reason, change):
-        with self.connect() as con:
+        with closing(self.connect()) as con, con:
             con.execute('BEGIN IMMEDIATE')
             current, body = con.execute('SELECT revision, body FROM state WHERE id=1').fetchone()
             if revision != current:
@@ -63,11 +65,11 @@ class Store:
         return current+1, output
 
     def backups(self):
-        with self.connect() as con:
+        with closing(self.connect()) as con, con:
             return [dict(zip(('id','created','reason','revision'), r)) for r in con.execute('SELECT id,created,reason,revision FROM backups ORDER BY id DESC')]
 
     def backup(self, backup_id):
-        with self.connect() as con:
+        with closing(self.connect()) as con, con:
             row = con.execute('SELECT body FROM backups WHERE id=?', (backup_id,)).fetchone()
         if not row:
             raise ValueError('Backup not found.')
@@ -88,8 +90,14 @@ def apply_action(state, action, data):
             raise ValueError('Snapshot not found.')
         # Preserve the account checklist captured when this snapshot was created.
         s['required_accounts'] = prior['required_accounts']
+        if prior['status']=='final' and s['date']!=prior['date']:
+            raise ValueError('Reopen this snapshot before changing its date.')
         if any(v['id']!=s['id'] and v['date']==s['date'] for v in state['snapshots']):
             raise ValueError('A snapshot already exists on this date.')
+        if s['status']=='final' and prior['status']!='final':
+            later = [v for v in state['snapshots'] if v['id']!=s['id'] and v['status']=='final' and v['date']>s['date']]
+            if later:
+                raise ValueError('A later final snapshot exists. Reopen that snapshot first so affected periods can be reviewed.')
         state['snapshots'] = [s if v['id']==s['id'] else v for v in state['snapshots']]
         validate_state(state)
         if s['status']=='final':
@@ -97,6 +105,14 @@ def apply_action(state, action, data):
             if issues:
                 raise ValueError(' '.join(issues))
         return s['id']
+    if action == 'reopen_snapshot':
+        target = next((v for v in state['snapshots'] if v['id']==data['id']), None)
+        if not target or target['status']!='final':
+            raise ValueError('Only final snapshots can be reopened.')
+        affected = [v for v in state['snapshots'] if v['status']=='final' and v['date']>=target['date']]
+        for snapshot in affected:
+            snapshot['status'] = 'draft'
+        return len(affected)
     if action == 'delete_draft':
         s = next((v for v in state['snapshots'] if v['id']==data['id']), None)
         if not s or s['status']!='draft':
@@ -189,28 +205,40 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def do_GET(self):
+        path = urlsplit(self.path).path
+        if path == '/health':
+            self.reply(200, {'status':'ok'})
+            return
         if not self.allowed():
             self.reply(403, {'error':'Access through Home Assistant is required.'})
             return
         try:
-            path = urlsplit(self.path).path
             if path == '/api/auth/status':
                 self.reply(200, {'authenticated': self.authenticated(), 'configured': bool(self.server.password_hash) or self.server.local})
                 return
+            if path in ('/','/index.html','/app.js','/style.css','/icon.png'):
+                name='index.html' if path=='/' else path[1:]
+                self.reply(200,(ROOT/'static'/name).read_bytes(), mimetypes.guess_type(name)[0] or 'text/plain')
+                return
             if path.startswith('/api/') and not self.authenticated():
                 self.reply(401, {'error': 'Please log in to access your financial data.'})
+                return
+            if path=='/api/backups':
+                self.reply(200,self.server.store.backups())
+                return
+            if path=='/api/backup':
+                bid=int(parse_qs(urlsplit(self.path).query)['id'][0])
+                self.reply(200,self.server.store.backup(bid),attachment='money-locations-backup.json')
+                return
+            if path not in ('/api/state','/api/export','/api/csv'):
+                self.reply(404,{'error':'Not found.'})
                 return
             revision,state = self.server.store.read()
             if path=='/api/state':
                 self.reply(200, {'revision':revision,'state':state,'reports':all_reports(state)})
             elif path=='/api/export':
                 self.reply(200,state,attachment='money-locations.json')
-            elif path=='/api/backups':
-                self.reply(200,self.server.store.backups())
-            elif path=='/api/backup':
-                bid=int(parse_qs(urlsplit(self.path).query)['id'][0])
-                self.reply(200,self.server.store.backup(bid),attachment='money-locations-backup.json')
-            elif path=='/api/csv':
+            else:
                 output=io.StringIO()
                 writer=csv.writer(output)
                 writer.writerow(['Date','Status','Account','Type','Wrapper','Balance','Contribution','Withdrawal','Relief or bonus','Interest','Capital adjustment'])
@@ -220,15 +248,10 @@ class Handler(BaseHTTPRequestHandler):
                 for s in sorted(state['snapshots'],key=lambda s:s['date']):
                     for aid,b in s['balances'].items():
                         a=accounts[aid]
-                        writer.writerow([s['date'],s['status'],safe(a['name']),a['type'],a['wrapper']]+[float(money(b[f])) if b.get(f) not in (None,'') else '' for f in ('amount','contribution','withdrawal','relief','interest','capital')])
+                        text_fields=[safe(v) for v in (s['date'],s['status'],a['name'],a['type'],a.get('wrapper','None'))]
+                        values=[float(money(b[f])) if b.get(f) not in (None,'') else '' for f in ('amount','contribution','withdrawal','relief','interest','capital')]
+                        writer.writerow(text_fields+values)
                 self.reply(200,output.getvalue(),'text/csv; charset=utf-8',attachment='money-locations-balances.csv')
-            elif path=='/health':
-                self.reply(200,{'status':'ok'})
-            elif path in ('/','/index.html','/app.js','/style.css','/icon.png'):
-                name='index.html' if path=='/' else path[1:]
-                self.reply(200,(ROOT/'static'/name).read_bytes(), mimetypes.guess_type(name)[0] or 'text/plain')
-            else:
-                self.reply(404,{'error':'Not found.'})
         except (ValueError, KeyError, TypeError):
             self.reply(400,{'error':'Invalid request.'})
 
@@ -237,12 +260,17 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(403,{'error':'Access through the app is required.'})
             return
         try:
-            size=int(self.headers.get('Content-Length','0'))
-            if not 0<size<=MAX_BODY:
-                raise ValueError('Upload must be between 1 byte and 20 MB.')
-            data=json.loads(self.rfile.read(size),parse_constant=lambda _: (_ for _ in ()).throw(ValueError('Invalid number.')))
             path=urlsplit(self.path).path
-            if path == '/api/auth/login':
+            is_login = path == '/api/auth/login'
+            if not is_login and not self.authenticated():
+                self.reply(401, {'error': 'Please log in to access your financial data.'})
+                return
+            size=int(self.headers.get('Content-Length','0'))
+            limit = MAX_LOGIN_BODY if is_login else MAX_BODY
+            if not 0<size<=limit:
+                raise ValueError('Login request is too large.' if is_login else 'Upload must be between 1 byte and 20 MB.')
+            data=json.loads(self.rfile.read(size),parse_constant=lambda _: (_ for _ in ()).throw(ValueError('Invalid number.')))
+            if is_login:
                 if not self.server.password_hash:
                     self.reply(403, {'error': 'Set web_password in the add-on configuration, then restart.'})
                     return
@@ -250,24 +278,26 @@ class Handler(BaseHTTPRequestHandler):
                 now = time.time()
                 with self.server.auth_lock:
                     count, until = self.server.failures.get(key, (0, 0))
-                    if until > now:
-                        self.reply(429, {'error': 'Too many login attempts. Try again in one minute.'})
-                        return
-                    supplied = str(data.get('password', ''))
-                    digest = hashlib.pbkdf2_hmac('sha256', supplied.encode(), self.server.salt, 200000)
-                    if not hmac.compare_digest(digest, self.server.password_hash):
+                if until > now:
+                    self.reply(429, {'error': 'Too many login attempts. Try again in one minute.'})
+                    return
+                supplied = str(data.get('password', ''))
+                digest = hashlib.pbkdf2_hmac('sha256', supplied.encode(), self.server.salt, 200000)
+                ok = hmac.compare_digest(digest, self.server.password_hash)
+                token = None
+                with self.server.auth_lock:
+                    if not ok:
                         count = count + 1 if until > now - 60 else 1
                         self.server.failures[key] = (count, now + 60 if count >= 5 else now)
-                        self.reply(401, {'error': 'Incorrect password.'})
-                        return
-                    self.server.failures.pop(key, None)
-                    self.server.sessions = {k: v for k, v in self.server.sessions.items() if v > now}
-                    token = secrets.token_urlsafe(32)
-                    self.server.sessions[token] = now + 12 * 3600
+                    else:
+                        self.server.failures.pop(key, None)
+                        self.server.sessions = {k: v for k, v in self.server.sessions.items() if v > now}
+                        token = secrets.token_urlsafe(32)
+                        self.server.sessions[token] = now + 12 * 3600
+                if not ok:
+                    self.reply(401, {'error': 'Incorrect password.'})
+                    return
                 self.reply(200, {'ok': True}, cookie=self.session_cookie(token, 12 * 3600))
-                return
-            if not self.authenticated():
-                self.reply(401, {'error': 'Please log in to access your financial data.'})
                 return
             if path == '/api/auth/logout':
                 cookie = SimpleCookie(self.headers.get('Cookie', ''))
@@ -326,8 +356,9 @@ def persistent_path(data_dir, shared_dir=None):
     if not target.exists() and legacy.exists():
         temp = folder / 'migration.sqlite'
         try:
-            with sqlite3.connect(f'file:{legacy}?mode=ro', uri=True) as source, sqlite3.connect(temp) as dest:
+            with closing(sqlite3.connect(f'file:{legacy}?mode=ro', uri=True)) as source, closing(sqlite3.connect(temp)) as dest:
                 source.backup(dest)
+                dest.commit()
                 if dest.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
                     raise RuntimeError('Existing database failed its integrity check.')
                 row = dest.execute('SELECT body FROM state WHERE id=1').fetchone()
