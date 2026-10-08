@@ -36,6 +36,9 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.goto(base);
     await page.getByLabel('Password',{exact:true}).fill('fixture-owner-password');
     await page.getByRole('button',{name:'Open AudioShelf',exact:true}).click();
+    await page.getByRole('button',{name:'Expand all',exact:true}).waitFor();
+    assert.equal(await page.locator('.sleeve:visible').count(),0);
+    await page.getByRole('button',{name:'Expand all',exact:true}).click();
     await page.locator('.shelf-rack').first().waitFor();
     assert.equal(await page.locator('.sleeve').count(),14);
     assert.equal(await page.locator('html').getAttribute('data-interface'),'vinyl');
@@ -63,7 +66,7 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.locator('.shelf-rack').first().waitFor();
     await page.waitForFunction(y=>Math.abs(scrollY-y)<3,scroll);
     // Compact shelves preserve covers, search and browsing without showing every artist.
-    await page.getByRole('button',{name:'Artist dividers',exact:true}).click();
+    await page.getByRole('button',{name:'Collapse all',exact:true}).click();
     assert.equal(await page.locator('.sleeve:visible').count(),0);
     const dividers=page.locator('.shelf-artist-toggle');
     assert.equal(await dividers.count(),2);
@@ -100,7 +103,7 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await dividers.last().focus();await page.keyboard.press('Enter');
     assert.equal(await dividers.last().getAttribute('aria-expanded'),'true','Keyboard opens the divider');
     await page.setViewportSize({width:320,height:740});await noOverflow();
-    await page.getByRole('button',{name:'Open shelves',exact:true}).click();
+    await page.getByRole('button',{name:'Expand all',exact:true}).click();
     assert.equal(await page.locator('.sleeve:visible').count(),14);
     await page.setViewportSize({width:1440,height:1000});
     await page.locator('[data-nav="store"]').click();
@@ -176,7 +179,7 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.locator('[data-nav="shelf"]').click();
     await page.locator('.shelf-rack').first().waitFor();
     assert.equal(await page.locator('.sleeve').count(),15);
-    assert.equal(await page.locator('.shelf-rack').first().evaluate(el=>getComputedStyle(el).gridTemplateColumns.split(' ').length),2);
+    assert.equal(await page.locator('.shelf-row').first().evaluate(el=>getComputedStyle(el).gridTemplateColumns.split(' ').length),2);
     await noOverflow();await shot('shelf-mobile');
     await page.locator('[data-nav="store"]').click();
     await page.locator('.store-rack').first().waitFor();
@@ -218,7 +221,29 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.getByRole('button',{name:'Vinyl Front-facing sleeves',exact:false}).click();
     await page.locator('html[data-interface="vinyl"]').waitFor();
     await page.setViewportSize({width:320,height:740});await noOverflow();
-    await page.locator('[data-nav="shelf"]').click();await page.locator('.shelf-rack').first().waitFor();await noOverflow();
+    await page.locator('[data-nav="shelf"]').click();await page.getByRole('button',{name:'Expand all',exact:true}).click();await page.locator('.shelf-rack').first().waitFor();await noOverflow();
+    // Both furniture styles persist and have continuous ledges even on short rows.
+    for(const [style,label] of [['cabinet','White record cabinet'],['floating','Floating shelves']]){
+      await page.getByRole('link',{name:'Open settings'}).click();
+      await page.getByRole('button',{name:label,exact:false}).click();
+      await page.locator('html[data-shelf-style="'+style+'"]').waitFor();
+      await page.reload();await page.getByRole('heading',{name:'Settings.'}).waitFor();
+      assert.equal(await page.locator('html').getAttribute('data-shelf-style'),style);
+      await page.locator('[data-nav="shelf"]').click();
+      await page.getByRole('button',{name:'Expand all',exact:true}).click();
+      for(const width of [390,1440]){
+        await page.setViewportSize({width,height:900});
+        await page.waitForFunction(w=>document.querySelector('.shelf-row')?.querySelectorAll('.sleeve').length===(w<=700?2:4),width);
+        await noOverflow();await shot(style+'-'+width);
+        const shelves=await page.locator('.shelf-row').evaluateAll(rows=>rows.map(row=>{
+          const shelf=row.querySelector('.shelf-ledge').getBoundingClientRect(),cover=row.querySelector('.cover-wrap').getBoundingClientRect(),rack=row.closest('.shelf-rack').getBoundingClientRect();
+          return {width:shelf.width,rack:rack.width,gap:shelf.top-cover.bottom};
+        }));
+        assert(shelves.every(s=>s.width>=s.rack-22&&Math.abs(s.gap)<2),'Ledges span the rack and meet the sleeves');
+      }
+    }
+    await page.evaluate(()=>applyTheme('midnight'));
+    assert.equal(await page.locator('.shelf-row .album-title').first().evaluate(el=>getComputedStyle(el).color),'rgb(40, 43, 39)','White shelves retain readable captions with dark surrounding themes');
     assert.deepEqual(errors,[]);
     console.log('Vinyl browser checks passed: two rooms, responsive sleeves, browsing restoration, collect in place, rapid startup despite stale replies, progress/pause/track boundaries, playback independence/outage, album settings, Classic persistence.');
   }finally{if(browser)await browser.close();server.kill('SIGTERM');}

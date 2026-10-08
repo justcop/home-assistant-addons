@@ -76,7 +76,7 @@ function applyTheme(value){
   try{localStorage.setItem('audioshelf-theme',theme);}catch{}
 }
 try{applyTheme(localStorage.getItem('audioshelf-theme'));}catch{applyTheme('record-store');}
-function themeSettings(){return `<section class="settings-block"><h2>Appearance</h2>${interfaceSettings()}<h3>Colour palette</h3><p>Choose a theme. It is saved with your collection and used on your other devices.</p><div class="theme-grid">${(statusInfo.themes||[]).map(theme=>`<button class="theme-choice" data-theme="${escapeHtml(theme.id)}" data-action="theme" data-id="${escapeHtml(theme.id)}" aria-label="Use ${escapeHtml(theme.name)} theme" aria-pressed="${theme.id===statusInfo.theme}"><span class="theme-sample" aria-hidden="true"><span class="sample-record"></span><span class="sample-lines"><i></i><i></i><i></i></span></span><strong>${escapeHtml(theme.name)}</strong><small>${escapeHtml(theme.description)}</small></button>`).join('')}</div></section>`;}
+function themeSettings(){return `<section class="settings-block"><h2>Appearance</h2>${interfaceSettings()}${shelfStyleSettings()}<h3>Colour palette</h3><p>Choose a theme. It is saved with your collection and used on your other devices.</p><div class="theme-grid">${(statusInfo.themes||[]).map(theme=>`<button class="theme-choice" data-theme="${escapeHtml(theme.id)}" data-action="theme" data-id="${escapeHtml(theme.id)}" aria-label="Use ${escapeHtml(theme.name)} theme" aria-pressed="${theme.id===statusInfo.theme}"><span class="theme-sample" aria-hidden="true"><span class="sample-record"></span><span class="sample-lines"><i></i><i></i><i></i></span></span><strong>${escapeHtml(theme.name)}</strong><small>${escapeHtml(theme.description)}</small></button>`).join('')}</div></section>`;}
 function releaseFilterSettings(){
   const filters=statusInfo.release_filters || {countries:['GB','US','XW','XE'],formats:['vinyl','cd','digital'],strict_countries:false};
   const labels={vinyl:'Vinyl',cd:'CD',digital:'Digital',cassette:'Cassette',other:'Other audio formats'};
@@ -234,7 +234,7 @@ async function route(){
 }
 function applyPermissions(root){
   if(statusInfo.role!=='view')return;
-  const allowed=new Set(['retry','refresh-status','search-kind','shelf-view','shelf-layout','shelf-artist','load-releases','logout']);
+  const allowed=new Set(['retry','refresh-status','search-kind','shelf-view','shelf-expand-all','shelf-artist','load-releases','logout']);
   root.querySelectorAll('button[data-action]').forEach(button=>{if(!allowed.has(button.dataset.action))button.disabled=true;});
   root.querySelectorAll('form').forEach(form=>{if(form.id!=='search-form')form.querySelectorAll('input,select,button').forEach(control=>control.disabled=true);});
 }
@@ -372,7 +372,8 @@ document.addEventListener('click',async event=>{
   try {
     if(action==='retry'||action==='refresh-status')await route();
     if(action==='interface'){const result=await api('settings','PUT',{interface:button.dataset.id});statusInfo.interface=result.interface;applyInterface(result.interface);await route();toast(`${result.interface==='vinyl'?'Vinyl':'Classic'} interface saved.`);}
-    if(action==='shelf-layout')changeShelfLayout(button.dataset.layout);
+    if(action==='shelf-expand-all')toggleAllShelves();
+    if(action==='shelf-style'){const result=await api('settings','PUT',{shelf_style:button.dataset.id});statusInfo.shelf_style=result.shelf_style;applyInterface(statusInfo.interface);await route();toast('Shelf style saved.');}
     if(action==='shelf-artist')toggleShelfArtist(button);
     if(action==='shelf-view'){shelfView=button.dataset.view;await route();}
     if(action==='search-kind'){searchKind=button.dataset.kind;storeSearch={kind:searchKind,query:'',results:null};await route();}

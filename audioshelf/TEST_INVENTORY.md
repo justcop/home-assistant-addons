@@ -1,12 +1,12 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-08T00:00:12+01:00 (Europe/London).
+Reviewed: 2026-10-08T11:16:45+01:00 (Europe/London).
 
-Reviewed compact shelf browser coverage for single expansion, keyboard access, filtering, album return, browser persistence, account isolation, external artist links respecting scroll padding, and 320/390px overflow. Existing Classic, accounts and playback flows retained; full browser and container checks run in CI.
+Reviewed continuous white furniture and persistence coverage, including caption contrast with dark surrounding themes. Targeted backend tests and Vinyl/account browser flows passed locally; inspected floating desktop and cabinet phone screenshots. Full backend, Classic/Vinyl/accounts browser and container checks run in CI.
 
-<!-- inventory: {"reviewed_at": "2026-10-08T00:00:12+01:00", "review_note": "Reviewed compact shelf browser coverage for single expansion, keyboard access, filtering, album return, browser persistence, account isolation, external artist links respecting scroll padding, and 320/390px overflow. Existing Classic, accounts and playback flows retained; full browser and container checks run in CI.", "source_sha256": "505f570cb2fe20430fbe4d0f8dd5a12f81f24d90f99a3d6fcd11cc83a789aea7"} -->
+<!-- inventory: {"reviewed_at": "2026-10-08T11:16:45+01:00", "review_note": "Reviewed continuous white furniture and persistence coverage, including caption contrast with dark surrounding themes. Targeted backend tests and Vinyl/account browser flows passed locally; inspected floating desktop and cabinet phone screenshots. Full backend, Classic/Vinyl/accounts browser and container checks run in CI.", "source_sha256": "5462270d2126c72b37b56b72392e15af27995d7fcad00fbd82d85c77e4db53ea"} -->
 
-## Backend cases (281)
+## Backend cases (282)
 
 1. `audioshelf/tests/test_accounts.py::test_account_creation_and_management_require_admin_and_fresh_password`
 2. `audioshelf/tests/test_accounts.py::test_background_playback_is_account_and_session_scoped`
@@ -289,6 +289,7 @@ Reviewed compact shelf browser coverage for single expansion, keyboard access, f
 279. `audioshelf/tests/test_vinyl.py::test_interface_persists_and_invalid_choice_is_atomic`
 280. `audioshelf/tests/test_vinyl.py::test_playback_does_not_misidentify_shared_or_uncollected_tracks`
 281. `audioshelf/tests/test_vinyl.py::test_playback_tracks_spotify_pause_and_relinked_library_track`
+282. `audioshelf/tests/test_vinyl.py::test_shelf_furniture_persists_and_rejects_invalid_choices`
 
 ## Other release checks
 

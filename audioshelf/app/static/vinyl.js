@@ -4,16 +4,13 @@ let albumOrigin='', storeSearch={kind:'artist',query:'',results:null}, shelfFilt
 let playbackState=null, playbackBusy=false, playbackChecked=0, playbackEpoch=0, playbackCommand=0, playbackStart=null;
 const browsingPositions=new Map();
 let expandedShelfArtist=null;
-const shelfLayouts=new Map();
-function shelfLayout(){
-  const key=browserPreferenceKey('audioshelf-shelf-layout');
-  if(!shelfLayouts.has(key)){let value;try{value=localStorage.getItem(key);}catch{}shelfLayouts.set(key,value==='dividers'?'dividers':'open');}
-  return shelfLayouts.get(key);
-}
+let allShelvesExpanded=false;
+function shelfLayout(){return allShelvesExpanded?'open':'dividers';}
 if('scrollRestoration' in history)history.scrollRestoration='manual';
 function isVinyl(){return document.documentElement.dataset.interface==='vinyl';}
 function applyInterface(value){
   document.documentElement.dataset.interface=value==='classic'?'classic':'vinyl';
+  document.documentElement.dataset.shelfStyle=statusInfo.shelf_style==='cabinet'?'cabinet':'floating';
   renderTurntable();
 }
 function interfaceSettings(){return `<p>Choose how to browse your records. This choice is saved across your devices.</p><div class="interface-choices">${[['vinyl','Vinyl','Front-facing sleeves. A record store to explore, a shelf to come home to.'],['classic','Classic','The original AudioShelf interface, with artist lists and a compact album grid.']].map(([value,title,description])=>`<button class="interface-choice" data-action="interface" data-id="${value}" aria-pressed="${statusInfo.interface===value}"><span class="interface-preview ${value}" aria-hidden="true"><i></i><i></i><i></i></span><strong>${title}</strong><small>${description}</small></button>`).join('')}</div>`;}
@@ -22,7 +19,7 @@ function vinylCards(albums,room=document.documentElement.dataset.room){return `<
 function artistDivider(artist,count,store=false){return `<div class="artist-divider"><a href="#artist/${id(artist.id)}${store?'/store':''}">${escapeHtml(artist.name)} <span aria-hidden="true">↗</span></a><span>${count} ${count===1?'record':'records'}</span></div>`;}
 function vinylShelf(shelf){
   return vinylHeading('Your listening room','My shelf.','Something good deserves a whole side of your day.',`<strong>${shelf.albums.length}</strong><span>records collected</span>`)+
-    (!shelf.albums.length?empty('Your first record awaits.','Find an artist, choose an album, make it yours.'):`<div class="room-toolbar"><label for="shelf-filter">Find a record</label><input id="shelf-filter" type="search" placeholder="Artist or album" value="${escapeHtml(shelfFilter)}"><a class="quiet" href="#store">Make room for another ↗</a></div><div class="segmented shelf-layout" role="group" aria-label="Shelf layout">${[['open','Open shelves'],['dividers','Artist dividers']].map(([value,label])=>`<button data-action="shelf-layout" data-layout="${value}" class="${shelfLayout()===value?'active':''}" aria-pressed="${shelfLayout()===value}">${label}</button>`).join('')}</div><div class="collection-shelves" data-layout="${shelfLayout()}">${shelf.artists.map(a=>{const albums=shelf.albums.filter(b=>b.artists.some(artist=>artist.id===a.id));return `<section class="artist-shelf" data-shelf-id="${escapeHtml(a.id)}" data-shelf-artist="${escapeHtml(a.name.toLowerCase())}">${artistDivider(a,albums.length)}<button class="shelf-artist-toggle" data-action="shelf-artist" aria-expanded="false" aria-controls="shelf-records-${escapeHtml(a.id)}"><strong>${escapeHtml(a.name)}</strong><span>${albums.length} ${albums.length===1?'record':'records'}</span><span class="shelf-chevron" aria-hidden="true">⌄</span></button><div class="shelf-records" id="shelf-records-${escapeHtml(a.id)}">${vinylCards(albums,'shelf')}<a class="quiet shelf-artist-link" href="#artist/${id(a.id)}">More from ${escapeHtml(a.name)} ↗</a></div></section>`;}).join('')}</div><p id="shelf-no-results" class="muted" hidden>No records match that search.</p>`);
+    (!shelf.albums.length?empty('Your first record awaits.','Find an artist, choose an album, make it yours.'):`<div class="room-toolbar"><label for="shelf-filter">Find a record</label><input id="shelf-filter" type="search" placeholder="Artist or album" value="${escapeHtml(shelfFilter)}"><a class="quiet" href="#store">Make room for another ↗</a></div><div class="shelf-layout"><button class="quiet" data-action="shelf-expand-all" aria-expanded="${allShelvesExpanded}">${allShelvesExpanded?'Collapse all':'Expand all'}</button></div><div class="collection-shelves" data-layout="${shelfLayout()}">${shelf.artists.map(a=>{const albums=shelf.albums.filter(b=>b.artists.some(artist=>artist.id===a.id));return `<section class="artist-shelf" data-shelf-id="${escapeHtml(a.id)}" data-shelf-artist="${escapeHtml(a.name.toLowerCase())}">${artistDivider(a,albums.length)}<button class="shelf-artist-toggle" data-action="shelf-artist" aria-expanded="false" aria-controls="shelf-records-${escapeHtml(a.id)}"><strong>${escapeHtml(a.name)}</strong><span>${albums.length} ${albums.length===1?'record':'records'}</span><span class="shelf-chevron" aria-hidden="true">⌄</span></button><div class="shelf-records" id="shelf-records-${escapeHtml(a.id)}">${vinylCards(albums,'shelf')}<a class="quiet shelf-artist-link" href="#artist/${id(a.id)}">More from ${escapeHtml(a.name)} ↗</a></div></section>`;}).join('')}</div><p id="shelf-no-results" class="muted" hidden>No records match that search.</p>`);
 }
 function vinylStore(shelf){
   if(storeSearch.kind==='album'){const owned=new Set(shelf.albums.map(a=>a.id));for(const a of storeSearch.results||[])a.on_shelf=owned.has(a.id);}
@@ -54,6 +51,7 @@ function saveBrowsing(hash){
 }
 function restoreBrowsing(generation){
   filterShelf();
+  arrangeShelfRows();
   requestAnimationFrame(()=>{
     if(generation!==routeGeneration)return;
     const parts=location.hash.slice(1).split('/');
@@ -72,35 +70,54 @@ function filterShelf(){
     section.hidden=count===0;visible+=count;
   });
   const empty=document.querySelector('#shelf-no-results');if(empty)empty.hidden=visible>0;
+  arrangeShelfRows();
   updateShelfLayout();
 }
 function updateShelfLayout(){
   const collection=document.querySelector('.collection-shelves');if(!collection)return;
   const compact=shelfLayout()==='dividers';collection.dataset.layout=compact?'dividers':'open';
-  document.querySelectorAll('[data-action="shelf-layout"]').forEach(button=>{
-    const active=button.dataset.layout===shelfLayout();button.classList.toggle('active',active);button.setAttribute('aria-pressed',String(active));
-  });
+  const button=document.querySelector('[data-action="shelf-expand-all"]');
+  if(button){button.textContent=compact?'Expand all':'Collapse all';button.setAttribute('aria-expanded',String(!compact));}
   collection.querySelectorAll('[data-shelf-id]').forEach(section=>{
-    const open=section.dataset.shelfId===expandedShelfArtist;
+    const open=!compact||section.dataset.shelfId===expandedShelfArtist;
     section.querySelector('.shelf-artist-toggle').setAttribute('aria-expanded',String(open));
     section.querySelector('.shelf-records').hidden=compact&&!open;
   });
 }
-function changeShelfLayout(value){
-  if(!['open','dividers'].includes(value))return;
-  if(value==='dividers'&&shelfLayout()!=='dividers')expandedShelfArtist=null;
-  const key=browserPreferenceKey('audioshelf-shelf-layout');shelfLayouts.set(key,value);
-  try{localStorage.setItem(key,value);}catch{}
-  updateShelfLayout();
+function toggleAllShelves(){
+  allShelvesExpanded=!allShelvesExpanded;expandedShelfArtist=null;updateShelfLayout();
 }
 function toggleShelfArtist(button){
   const section=button.closest('[data-shelf-id]');
   const top=button.getBoundingClientRect().top;
-  expandedShelfArtist=expandedShelfArtist===section.dataset.shelfId?null:section.dataset.shelfId;
+  const wasOpen=button.getAttribute('aria-expanded')==='true';
+  allShelvesExpanded=false;expandedShelfArtist=wasOpen?null:section.dataset.shelfId;
   updateShelfLayout();
   // Closing an earlier shelf must not pull the newly tapped divider off screen.
   window.scrollBy(0,button.getBoundingClientRect().top-top);
 }
+function shelfStyleSettings(){return `<h3>Shelf furniture</h3><p>Choose the shelves used in the Vinyl interface. Saved with your account across devices.</p><div class="interface-choices shelf-style-choices">${[['floating','Floating shelves','Continuous white ledges against a pale wall.'],['cabinet','White record cabinet','White sides and dividers frame each row of records.']].map(([value,title,description])=>`<button class="interface-choice" data-action="shelf-style" data-id="${value}" aria-pressed="${(statusInfo.shelf_style||'floating')===value}"><span class="furniture-preview ${value}" aria-hidden="true"><i></i><i></i><i></i></span><strong>${title}</strong><small>${description}</small></button>`).join('')}</div>`;}
+function arrangeShelfRows(){
+  const columns=matchMedia('(max-width:700px)').matches?2:4;
+  document.querySelectorAll('.shelf-rack').forEach(rack=>{
+    const cards=[...rack.querySelectorAll('.sleeve')];
+    cards.forEach((card,index)=>{if(!card.hasAttribute('data-shelf-order'))card.dataset.shelfOrder=index;});
+    cards.sort((a,b)=>Number(a.dataset.shelfOrder)-Number(b.dataset.shelfOrder));
+    const visible=cards.filter(card=>!card.hidden), hidden=cards.filter(card=>card.hidden);
+    const signature=columns+':'+visible.map(card=>card.dataset.album).join(',');
+    if(rack.dataset.rows===signature)return;
+    rack.dataset.rows=signature;
+    const fragment=document.createDocumentFragment();
+    for(let n=0;n<visible.length;n+=columns){
+      const row=document.createElement('div');row.className='shelf-row';
+      visible.slice(n,n+columns).forEach(card=>row.append(card));
+      const ledge=document.createElement('span');ledge.className='shelf-ledge';ledge.setAttribute('aria-hidden','true');row.append(ledge);
+      fragment.append(row);
+    }
+    hidden.forEach(card=>fragment.append(card));rack.replaceChildren(fragment);
+  });
+}
+matchMedia('(max-width:700px)').addEventListener('change',arrangeShelfRows);
 function markCollected(albumId,owned=true){for(const album of storeSearch.results||[])if(album.id===albumId)album.on_shelf=owned;}
 document.addEventListener('input',event=>{if(event.target.id==='shelf-filter'){shelfFilter=event.target.value;filterShelf();}});
 document.addEventListener('click',event=>{
