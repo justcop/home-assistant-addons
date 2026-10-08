@@ -58,6 +58,9 @@ def test_artist_merge_combines_exact_song_album_and_undo(tmp_path):
         assert len({r[0] for r in conn.execute(
             "SELECT group_id FROM resolved_variants WHERE kind='song' AND name='Hoppípolla'"
         )}) == 2
+        assert len({r[0] for r in conn.execute(
+            "SELECT group_id FROM resolved_variants WHERE kind='song' AND name='New song'"
+        )}) == 2
 
 
 def test_manually_separated_song_is_not_auto_merged(tmp_path):
