@@ -90,3 +90,40 @@
   [data-shelf-style=cabinet] .collection-shelves .shelf-records{--rail-top:25px}
   [data-shelf-style=cabinet] .collection-shelves .artist-shelf[data-view=rail] .shelf-rack{border-width:7px}
 }
+
+
+/* Spotify artwork fills the existing bar; the record on the right is an interactive platter. */
+#turntable:has(.now-playing-cover){padding:5px 12px;gap:10px;min-height:82px}
+#turntable .turntable-record{gap:10px;min-width:0;flex:1;align-items:center}
+#turntable .now-playing-cover{width:70px;height:70px;flex:0 0 70px;display:flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:2px;overflow:hidden;background:var(--soft);cursor:pointer}
+#turntable .now-playing-cover:focus-visible,#turntable .turntable-toggle:focus-visible,#turntable .now-playing-skips button:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+#turntable .now-playing-art{display:block;width:100%;height:100%;object-fit:cover}
+#turntable .now-playing-fallback{font-size:30px;color:var(--muted)}
+#turntable .now-playing-details{flex:1;min-width:0}
+#turntable .now-playing-details strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#turntable .now-playing-details>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#turntable .now-playing-skips{display:flex;align-items:center;gap:2px;flex:0 0 auto}
+#turntable .now-playing-skips button{width:34px;height:42px;padding:0;border:0;background:transparent;color:var(--ink);font-size:17px;cursor:pointer}
+#turntable .now-playing-skips button:disabled,#turntable .turntable-toggle:disabled{opacity:.45;cursor:not-allowed}
+#turntable .turntable-toggle{width:55px;height:55px;flex:0 0 55px;position:relative;border:0;background:transparent;padding:0;cursor:pointer}
+#turntable .turntable-platter{display:block;width:100%;height:100%;border:3px solid #777c79;border-radius:50%;background:radial-gradient(circle at 50% 50%,#e1c8ab 0 11%,#303330 12% 18%,#272b28 19% 29%,#4e524e 30% 31%,#272b28 32% 48%,#505550 49% 50%,#222622 51% 74%,#373c37 75% 100%);box-shadow:inset 0 0 0 2px #a8ada7,0 2px 5px #0003}
+#turntable .is-spinning .turntable-platter{animation:audioshelf-spin 2.4s linear infinite}
+#turntable .turntable-tonearm{position:absolute;right:-2px;top:-3px;width:3px;height:45%;background:#a1a6a0;border-radius:4px;transform:rotate(25deg);transform-origin:top right;pointer-events:none;box-shadow:1px 1px 1px #0006}
+#turntable .turntable-tonearm:after{content:'';position:absolute;bottom:-3px;left:-2px;width:7px;height:8px;background:#797e79;border-radius:1px}
+@keyframes audioshelf-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){#turntable .is-spinning .turntable-platter{animation:none}}
+@media(max-width:700px){
+  #turntable:has(.now-playing-cover){padding:6px 9px;gap:7px;min-height:76px}
+  #turntable .turntable-record{gap:8px}
+  #turntable .now-playing-cover{width:62px;height:62px;flex-basis:62px}
+  #turntable .turntable-toggle{width:43px;height:43px;flex-basis:43px}
+  #turntable .turntable-tonearm{height:43%}
+  #turntable .now-playing-skips button{width:27px;height:37px;font-size:14px}
+  #turntable .now-playing-details small{letter-spacing:0}
+}
+@media(max-width:370px){
+  #turntable .now-playing-cover{width:58px;height:58px;flex-basis:58px}
+  #turntable .turntable-toggle{width:39px;height:39px;flex-basis:39px}
+  #turntable .now-playing-skips button{width:25px}
+  #turntable .now-playing-details small{font-size:6px}
+}
