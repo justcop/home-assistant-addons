@@ -313,6 +313,9 @@ async function loadMoneyhubPanel(message = "") {
   const host = $("#moneyhub-panel");
   if (!host) return;
   const s = await api("moneyhub/status");
+  const recent = s.transaction_count
+    ? await api("moneyhub/transactions?limit=10")
+    : [];
   const last = s.last_pull
     ? `Last pull: <strong>${esc(new Date(s.last_pull.pulled).toLocaleString("en-GB"))}</strong> · ${day(s.last_pull.start_date)} to ${day(s.last_pull.end_date)} · ${s.last_pull.account_count} accounts · ${s.last_pull.transaction_count} transactions received.`
     : "No LifeStage data pulled yet.";
@@ -322,6 +325,10 @@ async function loadMoneyhubPanel(message = "") {
       : s.auth_status === "totp_required"
         ? "Waiting for 2FA code"
         : "Not authenticated";
+  const login =
+    s.auth_status === "signed_out"
+      ? `<div class="form-grid">${input("LifeStage email", 'id="moneyhub-email" type="email" autocomplete="username"', s.email || "")}${input("Tenant ID", 'id="moneyhub-tenant" autocomplete="off"', s.tenant_id || "", "Temporary technical field while we finish automatic discovery.")}${input("Password", 'id="moneyhub-password" type="password" autocomplete="current-password"', "", "Used only for this login request and never stored.")}</div><p><button id="moneyhub-login">Start LifeStage login</button></p>`
+      : '<p><button id="moneyhub-disconnect">Disconnect LifeStage session</button></p>';
   const totp =
     s.auth_status === "totp_required"
       ? `<div class="actions">${input("2FA code", 'id="moneyhub-totp" inputmode="numeric" autocomplete="one-time-code"')}<button id="moneyhub-verify" class="primary">Verify 2FA</button></div>`
@@ -330,8 +337,11 @@ async function loadMoneyhubPanel(message = "") {
     s.auth_status === "authenticated"
       ? `<div class="form-grid">${input("Transactions from", 'id="moneyhub-start" type="date"', dateOffset(-90))}${input("Transactions to", 'id="moneyhub-end" type="date"', today())}</div><p><button id="moneyhub-pull" class="primary">Pull accounts & transactions</button></p>`
       : "";
+  const recentTable = recent.length
+    ? `<h3>Recently imported transactions</h3><div class="table-wrap"><table><thead><tr><th>Date</th><th>Description</th><th>Account ID</th><th class="num">Amount</th></tr></thead><tbody>${recent.map((t) => `<tr><td>${esc((t.date || "").slice(0,10))}</td><td>${esc(t.description || "—")}</td><td><small>${esc(t.accountUid || "—")}</small></td><td class="num">${gbp(Number(t.amount || 0))}</td></tr>`).join("")}</tbody></table></div>`
+    : "";
   host.innerHTML =
-    `${message ? `<div class="notice good">${esc(message)}</div>` : ""}<p><strong>${esc(statusText)}</strong></p><div class="form-grid">${input("LifeStage email", 'id="moneyhub-email" type="email" autocomplete="username"', s.email || "")}${input("Tenant ID", 'id="moneyhub-tenant" autocomplete="off"', s.tenant_id || "", "Temporary technical field while we finish automatic discovery.")}${input("Password", 'id="moneyhub-password" type="password" autocomplete="current-password"', "", "Used only for this login request and never stored.")}</div><p><button id="moneyhub-login">Start LifeStage login</button></p>${totp}${pull}<p class="muted subtle">${last} Stored total: ${s.account_count} accounts and ${s.transaction_count} unique transactions. 2FA codes, passwords and LifeStage session tokens are never written to the database.</p>`;
+    `${message ? `<div class="notice good">${esc(message)}</div>` : ""}<p><strong>${esc(statusText)}</strong></p>${login}${totp}${pull}<p class="muted subtle">${last} Stored total: ${s.account_count} accounts and ${s.transaction_count} unique transactions. 2FA codes, passwords and LifeStage session tokens are never written to the database.</p>${recentTable}`;
 }
 async function saveEdit(finalize = false) {
   clearTimeout(timer);
@@ -594,6 +604,10 @@ document.addEventListener("click", async (e) => {
         await route();
         break;
       }
+      case "moneyhub-disconnect":
+        await api("moneyhub/disconnect", {});
+        await loadMoneyhubPanel("LifeStage session disconnected.");
+        break;
       case "moneyhub-login": {
         const result = await api("moneyhub/login", {
           email: $("#moneyhub-email").value,
