@@ -114,6 +114,7 @@ class Database:
                 db.execute("UPDATE variants SET exact_key=? WHERE id=?",
                            (normalise(row["name"]), row["id"]))
             db.execute("CREATE INDEX IF NOT EXISTS play_artist_group ON scrobbles(artist_group_key, active, ts)")
+            db.execute("CREATE INDEX IF NOT EXISTS play_analysis ON scrobbles(active, ts, artist_group_key, song_id, album_id)")
             db.execute("CREATE INDEX IF NOT EXISTS variant_exact ON variants(kind,exact_key)")
             if version < 3:
                 last = 0
