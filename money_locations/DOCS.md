@@ -20,7 +20,9 @@ For cash accounts, enter interest credited. Do not enter the same interest as or
 
 Enter ordinary net income by source. Additional sources can be added in settings. All blank activity fields are treated as zero only when you confirm the completeness checkbox; until then results are provisional. Blank balances remain missing, not confirmed zeros. Finalising requires all required balances and the activity confirmation.
 
-Use **Check calculations** to inspect the reconciliation and missing entries. Saving a corrected historical snapshot recalculates later results from their adjacent final snapshots.
+Use **Review period** to inspect the accounting breakdown, sanity warnings and missing entries. Savings and spending are inferred from the balance movement; the breakdown is therefore not an independent reconciliation check.
+
+You can correct figures on an existing final snapshot without changing its date. If you need to move a final snapshot or insert a new snapshot between existing final periods, reopen the affected later snapshot first. Reopening a final snapshot also reopens every later final snapshot as a draft, preserving their data but requiring those periods to be reviewed and finalised again.
 
 ## Pension relief and bonuses
 
@@ -40,15 +42,17 @@ This tracker uses the owner's investment-cost convention for mortgage interest:
 1. Calculate each investment's gross return as closing balance minus opening balance minus contributions plus withdrawals minus relief/bonuses minus exceptional account capital changes.
 2. Allocate mortgage interest in proportion to closing stocks and P2P balances. Cash, crypto and property receive no allocation. Amounts are rounded to pennies with a residual adjustment so costs sum exactly. If there is no eligible balance, show the entire mortgage cost as unallocated investment cost.
 3. Net investment return = gross return minus mortgage interest.
-4. Savings from ordinary income = financial balance increase minus net investment return minus tax benefits minus exceptional capital changes.
-5. Spending = ordinary income minus savings.
+4. Inferred savings from ordinary income = change in net financial assets minus net investment return minus tax benefits minus exceptional capital changes.
+5. Inferred spending = ordinary income minus inferred savings.
 6. Excluded payments reduce both displayed income and displayed spending by the same amount, leaving savings unchanged.
 
 The source spreadsheet's original proportional allocation used closing stocks and P2P balances. Some later stock-profit formulas omitted their share of mortgage interest even though the overall return deducted the entire cost. This app consistently applies the intended allocation so grouped returns agree with the total.
 
 Mortgage principal is calculated from the change in the mortgage balance, adjusted for any exceptional capital change recorded against that account. For straightforward repayments, enter the interest directly or use the helper: total payments minus reduction in debt. Borrowing, fees and capitalised interest need explicit treatment; the helper must not be used blindly for those periods.
 
-Income saved into cash and investments and principal repaid are shown separately. Other savings is the total savings figure less mortgage principal; it can also reflect other debt repayments and receivable changes. Ordinary account transfers are not overall capital changes.
+Income saved into cash and investments and principal repaid are shown separately. Other savings is the total inferred savings figure less mortgage principal; it can also reflect other debt repayments and receivable changes. Ordinary account transfers are not overall capital changes.
+
+Net financial assets deliberately include the mortgage as a negative balance even when the property value is excluded. This reflects the owner's treatment of the mortgage as financing held alongside the investment portfolio. Mortgage principal repayment therefore increases net financial assets just as adding the same amount to an investment account would.
 
 ## Exceptional changes
 
@@ -58,7 +62,7 @@ The overall capital-change field is for adjustments not already recorded against
 
 ## Home value
 
-Add dated valuations of your share of the property in settings. A snapshot uses the latest valuation on or before that date. There is no interpolation and no assumed historic property value. Overview can show your financial position with or without your home. Revaluation is separate from savings. Update a valuation by saving another value on the same date.
+Add dated valuations of your share of the property in settings. A snapshot uses the latest valuation on or before that date. There is no interpolation and no assumed historic property value. The default headline is **Net financial assets**, which includes the mortgage and excludes property value. Enabling home value shows **Total net worth including home** by adding the latest applicable property valuation. Revaluation is separate from savings. Update a valuation by saving another value on the same date.
 
 ## Account management
 
@@ -82,7 +86,7 @@ To restore, download a recovery copy or use an exported JSON file. Select it und
 
 ## Current scope
 
-GBP and a single household dataset. No bank connections, Google Drive synchronisation, statement imports, OCR or AI. Pension entitlement outside tracked accounts is not valued. Historical account-level returns cannot be recovered from aggregate category flows. No API credentials are needed.
+GBP and a single household dataset. No bank connections, Google Drive synchronisation, statement imports, OCR or AI. Pension entitlement outside tracked accounts is not valued. Historical account-level returns cannot be recovered from aggregate category flows. Percentage returns currently use gross inferred return divided by opening balance as a sanity check; they are not Modified Dietz or another money-weighted performance measure. No API credentials are needed.
 
 ## Login and access
 
