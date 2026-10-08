@@ -41,6 +41,8 @@ const today = () =>
 const clone = (v) => JSON.parse(JSON.stringify(v));
 const signed = (v) =>
   `<span class="${v < 0 ? "negative" : "positive"}">${gbp(v)}</span>`;
+const pct = (v) =>
+  v === null || v === undefined ? "—" : `${Number(v).toFixed(2)}%`;
 function error(e) {
   $("#error").hidden = false;
   $("#error").textContent = e.message || String(e);
@@ -77,7 +79,9 @@ async function action(action, body = {}) {
   return d.result;
 }
 function badge(r) {
-  return `<span class="badge ${r.legacy || r.warnings?.length ? "warn" : ""}">${r.legacy || r.warnings?.length ? "Provisional" : "Complete"}</span>`;
+  if (r.legacy) return '<span class="badge warn">Provisional</span>';
+  if (r.warnings?.length) return '<span class="badge warn">Check</span>';
+  return '<span class="badge">Complete</span>';
 }
 function heading(title, subtitle, buttons = "") {
   return `<div class="title-row"><div><h1>${title}</h1><p class="muted">${subtitle}</p></div><div class="actions">${buttons}</div></div>`;
@@ -111,14 +115,16 @@ function metric(label, value, sub = "", hero = false) {
 function breakdown(r) {
   if (!r.previous_date)
     return '<p class="muted">This opening snapshot establishes your starting balances.</p>';
-  return `<div class="breakdown"><div><span>Savings from ordinary income</span><strong>${gbp(r.savings)}</strong></div><div><span>Investment return after mortgage cost</span><strong>${gbp(r.net_return)}</strong></div><div><span>Pension relief & account bonuses</span><strong>${gbp(r.tax_benefits)}</strong></div><div><span>Other capital changes</span><strong>${gbp(r.capital_change)}</strong></div><div class="total"><span>Change in financial position</span><strong>${gbp(r.balance_change)}</strong></div></div>`;
+  return `<div class="breakdown"><div><span>Inferred savings from ordinary income</span><strong>${gbp(r.savings)}</strong></div><div><span>Investment return after mortgage cost</span><strong>${gbp(r.net_return)}</strong></div><div><span>Pension relief & account bonuses</span><strong>${gbp(r.tax_benefits)}</strong></div><div><span>Other capital changes</span><strong>${gbp(r.capital_change)}</strong></div><div class="total"><span>Change in net financial assets</span><strong>${gbp(r.balance_change)}</strong></div></div>`;
 }
 function longerView() {
   const periods = reports.filter((r) => r.previous_date);
   if (!periods.length) return "";
   const recent = periods.slice(-3);
-  const sum = (rows, key) => rows.reduce((total, r) => total + r[key], 0);
-  return `<section class="panel"><h2>The longer view</h2><p class="muted subtle">Averages cover the latest ${recent.length} snapshot intervals. Imported estimates remain provisional.</p><div class="cards">${metric("Average savings per interval", sum(recent, "savings") / recent.length)}${metric("Average net return per interval", sum(recent, "net_return") / recent.length)}${metric("Cumulative savings", sum(periods, "savings"), "Since " + day(reports[0].date))}${metric("Cumulative net return", sum(periods, "net_return"), "Since " + day(reports[0].date))}</div></section>`;
+  const sum = (rows, key) => rows.reduce((total, r) => total + Number(r[key] || 0), 0);
+  const totalDays = sum(recent, "days");
+  const per30 = (key) => totalDays ? (sum(recent, key) * 30) / totalDays : null;
+  return `<section class="panel"><h2>The longer view</h2><p class="muted subtle">Rates are normalised to 30 days so uneven snapshot intervals are comparable. These use the latest ${recent.length} intervals. Imported estimates remain provisional.</p><div class="cards">${metric("Average inferred savings / 30 days", per30("savings"))}${metric("Average net return / 30 days", per30("net_return"))}${metric("Cumulative inferred savings", sum(periods, "savings"), "Since " + day(reports[0].date))}${metric("Cumulative net return", sum(periods, "net_return"), "Since " + day(reports[0].date))}</div></section>`;
 }
 function overview() {
   const r = reports.at(-1);
@@ -136,7 +142,7 @@ function overview() {
       `Latest snapshot · ${day(r.date)}`,
       `<a class="button primary" href="#checkin">New check-in</a>`,
     ) +
-    `<div class="section-row">${badge(r)}<label class="toggle"><input type="checkbox" id="home-toggle" ${includeHome ? "checked" : ""}>Include home value</label></div><div class="cards">${metric(includeHome ? "Net worth including home" : "Financial position", includeHome ? r.with_home : r.net_worth, includeHome ? (r.home_value_date ? "Home valued " + day(r.home_value_date) : "Add a valuation in settings") : "Excludes your home’s value", true)}${metric("Saved from income", r.savings, "Includes mortgage principal")}${metric("Net investment return", r.net_return, "After allocated mortgage interest")}${metric("Calculated spending", r.adjusted_spending, "After excluded payments")}</div>${r.warnings.length ? `<div class="notice">${esc(r.warnings.join(" "))}</div>` : ""}<div class="grid-two"><section class="panel"><div class="section-row"><h2>How your position has changed</h2></div>${chart(reports, includeHome ? "with_home" : "net_worth")}</section><section class="panel"><h2>This period, explained</h2><p class="muted subtle">${day(r.previous_date)} to ${day(r.date)} · ${r.days ?? 0} days</p>${breakdown(r)}<p class="subtle"><button class="history-button" data-report="${r.id}">See the full calculation</button></p></section></div><div class="grid-two"><section class="panel"><h2>Where your money is</h2><div class="breakdown">${Object.entries(
+    `<div class="section-row">${badge(r)}<label class="toggle"><input type="checkbox" id="home-toggle" ${includeHome ? "checked" : ""}>Include home value</label></div><div class="cards">${metric(includeHome ? "Total net worth including home" : "Net financial assets", includeHome ? r.with_home : r.net_worth, includeHome ? (r.home_value_date ? "Home valued " + day(r.home_value_date) : "Add a valuation in settings") : "Includes mortgage; excludes property value", true)}${metric("Inferred savings", r.savings, "Includes mortgage principal")}${metric("Net investment return", r.net_return, "After allocated mortgage interest")}${metric("Inferred spending", r.adjusted_spending, "After excluded payments")}</div>${r.warnings.length ? `<div class="notice"><strong>Worth checking</strong><ul>${r.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul></div>` : ""}<div class="grid-two"><section class="panel"><div class="section-row"><h2>How your position has changed</h2></div>${chart(reports, includeHome ? "with_home" : "net_worth")}</section><section class="panel"><h2>This period, explained</h2><p class="muted subtle">${day(r.previous_date)} to ${day(r.date)} · ${r.days ?? 0} days</p>${breakdown(r)}<p class="subtle"><button class="history-button" data-report="${r.id}">See the full calculation</button></p></section></div><div class="grid-two"><section class="panel"><h2>Where your money is</h2><div class="breakdown">${Object.entries(
       r.totals,
     )
       .filter(([k, v]) => v)
@@ -154,9 +160,9 @@ function detailed(r) {
     heading(
       "Period review",
       `${day(r.previous_date)} to ${day(r.date)}`,
-      `<button data-edit="${r.id}">Edit snapshot</button><a class="button" href="#history">All history</a>`,
+      `<button data-edit="${r.id}">Edit figures</button><button data-reopen="${r.id}">Reopen as draft</button><a class="button" href="#history">All history</a>`,
     ) +
-    `${badge(r)}${r.warnings.map((w) => `<div class="notice">${esc(w)}</div>`).join("")}<div class="cards">${metric("Financial position", r.net_worth, "Excluding home", true)}${metric("Saved from income", r.savings)}${metric("Net investment return", r.net_return)}${metric("Calculated spending", r.adjusted_spending)}</div><div class="grid-two"><section class="panel"><h2>Balance reconciliation</h2>${breakdown(r)}<p class="muted subtle">Savings = balance change − net investment return − tax benefits − other capital changes.</p></section><section class="panel"><h2>Income and spending</h2><div class="breakdown">${Object.entries(
+    `${badge(r)}${r.warnings.map((w) => `<div class="notice">${esc(w)}</div>`).join("")}<div class="cards">${metric("Net financial assets", r.net_worth, "Includes mortgage; excludes property value", true)}${metric("Inferred savings", r.savings)}${metric("Net investment return", r.net_return)}${metric("Inferred spending", r.adjusted_spending)}</div><div class="grid-two"><section class="panel"><h2>Period breakdown</h2>${breakdown(r)}<p class="muted subtle">Savings is inferred from the balance movement after investment return, tax benefits and exceptional capital changes. This is an accounting breakdown, not an independent reconciliation check.</p></section><section class="panel"><h2>Income and spending</h2><div class="breakdown">${Object.entries(
       state.snapshots.find((s) => s.id === r.id)?.income || {},
     )
       .map(
@@ -165,39 +171,39 @@ function detailed(r) {
       )
       .join(
         "",
-      )}<div class="total"><span>Income total</span><strong>${gbp(r.income)}</strong></div><div><span>Excluded payments</span><strong>${gbp(r.excluded_payments)}</strong></div><div><span>Adjusted income</span><strong>${gbp(r.adjusted_income)}</strong></div><div><span>Less savings</span><strong>${gbp(r.savings)}</strong></div><div class="total"><span>Adjusted spending</span><strong>${gbp(r.adjusted_spending)}</strong></div></div></section></div><section class="panel"><h2>Investment returns</h2><p class="muted subtle">Mortgage interest is allocated by closing stocks and P2P balances. Cash receives no allocation.</p><div class="table-wrap"><table><thead><tr><th>Type</th><th class="num">Balance</th><th class="num">Gross return</th><th class="num">Mortgage cost</th><th class="num">Net return</th></tr></thead><tbody>${Object.entries(
+      )}<div class="total"><span>Income total</span><strong>${gbp(r.income)}</strong></div><div><span>Excluded payments</span><strong>${gbp(r.excluded_payments)}</strong></div><div><span>Adjusted income</span><strong>${gbp(r.adjusted_income)}</strong></div><div><span>Less inferred savings</span><strong>${gbp(r.savings)}</strong></div><div class="total"><span>Inferred adjusted spending</span><strong>${gbp(r.adjusted_spending)}</strong></div></div></section></div><section class="panel"><h2>Investment returns</h2><p class="muted subtle">Mortgage interest is allocated by closing stocks and P2P balances. Percentage return is a simple comparison with the opening balance, useful as a sanity check rather than a money-weighted performance measure.</p><div class="table-wrap"><table><thead><tr><th>Type</th><th class="num">Balance</th><th class="num">Gross return</th><th class="num">Gross %</th><th class="num">Mortgage cost</th><th class="num">Net return</th></tr></thead><tbody>${Object.entries(
       r.groups,
     )
       .map(
         ([k, g]) =>
-          `<tr><td>${k}</td><td class="num">${gbp(g.balance)}</td><td class="num">${r.previous_date ? gbp(g.gross) : "—"}</td><td class="num">${gbp(g.cost)}</td><td class="num">${r.previous_date ? signed(g.net) : "—"}</td></tr>`,
+          `<tr><td>${k}</td><td class="num">${gbp(g.balance)}</td><td class="num">${r.previous_date ? gbp(g.gross) : "—"}</td><td class="num">${pct(g.return_pct)}</td><td class="num">${gbp(g.cost)}</td><td class="num">${r.previous_date ? signed(g.net) : "—"}</td></tr>`,
       )
       .join(
         "",
-      )}</tbody></table></div>${r.unallocated_cost ? `<p>Unallocated mortgage cost: ${gbp(r.unallocated_cost)}</p>` : ""}</section><section class="panel"><h2>Account detail</h2>${r.legacy ? '<p class="muted">Historical contributions were recorded by category. Individual account returns are unavailable.</p>' : ""}<div class="table-wrap"><table><thead><tr><th>Account</th><th class="num">Previous</th><th class="num">Balance</th><th class="num">Change</th><th class="num">Net return</th></tr></thead><tbody>${r.accounts
+      )}</tbody></table></div>${r.unallocated_cost ? `<p>Unallocated mortgage cost: ${gbp(r.unallocated_cost)}</p>` : ""}</section><section class="panel"><h2>Account detail</h2>${r.legacy ? '<p class="muted">Historical contributions were recorded by category. Individual account returns are unavailable.</p>' : ""}<div class="table-wrap"><table><thead><tr><th>Account</th><th class="num">Previous</th><th class="num">Balance</th><th class="num">Change</th><th class="num">Gross %</th><th class="num">Net return</th></tr></thead><tbody>${r.accounts
       .filter((a) => a.balance !== null || a.previous)
       .map(
         (a) =>
-          `<tr><td>${esc(a.name)}<br><small>${esc(a.type)} · ${esc(a.wrapper)}</small></td><td class="num">${gbp(a.previous)}</td><td class="num">${a.balance === null ? "Unrecorded" : gbp(a.balance)}</td><td class="num">${gbp(a.change)}</td><td class="num">${a.net === null ? "—" : signed(a.net)}</td></tr>`,
+          `<tr><td>${esc(a.name)}<br><small>${esc(a.type)} · ${esc(a.wrapper)}</small></td><td class="num">${gbp(a.previous)}</td><td class="num">${a.balance === null ? "Unrecorded" : gbp(a.balance)}</td><td class="num">${gbp(a.change)}</td><td class="num">${pct(a.return_pct)}</td><td class="num">${a.net === null ? "—" : signed(a.net)}</td></tr>`,
       )
       .join(
         "",
-      )}</tbody></table></div></section>${r.home_value !== null ? `<section class="panel"><h2>Home value</h2><p>${gbp(r.home_value)} as at ${day(r.home_value_date)}. Total including home: <strong>${gbp(r.with_home)}</strong>.</p><p class="muted">${r.property_change === null ? "No comparable opening valuation." : `Valuation change this period: ${gbp(r.property_change)}. This is separate from savings.`}</p></section>` : ""}`
+      )}</tbody></table></div></section>${r.home_value !== null ? `<section class="panel"><h2>Home value</h2><p>${gbp(r.home_value)} as at ${day(r.home_value_date)}. Total net worth including home: <strong>${gbp(r.with_home)}</strong>.</p><p class="muted">${r.property_change === null ? "No comparable opening valuation." : `Valuation change this period: ${gbp(r.property_change)}. This is separate from savings.`}</p></section>` : ""}`
   );
 }
 function history() {
   return (
     heading(
       "Your financial history",
-      "Every snapshot, with the figures behind it.",
+      "Every snapshot, with 30-day-normalised period figures for fair comparison.",
     ) +
-    `<section class="panel"><div class="table-wrap"><table><thead><tr><th>Snapshot</th><th>Status</th><th class="num">Financial position</th><th class="num">Savings</th><th class="num">Net return</th><th class="num">Spending</th></tr></thead><tbody>${[
+    `<section class="panel"><div class="table-wrap"><table><thead><tr><th>Snapshot</th><th>Status</th><th class="num">Net financial assets</th><th class="num">Days</th><th class="num">Savings / 30d</th><th class="num">Net return / 30d</th><th class="num">Spending / 30d</th></tr></thead><tbody>${[
       ...state.snapshots,
     ]
       .sort((a, b) => b.date.localeCompare(a.date))
       .map((s) => {
         const r = reports.find((r) => r.id === s.id);
-        return `<tr><td><button class="history-button" ${r ? "data-report" : "data-edit"}="${s.id}">${day(s.date)}</button></td><td>${r ? badge(r) : '<span class="badge">Draft</span>'}</td><td class="num">${r ? gbp(r.net_worth) : "—"}</td><td class="num">${r ? gbp(r.savings) : "—"}</td><td class="num">${r ? gbp(r.net_return) : "—"}</td><td class="num">${r ? gbp(r.adjusted_spending) : "—"}</td></tr>`;
+        return `<tr><td><button class="history-button" ${r ? "data-report" : "data-edit"}="${s.id}">${day(s.date)}</button></td><td>${r ? badge(r) : '<span class="badge">Draft</span>'}</td><td class="num">${r ? gbp(r.net_worth) : "—"}</td><td class="num">${r?.days ?? "—"}</td><td class="num">${r ? gbp(r.savings_30d) : "—"}</td><td class="num">${r ? gbp(r.net_return_30d) : "—"}</td><td class="num">${r ? gbp(r.adjusted_spending_30d) : "—"}</td></tr>`;
       })
       .join("")}</tbody></table></div></section>`
   );
@@ -225,7 +231,7 @@ function editForm(s) {
         ? `Activity since ${day(prev.date)}. Drafts save automatically.`
         : "Your opening snapshot establishes the baseline.",
     ) +
-    `<form id="snapshot-form"><section class="panel"><div class="form-grid">${input("Snapshot date", 'type="date" data-root="date"', s.date)}<label>Record status<input disabled value="${s.status === "final" ? "Final snapshot · edits require Save changes" : "Draft · saved automatically"}"></label></div></section><section class="panel"><div class="section-row"><div><h2>1. Account balances</h2><p class="muted subtle">Enter a current figure or explicitly confirm an unchanged balance.</p></div></div>${state.accounts
+    `<form id="snapshot-form"><section class="panel"><div class="form-grid">${input("Snapshot date", `type="date" data-root="date" ${s.status === "final" ? "disabled" : ""}`, s.date)}<label>Record status<input disabled value="${s.status === "final" ? "Final snapshot · edits require Save changes" : "Draft · saved automatically"}"></label></div></section><section class="panel"><div class="section-row"><div><h2>1. Account balances</h2><p class="muted subtle">Enter a current figure or explicitly confirm an unchanged balance.</p></div></div>${state.accounts
       .filter((a) => a.id in s.balances || s.required_accounts.includes(a.id))
       .map((a) => {
         const b = s.balances[a.id] || {};
@@ -268,7 +274,7 @@ function editForm(s) {
       })
       .join(
         "",
-      )}</section><section class="panel"><h2>2. Income received</h2><p class="muted subtle">Net income received during this period, excluding pension tax refunds or an identified pension benefit in your tax code.</p><div class="form-grid">${[...new Set([...state.income_sources, ...Object.keys(s.income)])].map((k) => input(esc(k), `type="number" step="0.01" data-income="${esc(k)}"`, s.income[k])).join("")}</div></section><section class="panel"><h2>3. Adjustments</h2><div class="form-grid">${input("Mortgage interest cost", 'type="number" min="0" step="0.01" data-root="mortgage_interest"', s.mortgage_interest, "Enter a positive cost. Allocated across stocks and P2P, excluded from spending.")}${input("Additional pension tax benefit received", 'type="number" min="0" step="0.01" data-root="pension_refund"', s.pension_refund, "HMRC refund or identified tax-code benefit. Exclude this amount from ordinary income above.")}${input("Excluded payments", 'type="number" min="0" step="0.01" data-root="excluded_payments"', s.excluded_payments, "Reduces income and spending equally, for example a separate NHS pension payment.")}${input("Other overall capital change (+/−)", 'type="number" step="0.01" data-root="capital_change"', s.capital_change, "Gifts or adjustments not already entered against an account. Do not enter ordinary transfers.")}</div><details class="flows"><summary>Help calculate mortgage interest</summary><p class="subtle">For a straightforward repayment period with no new borrowing or fees: payments minus reduction in mortgage debt.</p><div class="actions">${input("Total mortgage payments", 'type="number" min="0" step="0.01" id="mortgage-payments"')}<button type="button" id="calculate-interest">Calculate</button></div></details><p class="notice">Record SIPP top-ups against the SIPP account above, once they first enter its tracked balance. If the displayed balance already includes pending relief, do not record it again on settlement. Expected relief outside your balance is not included.</p></section>${s.legacy ? `<section class="panel"><h2>Imported category contributions</h2><p class="muted">These historical figures take precedence over account-level contributions for this period. Correct them here if needed.</p><div class="form-grid">${["Stocks", "P2P", "Crypto"].map((g) => input(g + " net contribution", `type="number" step="0.01" data-legacy="${g}"`, s.legacy.group_contributions[g])).join("")}${input("Cash interest", 'type="number" step="0.01" min="0" data-legacy-cash="1"', s.legacy.cash_interest)}</div><p class="subtle muted">Original transfer adjustment retained for reference: ${gbp(Number(s.legacy.transfer_adjustment || 0))}. It is not automatically classified as income or growth.</p></section>` : ""}<section class="panel"><h2>Notes and review</h2><label>Period notes<textarea data-root="notes">${esc(s.notes)}</textarea></label><label class="checkline"><input type="checkbox" data-root="activity_complete" ${s.activity_complete ? "checked" : ""}>I have included all income, contributions, withdrawals, interest, relief and adjustments. Blank activity fields mean zero.</label><div id="preview"></div></section><div class="sticky-actions"><button type="button" id="preview-button">Check calculations</button><button type="button" id="save-draft">Save draft</button><button type="button" class="primary" id="finalize">${s.status === "final" ? "Save changes" : "Finalise snapshot"}</button>${s.status === "draft" ? '<button type="button" id="delete-draft">Discard draft</button>' : ""}<span class="muted subtle" id="form-status"></span></div></form>`
+      )}</section><section class="panel"><h2>2. Income received</h2><p class="muted subtle">Net income received during this period, excluding pension tax refunds or an identified pension benefit in your tax code.</p><div class="form-grid">${[...new Set([...state.income_sources, ...Object.keys(s.income)])].map((k) => input(esc(k), `type="number" step="0.01" data-income="${esc(k)}"`, s.income[k])).join("")}</div></section><section class="panel"><h2>3. Adjustments</h2><div class="form-grid">${input("Mortgage interest cost", 'type="number" min="0" step="0.01" data-root="mortgage_interest"', s.mortgage_interest, "Enter a positive cost. Allocated across stocks and P2P, excluded from spending.")}${input("Additional pension tax benefit received", 'type="number" min="0" step="0.01" data-root="pension_refund"', s.pension_refund, "HMRC refund or identified tax-code benefit. Exclude this amount from ordinary income above.")}${input("Excluded payments", 'type="number" min="0" step="0.01" data-root="excluded_payments"', s.excluded_payments, "Reduces income and spending equally, for example a separate NHS pension payment.")}${input("Other overall capital change (+/−)", 'type="number" step="0.01" data-root="capital_change"', s.capital_change, "Gifts or adjustments not already entered against an account. Do not enter ordinary transfers.")}</div><details class="flows"><summary>Help calculate mortgage interest</summary><p class="subtle">For a straightforward repayment period with no new borrowing or fees: payments minus reduction in mortgage debt.</p><div class="actions">${input("Total mortgage payments", 'type="number" min="0" step="0.01" id="mortgage-payments"')}<button type="button" id="calculate-interest">Calculate</button></div></details><p class="notice">Record SIPP top-ups against the SIPP account above, once they first enter its tracked balance. If the displayed balance already includes pending relief, do not record it again on settlement. Expected relief outside your balance is not included.</p></section>${s.legacy ? `<section class="panel"><h2>Imported category contributions</h2><p class="muted">These historical figures take precedence over account-level contributions for this period. Correct them here if needed.</p><div class="form-grid">${["Stocks", "P2P", "Crypto"].map((g) => input(g + " net contribution", `type="number" step="0.01" data-legacy="${g}"`, s.legacy.group_contributions[g])).join("")}${input("Cash interest", 'type="number" step="0.01" min="0" data-legacy-cash="1"', s.legacy.cash_interest)}</div><p class="subtle muted">Original transfer adjustment retained for reference: ${gbp(Number(s.legacy.transfer_adjustment || 0))}. It is not automatically classified as income or growth.</p></section>` : ""}<section class="panel"><h2>Notes and review</h2><label>Period notes<textarea data-root="notes">${esc(s.notes)}</textarea></label><label class="checkline"><input type="checkbox" data-root="activity_complete" ${s.activity_complete ? "checked" : ""}>I have included all income, contributions, withdrawals, interest, relief and adjustments. Blank activity fields mean zero.</label><div id="preview"></div></section><div class="sticky-actions"><button type="button" id="preview-button">Review period</button>${s.status === "draft" ? '<button type="button" id="save-draft">Save draft</button>' : ""}<button type="button" class="primary" id="finalize">${s.status === "final" ? "Save changes" : "Finalise snapshot"}</button>${s.status === "draft" ? '<button type="button" id="delete-draft">Discard draft</button>' : ""}<span class="muted subtle" id="form-status"></span></div></form>`
   );
 }
 function accounts() {
@@ -295,7 +301,7 @@ function settings() {
       )
       .join(
         "",
-      )}</section><section class="panel"><h2>Income sources</h2><p>${state.income_sources.map(esc).join(" · ")}</p><div class="actions">${input("New source", 'id="source-name"')}<button id="add-source">Add source</button></div></section><section class="panel explanation"><h2>How the figures work</h2><p>Investment growth is the change in account balance after removing contributions, adding back withdrawals, and removing relief and capital adjustments. Cash interest is entered explicitly.</p><p>Mortgage interest reduces investment returns in proportion to closing stocks and P2P balances. Savings equal the change in your financial position less net investment return, tax benefits and exceptional capital changes. Mortgage principal repayment is part of savings.</p><p>Calculated spending is ordinary income less savings. Excluded payments reduce both displayed income and spending equally. Home revaluation is shown separately.</p><p>Historical blanks remain unrecorded. They contribute zero to legacy totals, matching the source spreadsheet. Older returns are estimates where contribution, interest or relief records are incomplete.</p>${state.source_notes.map((n) => `<p class="muted subtle">${esc(n)}</p>`).join("")}</section>`
+      )}</section><section class="panel"><h2>Income sources</h2><p>${state.income_sources.map(esc).join(" · ")}</p><div class="actions">${input("New source", 'id="source-name"')}<button id="add-source">Add source</button></div></section><section class="panel explanation"><h2>How the figures work</h2><p>Investment growth is the change in account balance after removing contributions, adding back withdrawals, and removing relief and capital adjustments. Cash interest is entered explicitly.</p><p>Mortgage interest reduces investment returns in proportion to closing stocks and P2P balances. Net financial assets include the mortgage as a negative balance while excluding the property value unless you explicitly include home. Savings are inferred from the change in net financial assets less net investment return, tax benefits and exceptional capital changes. Mortgage principal repayment is part of savings.</p><p>Inferred spending is ordinary income less inferred savings. Excluded payments reduce both displayed income and spending equally. Home revaluation is shown separately.</p><p>Historical blanks remain unrecorded. They contribute zero to legacy totals, matching the source spreadsheet. Older returns are estimates where contribution, interest or relief records are incomplete.</p>${state.source_notes.map((n) => `<p class="muted subtle">${esc(n)}</p>`).join("")}</section>`
   );
 }
 async function saveEdit(finalize = false) {
@@ -326,7 +332,7 @@ async function saveEdit(finalize = false) {
 async function preview() {
   const r = await api("preview", { snapshot: editing });
   $("#preview").innerHTML =
-    `<h3>Period reconciliation</h3>${breakdown(r)}<p>Calculated spending: <strong>${gbp(r.adjusted_spending)}</strong></p>${r.issues.length ? `<div class="notice"><strong>Before finalising</strong><ul>${r.issues.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>` : '<p class="notice good">All required balances are confirmed and activity is marked complete.</p>'}`;
+    `<h3>Period breakdown</h3>${breakdown(r)}<p>Inferred spending: <strong>${gbp(r.adjusted_spending)}</strong></p>${r.warnings.length ? `<div class="notice"><strong>Worth checking</strong><ul>${r.warnings.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>` : ""}${r.issues.length ? `<div class="notice"><strong>Before finalising</strong><ul>${r.issues.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>` : '<p class="notice good">All required balances are confirmed and activity is marked complete.</p>'}`;
   return r;
 }
 function markDirty() {
@@ -436,6 +442,13 @@ document.addEventListener("click", async (e) => {
     }
     if (b.dataset.edit) {
       location.hash = "edit/" + b.dataset.edit;
+      return;
+    }
+    if (b.dataset.reopen) {
+      if (confirm("Reopen this snapshot and any later final snapshots as drafts? Their balances and activity will be preserved, but affected periods must be reviewed and finalised again.")) {
+        await action("reopen_snapshot", { id: b.dataset.reopen });
+        location.hash = "edit/" + b.dataset.reopen;
+      }
       return;
     }
     if (b.dataset.accountEdit) {
