@@ -17,7 +17,7 @@ const esc = (v) =>
         c
       ],
   );
-const gbp = (v) =>
+const plainGbp = (v) =>
   v === null || v === undefined
     ? "Not available"
     : new Intl.NumberFormat("en-GB", {
@@ -40,10 +40,25 @@ const today = () =>
     day: "2-digit",
   }).format(new Date());
 const clone = (v) => JSON.parse(JSON.stringify(v));
-const signed = (v) =>
-  `<span class="${v < 0 ? "negative" : "positive"}">${gbp(v)}</span>`;
+const signClass = (v) =>
+  v === null || v === undefined || v === "" || !Number.isFinite(Number(v))
+    ? "" : Number(v) > 0 ? "positive" : Number(v) < 0 ? "negative" : "zero";
+const coloured = (v, text) => `<span class="financial-value ${signClass(v)}">${text}</span>`;
+const gbp = (v) => coloured(v, plainGbp(v));
+const signed = gbp;
 const pct = (v) =>
-  v === null || v === undefined ? "—" : `${Number(v).toFixed(2)}%`;
+  v === null || v === undefined ? "—" : coloured(v, `${Number(v).toFixed(2)}%`);
+function colourInputs() {
+  document.querySelectorAll('#view input[type="number"]').forEach(el => {
+    el.classList.remove("positive", "negative", "zero");
+    const sign = signClass(el.value);
+    if (sign) el.classList.add(sign);
+  });
+}
+document.addEventListener("input", e => {
+  if (e.target.matches('#view input[type="number"]')) colourInputs();
+});
+document.addEventListener("change", colourInputs);
 function error(e) {
   $("#error").hidden = false;
   $("#error").textContent = e.message || String(e);
@@ -109,7 +124,7 @@ function chart(data, key) {
       175 - ((r[key] - min) / (max - min)) * 150,
     ]);
   const poly = pts.map((p) => p.join(",")).join(" ");
-  return `<svg class="chart" viewBox="0 0 660 210" role="img" aria-label="Net financial assets over time"><line class="grid" x1="64" y1="25" x2="640" y2="25"/><line class="grid" x1="64" y1="175" x2="640" y2="175"/><text x="0" y="29">£${Math.round(max / 1000)}k</text><text x="0" y="179">£${Math.round(min / 1000)}k</text><polygon class="area" points="${pts[0][0]},175 ${poly} ${pts.at(-1)[0]},175"/><polyline class="line" points="${poly}"/><text x="64" y="205">${esc(day(data[0].date))}</text><text x="640" y="205" text-anchor="end">${esc(day(data.at(-1).date))}</text></svg>`;
+  return `<svg class="chart" viewBox="0 0 660 210" role="img" aria-label="Net financial assets over time"><line class="grid" x1="64" y1="25" x2="640" y2="25"/><line class="grid" x1="64" y1="175" x2="640" y2="175"/><text class="${signClass(max)}" x="0" y="29">£${Math.round(max / 1000)}k</text><text class="${signClass(min)}" x="0" y="179">£${Math.round(min / 1000)}k</text><polygon class="area" points="${pts[0][0]},175 ${poly} ${pts.at(-1)[0]},175"/><polyline class="line" points="${poly}"/><text x="64" y="205">${esc(day(data[0].date))}</text><text x="640" y="205" text-anchor="end">${esc(day(data.at(-1).date))}</text></svg>`;
 }
 function metric(label, value, sub = "", hero = false) {
   return `<div class="card ${hero ? "hero" : ""}"><span class="muted">${label}</span><strong class="metric">${gbp(value)}</strong><small class="muted">${sub}</small></div>`;
@@ -303,7 +318,7 @@ function settings() {
       )
       .join(
         "",
-      )}</section><section class="panel"><h2>Income sources</h2><p>${state.income_sources.map(esc).join(" · ")}</p><div class="actions">${input("New source", 'id="source-name"')}<button id="add-source">Add source</button></div></section><section class="panel explanation"><h2>How the figures work</h2><p>Investment growth is the change in account balance after removing contributions, adding back withdrawals, and removing relief and capital adjustments. Cash interest is entered explicitly.</p><p>Mortgage interest reduces investment returns in proportion to closing stocks and P2P balances. Net financial assets include the mortgage as a negative balance while excluding the property value unless you explicitly include home. Savings are inferred from the change in net financial assets less net investment return, tax benefits and exceptional capital changes. Mortgage principal repayment is part of savings.</p><p>Inferred spending is ordinary income less inferred savings. Excluded payments reduce both displayed income and spending equally. Home revaluation is shown separately.</p><p>Historical blanks remain unrecorded. They contribute zero to legacy totals, matching the source spreadsheet. Older returns are estimates where contribution, interest or relief records are incomplete.</p>${state.source_notes.map((n) => `<p class="muted subtle">${esc(n)}</p>`).join("")}</section>`
+      )}</section><section class="panel"><h2>Income sources</h2><p class="muted subtle">Remove a source from future check-ins. Previously recorded income is retained in its original snapshot.</p><div class="income-sources">${state.income_sources.map(name => `<div class="income-source"><span>${esc(name)}</span><button class="small" data-remove-source="${esc(name)}" aria-label="Remove ${esc(name)} income source">Remove</button></div>`).join("") || '<p class="muted">No income sources configured.</p>'}</div><div class="actions">${input("New source", 'id="source-name"')}<button id="add-source">Add source</button></div></section><section class="panel explanation"><h2>How the figures work</h2><p>Investment growth is the change in account balance after removing contributions, adding back withdrawals, and removing relief and capital adjustments. Cash interest is entered explicitly.</p><p>Mortgage interest reduces investment returns in proportion to closing stocks and P2P balances. Net financial assets include the mortgage as a negative balance while excluding the property value unless you explicitly include home. Savings are inferred from the change in net financial assets less net investment return, tax benefits and exceptional capital changes. Mortgage principal repayment is part of savings.</p><p>Inferred spending is ordinary income less inferred savings. Excluded payments reduce both displayed income and spending equally. Home revaluation is shown separately.</p><p>Historical blanks remain unrecorded. They contribute zero to legacy totals, matching the source spreadsheet. Older returns are estimates where contribution, interest or relief records are incomplete.</p>${state.source_notes.map((n) => `<p class="muted subtle">${esc(n)}</p>`).join("")}</section>`
   );
 }
 async function saveEdit(finalize = false) {
@@ -369,6 +384,7 @@ function bindForm() {
     } else if (el.dataset.legacyCash) {
       editing.legacy.cash_interest = el.value;
     } else return;
+    colourInputs();
     markDirty();
   });
 }
@@ -408,6 +424,7 @@ async function route() {
         { overview, checkin, history, accounts, settings }[page] || overview
       )();
     $("#view").innerHTML = html;
+    colourInputs();
     bindForm();
     if (page === "moneyhub") bindMoneyhub();
   } catch (e) {
@@ -441,6 +458,11 @@ document.addEventListener("click", async (e) => {
   if (!b) return;
   try {
     clearError();
+    if (b.dataset.removeSource !== undefined) {
+      await action("remove_income_source", { name: b.dataset.removeSource });
+      await route();
+      return;
+    }
     if (b.dataset.report) {
       location.hash = "report/" + b.dataset.report;
       return;
@@ -464,6 +486,7 @@ document.addEventListener("click", async (e) => {
       const aid=b.dataset.confirmSource;
       editing.balances[aid].confirmed=true;
       $("#confirmed-"+aid).textContent="✓ Confirmed";
+      colourInputs();
       markDirty();
       return;
     }
@@ -482,6 +505,7 @@ document.addEventListener("click", async (e) => {
         `[data-account="${aid}"][data-field="amount"]`,
       ).value = value;
       $("#confirmed-" + aid).textContent = "✓ Confirmed unchanged";
+      colourInputs();
       markDirty();
       return;
     }
@@ -555,6 +579,7 @@ document.addEventListener("click", async (e) => {
           );
         editing.mortgage_interest = interest.toFixed(2);
         $('[data-root="mortgage_interest"]').value = editing.mortgage_interest;
+        colourInputs();
         markDirty();
         break;
       }

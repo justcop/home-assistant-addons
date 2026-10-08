@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.1
+
+- Use a slate and blue app theme so green and red clearly identify positive and negative financial values.
+- Apply sign colours to balances, totals, returns, percentages, imported transactions and number inputs; keep zero and missing figures neutral.
+- Use configured LifeStage credentials automatically for connect and reauthentication, showing manual login only when no credentials are saved.
+- Add income-source removal from future check-ins while retaining previously recorded income.
+- Record Trading 212 account and investment data pulls as a planned integration.
+
 ## 0.5.0
 
 - Extend LifeStage imports with saved sessions and use the previously verified MHCT2 login protocol.

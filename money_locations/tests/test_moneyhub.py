@@ -160,7 +160,7 @@ class ImportTests(unittest.TestCase):
         self.hub.saved_password='saved-fixture-password'
         received=[]
         self.client.login=lambda email,password:received.append((email,password)) or {'needs_code':True}
-        self.hub.authenticate({'use_saved':True})
+        self.hub.authenticate({'email':'ignored@example.test','password':'ignored'})
         self.assertEqual(received,[('example@example.test','saved-fixture-password')])
         self.assertTrue(self.hub.status()['saved_login'])
         self.assertNotIn('saved-fixture-password',json.dumps(self.hub.status()))
