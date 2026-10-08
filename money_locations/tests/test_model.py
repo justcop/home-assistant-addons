@@ -178,7 +178,7 @@ class Calculations(unittest.TestCase):
         later['status']='final';st['snapshots'].append(later)
         count=apply_action(st,'reopen_snapshot',{'id':s['id']})
         self.assertEqual(count,2)
-        self.assertEqual(s['status'],'final')  # caller's detached copy is unchanged
+        self.assertEqual(s['status'],'draft')  # detached client payload is unchanged by server-side reopening
         stored=[x for x in st['snapshots'] if x['date']>='2026-02-01']
         self.assertTrue(all(x['status']=='draft' for x in stored))
         self.assertEqual(stored[0]['balances']['bank']['amount'],'10000')
