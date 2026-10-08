@@ -70,7 +70,7 @@ def artist_suggestion_key(name):
     """
     name = unicodedata.normalize("NFKD", normalise(name))
     name = "".join(ch for ch in name if not unicodedata.combining(ch))
-    name = re.sub(r"[^\\w\\s]", " ", name)
+    name = re.sub(r"[^\w\s]", " ", name)
     name = " ".join(name.split())
     if name.startswith("the "):
         name = name[4:]
