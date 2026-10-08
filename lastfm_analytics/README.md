@@ -92,7 +92,7 @@ A song can be grouped across different albums. Album identity is based on the sc
 
 ## Detail pages and loading
 
-Artist details place a transparent band logo above the heading when TheAudioDB provides one. The artist photograph remains a smaller secondary image. Artist, album and song pages have a green Spotify search button. The artist header appears as soon as metadata is ready, while longer-running analytics loads separately. Artist artwork discovery avoids unnecessary grouping joins and duplicate database queries; frequent cached-view reads avoid extra database writes. Artwork fetching is asynchronous, with spaced follow-up checks.
+Artist details show one centred title: the original artist name remains visible until the transparent band logo has successfully loaded, then the logo replaces it. If no logo loads, the artist name remains. The larger artist photo sits below without a metadata-provider caption. On artist pages the redundant kind/cache strip is hidden; on desktop the close control sits at the upper-right and on mobile the device's Back navigation closes the detail view. Artist, album and song pages have a green Spotify search button. The artist header appears as soon as metadata is ready, while longer-running analytics loads separately. Artist artwork discovery avoids unnecessary grouping joins and duplicate database queries; frequent cached-view reads avoid extra database writes. Artwork fetching is asynchronous, with spaced follow-up checks.
 
 
 ## Interpreting the analysis

@@ -29,31 +29,56 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
     path: path.join(output, "overview-light.png"),
     fullPage: true,
   });
-  // Artist logos occupy a full-width transparent stage, not a tinted thumbnail.
+  // The artist name fills the *same* top slot until an actual logo is ready.
   const demoArtistLogo = "https://lastfm.freetls.fastly.net/i/u/174s/artist-fixture.png";
+  const demoArtistPhoto = "https://lastfm.freetls.fastly.net/i/u/174s/artist-photo-fixture.png";
+  let finishLogo;
+  const holdLogo = new Promise(resolve => { finishLogo = resolve; });
   await page.route("**/api/detail?*", async route => {
     if (new URL(route.request().url()).searchParams.get("entity") !== "artist")
       return route.continue();
     const response = await route.fetch();
     const detail = await response.json();
     detail.artist_logo = demoArtistLogo;
-    detail.artist_photo = null;
+    detail.artist_photo = demoArtistPhoto;
     detail.artwork = null;
     detail.artwork_pending = false;
     return route.fulfill({response, json: detail});
   });
-  await page.route("https://lastfm.freetls.fastly.net/**", route =>
-    route.fulfill({ path: path.join(__dirname, "../analytics/static/icon-192.png"), contentType:"image/png" }));
+  await page.route("https://lastfm.freetls.fastly.net/**", async route => {
+    if (route.request().url() === demoArtistLogo) await holdLogo;
+    return route.fulfill({ path: path.join(__dirname, "../analytics/static/icon-192.png"), contentType:"image/png" });
+  });
   await page.locator('#content button[data-detail="artist"]').first().click();
-  await page.locator("#artist-logo-slot img.artist-logo").waitFor();
+  await page.locator("#artist-logo-slot .artist-title-fallback").waitFor();
+  assert.equal(await page.locator("#artist-logo-slot .artist-title-fallback").isVisible(), true);
+  assert.equal(await page.locator("#artist-logo-slot img.artist-logo").isVisible(), false);
+  assert.equal(await page.locator("#detail-kind").isVisible(), false);
+  assert.equal(await page.locator("#detail-cache-status").isVisible(), false);
   await page.locator(".spotify-link svg.spotify-mark").waitFor();
   assert.ok(await page.locator("#artist-logo-slot").evaluate(el =>
     el.getBoundingClientRect().width > 300 && getComputedStyle(el).backgroundColor === "rgba(0, 0, 0, 0)"));
   assert.equal(await page.locator(".spotify-link").evaluate(el =>
     getComputedStyle(el).backgroundColor), "rgb(30, 215, 96)");
+  await page.locator(".artist-photo img").waitFor();
+  assert.equal(await page.locator(".artist-photo figcaption").count(), 0);
+  assert.equal(await page.locator(".artist-photo img").evaluate(el => el.getBoundingClientRect().width), 176);
+  finishLogo();
+  await page.locator("#artist-logo-slot.logo-ready").waitFor();
+  assert.equal(await page.locator("#artist-logo-slot .artist-title-fallback").isVisible(), false);
+  assert.equal(await page.locator("#artist-logo-slot img.artist-logo").isVisible(), true);
+  await page.setViewportSize({width:390,height:844});
+  assert.equal(await page.locator("#close-detail").isVisible(), false);
+  assert.equal(await page.locator(".artist-photo img").evaluate(el => el.getBoundingClientRect().width), 136);
+  assert.equal(await page.locator("#artist-logo-slot .artist-title-fallback").isVisible(), false);
+  await page.setViewportSize({width:1440,height:1050});
+  await page.locator("#artist-logo-slot img.artist-logo").evaluate(el => el.dispatchEvent(new Event("error")));
+  assert.equal(await page.locator("#artist-logo-slot .artist-title-fallback").isVisible(), true);
+  assert.equal(await page.locator("#artist-logo-slot img.artist-logo").count(), 0);
   await page.locator("#close-detail").click();
   await page.unroute("**/api/detail?*");
   await page.unroute("https://lastfm.freetls.fastly.net/**");
+
   // Date drill-down and search are functional, not decorative.
   await page.locator(".bar-chart button").nth(3).click();
   await page.locator("#content table").waitFor();
@@ -239,7 +264,9 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   assert.equal(Math.round(bounds.width),390);
   assert.equal(Math.round(bounds.height),844);
   assert.ok(await page.evaluate(()=>document.body.classList.contains("modal-open")));
-  await page.locator("#close-detail").click();
+  assert.equal(await page.locator("#close-detail").isVisible(), false);
+  // Mobile closes detail using system/browser back, not a redundant X button.
+  await page.evaluate(() => history.back());
   await page.waitForFunction(()=>!document.body.classList.contains("modal-open"));
   const yearOption = await page.locator("#year-options option").first().getAttribute("value");
   await page.route("**/api/overview?**", async route => {
@@ -301,7 +328,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   assert.equal(await page.locator('#page-title').innerText(),'Overview');
   await page.goForward();
   await page.locator('#detail-dialog .calendar-heatmap').waitFor();
-  await page.locator('#close-detail').click();
+  await page.evaluate(() => history.back());
   await page.waitForFunction(()=>!document.querySelector('#detail-dialog').open);
   // Version display is a saved Settings preference, and merge names are choices.
   assert.equal(await page.locator('#toolbar [data-mode]').count(), 0);
@@ -419,7 +446,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   await page.unroute('**/api/artwork?*');
   await page.unroute('https://lastfm.freetls.fastly.net/**');
   // AudioDB's current R2 CDN is allowed, and a photo appears while album jobs remain pending.
-  await page.locator('#close-detail').click();
+  await page.evaluate(() => history.back());
   await page.waitForFunction(() => !document.querySelector('#detail-dialog').open);
   await page.route('**/api/detail?*', async route => {
     const response = await route.fetch();
@@ -440,9 +467,9 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   await page.waitForFunction(() => document.querySelector('#detail-artwork-slot img')?.naturalWidth > 0);
   assert.ok(partialPolls >= 1);
   assert.equal(await page.locator('#detail-artwork-slot img').getAttribute('src'), 'https://r2.theaudiodb.com/images/media/artist/thumb/beatles.jpg');
-  assert.match(await page.locator('#detail-artwork-slot').innerText(), /TheAudioDB/);
+  assert.equal(await page.locator('#detail-artwork-slot figcaption').count(), 0);
   await page.screenshot({path:path.join(output,'audiodb-r2-photo-mobile.png')});
-  await page.locator('#close-detail').click();
+  await page.evaluate(() => history.back());
   await page.waitForFunction(() => !document.querySelector('#detail-dialog').open);
   await page.unroute('**/api/detail?*');
   await page.unroute('**/api/artwork?*');

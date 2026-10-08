@@ -529,13 +529,14 @@ async function load({historyMode = "push"} = {}) {
   }
 }
 function artistLogoHTML(detail) {
-  return detail.artist_logo
-    ? `<img class="artist-logo" src="${esc(detail.artist_logo)}" alt="${esc(detail.artist_name || detail.name)} logo" decoding="async" referrerpolicy="no-referrer" fetchpriority="high">`
-    : "";
+  // The logo takes the title's place only after its image has loaded.
+  return `<h2 class="artist-title-fallback">${esc(detail.name)}</h2>${detail.artist_logo
+    ? `<img class="artist-logo" src="${esc(detail.artist_logo)}" alt="${esc(detail.name)}" decoding="async" referrerpolicy="no-referrer" fetchpriority="high">`
+    : ""}`;
 }
 function artworkHTML(detail, kind) {
   if (kind === "artist" && detail.artist_photo) {
-    return `<figure class="detail-artwork artist-photo"><img src="${esc(detail.artist_photo)}" alt="${esc(detail.artist_name || detail.name)} artist photo" width="112" height="112" decoding="async" referrerpolicy="no-referrer"><figcaption>TheAudioDB</figcaption></figure>`;
+    return `<figure class="detail-artwork artist-photo"><img src="${esc(detail.artist_photo)}" alt="${esc(detail.artist_name || detail.name)} artist photo" width="176" height="176" decoding="async" referrerpolicy="no-referrer"></figure>`;
   }
   if (!detail.artwork) {
     // A logo by itself is enough for an artist header, without a fallback box.
@@ -557,11 +558,10 @@ function spotifyLink(detail, kind) {
 }
 function detailHeaderHTML(detail, kind) {
   const links = `${spotifyLink(detail, kind)} ${recordStoreLink(detail, kind)} <span id="shelf-link-slot"></span>`;
-  const content = `<div><h2>${esc(detail.name)}</h2><p>${esc(detail.artist)}</p>${links}</div>`;
   if (kind === "artist") {
-    return `<div class="artist-detail-hero"><div id="artist-logo-slot" class="artist-logo-stage">${artistLogoHTML(detail)}</div><div class="detail-heading artist-detail-heading"><div id="detail-artwork-slot">${artworkHTML(detail, kind)}</div>${content}</div></div>`;
+    return `<div class="artist-detail-hero"><div id="artist-logo-slot" class="artist-logo-stage">${artistLogoHTML(detail)}</div><div class="detail-heading artist-detail-heading"><div id="detail-artwork-slot">${artworkHTML(detail, kind)}</div><div class="artist-actions">${links}</div></div></div>`;
   }
-  return `<div class="detail-heading"><div id="detail-artwork-slot">${artworkHTML(detail, kind)}</div>${content}</div>`;
+  return `<div class="detail-heading"><div id="detail-artwork-slot">${artworkHTML(detail, kind)}</div><div><h2>${esc(detail.name)}</h2><p>${esc(detail.artist)}</p>${links}</div></div>`;
 }
 function audioShelfLink(base, path, label) {
   return `<a class="button" href="${esc(base + '/' + path)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>`;
@@ -596,13 +596,26 @@ async function loadShelfLinks(detail, kind, serial) {
   }
 }
 function bindArtworkError(detail, kind) {
+  const logoStage = $("#artist-logo-slot");
+  const logo = logoStage?.querySelector("img.artist-logo");
+  if (logo) {
+    const reveal = () => {
+      if (logo.isConnected && logo.naturalWidth > 0) logoStage.classList.add("logo-ready");
+    };
+    logo.onload = reveal;
+    // Cached images may finish before we install onload.
+    if (logo.complete && logo.naturalWidth > 0) reveal();
+  }
   document.querySelectorAll("#detail-hero .detail-artwork img, #detail-hero .artist-logo-stage img").forEach(img => {
     img.onerror = () => {
       const url = img.getAttribute("src");
       if (detail.artist_logo === url) {
         detail.artist_logo = null;
         const slot = $("#artist-logo-slot");
-        if (slot) slot.innerHTML = artistLogoHTML(detail);
+        if (slot) {
+          slot.classList.remove("logo-ready");
+          slot.innerHTML = artistLogoHTML(detail);
+        }
         return;
       }
       if (detail.artist_photo === url) detail.artist_photo = null;
@@ -622,6 +635,7 @@ async function showDetail(kind, id, groupMode = false, restoring = false) {
   clearTimeout(cacheTimers.detail);
   $("#detail-cache-status").hidden = true;
   const dialog = $("#detail-dialog");
+  dialog.classList.toggle("artist-detail-open", kind === "artist");
   const mode = groupMode ? "merged" : state.mode;
   const extra = {entity:kind,id,mode,period:groupMode?"all":state.period};
   $("#detail-kind").textContent = kind.toUpperCase();
@@ -653,6 +667,7 @@ async function showDetail(kind, id, groupMode = false, restoring = false) {
           }
           const logoSlot = $("#artist-logo-slot");
           if (logoSlot && oldLogo !== artistLogoHTML(detail)) {
+            logoSlot.classList.remove("logo-ready");
             logoSlot.innerHTML = artistLogoHTML(detail);
             bindArtworkError(detail, kind);
           }
