@@ -88,9 +88,26 @@ def spotify_api(method,path,params=None,body=None):
     if path=='search':return {'albums':{'items':[{'id':album_id}]}}
     if path=='albums/'+album_id:return source
     if path=='me/player':return {'device':{'id':'phone','name':'Fixture phone'},'shuffle_state':False,'repeat_state':'off',**playback_state}
+    if path=='me/player/pause':
+        playback_state['is_playing']=False
+        return {}
+    if path=='me/player/next':
+        playback_state['item']['name']='Closing'
+        playback_state['item']['id']='b'*22
+        playback_state['progress_ms']=0
+        return {}
+    if path=='me/player/previous':
+        playback_state['item']['name']='Opening'
+        playback_state['item']['id']='a'*22
+        playback_state['progress_ms']=0
+        return {}
+    if path=='me/player/play' and body is None:
+        playback_state['is_playing']=True
+        return {}
     if path=='me/player/play':
         play_calls.append(body)
-        playback_state.update(is_playing=True,progress_ms=0,currently_playing_type='track',item={**next(t for t in source['tracks']['items'] if 'spotify:track:'+t['id']==body['uris'][0]),'album':{'name':source['name']}})
+        playback_state.update(is_playing=True,progress_ms=0,currently_playing_type='track',item={**next(t for t in source['tracks']['items'] if 'spotify:track:'+t['id']==body['uris'][0]),'album':{'id':album_id,'name':source['name'],'artists':[{'name':'The Artist'}],
+        'images':[{'url':'https://i.scdn.co/image/ab67616d00001e02abcde1234','width':300}]}})
         return {}
     raise AssertionError(path)
 
@@ -126,6 +143,15 @@ def playback_options():
     from flask import request
     global phone_available
     phone_available=request.json.get('phone_available',phone_available)
+    if 'external_album' in request.json:
+        if request.json['external_album']:
+            title=request.json.get('album','After the Rain (2025 Remaster)')
+            playback_state.update(is_playing=True,progress_ms=21000,currently_playing_type='track',
+                item={'id':'z'*22,'name':'A Different Song','artists':[{'name':'June & The Satellites'}],
+                    'duration_ms':180000,'album':{'id':'z'*22,'name':title,'artists':[{'name':'June & The Satellites'}],
+                        'images':[{'url':'https://i.scdn.co/image/ab67616d00001e02external98765','width':320}]}})
+        else:
+            playback_state.clear()
     if 'disc' in request.json:
         with app.extensions['store'].connect() as db:
             db.execute('UPDATE tracks SET disc_number=? WHERE album_id=? AND position=2', (request.json['disc'],ALBUM))
