@@ -355,8 +355,9 @@ def artwork_albums(conn, kind, value, raw, args):
         scope, values = f"{variant}.{column}=?", (int(value),)
     else:
         raise ValueError("Unknown detail type")
+    join_for_artwork = "FROM scrobbles s" if kind == "artist" else JOINS
     albums = conn.execute(
-        f"SELECT s.artist,s.album,COUNT(*) AS plays {JOINS} "
+        f"SELECT s.artist,s.album,COUNT(*) AS plays {join_for_artwork} "
         f"WHERE s.active=1 AND {scope} {extra} AND s.album<>'' "
         "GROUP BY s.artist,s.album ORDER BY plays DESC,s.album LIMIT 10",
         (*values, *params),
