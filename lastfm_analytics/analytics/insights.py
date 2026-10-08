@@ -152,7 +152,8 @@ def rankings(
         condition, variants = " AND s.album_id IS NOT NULL", "COUNT(DISTINCT av.id)"
     else:
         raise ValueError("Unknown ranking")
-    joins = "FROM scrobbles s" if kind == "artist" else JOINS
+    joins = ("FROM scrobbles s" if kind == "artist"
+             and "sv." not in extra and "av." not in extra else JOINS)
     query = f"""WITH ranked AS (
       SELECT {key} AS id, {name} AS name, {artist} AS artist,
        SUM(CASE WHEN s.ts>=? THEN 1 ELSE 0 END) AS plays,
@@ -253,11 +254,13 @@ def overview(database, args, tz_name, now=None):
             else 0
         )
         source_extra, _ = source_scope(args)
+        discovery_joins = (JOINS if "sv." in extra or "av." in extra
+                           else "FROM scrobbles s")
         # First heard is evaluated against the selected source across all history.
         discovery = conn.execute(
             f"""WITH firsts AS (
           SELECT s.artist_group_key, MIN(s.ts) first_ts FROM scrobbles s WHERE s.active=1 {source_extra} GROUP BY s.artist_group_key)
-          SELECT COUNT(DISTINCT s.artist_group_key), COUNT(*) FROM scrobbles s
+          SELECT COUNT(DISTINCT s.artist_group_key), COUNT(*) {discovery_joins}
           JOIN firsts f ON f.artist_group_key=s.artist_group_key
           WHERE s.active=1 AND s.ts>=? AND s.ts<? AND f.first_ts>=? {extra}""",
             [p["start"], p["end"], p["start"], *params],
@@ -270,7 +273,7 @@ def overview(database, args, tz_name, now=None):
           SELECT s.artist_group_key AS id,
           COALESCE((SELECT display_name FROM artist_aliases WHERE artist_key=s.artist_group_key),MIN(s.artist)) AS name,
           COUNT(*) AS plays,
-          (MIN(s.ts)-prior.last_ts)/86400 AS gap_days FROM scrobbles s
+          (MIN(s.ts)-prior.last_ts)/86400 AS gap_days {discovery_joins}
           JOIN prior ON prior.artist_group_key=s.artist_group_key
           WHERE s.active=1 AND s.ts>=? AND s.ts<? {extra}
           GROUP BY s.artist_group_key HAVING MIN(s.ts)-prior.last_ts>=7776000
