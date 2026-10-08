@@ -30,12 +30,16 @@ CREATE TABLE IF NOT EXISTS scrobbles (
  id INTEGER PRIMARY KEY, fingerprint TEXT NOT NULL, occurrence INTEGER NOT NULL,
  ts INTEGER NOT NULL, artist TEXT NOT NULL, artist_key TEXT NOT NULL,
  title TEXT NOT NULL, album TEXT NOT NULL, raw_json TEXT NOT NULL,
+ artist_group_key TEXT,
  song_id INTEGER NOT NULL REFERENCES variants(id), album_id INTEGER REFERENCES variants(id),
  active INTEGER NOT NULL DEFAULT 1, UNIQUE(fingerprint, occurrence));
 CREATE INDEX IF NOT EXISTS play_time ON scrobbles(active, ts);
 CREATE INDEX IF NOT EXISTS play_artist ON scrobbles(artist_key, active, ts);
 CREATE INDEX IF NOT EXISTS play_song ON scrobbles(song_id, active, ts);
 CREATE INDEX IF NOT EXISTS play_album ON scrobbles(album_id, active, ts);
+CREATE TABLE IF NOT EXISTS artist_aliases (
+ artist_key TEXT PRIMARY KEY, canonical_key TEXT NOT NULL, display_name TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS artist_canonical ON artist_aliases(canonical_key);
 CREATE TABLE IF NOT EXISTS source_reports (
  username TEXT NOT NULL, ts INTEGER NOT NULL, artist_key TEXT NOT NULL,
  title_key TEXT NOT NULL, source TEXT NOT NULL, received_at INTEGER NOT NULL,
@@ -58,14 +62,77 @@ def identity(row):
     )
 
 
+def compact_raw(raw):
+    """Retain music identifiers and cover metadata without whole Last.fm payloads."""
+    if not isinstance(raw, dict):
+        return {}
+    result = {}
+    for key in ("image", "mbid"):
+        if raw.get(key):
+            result[key] = raw[key]
+    for key in ("artist", "album"):
+        item = raw.get(key)
+        if isinstance(item, dict) and item.get("mbid"):
+            result[key] = {"mbid": item["mbid"]}
+    return result
+
+
 class Database:
     def __init__(self, path):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        existed = self.path.exists() and self.path.stat().st_size > 0
         with self.connect() as db:
             db.execute("PRAGMA journal_mode=WAL")
+            version = db.execute("PRAGMA user_version").fetchone()[0]
+            if version > 3:
+                raise RuntimeError("Database was created by a newer Listening Analytics version")
+            if existed and version < 3 and db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='scrobbles'"
+            ).fetchone():
+                backup = self.path.with_name(self.path.stem + ".before-v3.sqlite3")
+                if not backup.exists():
+                    with sqlite3.connect(backup) as destination:
+                        db.backup(destination)
             db.executescript(SCHEMA)
-            db.execute("PRAGMA user_version=2")
+            columns = {r[1] for r in db.execute("PRAGMA table_info(scrobbles)")}
+            if "artist_group_key" not in columns:
+                db.execute("ALTER TABLE scrobbles ADD COLUMN artist_group_key TEXT")
+            columns = {r[1] for r in db.execute("PRAGMA table_info(variants)")}
+            if "exact_key" not in columns:
+                db.execute("ALTER TABLE variants ADD COLUMN exact_key TEXT")
+            db.execute(
+                """INSERT OR IGNORE INTO artist_aliases(artist_key, canonical_key, display_name)
+                SELECT artist_key, artist_key, MIN(artist) FROM scrobbles GROUP BY artist_key"""
+            )
+            db.execute(
+                """UPDATE scrobbles SET artist_group_key=COALESCE(
+                (SELECT a.canonical_key FROM artist_aliases a WHERE a.artist_key=scrobbles.artist_key),
+                artist_key) WHERE artist_group_key IS NULL"""
+            )
+            for row in db.execute("SELECT id,name FROM variants WHERE exact_key IS NULL").fetchall():
+                db.execute("UPDATE variants SET exact_key=? WHERE id=?",
+                           (normalise(row["name"]), row["id"]))
+            db.execute("CREATE INDEX IF NOT EXISTS play_artist_group ON scrobbles(artist_group_key, active, ts)")
+            db.execute("CREATE INDEX IF NOT EXISTS variant_exact ON variants(kind,exact_key)")
+            if version < 3:
+                last = 0
+                while True:
+                    batch = db.execute(
+                        "SELECT id,raw_json FROM scrobbles WHERE id>? AND length(raw_json)>200 ORDER BY id LIMIT 500",
+                        (last,),
+                    ).fetchall()
+                    if not batch:
+                        break
+                    for entry in batch:
+                        try:
+                            data = compact_raw(json.loads(entry["raw_json"]))
+                            db.execute("UPDATE scrobbles SET raw_json=? WHERE id=?",
+                                (json.dumps(data, ensure_ascii=False), entry["id"]))
+                        except (ValueError, TypeError):
+                            pass
+                    last = batch[-1]["id"]
+                db.execute("PRAGMA user_version=3")
             if self.get(db, "artwork_pipeline", 0) < 2:
                 # Previous releases rejected AudioDB's CDN and cached misses.
                 # Preserve usable URLs but retry those misses on first access.
