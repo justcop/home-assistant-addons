@@ -180,6 +180,30 @@ class Store:
         }
 
 
+    def moneyhub_recent_transactions(self, limit=20):
+        limit = max(1, min(int(limit), 100))
+        with closing(self.connect()) as con, con:
+            rows = con.execute(
+                'SELECT body FROM moneyhub_transactions WHERE deleted=0 '
+                'ORDER BY txn_date DESC, modified DESC, uid DESC LIMIT ?',
+                (limit,),
+            ).fetchall()
+        output = []
+        for (body,) in rows:
+            row = json.loads(body)
+            output.append({
+                'uid': row.get('uid'),
+                'accountUid': row.get('accountUid'),
+                'date': row.get('date'),
+                'amount': row.get('amount'),
+                'currency': row.get('currency'),
+                'description': row.get('cleanDescription') or row.get('description') or row.get('transactionInformation'),
+                'categoryId': row.get('categoryId'),
+                'status': row.get('status'),
+            })
+        return output
+
+
 def apply_action(state, action, data):
     if action == 'new':
         s = new_snapshot(state, data['date'])
@@ -344,6 +368,11 @@ class Handler(BaseHTTPRequestHandler):
                     summary['auth_status'] = self.server.moneyhub.status if self.server.moneyhub else 'signed_out'
                 self.reply(200, summary)
                 return
+            if path=='/api/moneyhub/transactions':
+                query = parse_qs(urlsplit(self.path).query)
+                limit = int(query.get('limit', ['20'])[0])
+                self.reply(200, self.server.store.moneyhub_recent_transactions(limit))
+                return
             if path=='/api/backup':
                 bid=int(parse_qs(urlsplit(self.path).query)['id'][0])
                 self.reply(200,self.server.store.backup(bid),attachment='money-locations-backup.json')
@@ -423,6 +452,11 @@ class Handler(BaseHTTPRequestHandler):
                     if 'money_session' in cookie:
                         self.server.sessions.pop(cookie['money_session'].value, None)
                 self.reply(200, {'ok': True}, cookie=self.session_cookie('', 0))
+                return
+            if path == '/api/moneyhub/disconnect':
+                with self.server.moneyhub_lock:
+                    self.server.moneyhub = None
+                self.reply(200, {'status': 'signed_out'})
                 return
             if path == '/api/moneyhub/login':
                 email = str(data.get('email', '')).strip()
