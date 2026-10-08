@@ -33,7 +33,7 @@ def test_artist_suggestions_are_general_but_do_not_auto_merge(tmp_path):
             assert len(rankings(conn, p(), "artist")) == 2
         result = app.test_client().get("/api/artists-review").json
         assert any(set(item["names"]) == {"Courteeners", "The Courteeners"}
-                   for item in result["suggestions"])
+                   for item in result["suggestions"]), result
         db.change_artists([normalise("Courteeners"), normalise("The Courteeners")])
         with db.connect() as conn:
             assert len(rankings(conn, p(), "artist")) == 1
