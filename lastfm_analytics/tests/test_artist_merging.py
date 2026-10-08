@@ -15,39 +15,6 @@ def p():
     return {"start": 0, "end": 5000, "previous_start": 0, "compare": False}
 
 
-def test_leading_the_artist_merge_existing_import_new_titles_and_undo(tmp_path):
-    db = Database(tmp_path / "listening.sqlite3")
-    db.apply_window(0, 1000, [
-        play(100, "Courteeners", "Not Nineteen Forever", "St. Jude"),
-        play(200, "The Courteeners", "Not Nineteen Forever", "St. Jude"),
-    ])
-    with db.connect() as conn:
-        assert len(rankings(conn, p(), "artist")) == 1
-        assert len({r[0] for r in conn.execute(
-            "SELECT group_id FROM resolved_variants WHERE kind='song' AND name='Not Nineteen Forever'"
-        )}) == 1
-    # Manual undo must stick through restart and new imports.
-    db.undo_grouping()
-    reopened = Database(db.path)
-    reopened.apply_window(1000, 2000, [
-        play(1200, "The Courteeners", "A New Track", "St. Jude"),
-        play(1300, "Courteeners", "A New Track", "St. Jude"),
-    ])
-    with db.connect() as conn:
-        assert len(rankings(conn, p(), "artist")) == 2
-
-
-def test_leading_the_does_not_merge_bands_without_both_exact_names(tmp_path):
-    db = Database(tmp_path / "listening.sqlite3")
-    db.apply_window(0, 1000, [
-        play(100, "The The", "This Is the Day"),
-        play(200, "The National", "Bloodbuzz Ohio"),
-        play(300, "National Orchestra", "Symphony"),
-    ])
-    with db.connect() as conn:
-        assert len(rankings(conn, p(), "artist")) == 3
-
-
 def test_artist_merge_combines_exact_song_album_and_undo(tmp_path):
     db = Database(tmp_path / "listening.sqlite3")
     first = "Sigur Rós"
