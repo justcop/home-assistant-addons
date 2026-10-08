@@ -1505,7 +1505,9 @@ dialog { overscroll-behavior: contain; }
 .merge-name select { width:100%; min-width:0; max-width:100%; }
 
 .metric-label { align-items:center; gap:8px; }
-.metric-label span { font-size:24px; line-height:1; flex-shrink:0; }
+.metric-label span { font-size: clamp(34px, 3.6vw, 46px); line-height: 1; flex-shrink: 0; display: inline-grid; place-items: center; min-width: 42px; }
+.metric-label { min-height: 44px; }
+@media (max-width:620px) { .metric-label span { font-size: 34px; min-width: 34px; } }
 .period-picker { display:flex; align-items:center; gap:8px; min-width:0; }
 .period-picker #period { width:auto; flex:1; min-width:0; }
 .vinyl-toggle { flex-shrink:0; display:grid; place-items:center; }
