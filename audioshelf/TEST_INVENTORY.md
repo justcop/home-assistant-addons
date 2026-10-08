@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-08T23:04:14+01:00 (Europe/London).
+Reviewed: 2026-10-08T23:27:00+01:00 (Europe/London).
 
-Reviewed 0.6.6 coverage of Spotify CDN album art, exact canonical MusicBrainz matching, unmatched/live fallback into Record Store, pause/resume, optional skip controls and account-scoped settings. Expanded browser checks cover the bar height, outside-collection navigation and mobile layout; full validation runs in CI.
+Reviewed AudioShelf 0.6.7 browser regression coverage of visible platter rotation, an asymmetric label and marker, pause/resume state, reduced-motion preferences, and recovery from an erroneous HTTP response after Spotify has already applied a command. Existing canonical album navigation, skip preference, responsiveness and backend tests remain unchanged.
 
-<!-- inventory: {"reviewed_at":"2026-10-08T23:04:14+01:00","review_note":"Reviewed 0.6.6 coverage of Spotify CDN album art, exact canonical MusicBrainz matching, unmatched/live fallback into Record Store, pause/resume, optional skip controls and account-scoped settings. Expanded browser checks cover the bar height, outside-collection navigation and mobile layout; full validation runs in CI.","source_sha256":"a4387407f87a08d658ab862a8bf4438b933299e180b3f328ded432fbaa20a4ce"} -->
+<!-- inventory: {"reviewed_at":"2026-10-08T23:27:00+01:00","review_note":"Reviewed AudioShelf 0.6.7 browser regression coverage of visible platter rotation, an asymmetric label and marker, pause/resume state, reduced-motion preferences, and recovery from an erroneous HTTP response after Spotify has already applied a command. Existing canonical album navigation, skip preference, responsiveness and backend tests remain unchanged.","source_sha256":"f5588509415b2e1f37832733bc6920358ebb93bd8950e677e5b57824680f5a68"} -->
 
 ## Backend cases (293)
 
