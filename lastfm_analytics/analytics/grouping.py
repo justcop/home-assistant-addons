@@ -61,3 +61,17 @@ def review_title(title):
 def review_key(title):
     base, _, _ = review_title(title)
     return re.sub(r"[^\w]", "", normalise(base))
+
+def artist_suggestion_key(name):
+    """Loose candidate key, NEVER an automatic artist identity.
+
+    Ignore typographic differences, accents, common punctuation and a leading
+    English article solely to propose human-reviewed pairs.
+    """
+    name = unicodedata.normalize("NFKD", normalise(name))
+    name = "".join(ch for ch in name if not unicodedata.combining(ch))
+    name = re.sub(r"[^\\w\\s]", " ", name)
+    name = " ".join(name.split())
+    if name.startswith("the "):
+        name = name[4:]
+    return name
