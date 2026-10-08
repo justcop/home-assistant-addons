@@ -15,7 +15,7 @@ def review(db, kind="song", tab="suggested", q="", offset=0):
             dict(r)
             for r in conn.execute(
                 f"""SELECT v.id, v.group_id, v.artist, v.name, v.override_group, a.group_id alias_group,
-          g.name group_name, COUNT(s.id) plays FROM resolved_variants v JOIN groups g ON g.id=v.group_id JOIN aliases a ON a.kind=v.kind AND a.auto_key=v.auto_key JOIN scrobbles s ON s.{column}=v.id
+          g.name group_name, aa.canonical_key artist_identity, COUNT(s.id) plays FROM resolved_variants v JOIN groups g ON g.id=v.group_id JOIN aliases a ON a.kind=v.kind AND a.auto_key=v.auto_key JOIN scrobbles s ON s.{column}=v.id JOIN artist_aliases aa ON aa.artist_key=source_key(v.artist)
           WHERE s.active=1 AND v.kind=? GROUP BY v.id""",
                 (kind,),
             )
@@ -35,7 +35,7 @@ def review(db, kind="song", tab="suggested", q="", offset=0):
             )
             group["versions"].append(v)
             group["plays"] += v["plays"]
-            buckets[(normalise(v["artist"]), review_key(v["name"]))][
+            buckets[(v["artist_identity"], review_key(v["name"]))][
                 v["group_id"]
             ] = group
         dismissed = Database.get(conn, "dismissed_candidates", [])

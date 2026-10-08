@@ -25,6 +25,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from . import __version__, insights
 from .cache import ViewCache
 from .review import review
+from .grouping import normalise
 from .db import Database
 from .demo import seed
 from .sync import SyncWorker
@@ -40,6 +41,7 @@ DEFAULTS = {
     "web_password": "",
     "source_api_token": "",
     "audioshelf_url": "",
+    "artwork_lookups": True,
 }
 
 
@@ -74,6 +76,8 @@ def validate_config(config):
         raise ConfigurationError(
             "timezone must be an IANA timezone such as Europe/London"
         ) from None
+    if not isinstance(config["artwork_lookups"], bool):
+        raise ConfigurationError("artwork_lookups must be true or false")
     if not isinstance(config["demo_mode"], bool):
         raise ConfigurationError("demo_mode must be true or false")
     if not isinstance(config["web_password"], str):
@@ -150,7 +154,7 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
     worker = SyncWorker(database, config)
     app.extensions["database"] = database
     app.extensions["sync_worker"] = worker
-    artwork_worker = ArtworkWorker(config["api_key"], enabled=start_worker)
+    artwork_worker = ArtworkWorker(config["api_key"], enabled=start_worker and config["artwork_lookups"])
     app.extensions["artwork_worker"] = artwork_worker
 
     def calculate_rankings(db, args):
@@ -409,7 +413,7 @@ self.addEventListener('fetch', event => {
         with db.connect() as conn:
             counts = dict(
                 conn.execute(
-                    'SELECT COUNT(*) plays,MIN(ts) earliest,MAX(ts) latest,SUM(album="") missing_albums FROM scrobbles WHERE active=1'
+                    "SELECT COUNT(*) plays,MIN(ts) earliest,MAX(ts) latest,SUM(album='') missing_albums FROM scrobbles WHERE active=1"
                 ).fetchone()
             )
             imp = db.get(conn, "import", {})
@@ -478,6 +482,8 @@ self.addEventListener('fetch', event => {
             return jsonify(insights.history(conn, dates(conn), request.args, tz))
 
     def detail_artwork(db, result=None):
+        if not config["artwork_lookups"]:
+            return dict(artwork=None, artwork_pending=False, artist_photo=None, artist_logo=None)
         kind, value = request.args.get("entity"), request.args.get("id")
         raw = request.args.get("mode") == "raw"
         with db.connect() as conn:
@@ -487,7 +493,9 @@ self.addEventListener('fetch', event => {
             albums = insights.artwork_albums(conn, kind, value, raw, request.args)[0]
         if kind == "artist" and not is_demo():
             with db.connect() as conn:
-                row = conn.execute("SELECT artist FROM scrobbles WHERE artist_key=? LIMIT 1", (value,)).fetchone()
+                row = conn.execute(
+                    "SELECT display_name FROM artist_aliases WHERE artist_key=?", (value,)
+                ).fetchone()
             if row:
                 assets = artwork_worker.resolve_artist(db, row[0])
                 if artwork:
@@ -520,6 +528,30 @@ self.addEventListener('fetch', event => {
                 request.args.get("mode") == "raw", request.args)[0]]
         result.update(detail_artwork(db, result))
         return jsonify(result)
+
+    @app.get("/api/artists-review")
+    def artists_review():
+        db = db_for_request()
+        needle = normalise(request.args.get("q", "")[:200])
+        offset = max(0, int(request.args.get("offset", 0)))
+        with db.connect() as conn:
+            artists = [
+                dict(r) for r in conn.execute(
+                    """SELECT s.artist_group_key AS id, COUNT(*) AS plays,
+                       COALESCE((SELECT display_name FROM artist_aliases
+                       WHERE artist_key=s.artist_group_key), MIN(s.artist)) AS name,
+                       COUNT(DISTINCT s.artist_key) AS versions,
+                       json_group_array(DISTINCT s.artist) AS originals
+                       FROM scrobbles s WHERE s.active=1
+                       GROUP BY s.artist_group_key ORDER BY plays DESC"""
+                )
+            ]
+        if needle:
+            artists = [a for a in artists if needle in normalise(
+                a["name"] + " " + (a["originals"] or ""))]
+        for a in artists:
+            a["originals"] = json.loads(a["originals"] or "[]")
+        return jsonify(rows=artists[offset:offset+50], total=len(artists), offset=offset)
 
     @app.get("/api/grouping-review")
     def grouping_review():
@@ -562,6 +594,8 @@ self.addEventListener('fetch', event => {
                 )
         elif data.get("action") == "undo":
             db.undo_grouping()
+        elif data.get("action") == "merge_artists":
+            db.change_artists(data.get("ids", []), data.get("name"))
         else:
             db.change_groups(data.get("action"), data.get("ids", []), data.get("name"))
         view_cache.clear(db)
