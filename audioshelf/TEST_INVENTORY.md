@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-08T16:06:41+01:00 (Europe/London).
+Reviewed: 2026-10-08T16:11:01+01:00 (Europe/London).
 
-Reviewed browser coverage of horizontally scrolling cover-only artist rails, per-artist and all-artist expansion, above-cover labels, album navigation and filtering, responsive overflow and both existing white shelf furniture styles. The revised browser flow will be exercised by CI.
+Reviewed account switching assertions alongside the horizontal rail, artist expansion, album navigation, search, mobile overflow and white shelving checks. The expected compact layout is now rail rather than dividers; no authentication behaviour is changed.
 
-<!-- inventory: {"reviewed_at":"2026-10-08T16:06:41+01:00","review_note":"Reviewed browser coverage of horizontally scrolling cover-only artist rails, per-artist and all-artist expansion, above-cover labels, album navigation and filtering, responsive overflow and both existing white shelf furniture styles. The revised browser flow will be exercised by CI.","source_sha256":"b39f365b34666678cf40c34a40caf46afa0deac6a8d5546564dbfb50b16fbd9a"} -->
+<!-- inventory: {"reviewed_at":"2026-10-08T16:11:01+01:00","review_note":"Reviewed account switching assertions alongside the horizontal rail, artist expansion, album navigation, search, mobile overflow and white shelving checks. The expected compact layout is now rail rather than dividers; no authentication behaviour is changed.","source_sha256":"001e46a948bd0cf879b2f142f49759c61fc62cf4be0b376306b20be70954d450"} -->
 
 ## Backend cases (282)
 
