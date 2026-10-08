@@ -635,6 +635,7 @@ async function showDetail(kind, id, groupMode = false, restoring = false) {
   clearTimeout(cacheTimers.detail);
   $("#detail-cache-status").hidden = true;
   const dialog = $("#detail-dialog");
+  dialog.classList.toggle("artist-detail-open", kind === "artist");
   const mode = groupMode ? "merged" : state.mode;
   const extra = {entity:kind,id,mode,period:groupMode?"all":state.period};
   $("#detail-kind").textContent = kind.toUpperCase();
