@@ -559,12 +559,14 @@ function spotifyLink(detail, kind) {
 function detailHeaderHTML(detail, kind) {
   const links = `${spotifyLink(detail, kind)} ${recordStoreLink(detail, kind)} <span id="shelf-link-slot"></span>`;
   if (kind === "artist") {
-    return `<div class="artist-detail-hero"><div id="artist-logo-slot" class="artist-logo-stage">${artistLogoHTML(detail)}</div><div class="detail-heading artist-detail-heading"><div id="detail-artwork-slot">${artworkHTML(detail, kind)}</div><div class="artist-actions">${links}</div></div></div>`;
+    return `<div class="artist-detail-hero"><div id="artist-logo-slot" class="artist-logo-stage">${artistLogoHTML(detail)}</div><div class="detail-heading detail-media-actions artist-detail-heading"><div id="detail-artwork-slot">${artworkHTML(detail, kind)}</div><div class="artist-actions">${links}</div></div></div>`;
   }
-  return `<div class="detail-heading"><div id="detail-artwork-slot">${artworkHTML(detail, kind)}</div><div><h2>${esc(detail.name)}</h2><p>${esc(detail.artist)}</p>${links}</div></div>`;
+  return `<div class="detail-entity-hero"><div class="detail-entity-title"><h2>${esc(detail.name)}</h2><p>${esc(detail.artist)}</p></div><div class="detail-heading detail-media-actions"><div id="detail-artwork-slot">${artworkHTML(detail, kind)}</div><div class="artist-actions">${links}</div></div></div>`;
 }
 function audioShelfLink(base, path, label) {
-  return `<a class="button" href="${esc(base + '/' + path)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>`;
+  // Same-window HTTPS navigation gives installed AudioShelf a chance to handle
+  // its registered web-app scope instead of forcing an ordinary new browser tab.
+  return `<a class="button" href="${esc(base + '/' + path)}">${esc(label)}</a>`;
 }
 function recordStoreLink(detail, kind) {
   const base = statusData.audioshelf_url;
