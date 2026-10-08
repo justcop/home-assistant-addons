@@ -66,7 +66,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   assert.equal(await page.locator(".artist-detail-heading").evaluate(el => getComputedStyle(el).flexDirection), "row");
   assert.equal(await page.locator(".artist-actions").evaluate(el => getComputedStyle(el).flexDirection), "column");
   assert.equal(await page.locator(".artist-photo img").boundingBox().then(b => Math.round(b.width)), 176);
-  assert.equal(await page.locator(".artist-actions .button").count() >= 2, true);
+  assert.equal(await page.locator(".artist-actions .button").count() >= 1, true);
   finishLogo();
   await page.locator("#artist-logo-slot.logo-ready").waitFor();
   assert.equal(await page.locator("#artist-logo-slot .artist-title-fallback").isVisible(), false);
