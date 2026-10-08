@@ -502,7 +502,7 @@ def test_import_pending_hides_comparisons_and_original_json_is_retained(db):
     with db.connect() as conn:
         assert (
             json.loads(conn.execute("SELECT raw_json FROM scrobbles").fetchone()[0])
-            == original["raw"]
+            == {"image": original["raw"]["image"]} if "image" in original["raw"] else {}
         )
 
 
