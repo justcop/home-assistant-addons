@@ -1569,6 +1569,8 @@ dialog { overscroll-behavior: contain; }
 .detail-dialog.artist-detail-open #close-detail { width: 36px; height: 36px; padding: 0; display: grid; place-items: center; border-radius: 50%; background: var(--surface2); }
 .detail-dialog.artist-detail-open #close-detail:hover { color: var(--ink); }
 @media (max-width: 620px) {
+  /* Phone/PWA navigation already has a back gesture/button. */
+  .detail-dialog #close-detail { display: none; }
   .detail-dialog.artist-detail-open .dialog-head { display: none; }
   .detail-dialog.artist-detail-open .artist-logo-stage { padding-top: 0; }
 }
