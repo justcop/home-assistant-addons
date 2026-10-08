@@ -1,3 +1,10 @@
+# 0.6.6
+
+- The Now Playing bar uses Spotify's current album cover, even when the record is not on your shelf. Larger artwork fills the existing bar without making it taller.
+- Tap the album cover to open its AudioShelf album. Uncollected canonical albums open in the Record Store; unknown, live or ambiguous releases open a prefilled Record Store search instead.
+- A spinning turntable at the right toggles Spotify pause/resume. Previous/next controls are optional, off by default, with a per-account setting and server-enforced preference.
+- Preserve playback handoff, progress, and the original album-only queue logic.
+
 # 0.6.5
 
 - Browse every artist as a single horizontally scrolling rail of cover art, with a continuous white shelf underneath. Tap covers to inspect the album; titles and years stay on the album page in compact mode.
