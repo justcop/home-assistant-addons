@@ -240,7 +240,7 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert.equal(await page.getByRole('progressbar',{name:'Song progress'}).evaluate(el=>el.max),240000);
     await page.unroute('**/api/spotify/playback');
     // An uncollected studio album opens its canonical AudioShelf Record Store page.
-    await fixtureFetch(base+'/__test/playback-options',{method:'POST',headers:{'Content-Type':'application/json','X-AudioShelf-Request':'1'},body:JSON.stringify({external_album:true})});
+    await fetch(base+'/__test/playback-options',{method:'POST',headers:{'Content-Type':'application/json','X-AudioShelf-Request':'1'},body:JSON.stringify({external_album:true})});
     await page.evaluate(()=>refreshPlayback(true));
     await page.getByRole('button',{name:'Open After the Rain (2025 Remaster) in AudioShelf'}).waitFor();
     await page.getByRole('button',{name:'Open After the Rain (2025 Remaster) in AudioShelf'}).click();
@@ -248,7 +248,7 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert((await page.locator('.sleeve-footnote').textContent()).includes('RECORD STORE'));
     assert.equal(await page.getByRole('button',{name:'Add to shelf',exact:false}).count(),1);
     // Non-studio and unmatched releases remain in AudioShelf as a pre-filled search.
-    await fixtureFetch(base+'/__test/playback-options',{method:'POST',headers:{'Content-Type':'application/json','X-AudioShelf-Request':'1'},body:JSON.stringify({external_album:true,album:'A Very Rare Live Collection'})});
+    await fetch(base+'/__test/playback-options',{method:'POST',headers:{'Content-Type':'application/json','X-AudioShelf-Request':'1'},body:JSON.stringify({external_album:true,album:'A Very Rare Live Collection'})});
     await page.evaluate(()=>refreshPlayback(true));
     await page.getByRole('button',{name:'Open A Very Rare Live Collection in AudioShelf'}).click();
     await page.getByRole('searchbox',{name:'Search record store'}).waitFor();
