@@ -22,7 +22,7 @@ Enter ordinary net income by source. Additional sources can be added in settings
 
 Use **Review period** to inspect the accounting breakdown, sanity warnings and missing entries. Savings and spending are inferred from the balance movement; the breakdown is therefore not an independent reconciliation check.
 
-You can correct figures on an existing final snapshot without changing its date. If you need to move a final snapshot or insert a new snapshot between existing final periods, reopen the affected later snapshot first. Reopening a final snapshot also reopens every later final snapshot as a draft, preserving their data but requiring those periods to be reviewed and finalised again.
+You can correct figures on an existing final snapshot without changing its date. If you need to move a final snapshot or insert a new snapshot between existing final periods, reopen the affected later snapshot first. Reopening a final snapshot also reopens every later final snapshot as a draft, preserving their data but requiring those periods to be reviewed and finalised again in chronological order.
 
 ## Pension relief and bonuses
 
