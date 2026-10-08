@@ -7,6 +7,8 @@ import re
 
 GROUPS = ('Stocks', 'P2P', 'Cash', 'Crypto')
 TYPES = GROUPS + ('Mortgage', 'Credit card', 'Tax liability', 'Receivable')
+WRAPPERS = ('None', 'ISA', 'SIPP', 'Lifetime ISA')
+ACCESS = ('Accessible', 'Withdrawal dependent', 'Restricted', 'Repayment dependent', 'Liability')
 FLOW_FIELDS = ('contribution', 'withdrawal', 'relief', 'interest', 'capital')
 ADJUSTMENTS = ('mortgage_interest', 'pension_refund', 'excluded_payments', 'capital_change')
 ZERO = Decimal('0')
@@ -32,7 +34,7 @@ def number(value):
 
 def blank_state():
     return {'schema_version': 1, 'accounts': [], 'snapshots': [], 'valuations': [],
-            'income_sources': ['NHS salary', 'Locum / other income', 'Lodger income'],
+            'income_sources': ['Salary', 'Other income'],
             'source_notes': []}
 
 
@@ -49,6 +51,10 @@ def validate_state(state):
         ids.add(a['id'])
         if a.get('type') not in TYPES or not isinstance(a.get('name'), str) or not a['name'].strip():
             raise ValueError('Each account needs a name and supported type.')
+        if a.get('wrapper', 'None') not in WRAPPERS:
+            raise ValueError('Unsupported account wrapper.')
+        if a.get('access', 'Accessible') not in ACCESS:
+            raise ValueError('Unsupported account access classification.')
         if not isinstance(a.get('active'), bool):
             raise ValueError('Account active flag must be true/false.')
     seen_ids, final_dates = set(), set()
@@ -135,6 +141,11 @@ def problems(state, s):
         for aid, b in prev['balances'].items():
             if money(b.get('amount')) and s['balances'].get(aid, {}).get('amount') in (None, ''):
                 issues.append(accounts[aid]['name'] + ': previous non-zero balance needs a new balance or explicit zero.')
+    earlier_drafts = [x for x in state['snapshots']
+                      if x['id'] != s['id'] and x['status'] == 'draft' and x['date'] < s['date']
+                      and (not prev or x['date'] > prev['date'])]
+    if earlier_drafts:
+        issues.append('An earlier draft snapshot must be finalised or discarded before this period.')
     if not s.get('activity_complete'):
         issues.append('Confirm that income, flows and adjustments cover the whole snapshot period.')
     return issues
@@ -143,6 +154,7 @@ def problems(state, s):
 def report(state, s):
     accounts = {a['id']: a for a in state['accounts']}
     prev = previous_snapshot(state, s)
+    period_days = (date.fromisoformat(s['date']) - date.fromisoformat(prev['date'])).days if prev else None
     old = prev['balances'] if prev else {}
     current = s['balances']
     amount = lambda rows, aid: money(rows.get(aid, {}).get('amount'))
@@ -193,11 +205,19 @@ def report(state, s):
             groups[group]['cost'] += share
             if legacy:
                 gross = None
+        return_pct = None
+        if gross is not None and prev and prior > 0:
+            return_pct = gross * Decimal('100') / prior
+            if not legacy and group in ('Stocks', 'P2P', 'Crypto') and period_days:
+                threshold = max(Decimal('10'), Decimal('20') * Decimal(period_days) / Decimal('30'))
+                if abs(return_pct) > threshold:
+                    warnings.append(f"{a['name']}: inferred return is {number(return_pct)}% of opening balance over {period_days} days; check contributions and withdrawals.")
         rows.append({'id': aid, 'name': a['name'], 'type': group, 'wrapper': a.get('wrapper', 'None'),
                      'balance': number(bal) if b.get('amount') not in (None, '') else None,
                      'previous': number(prior), 'change': number(bal - prior) if prev else None,
                      'gross': number(gross) if gross is not None else None,
                      'cost': number(share), 'net': number(gross-share) if gross is not None else None,
+                     'return_pct': number(return_pct) if return_pct is not None else None,
                      'relief': number(bonus)})
     if legacy and prev:
         for g in GROUPS:
@@ -210,6 +230,8 @@ def report(state, s):
                 groups[g]['gross'] = totals[g] - prior_group - money(legacy.get('group_contributions',{}).get(g)) - bonuses - capital
     for g in GROUPS:
         groups[g]['net'] = groups[g]['gross'] - groups[g]['cost']
+        prior_group = sum((amount(old, aid) for aid, a in accounts.items() if a['type'] == g), ZERO)
+        groups[g]['return_pct'] = groups[g]['gross'] * Decimal('100') / prior_group if prev and prior_group > 0 else None
     unallocated = cost - allocated
     if cost and not eligible:
         warnings.append('No closing stocks/P2P balance: mortgage interest is shown as an unallocated investment cost.')
@@ -221,6 +243,9 @@ def report(state, s):
     savings = delta - net_return - tax_benefits - capital
     income = sum((money(v) for v in s['income'].values()), ZERO)
     excluded = money(s.get('excluded_payments'))
+    adjusted_spending = income - excluded - savings
+    if prev and adjusted_spending < 0:
+        warnings.append('Inferred spending is negative; check income, contributions, withdrawals and exceptional adjustments for missing entries.')
     mortgage_principal = totals['Mortgage'] - sum((amount(old,aid) for aid,a in accounts.items() if a['type']=='Mortgage'), ZERO)
     mortgage_principal -= sum((money(current.get(aid,{}).get('capital')) for aid,a in accounts.items() if a['type']=='Mortgage'), ZERO)
     valuation = max((v for v in state['valuations'] if v['date'] <= s['date']), key=lambda v:v['date'], default=None)
@@ -230,23 +255,29 @@ def report(state, s):
     restricted = sum((amount(current,aid) for aid,a in accounts.items() if a.get('access')=='Restricted'), ZERO)
     isa = sum((amount(current,aid) for aid,a in accounts.items() if a.get('wrapper') in ('ISA','Lifetime ISA')), ZERO)
     result = {'id':s['id'], 'date':s['date'], 'previous_date':prev['date'] if prev else None,
-              'days':(date.fromisoformat(s['date'])-date.fromisoformat(prev['date'])).days if prev else None,
+              'days':period_days,
               'status':s['status'], 'net_worth':number(total), 'accessible':number(accessible),
               'restricted':number(restricted), 'isa_total':number(isa), 'totals':{g:number(v) for g,v in totals.items()},
               'income':number(income), 'adjusted_income':number(income-excluded),
               'excluded_payments':number(excluded), 'tax_benefits':number(tax_benefits),
               'capital_change':number(capital), 'mortgage_interest':number(cost), 'unallocated_cost':number(unallocated),
-              'accounts':rows, 'groups':{g:{k:number(v) for k,v in d.items()} for g,d in groups.items()},
+              'accounts':rows, 'groups':{g:{k:(number(v) if v is not None else None) for k,v in d.items()} for g,d in groups.items()},
               'warnings':warnings, 'issues':problems(state,s), 'legacy':bool(legacy),
               'home_value':number(money(valuation['value'])) if valuation else None,
               'home_value_date':valuation['date'] if valuation else None,
               'with_home':number(total+money(valuation['value'])) if valuation else None,
               'property_change':number(property_change) if property_change is not None else None}
     for k,v in {'balance_change':delta,'gross_return':gross_total,'net_return':net_return,
-                'savings':savings,'spending':income-savings,'adjusted_spending':income-excluded-savings,
-                'mortgage_principal':mortgage_principal,'other_savings':savings-mortgage_principal,
-                'reconciliation':delta-savings-net_return-tax_benefits-capital}.items():
+                'savings':savings,'spending':income-savings,'adjusted_spending':adjusted_spending,
+                'mortgage_principal':mortgage_principal,'other_savings':savings-mortgage_principal}.items():
         result[k] = number(v) if prev else None
+    if prev and period_days:
+        factor = Decimal('30') / Decimal(period_days)
+        result['savings_30d'] = number(savings * factor)
+        result['net_return_30d'] = number(net_return * factor)
+        result['adjusted_spending_30d'] = number(adjusted_spending * factor)
+    else:
+        result['savings_30d'] = result['net_return_30d'] = result['adjusted_spending_30d'] = None
     return result
 
 
