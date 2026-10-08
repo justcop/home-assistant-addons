@@ -141,6 +141,11 @@ def problems(state, s):
         for aid, b in prev['balances'].items():
             if money(b.get('amount')) and s['balances'].get(aid, {}).get('amount') in (None, ''):
                 issues.append(accounts[aid]['name'] + ': previous non-zero balance needs a new balance or explicit zero.')
+    earlier_drafts = [x for x in state['snapshots']
+                      if x['id'] != s['id'] and x['status'] == 'draft' and x['date'] < s['date']
+                      and (not prev or x['date'] > prev['date'])]
+    if earlier_drafts:
+        issues.append('An earlier draft snapshot must be finalised or discarded before this period.')
     if not s.get('activity_complete'):
         issues.append('Confirm that income, flows and adjustments cover the whole snapshot period.')
     return issues
