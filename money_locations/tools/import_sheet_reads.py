@@ -20,7 +20,14 @@ def migrate(source):
     read=lambda name:json.loads((source/(name+'.json')).read_text())['values']
     accounts,history,activity,original=map(read,('accounts','history','activity','oldvalues'))
     state=blank_state()
-    state['income_sources']=['NHS salary','Locum / other income','Lodger income']
+    activity_header=activity[0] if activity else []
+    def source_label(index, fallback):
+        value=activity_header[index] if len(activity_header)>index else ''
+        return str(value).strip() or fallback
+    salary_source=source_label(1,'Salary')
+    rental_source=source_label(2,'Rental income')
+    other_source=source_label(3,'Other income')
+    state['income_sources']=[salary_source,rental_source,other_source]
     for row in accounts[1:]:
         row=row+['']*(9-len(row))
         aid,name,holder,kind,wrapper,access,active,notes,code=row
@@ -40,7 +47,7 @@ def migrate(source):
         row=row+[None]*(16-len(row))
         serial,salary,rental,other,stocks,p2p,transfer,notes,excluded,cash,crypto,capital,complete,relief,refund,sipp=row
         s=snapshots[serial]
-        s['income']={'NHS salary':salary,'Lodger income':rental,'Locum / other income':other}
+        s['income']={salary_source:salary,rental_source:rental,other_source:other}
         s.update(excluded_payments=excluded,pension_refund=refund,capital_change=capital)
         s['legacy']={'group_contributions':{'Stocks':stocks,'P2P':p2p,'Crypto':crypto},
                      'cash_interest':cash,'transfer_adjustment':transfer,'personal_sipp_contribution':sipp}
