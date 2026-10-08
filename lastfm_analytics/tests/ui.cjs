@@ -328,7 +328,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   assert.equal(await page.locator('#page-title').innerText(),'Overview');
   await page.goForward();
   await page.locator('#detail-dialog .calendar-heatmap').waitFor();
-  await page.locator('#close-detail').click();
+  await page.evaluate(() => history.back());
   await page.waitForFunction(()=>!document.querySelector('#detail-dialog').open);
   // Version display is a saved Settings preference, and merge names are choices.
   assert.equal(await page.locator('#toolbar [data-mode]').count(), 0);
@@ -446,7 +446,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   await page.unroute('**/api/artwork?*');
   await page.unroute('https://lastfm.freetls.fastly.net/**');
   // AudioDB's current R2 CDN is allowed, and a photo appears while album jobs remain pending.
-  await page.locator('#close-detail').click();
+  await page.evaluate(() => history.back());
   await page.waitForFunction(() => !document.querySelector('#detail-dialog').open);
   await page.route('**/api/detail?*', async route => {
     const response = await route.fetch();
@@ -467,9 +467,9 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   await page.waitForFunction(() => document.querySelector('#detail-artwork-slot img')?.naturalWidth > 0);
   assert.ok(partialPolls >= 1);
   assert.equal(await page.locator('#detail-artwork-slot img').getAttribute('src'), 'https://r2.theaudiodb.com/images/media/artist/thumb/beatles.jpg');
-  assert.match(await page.locator('#detail-artwork-slot').innerText(), /TheAudioDB/);
+  assert.equal(await page.locator('#detail-artwork-slot figcaption').count(), 0);
   await page.screenshot({path:path.join(output,'audiodb-r2-photo-mobile.png')});
-  await page.locator('#close-detail').click();
+  await page.evaluate(() => history.back());
   await page.waitForFunction(() => !document.querySelector('#detail-dialog').open);
   await page.unroute('**/api/detail?*');
   await page.unroute('**/api/artwork?*');
