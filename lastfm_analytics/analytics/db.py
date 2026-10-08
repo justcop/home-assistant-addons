@@ -139,41 +139,6 @@ class Database:
                 # Preserve usable URLs but retry those misses on first access.
                 db.execute("DELETE FROM artwork_urls WHERE url IS NULL")
                 self.put(db, "artwork_pipeline", 2)
-        self.merge_leading_the_artists()
-
-    def merge_leading_the_artists(self):
-        """Conservatively combine exact artist names differing only by leading 'The'.
-
-        Record evaluated pairs to honour a subsequent manual Undo rather than
-        silently re-merging them on the next import or restart.
-        """
-        with self.connect() as db:
-            candidates = db.execute(
-                "SELECT artist_key,canonical_key,display_name FROM artist_aliases"
-            ).fetchall()
-            existing = {r["artist_key"]: r for r in candidates}
-            seen = set(self.get(db, "leading_the_pairs_seen", []))
-        for alias in candidates:
-            key = alias["artist_key"]
-            if not key.startswith("the ") or len(key) <= 4:
-                continue
-            plain = key[4:]
-            if plain not in existing:
-                continue
-            pair_id = json.dumps(sorted([plain, key]))
-            if pair_id in seen:
-                continue
-            # The pair must be two unmerged identities. Never override manual
-            # choices or combine unrelated artist identities.
-            roots = [existing[plain]["canonical_key"], alias["canonical_key"]]
-            with self.connect() as db:
-                seen.add(pair_id)
-                self.put(db, "leading_the_pairs_seen", sorted(seen))
-            if roots[0] != plain or roots[1] != key:
-                continue
-            # The unprefixed name becomes the canonical identity.
-            self.change_artists([plain, key], existing[plain]["display_name"])
-
     @contextlib.contextmanager
     def connect(self):
         db = sqlite3.connect(self.path, timeout=30)
@@ -295,7 +260,6 @@ class Database:
                     "UPDATE scrobbles SET active=0 WHERE active=1 AND ts>=? AND ts<?", (start, end)
                 )
             artist_keys = {}
-            discovered_artist = False
             for row in rows:
                 if not start <= row["ts"] < end:
                     raise ValueError("Scrobble outside committed window")
@@ -303,12 +267,10 @@ class Database:
                 counts[fingerprint] += 1
                 artist_key = normalise(row["artist"])
                 if artist_key not in artist_keys:
-                    before_artist_insert = db.total_changes
                     db.execute(
                         "INSERT OR IGNORE INTO artist_aliases VALUES (?,?,?)",
                         (artist_key, artist_key, row["artist"]),
                     )
-                    discovered_artist |= db.total_changes != before_artist_insert
                     artist_keys[artist_key] = db.execute(
                         "SELECT canonical_key FROM artist_aliases WHERE artist_key=?",
                         (artist_key,),
@@ -346,8 +308,6 @@ class Database:
                 self.put(db, "analysis_revision", self.get(db, "analysis_revision", 0) + 1)
             for key, value in (checkpoint or {}).items():
                 self.put(db, key, value)
-        if discovered_artist:
-            self.merge_leading_the_artists()
 
     def record_source(self, username, report):
         # Keep attribution independent of imported rows: notifications can precede
