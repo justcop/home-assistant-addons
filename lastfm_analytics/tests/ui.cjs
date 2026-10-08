@@ -264,7 +264,9 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   assert.equal(Math.round(bounds.width),390);
   assert.equal(Math.round(bounds.height),844);
   assert.ok(await page.evaluate(()=>document.body.classList.contains("modal-open")));
-  await page.locator("#close-detail").click();
+  assert.equal(await page.locator("#close-detail").isVisible(), false);
+  // Mobile closes detail using system/browser back, not a redundant X button.
+  await page.evaluate(() => history.back());
   await page.waitForFunction(()=>!document.body.classList.contains("modal-open"));
   const yearOption = await page.locator("#year-options option").first().getAttribute("value");
   await page.route("**/api/overview?**", async route => {
