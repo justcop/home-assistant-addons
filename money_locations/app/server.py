@@ -97,6 +97,12 @@ def apply_action(state, action, data):
         if any(v['id']!=s['id'] and v['date']==s['date'] for v in state['snapshots']):
             raise ValueError('A snapshot already exists on this date.')
         if s['status']=='final' and prior['status']!='final':
+            baseline = previous_snapshot(state, s)
+            earlier_drafts = [v for v in state['snapshots']
+                              if v['id']!=s['id'] and v['status']=='draft' and v['date']<s['date']
+                              and (not baseline or v['date']>baseline['date'])]
+            if earlier_drafts:
+                raise ValueError('An earlier draft snapshot exists in this period. Finalise or discard it first.')
             later = [v for v in state['snapshots'] if v['id']!=s['id'] and v['status']=='final' and v['date']>s['date']]
             if later:
                 raise ValueError('A later final snapshot exists. Reopen that snapshot first so affected periods can be reviewed.')
