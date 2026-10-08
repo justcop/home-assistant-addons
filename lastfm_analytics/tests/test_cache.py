@@ -1,3 +1,17 @@
+def test_cache_hits_do_not_write_access_timestamp_on_every_read(tmp_path):
+    db = Database(tmp_path / "cached.sqlite3")
+    cache = ViewCache("Europe/London", {"overview": lambda db, args: {"plays": 5}})
+    try:
+        cache.get(db, "overview", {})
+        with db.connect() as conn:
+            first = conn.execute("SELECT accessed FROM view_cache").fetchone()[0]
+        cache.get(db, "overview", {})
+        with db.connect() as conn:
+            second = conn.execute("SELECT accessed FROM view_cache").fetchone()[0]
+        assert first == second
+    finally:
+        cache.close()
+
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import threading
