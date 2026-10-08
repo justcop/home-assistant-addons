@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-08T11:16:45+01:00 (Europe/London).
+Reviewed: 2026-10-08T16:06:41+01:00 (Europe/London).
 
-Reviewed continuous white furniture and persistence coverage, including caption contrast with dark surrounding themes. Targeted backend tests and Vinyl/account browser flows passed locally; inspected floating desktop and cabinet phone screenshots. Full backend, Classic/Vinyl/accounts browser and container checks run in CI.
+Reviewed browser coverage of horizontally scrolling cover-only artist rails, per-artist and all-artist expansion, above-cover labels, album navigation and filtering, responsive overflow and both existing white shelf furniture styles. The revised browser flow will be exercised by CI.
 
-<!-- inventory: {"reviewed_at": "2026-10-08T11:16:45+01:00", "review_note": "Reviewed continuous white furniture and persistence coverage, including caption contrast with dark surrounding themes. Targeted backend tests and Vinyl/account browser flows passed locally; inspected floating desktop and cabinet phone screenshots. Full backend, Classic/Vinyl/accounts browser and container checks run in CI.", "source_sha256": "5462270d2126c72b37b56b72392e15af27995d7fcad00fbd82d85c77e4db53ea"} -->
+<!-- inventory: {"reviewed_at":"2026-10-08T16:06:41+01:00","review_note":"Reviewed browser coverage of horizontally scrolling cover-only artist rails, per-artist and all-artist expansion, above-cover labels, album navigation and filtering, responsive overflow and both existing white shelf furniture styles. The revised browser flow will be exercised by CI.","source_sha256":"b39f365b34666678cf40c34a40caf46afa0deac6a8d5546564dbfb50b16fbd9a"} -->
 
 ## Backend cases (282)
 
