@@ -61,16 +61,23 @@ def resolve_album(store, musicbrainz, track):
     artist = artists[0] if artists else ''
     ids = [v for v in (track.get('id'), (track.get('linked_from') or {}).get('id')) if isinstance(v, str)]
     with store.connect() as db:
-        matches = set()
-        if spotify_id:
-            matches.update(row[0] for row in db.execute('SELECT id FROM albums WHERE spotify_album_id=?', (spotify_id,)))
+        direct = {row[0] for row in db.execute('SELECT id FROM albums WHERE spotify_album_id=?', (spotify_id,))} if spotify_id else set()
+        verified = set()
         if ids:
             placeholders = ','.join('?' for _ in ids)
-            matches.update(row[0] for row in db.execute(
+            verified.update(row[0] for row in db.execute(
                 f'SELECT DISTINCT album_id FROM tracks WHERE verified=1 AND spotify_id IN ({placeholders})', ids))
-    if len(matches) == 1:
-        album = store.album(next(iter(matches)))
+    if len(direct) == 1:
+        album = store.album(next(iter(direct)))
         return {'view': 'album', 'album_id': album['id'], 'on_shelf': bool(album['on_shelf'])}
+    # One matching recording may appear on a live album or compilation. Its
+    # original studio album is not necessarily the release currently playing.
+    if not direct and len(verified) == 1 and title and artist:
+        album = store.album(next(iter(verified)))
+        if (normalize(canonical_title(album['title'])) == normalize(title) and
+                any(normalize(c.get('name')) == normalize(artist) for c in album.get('artists', []))):
+            return {'view': 'album', 'album_id': album['id'], 'on_shelf': bool(album['on_shelf'])}
+    matches = direct or verified
     if title and artist and not matches:
         results = musicbrainz.search(title, 'album')
         exact = [a for a in results if normalize(canonical_title(a['title'])) == normalize(title)
