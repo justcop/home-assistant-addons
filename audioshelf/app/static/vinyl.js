@@ -187,23 +187,50 @@ function renderTurntable(){
   panel.innerHTML=`<div class="turntable-record">${art}${text}</div>${skips}${disc}`;
   updateTrackProgress();
 }
+let playbackControlBusy=false;
 async function controlSpotify(command){
   if(!['pause','resume','previous','next'].includes(command))return;
-  if(!playbackState?.active||playbackState.stale||playbackState.starting)return;
+  if(playbackControlBusy||!playbackState?.active||playbackState.stale||playbackState.starting)return;
+  playbackControlBusy=true;
   const previous={...playbackState},position=trackProgress();
+  // Ignore playback reads begun before this command.
   playbackEpoch++;playbackBusy=false;
   if(command==='pause'||command==='resume'){
-    playbackState={...playbackState,playing:command==='resume',progress_ms:position??playbackState.progress_ms,observedAt:performance.now()};
+    playbackState={...playbackState,playing:command==='resume',
+      progress_ms:position??playbackState.progress_ms,observedAt:performance.now()};
     renderTurntable();
   }
   try{
-    await api('spotify/control','POST',{action:command});
-    playbackChecked=0;
-    await refreshPlayback(true);
-    setTimeout(()=>refreshPlayback(true),900);
-  }catch(error){
-    playbackState={...previous,observedAt:performance.now()};renderTurntable();
-    throw error;
+    let commandError;
+    try{
+      await api('spotify/control','POST',{action:command});
+    }catch(error){commandError=error;}
+    if(commandError){
+      // Some proxies return an error after Spotify has already applied a command.
+      // Check actual playback before telling the user it failed or reverting the UI.
+      const confirmed=await api('spotify/playback').catch(()=>null);
+      const oldIds=new Set(previous.track_ids||[]);
+      const changedTrack=(confirmed?.track_ids||[]).some(id=>!oldIds.has(id));
+      const succeeded=confirmed?.active&&(command==='pause'?!confirmed.playing:
+        command==='resume'?confirmed.playing:changedTrack);
+      if(!succeeded){
+        playbackState={...previous,observedAt:performance.now()};
+        renderTurntable();
+        throw new Error(commandError.message==='The request failed.'
+          ?'Spotify did not confirm the playback command. Check the player and retry.'
+          :commandError.message);
+      }
+      playbackState={...confirmed,observedAt:performance.now()};
+      renderTurntable();
+    }else{
+      playbackChecked=0;
+      // A successful command is not a failure merely because a subsequent
+      // read of Spotify status is delayed, unavailable, or fails to render.
+      try{await refreshPlayback(true);}catch{}
+    }
+    setTimeout(()=>refreshPlayback(true).catch(()=>{}),900);
+  }finally{
+    playbackControlBusy=false;
   }
 }
 async function refreshPlayback(force=false){
