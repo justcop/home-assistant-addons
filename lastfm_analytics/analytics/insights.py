@@ -364,13 +364,17 @@ def artwork_albums(conn, kind, value, raw, args):
     return albums, scope, values, extra, params
 
 
-def cover_art(conn, kind, value, raw, args):
-    """Search distinct stored image metadata throughout the selected history."""
-    albums, scope, values, extra, params = artwork_albums(conn, kind, value, raw, args)
+def cover_art(conn, kind, value, raw, args, album_info=None):
+    """Search album metadata once per detail request; avoid redundant discovery."""
+    albums, scope, values, extra, params = (
+        album_info if album_info is not None
+        else artwork_albums(conn, kind, value, raw, args)
+    )
+    joins = "FROM scrobbles s" if kind == "artist" else JOINS
     for album in albums:
         rows = conn.execute(
             f"SELECT DISTINCT json_extract(CASE WHEN json_valid(s.raw_json) "
-            f"THEN s.raw_json ELSE '{{}}' END,'$.image') AS images {JOINS} "
+            f"THEN s.raw_json ELSE '{{}}' END,'$.image') AS images {joins} "
             f"WHERE s.active=1 AND {scope} {extra} AND s.artist=? AND s.album=? "
             "AND images IS NOT NULL",
             (*values, *params, album["artist"], album["album"]),
@@ -386,7 +390,7 @@ def cover_art(conn, kind, value, raw, args):
     return None
 
 
-def details(conn, kind, value, raw, args=None):
+def details(conn, kind, value, raw, args=None, include_artwork=True):
     source_extra, source_params = source_scope(args or {})
     if kind == "artist":
         name = conn.execute(
@@ -401,7 +405,7 @@ def details(conn, kind, value, raw, args=None):
             "name": name[0],
             "artist": "",
             "versions": [],
-            "artwork": cover_art(conn, kind, value, raw, args),
+            "artwork": cover_art(conn, kind, value, raw, args) if include_artwork else None,
         }
     if kind not in ("song", "album"):
         raise ValueError("Unknown detail type")
@@ -427,5 +431,5 @@ def details(conn, kind, value, raw, args=None):
         "name": versions[0]["name"] if raw else group["name"],
         "artist": group["artist"],
         "versions": versions,
-        "artwork": cover_art(conn, kind, value, raw, args),
+        "artwork": cover_art(conn, kind, value, raw, args) if include_artwork else None,
     }
