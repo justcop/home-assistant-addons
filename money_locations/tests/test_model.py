@@ -161,16 +161,17 @@ class Calculations(unittest.TestCase):
         self.assertEqual(after['savings']-before['savings'],100)
 
     def test_backdated_final_snapshot_requires_later_period_reopened(self):
-        st,s=fixture();s['status']='final';apply_action(st,'snapshot',{'snapshot':s})
+        st,s=fixture();candidate=copy.deepcopy(s);candidate['status']='final';apply_action(st,'snapshot',{'snapshot':candidate})
         middle=new_snapshot(st,'2026-01-15');middle['activity_complete']=True
         for aid,b in middle['balances'].items():
             b['amount']=st['snapshots'][0]['balances'][aid]['amount'];b['confirmed']=True
-        st['snapshots'].append(middle);middle['status']='final'
+        st['snapshots'].append(middle)
+        candidate=copy.deepcopy(middle);candidate['status']='final'
         with self.assertRaisesRegex(ValueError,'later final snapshot'):
-            apply_action(st,'snapshot',{'snapshot':middle})
+            apply_action(st,'snapshot',{'snapshot':candidate})
 
     def test_reopen_reopens_downstream_snapshots_and_preserves_data(self):
-        st,s=fixture();s['status']='final';apply_action(st,'snapshot',{'snapshot':s})
+        st,s=fixture();candidate=copy.deepcopy(s);candidate['status']='final';apply_action(st,'snapshot',{'snapshot':candidate})
         later=new_snapshot(st,'2026-03-01');later['activity_complete']=True
         for aid,b in later['balances'].items():
             b['amount']=s['balances'][aid]['amount'];b['confirmed']=True
@@ -183,7 +184,7 @@ class Calculations(unittest.TestCase):
         self.assertEqual(stored[0]['balances']['bank']['amount'],'10000')
 
     def test_final_snapshot_cannot_be_downgraded_or_moved_without_reopen(self):
-        st,s=fixture();s['status']='final';apply_action(st,'snapshot',{'snapshot':s})
+        st,s=fixture();candidate=copy.deepcopy(s);candidate['status']='final';apply_action(st,'snapshot',{'snapshot':candidate})
         final=copy.deepcopy(next(x for x in st['snapshots'] if x['id']==s['id']))
         final['status']='draft'
         with self.assertRaisesRegex(ValueError,'Reopen as draft'):
@@ -207,6 +208,18 @@ class Persistence(unittest.TestCase):
     def test_invalid_restore_is_atomic(self):
         with self.assertRaises(ValueError):self.store.mutate(0,'import',lambda s:s.update({'accounts':[{}]}))
         self.assertEqual(self.store.read()[0],0)
+    def test_unauthenticated_post_is_rejected_before_large_body_parse(self):
+        server=create_server(self.path,'127.0.0.1',0,True,password='secret');thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+        base=f'http://127.0.0.1:{server.server_address[1]}'
+        try:
+            req=Request(base+'/api/action',data=b'{' + b'x'*5000,headers={'Content-Type':'application/json','X-Money-Request':'1'})
+            with self.assertRaises(HTTPError) as cm:urlopen(req)
+            self.assertEqual(cm.exception.code,401)
+            login=Request(base+'/api/auth/login',data=json.dumps({'password':'x'*2000}).encode(),headers={'Content-Type':'application/json','X-Money-Request':'1'})
+            with self.assertRaises(HTTPError) as cm:urlopen(login)
+            self.assertEqual(cm.exception.code,400)
+        finally:server.shutdown();server.server_close();thread.join()
+
     def test_http_csrf_export_and_restore(self):
         server=create_server(self.path,'127.0.0.1',0,True);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
         base=f'http://127.0.0.1:{server.server_address[1]}'
