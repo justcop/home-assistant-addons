@@ -139,6 +139,40 @@ class Database:
                 # Preserve usable URLs but retry those misses on first access.
                 db.execute("DELETE FROM artwork_urls WHERE url IS NULL")
                 self.put(db, "artwork_pipeline", 2)
+        self.merge_leading_the_artists()
+
+    def merge_leading_the_artists(self):
+        """Conservatively combine exact artist names differing only by leading 'The'.
+
+        Record evaluated pairs to honour a subsequent manual Undo rather than
+        silently re-merging them on the next import or restart.
+        """
+        with self.connect() as db:
+            candidates = db.execute(
+                "SELECT artist_key,canonical_key,display_name FROM artist_aliases"
+            ).fetchall()
+            existing = {r["artist_key"]: r for r in candidates}
+            seen = set(self.get(db, "leading_the_pairs_seen", []))
+        for alias in candidates:
+            key = alias["artist_key"]
+            if not key.startswith("the ") or len(key) <= 4:
+                continue
+            plain = key[4:]
+            if plain not in existing:
+                continue
+            pair_id = json.dumps(sorted([plain, key]))
+            if pair_id in seen:
+                continue
+            # The pair must be two unmerged identities. Never override manual
+            # choices or combine unrelated artist identities.
+            roots = [existing[plain]["canonical_key"], alias["canonical_key"]]
+            with self.connect() as db:
+                seen.add(pair_id)
+                self.put(db, "leading_the_pairs_seen", sorted(seen))
+            if roots[0] != plain or roots[1] != key:
+                continue
+            # The unprefixed name becomes the canonical identity.
+            self.change_artists([plain, key], existing[plain]["display_name"])
 
     @contextlib.contextmanager
     def connect(self):
