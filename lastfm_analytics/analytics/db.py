@@ -295,6 +295,7 @@ class Database:
                     "UPDATE scrobbles SET active=0 WHERE active=1 AND ts>=? AND ts<?", (start, end)
                 )
             artist_keys = {}
+            discovered_artist = False
             for row in rows:
                 if not start <= row["ts"] < end:
                     raise ValueError("Scrobble outside committed window")
@@ -302,10 +303,12 @@ class Database:
                 counts[fingerprint] += 1
                 artist_key = normalise(row["artist"])
                 if artist_key not in artist_keys:
+                    before_artist_insert = db.total_changes
                     db.execute(
                         "INSERT OR IGNORE INTO artist_aliases VALUES (?,?,?)",
                         (artist_key, artist_key, row["artist"]),
                     )
+                    discovered_artist |= db.total_changes != before_artist_insert
                     artist_keys[artist_key] = db.execute(
                         "SELECT canonical_key FROM artist_aliases WHERE artist_key=?",
                         (artist_key,),
@@ -343,6 +346,8 @@ class Database:
                 self.put(db, "analysis_revision", self.get(db, "analysis_revision", 0) + 1)
             for key, value in (checkpoint or {}).items():
                 self.put(db, key, value)
+        if discovered_artist:
+            self.merge_leading_the_artists()
 
     def record_source(self, username, report):
         # Keep attribution independent of imported rows: notifications can precede
