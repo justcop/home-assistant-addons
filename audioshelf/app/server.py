@@ -29,6 +29,7 @@ from .storage import Store
 from .themes import THEMES, THEME_IDS
 from .security import Security
 from .playback import PlaybackHandoff
+from .now_playing import resolve_album, spotify_artwork
 
 LOG = logging.getLogger('audioshelf')
 
@@ -225,17 +226,17 @@ def create_app(options=None):
         if authenticated():
             result.update(account={'id':g.account['id'], 'username':g.account['username'], 'admin':g.account['id']=='owner' and identity()['role']=='owner'}, role=identity()['role'], spotify_configured=spotify.configured, spotify_connected=spotify.connected,
                           spotify_redirect_uri=spotify.redirect_uri, data_directory=str(store.directory), cache_directory=str(store.cache_directory), market=spotify.market,
-                          release_filters=store.release_filters(), interface=store.setting('interface', 'vinyl'), shelf_style=store.setting('shelf_style', 'floating'), theme=store.setting('theme', 'record-store'), themes=THEMES, preferred_device=store.setting('preferred_device'))
+                          release_filters=store.release_filters(), interface=store.setting('interface', 'vinyl'), shelf_style=store.setting('shelf_style', 'floating'), theme=store.setting('theme', 'record-store'), themes=THEMES, preferred_device=store.setting('preferred_device'), show_skip_controls=store.setting('show_skip_controls', False))
         return jsonify(result)
 
     @app.get('/api/settings')
     def settings():
-        return jsonify(release_filters=store.release_filters(), interface=store.setting('interface', 'vinyl'), shelf_style=store.setting('shelf_style', 'floating'), theme=store.setting('theme', 'record-store'), themes=THEMES, preferred_device=store.setting('preferred_device'))
+        return jsonify(release_filters=store.release_filters(), interface=store.setting('interface', 'vinyl'), shelf_style=store.setting('shelf_style', 'floating'), theme=store.setting('theme', 'record-store'), themes=THEMES, preferred_device=store.setting('preferred_device'), show_skip_controls=store.setting('show_skip_controls', False))
 
     @app.put('/api/settings')
     def save_settings():
         body = request.json
-        if not isinstance(body, dict) or not set(body).intersection({'release_filters', 'theme', 'preferred_device', 'interface', 'shelf_style'}):
+        if not isinstance(body, dict) or not set(body).intersection({'release_filters', 'theme', 'preferred_device', 'interface', 'shelf_style', 'show_skip_controls'}):
             raise AppError('Supply release filters, an appearance preference or a preferred device.')
         filters = validate_filters(body['release_filters']) if 'release_filters' in body else None
         theme = body.get('theme')
@@ -247,6 +248,8 @@ def create_app(options=None):
         shelf_style = body.get('shelf_style')
         if 'shelf_style' in body and shelf_style not in ('floating', 'cabinet'):
             raise AppError('Choose floating shelves or the white record cabinet.')
+        if 'show_skip_controls' in body and type(body['show_skip_controls']) is not bool:
+            raise AppError('Choose whether to show the previous and next buttons.')
         preferred = body.get('preferred_device')
         if 'preferred_device' in body and preferred is not None:
             if not isinstance(preferred, dict) or set(preferred) != {'id', 'name', 'type'} or not all(isinstance(v, str) and 0 < len(v) <= 200 for v in preferred.values()):
@@ -257,6 +260,8 @@ def create_app(options=None):
                 raise AppError('That device is unavailable. Refresh devices and try again.')
             preferred = {k: preferred[k] for k in ('id', 'name', 'type')}
         with store.catalogue_lock:
+            if 'show_skip_controls' in body:
+                store.set_setting('show_skip_controls', body['show_skip_controls'])
             if shelf_style is not None:
                 store.set_setting('shelf_style', shelf_style)
             if interface is not None:
@@ -267,7 +272,7 @@ def create_app(options=None):
                 store.set_release_filters(filters)
             if theme is not None:
                 store.set_setting('theme', theme)
-        return jsonify(release_filters=store.release_filters(), interface=store.setting('interface', 'vinyl'), shelf_style=store.setting('shelf_style', 'floating'), theme=store.setting('theme', 'record-store'), preferred_device=store.setting('preferred_device'))
+        return jsonify(release_filters=store.release_filters(), interface=store.setting('interface', 'vinyl'), shelf_style=store.setting('shelf_style', 'floating'), theme=store.setting('theme', 'record-store'), preferred_device=store.setting('preferred_device'), show_skip_controls=store.setting('show_skip_controls', False))
 
     @app.post('/api/login')
     def login():
@@ -709,9 +714,36 @@ def create_app(options=None):
         return jsonify(active=True, playing=bool(state.get('is_playing')), track=track.get('name', ''),
                        artist=', '.join(a.get('name', '') for a in track.get('artists', [])),
                        album=album['title'] if album else (track.get('album') or {}).get('name', ''),
-                       album_id=album_id, device=(state.get('device') or {}).get('name', 'Spotify'),
+                       album_id=album_id, spotify_album_id=(track.get('album') or {}).get('id'),
+                       artwork_url=spotify_artwork((track.get('album') or {}).get('images', [])),
+                       device=(state.get('device') or {}).get('name', 'Spotify'),
                        track_ids=[value for value in identifiers if value], progress_ms=state.get('progress_ms'),
                        duration_ms=track.get('duration_ms'))
+
+    @app.get('/api/spotify/album-destination')
+    def playback_album_destination():
+        if not spotify.connected:
+            raise AppError('Connect Spotify first.', 409)
+        state = spotify.api('GET', 'me/player')
+        track = state.get('item') or {}
+        if state.get('currently_playing_type') not in (None, 'track') or not track.get('album'):
+            raise AppError('No Spotify album is currently playing.', 409)
+        return jsonify(resolve_album(store, musicbrainz, track))
+
+    @app.post('/api/spotify/control')
+    def playback_control():
+        if not spotify.connected:
+            raise AppError('Connect Spotify first.', 409)
+        action = request.json.get('action')
+        commands = {'pause': ('PUT', 'me/player/pause'), 'resume': ('PUT', 'me/player/play'),
+                    'previous': ('POST', 'me/player/previous'), 'next': ('POST', 'me/player/next')}
+        if action not in commands:
+            raise AppError('Choose a Spotify playback control.')
+        if action in {'previous', 'next'} and not store.setting('show_skip_controls', False):
+            raise AppError('Enable previous and next buttons in Settings first.', 403)
+        method, path = commands[action]
+        spotify.api(method, path)
+        return jsonify(ok=True)
 
     @app.get('/api/spotify/devices')
     def devices():
