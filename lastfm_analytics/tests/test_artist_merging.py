@@ -2,7 +2,7 @@
 import json
 from analytics.db import Database
 from analytics.grouping import normalise
-from analytics.insights import rankings
+from analytics.insights import rankings, overview
 
 
 def play(ts, artist, title, album="Ágætis byrjun"):
@@ -113,3 +113,15 @@ def test_v2_upgrade_makes_backup_and_preserves_data(tmp_path):
         raw = json.loads(conn.execute("SELECT raw_json FROM scrobbles").fetchone()[0])
         assert raw["mbid"] == "recording-id" and "unused" not in raw
         assert conn.execute("SELECT COUNT(*) FROM scrobbles").fetchone()[0] == 1
+
+
+def test_filtered_overview_keeps_song_album_joins(tmp_path):
+    db = Database(tmp_path / "listening.sqlite3")
+    db.apply_window(0, 1000, [play(100, "Sigur Rós", "Hoppípolla")])
+    with db.connect() as conn:
+        song = conn.execute("SELECT group_id FROM resolved_variants WHERE kind='song'").fetchone()[0]
+        album = conn.execute("SELECT group_id FROM resolved_variants WHERE kind='album'").fetchone()[0]
+    for entity, gid in (("song", song), ("album", album)):
+        report = overview(db, {"period": "all", "entity": entity, "id": str(gid)}, "Europe/London")
+        assert report["current"]["plays"] == 1
+        assert report["top_artists"][0]["plays"] == 1
