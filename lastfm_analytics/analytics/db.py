@@ -600,5 +600,31 @@ class Database:
                     "UPDATE variants SET override_group=? WHERE id=?",
                     (v["override_group"], v["id"]),
                 )
+            if before.get("artist_aliases"):
+                # Titles created while the artists were merged must separate on
+                # undo, too. Existing aliases were restored above.
+                original = {a["artist_key"] for a in before["artist_aliases"]}
+                previous_aliases = {(a["kind"], a["auto_key"]) for a in before["aliases"]}
+                rows = db.execute(
+                    """SELECT DISTINCT v.kind,v.auto_key,v.name,v.artist,g.artist AS group_artist
+                    FROM variants v JOIN resolved_variants rv ON rv.id=v.id
+                    JOIN groups g ON g.id=rv.group_id
+                    WHERE v.override_group IS NULL"""
+                ).fetchall()
+                for row in rows:
+                    alias_key = (row["kind"], row["auto_key"])
+                    if (normalise(row["artist"]) not in original or
+                            normalise(row["group_artist"]) == normalise(row["artist"]) or
+                            alias_key in previous_aliases):
+                        continue
+                    new_group = db.execute(
+                        "INSERT INTO groups(kind,artist,name) VALUES (?,?,?)",
+                        (row["kind"], row["artist"], canonical_title(row["name"], row["kind"])),
+                    ).lastrowid
+                    db.execute(
+                        "UPDATE aliases SET group_id=? WHERE kind=? AND auto_key=?",
+                        (new_group, *alias_key),
+                    )
+                    previous_aliases.add(alias_key)
             self.put(db, "analysis_revision", self.get(db, "analysis_revision", 0) + 1)
             db.execute("UPDATE grouping_events SET undone=1 WHERE id=?", (event["id"],))
