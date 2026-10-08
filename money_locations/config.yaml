@@ -1,5 +1,5 @@
 name: Money Locations
-version: "0.4.0"
+version: "0.5.0"
 slug: money_locations
 description: Net financial assets, inferred savings and investment returns from flexible snapshots.
 url: https://github.com/justcop/home-assistant-addons/tree/main/money_locations
@@ -23,5 +23,9 @@ ports_description:
 webui: http://[HOST]:[PORT:8100]
 options:
   web_password: ""
+  lifestage_email: ""
+  lifestage_password: ""
 schema:
   web_password: password
+  lifestage_email: str?
+  lifestage_password: password?

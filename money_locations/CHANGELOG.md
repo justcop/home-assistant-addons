@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.0
+
+- Extend LifeStage imports with saved sessions and use the previously verified MHCT2 login protocol.
+- Migrate existing 0.4.0 provider records without deleting or replacing the original tables.
+- Support optional lifestage_email and lifestage_password add-on settings.
+- Persist sessions separately from financial exports, with reconnect and disconnect controls.
+- Pull accounts and transactions atomically, refresh records by provider ID and retain source data.
+- Add optional daily sync, transaction search, explicit account mapping and balance sign controls.
+- Populate a new draft from mapped GBP balances, retaining source dates and requiring confirmation.
+- Include imported records/mappings in complete backup and restore while preserving snapshot-only imports.
+
 ## 0.4.0
 
 - Add an experimental read-only LifeStage / former Moneyhub connector using the site's native HTTP login and TOTP flow, without browser automation.

@@ -69,8 +69,9 @@ class Login(unittest.TestCase):
         self.assertEqual(error.exception.code, code)
 
     def test_login_export_restart_logout_and_cookie(self):
-        for path in ('/api/state','/api/export','/api/csv','/api/backups','/api/backup?id=1'):
+        for path in ('/api/state','/api/export','/api/csv','/api/backups','/api/backup?id=1','/api/moneyhub/status','/api/moneyhub/accounts','/api/moneyhub/transactions'):
             self.denied(path)
+        self.denied('/api/moneyhub/login',body={'use_saved':True})
         self.denied('/api/action', body={'action':'income_source','revision':0,'name':'blocked'})
         self.denied('/api/auth/login', body={'password':'wrong'})
         response=self.request('/api/auth/login', {'password':'fixture-password'}, {'X-Ingress-Path':'/untrusted/'})

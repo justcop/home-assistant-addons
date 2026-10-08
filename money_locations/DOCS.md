@@ -78,32 +78,45 @@ Version 0.2.0 automatically copies an existing `/data/money.sqlite` into this fo
 
 In version 0.1.0, ordinary updates and restarts preserved `/data`, but uninstalling removed it. A change of add-on repository/slug also creates a different `/data` directory. If history has already disappeared, check the old installation’s recovery copies or restore its Home Assistant backup and export JSON; otherwise reimport the original history JSON. This release cannot recover a database already deleted without a backup.
 
-Every successful write retains a copy of the preceding state inside the database. The app retains 40 non-draft checkpoints plus 10 draft checkpoints. These recovery copies protect against editing mistakes, but are on the same device: export a complete JSON backup or take Home Assistant backups for device-loss recovery.
+Every successful snapshot/account edit retains a copy of the preceding financial state inside the database. Provider syncs update their separate records without making a full duplicate on each pull. Restoring a complete backup also checkpoints the previous provider records. The app retains 40 non-draft checkpoints plus 10 draft checkpoints. These recovery copies protect against editing mistakes, but are on the same device: export a complete JSON backup or take Home Assistant backups for device-loss recovery.
 
-**Complete backup (JSON)** includes all accounts, snapshot balances and activity, notes, source metadata and home valuations. It restores the whole current dataset. Recovery history itself is retained only in Home Assistant's database backup. **Balance history (CSV)** exports account balances and flows, not the complete dataset; use JSON for restoration.
+**Complete backup (JSON)** includes all accounts, snapshot balances and activity, notes, source metadata, home valuations, imported LifeStage accounts/transactions and account mappings. Passwords and session cookies are excluded. It restores the whole current dataset. Recovery history itself is retained only in Home Assistant's database backup. **Balance history (CSV)** exports account balances and flows, not the complete dataset; use JSON for restoration.
 
 To restore, download a recovery copy or use an exported JSON file. Select it under **Import or restore** and type `RESTORE` when replacing existing data. The current state is backed up before replacement. Files are validated before an atomic database update. A stale browser revision is rejected instead of overwriting another tab's changes.
 
-## LifeStage / Moneyhub data pull
-
-Version 0.4.0 adds an experimental read-only connector to the LifeStage Money web application, formerly Moneyhub. Open **Backups & settings** and use the LifeStage / Moneyhub panel.
-
-The first connection is deliberately manual: enter the LifeStage email, tenant ID and password, then enter the normal LifeStage 2FA code when prompted. The password, 2FA code, login challenge and authenticated CSRF token exist only in process memory and are lost on add-on restart or explicit disconnect. Only the email, tenant ID and generated device ID are retained to make the next connection easier.
-
-The tenant ID is temporarily a technical field while automatic discovery is unfinished. It can be read from the request payload of the LifeStage web login: open browser developer tools, Network, select the POST request named **login**, and inspect the `tenantId` value in the request payload.
-
-Once authenticated, select a date range and choose **Pull accounts & transactions**. The add-on requests active accounts, all accounts and transactions for that date range and stores the raw provider records in dedicated SQLite tables. Accounts and transactions are keyed by their LifeStage/Moneyhub UID, so pulling an overlapping date range updates existing records instead of duplicating them.
-
-This first stage is intentionally isolated from the accounting model. Imported transactions do **not** populate snapshot balances, income, investment contributions, mortgage costs or spending yet. Use the recent-transactions preview to verify that the connection is retrieving the expected data before account matching and transaction classification are enabled.
-
-LifeStage raw imports are retained in the same SQLite database and therefore in Home Assistant backups that include `/share/money_locations`. They are not yet included in the app's JSON export.
-
 ## Current scope
 
-GBP and a single household dataset. No bank connections, Google Drive synchronisation, statement imports, OCR or AI. Pension entitlement outside tracked accounts is not valued. Historical account-level returns cannot be recovered from aggregate category flows. Percentage returns currently use gross inferred return divided by opening balance as a sanity check; they are not Modified Dietz or another money-weighted performance measure. No API credentials are needed.
+GBP and a single household dataset. LifeStage imports are optional. No direct bank connections, Google Drive synchronisation, statement imports, OCR or AI. Pension entitlement outside tracked accounts is not valued. Historical account-level returns cannot be recovered from aggregate category flows. Percentage returns currently use gross inferred return divided by opening balance as a sanity check; they are not Modified Dietz or another money-weighted performance measure. No commercial API credentials are needed. LifeStage uses your existing website login.
 
 ## Login and access
 
 Set `web_password` in the add-on Configuration tab and restart. Passwords are verified with a salted PBKDF2 hash in memory; they are never stored in the financial dataset or exports. Sessions expire after 12 hours, and restarting or changing the password logs everybody out. Five failed attempts temporarily block further logins. Password login protects both Ingress and direct access, including exports and recovery copies. Without a password, production shows configuration instructions and provides no financial API access.
 
 Ingress stays on port 8099 and accepts only the Home Assistant ingress proxy. For optional direct LAN access, enable the separate **8100/tcp** network port in Home Assistant. It is disabled by default, and its listener starts only when a password is configured. Direct HTTP should be used on a trusted LAN; use HTTPS through Home Assistant Ingress or an HTTPS reverse proxy for remote access. No port forwarding is required for Ingress.
+
+## Moneyhub / WPS LifeStage import
+
+Version 0.5.0 moves the earlier Settings connector into **LifeStage & transactions**. Existing 0.4.0 downloaded accounts and transactions are copied into the new import tables once; original tables remain available for recovery. The normal financial snapshot history is preserved.
+
+Open **LifeStage & transactions** in the app. Either enter your LifeStage email and password there, or configure these optional Home Assistant add-on settings and restart:
+
+```yaml
+lifestage_email: "your-email-address"
+lifestage_password: "your-LifeStage-password"
+```
+
+Then choose **Use saved LifeStage login**. Enter the requested two-factor code in the app. Credentials entered directly in the app are used for that login only; the optional add-on settings persist in Home Assistant's configuration. Neither is included in financial JSON exports. Session cookies, the CSRF token and the device ID are stored in a permissions-restricted file beside the database so sessions can survive app restarts. Home Assistant backups of configuration/share can contain these secrets. **Disconnect** removes the saved session and disables background sync while retaining imported records. It does not erase credentials you chose to save in the add-on configuration.
+
+Choose a transaction date range and press **Sync now**. The default is 90 days, and a request may cover up to ten years. The app reads all provider accounts, including closed accounts, plus transactions in overlapping monthly windows. Account responses, including holdings when present, and original transaction fields are retained for export. The screen shows current balances and a searchable, paginated transaction list. Repeat pulls refresh matching provider IDs rather than adding duplicates. Pending and foreign-currency records are retained; explicitly deleted provider records are retained in backup data but hidden from the list. Missing rows are not assumed deleted. The app does not infer a match when the provider issues a new ID for a posted transaction replacing a pending one.
+
+The whole pull is validated before accounts, transactions and the last-sync marker are committed together. A network failure, invalid record or unrecognised pagination metadata leaves the previous imported records intact. The importer does not assume that the provider holds a complete history; the displayed range is the requested interval, not a guarantee of statement completeness. Use another date range to refresh older entries. Provider history coverage and long-term session lifetimes have not been established.
+
+**Sync daily** is optional. It pulls the latest account balances and transactions since the previous successful pull with a seven-day overlap. It uses the saved session. If that expires, the app reports that you need to reconnect. Even with saved credentials, it does not repeatedly send automatic login/2FA requests. Reauthenticate with **Use saved LifeStage login** or the login form.
+
+Map LifeStage accounts to existing Money Locations accounts explicitly. One source maps to one local account, and duplicate local mappings are rejected. Check mortgage/card balance signs; reverse them only where needed to make debts negative. Mapping does not change account classifications, historic snapshots or inactive Charlotte accounts.
+
+**Create today’s draft from mapped balances** populates a new draft for today using mapped, open GBP accounts. Properties and foreign-currency accounts are not used for financial snapshot balances. An existing snapshot for today is never overwritten. Source balance dates remain visible, because a newly fetched balance may still be old. Confirm each imported balance and complete all income, contributions, withdrawals, interest, pension relief and other adjustments before finalising. Transactions do not automatically classify income, spending or investment flows, and mortgage accounting remains unchanged.
+
+Complete JSON export/restore includes imported records and mappings, with atomic restoration and a recovery checkpoint. Older snapshot-only exports retain existing provider records and drop any mappings whose local accounts no longer exist. Restore accepts files up to 100 MB. Background sync is disabled after restoring a backup that includes provider data until enabled again. Run one Money Locations instance per household shared-data folder.
+
+This is an unofficial read-only integration using the website protocol verified on 8 October 2026. Only the login endpoint is posted to; account and transaction endpoints are fetched. It does not trigger payments, edit transactions or change bank connections. It needs no browser automation, CSV export, extra Python packages or paid Moneyhub API access. Use Home Assistant's HTTPS Ingress access when entering credentials remotely.
