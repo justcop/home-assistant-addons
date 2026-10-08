@@ -409,7 +409,7 @@ self.addEventListener('fetch', event => {
         with db.connect() as conn:
             counts = dict(
                 conn.execute(
-                    'SELECT COUNT(*) plays,MIN(ts) earliest,MAX(ts) latest,SUM(album="") missing_albums FROM scrobbles WHERE active=1'
+                    "SELECT COUNT(*) plays,MIN(ts) earliest,MAX(ts) latest,SUM(album='') missing_albums FROM scrobbles WHERE active=1"
                 ).fetchone()
             )
             imp = db.get(conn, "import", {})
@@ -487,7 +487,9 @@ self.addEventListener('fetch', event => {
             albums = insights.artwork_albums(conn, kind, value, raw, request.args)[0]
         if kind == "artist" and not is_demo():
             with db.connect() as conn:
-                row = conn.execute("SELECT artist FROM scrobbles WHERE artist_key=? LIMIT 1", (value,)).fetchone()
+                row = conn.execute(
+                    "SELECT display_name FROM artist_aliases WHERE artist_key=?", (value,)
+                ).fetchone()
             if row:
                 assets = artwork_worker.resolve_artist(db, row[0])
                 if artwork:
@@ -520,6 +522,30 @@ self.addEventListener('fetch', event => {
                 request.args.get("mode") == "raw", request.args)[0]]
         result.update(detail_artwork(db, result))
         return jsonify(result)
+
+    @app.get("/api/artists-review")
+    def artists_review():
+        db = db_for_request()
+        needle = insights.normalise(request.args.get("q", "")[:200])
+        offset = max(0, int(request.args.get("offset", 0)))
+        with db.connect() as conn:
+            artists = [
+                dict(r) for r in conn.execute(
+                    """SELECT s.artist_group_key AS id, COUNT(*) AS plays,
+                       COALESCE((SELECT display_name FROM artist_aliases
+                       WHERE artist_key=s.artist_group_key), MIN(s.artist)) AS name,
+                       COUNT(DISTINCT s.artist_key) AS versions,
+                       GROUP_CONCAT(DISTINCT s.artist) AS originals
+                       FROM scrobbles s WHERE s.active=1
+                       GROUP BY s.artist_group_key ORDER BY plays DESC"""
+                )
+            ]
+        if needle:
+            artists = [a for a in artists if needle in insights.normalise(
+                a["name"] + " " + (a["originals"] or ""))]
+        for a in artists:
+            a["originals"] = (a["originals"] or "").split(",")
+        return jsonify(rows=artists[offset:offset+50], total=len(artists), offset=offset)
 
     @app.get("/api/grouping-review")
     def grouping_review():
@@ -562,6 +588,8 @@ self.addEventListener('fetch', event => {
                 )
         elif data.get("action") == "undo":
             db.undo_grouping()
+        elif data.get("action") == "merge_artists":
+            db.change_artists(data.get("ids", []), data.get("name"))
         else:
             db.change_groups(data.get("action"), data.get("ids", []), data.get("name"))
         view_cache.clear(db)
