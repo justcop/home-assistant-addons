@@ -90,6 +90,11 @@ Original scrobble artist and track names are retained. Compact cover and MusicBr
 
 A song can be grouped across different albums. Album identity is based on the scrobbled track artist and album name. Compilation releases may therefore appear under several artists; this version does not infer a missing album artist.
 
+## Detail pages and loading
+
+Artist details place a transparent band logo above the heading when TheAudioDB provides one. The artist photograph remains a smaller secondary image. Artist, album and song pages have a green Spotify search button. The artist header appears as soon as metadata is ready, while longer-running analytics loads separately. Artist artwork discovery avoids unnecessary grouping joins and duplicate database queries; frequent cached-view reads avoid extra database writes. Artwork fetching is asynchronous, with spaced follow-up checks.
+
+
 ## Interpreting the analysis
 
 - A play is a dated scrobble. It is not measured listening time. Duration estimates and full-album-session claims are deliberately not produced without adequate evidence.
