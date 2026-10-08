@@ -180,6 +180,32 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.getByRole('button',{name:'Resume Spotify'}).click();
     await page.locator('#turntable small b').filter({hasText:'PLAYING'}).waitFor();
     assert.equal(await page.locator('.turntable-toggle.is-spinning').count(),1);
+    // A rotating symmetrical circle looks stationary: the asymmetric label
+    // and groove marker must visibly change orientation while playing.
+    assert.equal(await page.locator('.turntable-platter').evaluate(el=>getComputedStyle(el,'::before').content),'"A"');
+    assert.equal(await page.locator('.turntable-platter').evaluate(el=>getComputedStyle(el,'::after').width),'4px');
+    await page.emulateMedia({reducedMotion:'no-preference'});
+    assert.equal(await page.locator('.turntable-platter').evaluate(el=>getComputedStyle(el).animationName),'audioshelf-spin');
+    const angleBefore=await page.locator('.turntable-platter').evaluate(el=>getComputedStyle(el).transform);
+    await wait(200);
+    const angleAfter=await page.locator('.turntable-platter').evaluate(el=>getComputedStyle(el).transform);
+    assert.notEqual(angleAfter,angleBefore,'Playing platter visibly rotates');
+    await page.emulateMedia({reducedMotion:'reduce'});
+    assert.equal(await page.locator('.turntable-platter').evaluate(el=>getComputedStyle(el).animationName),'none');
+    // A proxy can report 502 after Spotify successfully paused the track.
+    // Recheck actual player state rather than reporting a false failure.
+    await page.route('**/api/spotify/control',async route=>{
+      const response=await route.fetch();
+      assert.equal(response.status(),200);
+      await route.fulfill({status:502,contentType:'text/html',body:'Bad Gateway'});
+    });
+    await page.getByRole('button',{name:'Pause Spotify'}).click();
+    await page.locator('#turntable small b').filter({hasText:'PAUSED'}).waitFor();
+    assert.equal(await page.locator('#turntable .turntable-toggle.is-spinning').count(),0);
+    assert(!((await page.locator('#toast').textContent())||'').includes('request failed'),'Applied command must not show a false failure');
+    await page.unroute('**/api/spotify/control');
+    await page.getByRole('button',{name:'Resume Spotify'}).click();
+    await page.locator('#turntable small b').filter({hasText:'PLAYING'}).waitFor();
     const bar=await page.locator('#turntable').evaluate(el=>({bar:el.getBoundingClientRect().height,art:el.querySelector('.now-playing-art').getBoundingClientRect().height}));
     assert(bar.bar<=90&&bar.art>=bar.bar-16,'Larger Spotify art fits the existing bar');
     await noOverflow();await shot('album-desktop');
