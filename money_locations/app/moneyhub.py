@@ -164,6 +164,8 @@ class MoneyhubClient:
             self.csrf_token = response.headers.get("csrf-token")
         if isinstance(response.body, dict):
             self.login_token = response.body.get("loginToken")
+            if not self.login_token and isinstance(response.body.get("data"), dict):
+                self.login_token = response.body["data"].get("loginToken")
         if self.login_token:
             return {"status": "totp_required"}
         if self.csrf_token:
