@@ -25,6 +25,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from . import __version__, insights
 from .cache import ViewCache
 from .review import review
+from .grouping import normalise
 from .db import Database
 from .demo import seed
 from .sync import SyncWorker
@@ -531,7 +532,7 @@ self.addEventListener('fetch', event => {
     @app.get("/api/artists-review")
     def artists_review():
         db = db_for_request()
-        needle = insights.normalise(request.args.get("q", "")[:200])
+        needle = normalise(request.args.get("q", "")[:200])
         offset = max(0, int(request.args.get("offset", 0)))
         with db.connect() as conn:
             artists = [
@@ -546,7 +547,7 @@ self.addEventListener('fetch', event => {
                 )
             ]
         if needle:
-            artists = [a for a in artists if needle in insights.normalise(
+            artists = [a for a in artists if needle in normalise(
                 a["name"] + " " + (a["originals"] or ""))]
         for a in artists:
             a["originals"] = (a["originals"] or "").split(",")
