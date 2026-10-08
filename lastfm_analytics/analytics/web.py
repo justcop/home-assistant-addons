@@ -550,12 +550,32 @@ self.addEventListener('fetch', event => {
                        GROUP BY s.artist_group_key ORDER BY plays DESC"""
                 )
             ]
-        if needle:
-            artists = [a for a in artists if needle in normalise(
-                a["name"] + " " + (a["originals"] or ""))]
+        from .grouping import artist_suggestion_key
         for a in artists:
             a["originals"] = json.loads(a["originals"] or "[]")
-        return jsonify(rows=artists[offset:offset+50], total=len(artists), offset=offset)
+        buckets = {}
+        for a in artists:
+            key = artist_suggestion_key(a["name"])
+            if len(key) >= 3:
+                buckets.setdefault(key, []).append(a)
+        suggestions = []
+        for members in buckets.values():
+            if len(members) > 1:
+                for i, left in enumerate(members):
+                    for right in members[i+1:]:
+                        suggestions.append(dict(
+                            ids=[left["id"], right["id"]],
+                            names=[left["name"], right["name"]],
+                            plays=left["plays"]+right["plays"],
+                            reason="Names differ by article, accents or punctuation"
+                        ))
+        suggestions.sort(key=lambda p: -p["plays"])
+        if needle:
+            artists = [a for a in artists if needle in normalise(
+                a["name"] + " " + " ".join(a["originals"]))]
+            suggestions = [p for p in suggestions if needle in normalise(" ".join(p["names"]))]
+        return jsonify(rows=artists[offset:offset+50], total=len(artists), offset=offset,
+                       suggestions=suggestions[:25])
 
     @app.get("/api/grouping-review")
     def grouping_review():
