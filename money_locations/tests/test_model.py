@@ -60,7 +60,8 @@ class Calculations(unittest.TestCase):
         self.assertEqual(r['other_savings'],1600)
         self.assertEqual(r['groups']['Cash']['cost'],0)
         self.assertAlmostEqual(r['groups']['Stocks']['cost'],600*41000/51000,places=2)
-        self.assertEqual(r['reconciliation'],0)
+        self.assertNotIn('reconciliation',r)
+        self.assertAlmostEqual(r['savings_30d'],2000*30/31,places=2)
 
     def test_excluded_payment_deducted_once(self):
         st,s=fixture();s['income']={'Salary':'3000'};s['balances']['bank']['amount']='11000';s['excluded_payments']='500'
@@ -113,6 +114,23 @@ class Calculations(unittest.TestCase):
         st,s=fixture();a=copy.deepcopy(st['accounts'][0]);a['type']='Stocks'
         with self.assertRaises(ValueError):apply_action(st,'account',{'account':a})
 
+    def test_invalid_wrapper_and_access_rejected(self):
+        st,_=fixture();st['accounts'][0]['wrapper']='=cmd'
+        with self.assertRaises(ValueError):validate_state(st)
+        st,_=fixture();st['accounts'][0]['access']='Anything'
+        with self.assertRaises(ValueError):validate_state(st)
+
+    def test_implausible_inferred_return_warns(self):
+        st,s=fixture();s['balances']['stock']['amount']='60000'
+        r=report(st,s)
+        self.assertTrue(any('inferred return' in w and 'stock' in w for w in r['warnings']))
+
+    def test_negative_inferred_spending_warns(self):
+        st,s=fixture();s['balances']['bank']['amount']='11000'
+        r=report(st,s)
+        self.assertLess(r['adjusted_spending'],0)
+        self.assertTrue(any('Inferred spending is negative' in w for w in r['warnings']))
+
     def test_new_mortgage_borrowing_capital_adjustment(self):
         st,s=fixture();s['balances']['mortgage'].update(amount='-31000',capital='-1000');s['balances']['bank'].update(amount='11000',capital='1000')
         r=report(st,s);self.assertEqual(r['mortgage_principal'],0);self.assertEqual(r['savings'],0)
@@ -141,6 +159,38 @@ class Calculations(unittest.TestCase):
         st['snapshots'][0]['balances']['bank']['amount']='9900'
         after=report(st,s)
         self.assertEqual(after['savings']-before['savings'],100)
+
+    def test_backdated_final_snapshot_requires_later_period_reopened(self):
+        st,s=fixture();s['status']='final';apply_action(st,'snapshot',{'snapshot':s})
+        middle=new_snapshot(st,'2026-01-15');middle['activity_complete']=True
+        for aid,b in middle['balances'].items():
+            b['amount']=st['snapshots'][0]['balances'][aid]['amount'];b['confirmed']=True
+        st['snapshots'].append(middle);middle['status']='final'
+        with self.assertRaisesRegex(ValueError,'later final snapshot'):
+            apply_action(st,'snapshot',{'snapshot':middle})
+
+    def test_reopen_reopens_downstream_snapshots_and_preserves_data(self):
+        st,s=fixture();s['status']='final';apply_action(st,'snapshot',{'snapshot':s})
+        later=new_snapshot(st,'2026-03-01');later['activity_complete']=True
+        for aid,b in later['balances'].items():
+            b['amount']=s['balances'][aid]['amount'];b['confirmed']=True
+        later['status']='final';st['snapshots'].append(later)
+        count=apply_action(st,'reopen_snapshot',{'id':s['id']})
+        self.assertEqual(count,2)
+        self.assertEqual(s['status'],'final')  # caller's detached copy is unchanged
+        stored=[x for x in st['snapshots'] if x['date']>='2026-02-01']
+        self.assertTrue(all(x['status']=='draft' for x in stored))
+        self.assertEqual(stored[0]['balances']['bank']['amount'],'10000')
+
+    def test_final_snapshot_cannot_be_downgraded_or_moved_without_reopen(self):
+        st,s=fixture();s['status']='final';apply_action(st,'snapshot',{'snapshot':s})
+        final=copy.deepcopy(next(x for x in st['snapshots'] if x['id']==s['id']))
+        final['status']='draft'
+        with self.assertRaisesRegex(ValueError,'Reopen as draft'):
+            apply_action(st,'snapshot',{'snapshot':final})
+        final['status']='final';final['date']='2026-02-02'
+        with self.assertRaisesRegex(ValueError,'Reopen this snapshot'):
+            apply_action(st,'snapshot',{'snapshot':final})
 
 
 class Persistence(unittest.TestCase):
