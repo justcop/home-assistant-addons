@@ -481,7 +481,7 @@ self.addEventListener('fetch', event => {
             conn.execute("BEGIN")
             return jsonify(insights.history(conn, dates(conn), request.args, tz))
 
-    def detail_artwork(db, result=None):
+    def detail_artwork(db, result=None, album_info=None):
         if not config["artwork_lookups"]:
             return dict(artwork=None, artwork_pending=False, artist_photo=None, artist_logo=None)
         kind, value = request.args.get("entity"), request.args.get("id")
@@ -490,7 +490,8 @@ self.addEventListener('fetch', event => {
             conn.execute("BEGIN")
             artwork = result.get("artwork") if result else insights.cover_art(
                 conn, kind, value, raw, request.args)
-            albums = insights.artwork_albums(conn, kind, value, raw, request.args)[0]
+            albums = (album_info[0] if album_info is not None else
+                      insights.artwork_albums(conn, kind, value, raw, request.args)[0])
         if kind == "artist" and not is_demo():
             with db.connect() as conn:
                 row = conn.execute(
@@ -518,15 +519,18 @@ self.addEventListener('fetch', event => {
         db = db_for_request()
         with db.connect() as conn:
             conn.execute("BEGIN")
+            kind, value = request.args.get("entity"), request.args.get("id")
+            raw = request.args.get("mode") == "raw"
             result = insights.details(
-                conn, request.args.get("entity"), request.args.get("id"),
-                request.args.get("mode") == "raw", request.args,
+                conn, kind, value, raw, request.args, include_artwork=False,
             )
-        with db.connect() as conn:
-            result["listening_albums"] = [a["album"] for a in insights.artwork_albums(
-                conn, request.args.get("entity"), request.args.get("id"),
-                request.args.get("mode") == "raw", request.args)[0]]
-        result.update(detail_artwork(db, result))
+            album_info = insights.artwork_albums(conn, kind, value, raw, request.args)
+            result["listening_albums"] = [a["album"] for a in album_info[0]]
+            if config["artwork_lookups"]:
+                result["artwork"] = insights.cover_art(
+                    conn, kind, value, raw, request.args, album_info=album_info,
+                )
+        result.update(detail_artwork(db, result, album_info))
         return jsonify(result)
 
     @app.get("/api/artists-review")
