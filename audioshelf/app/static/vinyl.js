@@ -165,6 +165,12 @@ function failPlaybackStart(){
   playbackEpoch++;playbackBusy=false;playbackStart=null;
   playbackState=null;renderTurntable();refreshPlayback(true);
 }
+function nowPlayingCover(p){
+  const url=p.artwork_url;
+  const safe=typeof url==='string'&&/^https:\/\/(?:i|mosaic)\.scdn\.co\/image\/[A-Za-z0-9]+(?:\?.*)?$/.test(url);
+  const artwork=safe?url:p.album_id?coverUrl(p.album_id,128):null;
+  return artwork?`<img class="now-playing-art" src="${escapeHtml(artwork)}" alt="" loading="eager" referrerpolicy="no-referrer">`:'<span class="now-playing-fallback" aria-hidden="true">♫</span>';
+}
 function renderTurntable(){
   const panel=document.querySelector('#turntable');if(!panel)return;
   panel.hidden=!isVinyl()||!statusInfo.authenticated;
@@ -172,9 +178,33 @@ function renderTurntable(){
   const p=playbackState;
   if(!statusInfo.spotify_connected){panel.innerHTML='<span class="turntable-disc" aria-hidden="true"></span><div><small>ON THE TURNTABLE</small><strong>Ready when you are.</strong></div><a href="#settings" class="quiet">Connect Spotify ↗</a>';return;}
   if(!p?.active){panel.innerHTML=`<span class="turntable-disc" aria-hidden="true"></span><div><small>ON THE TURNTABLE</small><strong>${p?.unavailable?'Spotify status unavailable':'Pick a record. Press play.'}</strong><span>${p?.unavailable?'Open Spotify to check playback.':'Your next full-album listen starts here.'}</span></div>`;return;}
-  const inner=`${p.album_id?`<img src="${coverUrl(p.album_id,128)}" alt="">`:'<span class="turntable-disc" aria-hidden="true"></span>'}<div><small>ON THE TURNTABLE <b>${p.stale?'STATUS UNAVAILABLE':p.starting?'STARTING':p.playing?'PLAYING':'PAUSED'}</b></small><strong>${escapeHtml(p.album||p.track)}</strong><span>${escapeHtml(p.track)} · ${escapeHtml(p.artist)}</span>${progressHtml(p)}</div>`;
-  panel.innerHTML=`${p.album_id?`<a class="turntable-record" href="#album/${id(p.album_id)}">${inner}</a>`:`<div class="turntable-record">${inner}</div>`}<span class="turntable-device">${escapeHtml(p.device)}</span>`;
+  const label=escapeHtml(p.album||p.track);
+  const art=`<button class="now-playing-cover" data-action="now-playing-album" aria-label="Open ${label} in AudioShelf" title="View album in AudioShelf">${nowPlayingCover(p)}</button>`;
+  const text=`<div class="now-playing-details"><small>ON THE TURNTABLE <b>${p.stale?'STATUS UNAVAILABLE':p.starting?'STARTING':p.playing?'PLAYING':'PAUSED'}</b></small><strong>${label}</strong><span>${escapeHtml(p.track)} · ${escapeHtml(p.artist)}</span>${progressHtml(p)}</div>`;
+  const blocked=p.starting||p.stale||statusInfo.role==='view';
+  const skips=statusInfo.show_skip_controls?`<div class="now-playing-skips"><button data-action="spotify-control" data-command="previous" aria-label="Previous track" title="Previous track" ${blocked?'disabled':''}>⏮</button><button data-action="spotify-control" data-command="next" aria-label="Next track" title="Next track" ${blocked?'disabled':''}>⏭</button></div>`:'';
+  const disc=`<button class="turntable-toggle ${p.playing&&!p.stale&&!p.starting?'is-spinning':''}" data-action="spotify-control" data-command="${p.playing?'pause':'resume'}" aria-label="${p.playing?'Pause':'Resume'} Spotify" title="${p.playing?'Pause':'Resume'}" ${blocked?'disabled':''}><span class="turntable-platter" aria-hidden="true"></span><span class="turntable-tonearm" aria-hidden="true"></span></button>`;
+  panel.innerHTML=`<div class="turntable-record">${art}${text}</div>${skips}${disc}`;
   updateTrackProgress();
+}
+async function controlSpotify(command){
+  if(!['pause','resume','previous','next'].includes(command))return;
+  if(!playbackState?.active||playbackState.stale||playbackState.starting)return;
+  const previous={...playbackState},position=trackProgress();
+  playbackEpoch++;playbackBusy=false;
+  if(command==='pause'||command==='resume'){
+    playbackState={...playbackState,playing:command==='resume',progress_ms:position??playbackState.progress_ms,observedAt:performance.now()};
+    renderTurntable();
+  }
+  try{
+    await api('spotify/control','POST',{action:command});
+    playbackChecked=0;
+    await refreshPlayback(true);
+    setTimeout(()=>refreshPlayback(true),900);
+  }catch(error){
+    playbackState={...previous,observedAt:performance.now()};renderTurntable();
+    throw error;
+  }
 }
 async function refreshPlayback(force=false){
   const position=trackProgress();
