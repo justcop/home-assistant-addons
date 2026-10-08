@@ -8,12 +8,15 @@ import threading
 import time
 from zoneinfo import ZoneInfo
 
-from . import __version__
+from concurrent.futures import TimeoutError as FutureTimeout
 
 
 class ViewCache:
     LIMIT = 24
     RETRY_SECONDS = 60
+    # This changes only when cached payload semantics change, not every release.
+    CACHE_FORMAT = "analytics-v3"
+    COLD_WAIT_SECONDS = 6
 
     def __init__(self, timezone, compute):
         self.timezone = ZoneInfo(timezone)
@@ -37,7 +40,7 @@ class ViewCache:
         values.setdefault("period", "all")
         values.setdefault("source", "all")
         values.setdefault("mode", "merged")
-        return json.dumps([__version__, name, values], sort_keys=True)
+        return json.dumps([self.CACHE_FORMAT, name, values], sort_keys=True)
 
     def register(self, db):
         with self.lock:
@@ -46,7 +49,7 @@ class ViewCache:
                     for row in conn.execute(
                         "SELECT cache_key FROM view_cache"
                     ).fetchall():
-                        if json.loads(row[0])[0] != __version__:
+                        if json.loads(row[0])[0] != self.CACHE_FORMAT:
                             conn.execute(
                                 "DELETE FROM view_cache WHERE cache_key=?", (row[0],)
                             )
@@ -104,7 +107,11 @@ class ViewCache:
                 raise ValueError(
                     "This view could not be updated. Please retry shortly."
                 )
-            result, generated, revision = future.result()
+            try:
+                result, generated, revision = future.result(timeout=self.COLD_WAIT_SECONDS)
+            except FutureTimeout:
+                # Never monopolise every web thread during a long first calculation.
+                raise ValueError("Analysis is generating. Please retry shortly.") from None
             stale = revision != db.meta("analysis_revision", 0)
         else:
             result, generated = json.loads(row["payload"]), row["generated"]
