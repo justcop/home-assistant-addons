@@ -35,6 +35,9 @@ timezone: Europe/London
 sync_interval_seconds: 300
 reconcile_days: 7
 demo_mode: false
+artwork_lookups: true
+audioshelf_url: ""
+source_api_token: ""
 web_password: ""
 ```
 
@@ -46,6 +49,9 @@ web_password: ""
 | `sync_interval_seconds` | `300`           | Regular sync interval, between 60 and 86,400 seconds.                                       |
 | `reconcile_days`        | `7`             | Recent days rechecked daily for edits, deletions and delayed submissions, between 2 and 90. |
 | `demo_mode`             | `false`         | Run the isolated fictional demo without making Last.fm requests.                            |
+| `artwork_lookups`       | `true`          | Allow remote album artwork and artist photo/logo fetching.                                 |
+| `audioshelf_url`        | empty           | Optional HTTPS URL for AudioShelf record-store and shelf links.                             |
+| `source_api_token`      | empty           | Separate secret token for Vinyl Guardian source reports.                                   |
 
 `web_password` enables the optional direct login and must contain 12 to 256 characters. Leave it blank to block direct access.
 
@@ -61,18 +67,21 @@ Normal sync overlaps the previous two days. Once a day it revisits the configure
 
 Each event is identified by its timestamp and original artist, title and album, plus an occurrence number. This preserves repeated plays and even multiple identical scrobbles at the same second. It also makes reimports idempotent. Now-playing status is kept separate and never adds to play counts.
 
+Cached analytics are updated overnight at 03:00 in the configured timezone. Compatible cached results are preserved across minor application updates; an unchanged sync does not invalidate them. A cold request waits only briefly for generation, keeping the health endpoint responsive.
+
 The dashboard checks the local sync status every 15 seconds while visible. It does not poll Last.fm separately. The **Sync** button requests a sync, coalesces repeated clicks and respects a one-minute minimum. Now playing is sampled during sync and expires if stale, so it is an indication rather than a realtime player.
 
 Edits and delayed submissions older than the configured reconciliation window are not automatically rediscovered. Increase `reconcile_days` temporarily, up to 90, to cover recent bulk edits. A full historic rebuild would require a fresh account database; preserve a backup first if retaining manual grouping decisions matters.
 
 ## Grouping rules
 
-Original scrobble names and JSON are retained. Grouping is a local mapping over them.
+Original scrobble artist and track names are retained. Compact cover and MusicBrainz metadata are stored rather than every raw Last.fm API field. Grouping remains a local, reversible mapping.
 
 - Recognised whole remaster suffixes combine by the same artist, for example `Come Together (2009 Remaster)` and `Come Together`.
 - Album groups also recognise simple deluxe, expanded and special-edition suffixes.
 - Case, Unicode compatibility forms, curly apostrophes and repeated spaces normalise for automatic matching. Punctuation with potential meaning is retained.
-- Live, acoustic, mix, remix and other unrecognised qualifiers stay separate. Different artists are never automatically or manually combined.
+- Live, acoustic, mix, remix and other unrecognised qualifiers stay separate. Different artists are kept separate until you explicitly approve an artist-identity merge. Afterwards, exactly matching song and album titles under that identity combine, except versions you previously separated manually.
+- Open **Settings & grouping** and select **Artists** to search, select and merge duplicate artist identities with an editable canonical name. The merged identity is used in rankings, artist pages and discoveries. Unaltered Last.fm artist names remain visible in scrobbles. Song and album version reviews continue under their own options.
 - Open **Settings & grouping** for **Suggestions**, **Skipped candidates** and **Already merged**, with song/album selection and search. This view does not enumerate every unmerged song.
 - Suggestions compare the same artist and base title with suffix or punctuation differences. They are candidates, not proof of identical recordings. Skipped candidates explain retained live/mix qualifiers and rejected suggestions. Entries with no plausible match are omitted.
 - **Merge these** combines a suggested or skipped pair. **Keep separate** remembers your rejection. **Reconsider** restores a dismissed suggestion. You can inspect merged groups and separate individual versions.
@@ -93,7 +102,7 @@ A song can be grouped across different albums. Album identity is based on the sc
 
 ## Storage, backups and security
 
-Data lives in account-specific SQLite files under the add-on's persistent `/data`, with WAL mode and indexed dates, artists and versions. Configuration lives in Home Assistant's `/data/options.json`. Database and grouping changes persist across restarts and upgrades. The add-on requests cold backups so SQLite is stopped cleanly before Home Assistant copies its data. Back up the add-on before uninstalling or removing its data.
+Data lives in account-specific SQLite files under the add-on's persistent `/data`, with WAL mode and indexed dates, artists and versions. Versioned database migration creates a one-time `*.before-v3.sqlite3` backup before changing existing databases; this can be removed manually after verifying the upgrade and a separate backup. Configuration lives in Home Assistant's `/data/options.json`. Database and grouping changes persist across restarts and upgrades. The add-on requests cold backups so SQLite is stopped cleanly before Home Assistant copies its data. Back up the add-on before uninstalling or removing its data.
 
 The production UI accepts only the Home Assistant Ingress gateway at `172.30.32.2`. No Supervisor API, host networking, mapped host directories or elevated capabilities are requested. Mutating requests require a per-process CSRF token. API keys stay on the server and are not returned by the UI or included in sync error messages. `/health` exposes only application health and version for the watchdog.
 
@@ -123,7 +132,7 @@ Optional environment variables: `APP_URL`, `CHROMIUM_PATH`, `PLAYWRIGHT_MODULE` 
 
 The fixture suite covers interrupted multi-page import, duplicate multiplicity, timestamp boundaries, offline catch-up, atomic reconciliation, concurrent source changes, reversible grouping across imports, conservative title rules, daylight-saving dates, analytics, now playing, rate limiting, safe error handling and Ingress/CSRF isolation. Browser checks cover setup, demo labelling, chart drill-down, search, merge/separate/undo, mobile layout, theme switching and safe text rendering.
 
-This first version has been tested with fixtures and a local browser. It has not yet been run inside Home Assistant or against a live Last.fm account; those are the remaining integration checks.
+The fixture and browser suites cover most major paths. Validate new releases in Home Assistant and against your own Last.fm account before removing pre-migration backups.
 
 ## References
 
