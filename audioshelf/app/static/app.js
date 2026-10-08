@@ -165,11 +165,12 @@ modal.addEventListener('close',cancelPendingPlayback);
 document.addEventListener('change',async event=>{
   if(event.target.id==='show-skip-controls'){
     const box=event.target,enabled=box.checked;box.disabled=true;
+    statusInfo.show_skip_controls=enabled;renderTurntable();
     try{
       const updated=await api('settings','PUT',{show_skip_controls:enabled});
       statusInfo.show_skip_controls=updated.show_skip_controls;
       renderTurntable();toast('Playback controls updated.');
-    }catch(error){box.checked=!enabled;toast(error.message);}
+    }catch(error){box.checked=!enabled;statusInfo.show_skip_controls=!enabled;renderTurntable();toast(error.message);}
     finally{box.disabled=statusInfo.role==='view';}
   }
 });
