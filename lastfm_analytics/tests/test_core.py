@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from unittest.mock import Mock
 from zoneinfo import ZoneInfo
 import pytest
-from analytics.db import Database
+from analytics.db import Database, compact_raw
 from analytics.grouping import canonical_title
 from analytics.insights import overview, period
 from analytics.sync import Cancelled, Importer, LastFM, SyncError, decode_page
@@ -502,7 +502,7 @@ def test_import_pending_hides_comparisons_and_original_json_is_retained(db):
     with db.connect() as conn:
         assert (
             json.loads(conn.execute("SELECT raw_json FROM scrobbles").fetchone()[0])
-            == {"image": original["raw"]["image"]} if "image" in original["raw"] else {}
+            == compact_raw(original["raw"])
         )
 
 
