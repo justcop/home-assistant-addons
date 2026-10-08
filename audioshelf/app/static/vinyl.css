@@ -52,7 +52,7 @@
 .collection-shelves .shelf-records{padding:0 0 22px}
 .collection-shelves .shelf-artist-link{display:inline-block;margin-top:12px}
 .shelf-records[hidden]{display:none}
-[data-interface=vinyl] .shelf-rack{display:block;background:#f0f1ef;padding:24px 18px 10px;border-radius:2px;--ink:#282b27;--muted:#606257;--soft:#e4e6e2;--cream:#fff;--line:#d9dcd6}
+[data-interface=vinyl] .shelf-rack{display:block;color:var(--ink);background:#f0f1ef;padding:24px 18px 10px;border-radius:2px;--ink:#282b27;--muted:#606257;--soft:#e4e6e2;--cream:#fff;--line:#d9dcd6}
 .shelf-row{--columns:4;--shelf-gap:32px;display:grid;grid-template-columns:repeat(var(--columns),minmax(0,1fr));gap:var(--shelf-gap);position:relative;container-type:inline-size;margin-bottom:24px;isolation:isolate}
 [data-interface=vinyl] .shelf-row .sleeve{padding:0;min-width:0}
 [data-interface=vinyl] .shelf-row .sleeve:after,[data-interface=vinyl] .shelf-row .cover-wrap:after{display:none}

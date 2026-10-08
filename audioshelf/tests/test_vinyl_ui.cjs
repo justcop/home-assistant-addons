@@ -242,6 +242,8 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
         assert(shelves.every(s=>s.width>=s.rack-22&&Math.abs(s.gap)<2),'Ledges span the rack and meet the sleeves');
       }
     }
+    await page.evaluate(()=>applyTheme('midnight'));
+    assert.equal(await page.locator('.shelf-row .album-title').first().evaluate(el=>getComputedStyle(el).color),'rgb(40, 43, 39)','White shelves retain readable captions with dark surrounding themes');
     assert.deepEqual(errors,[]);
     console.log('Vinyl browser checks passed: two rooms, responsive sleeves, browsing restoration, collect in place, rapid startup despite stale replies, progress/pause/track boundaries, playback independence/outage, album settings, Classic persistence.');
   }finally{if(browser)await browser.close();server.kill('SIGTERM');}

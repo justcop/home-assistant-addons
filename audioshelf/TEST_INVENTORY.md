@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-08T11:15:15+01:00 (Europe/London).
+Reviewed: 2026-10-08T11:16:45+01:00 (Europe/London).
 
-Reviewed and locally passed furniture persistence/validation tests plus Vinyl and account browser flows: default collapse, expand/collapse all, single artist browsing, continuous ledge geometry on phone/desktop, furniture persistence and account isolation. Inspected rendered floating desktop and cabinet phone screenshots. Existing Classic/playback coverage retained; full suite and container build run in CI.
+Reviewed continuous white furniture and persistence coverage, including caption contrast with dark surrounding themes. Targeted backend tests and Vinyl/account browser flows passed locally; inspected floating desktop and cabinet phone screenshots. Full backend, Classic/Vinyl/accounts browser and container checks run in CI.
 
-<!-- inventory: {"reviewed_at": "2026-10-08T11:15:15+01:00", "review_note": "Reviewed and locally passed furniture persistence/validation tests plus Vinyl and account browser flows: default collapse, expand/collapse all, single artist browsing, continuous ledge geometry on phone/desktop, furniture persistence and account isolation. Inspected rendered floating desktop and cabinet phone screenshots. Existing Classic/playback coverage retained; full suite and container build run in CI.", "source_sha256": "d0dd39ceae6b43268631f1cd04b28d3f8355526f2c46624176511f02f1c852f9"} -->
+<!-- inventory: {"reviewed_at": "2026-10-08T11:16:45+01:00", "review_note": "Reviewed continuous white furniture and persistence coverage, including caption contrast with dark surrounding themes. Targeted backend tests and Vinyl/account browser flows passed locally; inspected floating desktop and cabinet phone screenshots. Full backend, Classic/Vinyl/accounts browser and container checks run in CI.", "source_sha256": "5462270d2126c72b37b56b72392e15af27995d7fcad00fbd82d85c77e4db53ea"} -->
 
 ## Backend cases (282)
 
