@@ -341,6 +341,78 @@ class Database:
             if db.total_changes > before_changes:
                 self.put(db, "analysis_revision", self.get(db, "analysis_revision", 0) + 1)
 
+    def change_artists(self, keys, name=None):
+        """Merge artist identities and exact song/album titles; undo is atomic."""
+        if (not isinstance(keys, list) or not 2 <= len(keys) <= 100
+                or any(not isinstance(k, str) or not k or len(k) > 512 for k in keys)):
+            raise ValueError("Select at least two artists")
+        keys = list(dict.fromkeys(keys))
+        if len(keys) < 2:
+            raise ValueError("Select different artists")
+        if name is not None and (not isinstance(name, str) or not name.strip() or len(name) > 1000):
+            raise ValueError("Choose an artist display name")
+        marks = ",".join("?" for _ in keys)
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            artists = db.execute(
+                f"SELECT * FROM artist_aliases WHERE canonical_key IN ({marks})", keys
+            ).fetchall()
+            if {a["canonical_key"] for a in artists} != set(keys):
+                raise ValueError("Unknown artist or already merged")
+            before = {"aliases": [], "variants": [], "groups": [],
+                      "artist_aliases": [dict(a) for a in artists]}
+            target = keys[0]
+            db.execute(
+                f"UPDATE artist_aliases SET canonical_key=? WHERE canonical_key IN ({marks})",
+                [target, *keys],
+            )
+            if name:
+                db.execute("UPDATE artist_aliases SET display_name=? WHERE artist_key=?",
+                           (name.strip(), target))
+            db.execute(
+                f"UPDATE scrobbles SET artist_group_key=? WHERE artist_group_key IN ({marks})",
+                [target, *keys],
+            )
+            # Only identical titles are linked across the now-confirmed artist
+            # identity. Explicit version overrides always take precedence.
+            members = db.execute(
+                """SELECT v.kind,v.exact_key,v.auto_key,v.override_group,
+                          rv.group_id,source_key(v.artist) artist_key
+                   FROM variants v JOIN resolved_variants rv ON rv.id=v.id
+                   JOIN artist_aliases aa ON aa.artist_key=source_key(v.artist)
+                   WHERE aa.canonical_key=? ORDER BY v.id""",
+                (target,),
+            ).fetchall()
+            by_title = {}
+            for member in members:
+                if member["override_group"] is None:
+                    by_title.setdefault((member["kind"], member["exact_key"]), []).append(member)
+            touched = set()
+            for group in by_title.values():
+                if len({m["artist_key"] for m in group}) < 2:
+                    continue
+                preferred = next((m for m in group if m["artist_key"] == target), group[0])
+                for member in group:
+                    alias_key = (member["kind"], member["auto_key"])
+                    if alias_key in touched:
+                        continue
+                    old = db.execute(
+                        "SELECT * FROM aliases WHERE kind=? AND auto_key=?", alias_key
+                    ).fetchone()
+                    if old and old["group_id"] != preferred["group_id"]:
+                        before["aliases"].append(dict(old))
+                        db.execute(
+                            "UPDATE aliases SET group_id=? WHERE kind=? AND auto_key=?",
+                            (preferred["group_id"], *alias_key),
+                        )
+                    touched.add(alias_key)
+            self.put(db, "analysis_revision", self.get(db, "analysis_revision", 0) + 1)
+            db.execute(
+                "INSERT INTO grouping_events(ts,description,before_json) VALUES (?,?,?)",
+                (int(time.time()), f"Merged {len(keys)} artist identities",
+                 json.dumps(before, ensure_ascii=False)),
+            )
+
     def change_groups(self, action, ids, name=None):
         if name is not None:
             if not isinstance(name, str) or not name.strip() or len(name) > 1000:
@@ -502,6 +574,19 @@ class Database:
                 self.put(db, "learned_rules", before["learned_rules"])
             if "dismissed_candidates" in before:
                 self.put(db, "dismissed_candidates", before["dismissed_candidates"])
+            for artist in before.get("artist_aliases", []):
+                db.execute(
+                    "UPDATE artist_aliases SET canonical_key=?,display_name=? WHERE artist_key=?",
+                    (artist["canonical_key"], artist["display_name"], artist["artist_key"]),
+                )
+            if before.get("artist_aliases"):
+                affected = [a["artist_key"] for a in before["artist_aliases"]]
+                marks = ",".join("?" for _ in affected)
+                db.execute(
+                    f"""UPDATE scrobbles SET artist_group_key=(
+                    SELECT canonical_key FROM artist_aliases WHERE artist_key=scrobbles.artist_key)
+                    WHERE artist_key IN ({marks})""", affected,
+                )
             for g in before.get("groups", []):
                 db.execute("UPDATE groups SET name=? WHERE id=?", (g["name"], g["id"]))
             for a in before["aliases"]:
