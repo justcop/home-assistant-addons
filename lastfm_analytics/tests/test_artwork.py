@@ -147,6 +147,29 @@ def test_detail_endpoint_cached_fallback_and_scoped_lists(tmp_path):
         app.extensions['view_cache'].close()
 
 
+def test_detail_does_not_repeat_expensive_album_discovery(tmp_path, monkeypatch):
+    from analytics import insights
+    app = create_app(tmp_path, config={"username": "user", "api_key": "fixture"},
+                     development=True, start_worker=False)
+    db = app.extensions["database"]
+    db.apply_window(0, 1000, [play(100), play(101, title="Something")])
+    calls = []
+    original = insights.artwork_albums
+
+    def record(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(insights, "artwork_albums", record)
+    try:
+        response = app.test_client().get("/api/detail?entity=artist&id=the+beatles&period=all")
+        assert response.status_code == 200
+        assert response.json["listening_albums"] == ["Abbey Road"]
+        assert len(calls) == 1
+    finally:
+        app.extensions["artwork_worker"].close()
+        app.extensions["view_cache"].close()
+
 def test_artist_photo_logo_cache_and_identity(tmp_path):
     photo = 'https://r2.theaudiodb.com/images/media/artist/thumb/beatles.jpg'
     logo = 'https://r2.theaudiodb.com/images/media/artist/logo/beatles.png'

@@ -29,6 +29,31 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
     path: path.join(output, "overview-light.png"),
     fullPage: true,
   });
+  // Artist logos occupy a full-width transparent stage, not a tinted thumbnail.
+  const demoArtistLogo = "https://lastfm.freetls.fastly.net/i/u/174s/artist-fixture.png";
+  await page.route("**/api/detail?*", async route => {
+    if (new URL(route.request().url()).searchParams.get("entity") !== "artist")
+      return route.continue();
+    const response = await route.fetch();
+    const detail = await response.json();
+    detail.artist_logo = demoArtistLogo;
+    detail.artist_photo = null;
+    detail.artwork = null;
+    detail.artwork_pending = false;
+    return route.fulfill({response, json: detail});
+  });
+  await page.route("https://lastfm.freetls.fastly.net/**", route =>
+    route.fulfill({ path: path.join(__dirname, "../analytics/static/icon-192.png"), contentType:"image/png" }));
+  await page.locator('#content button[data-detail="artist"]').first().click();
+  await page.locator("#artist-logo-slot img.artist-logo").waitFor();
+  await page.locator(".spotify-link svg.spotify-mark").waitFor();
+  assert.ok(await page.locator("#artist-logo-slot").evaluate(el =>
+    el.getBoundingClientRect().width > 300 && getComputedStyle(el).backgroundColor === "rgba(0, 0, 0, 0)"));
+  assert.equal(await page.locator(".spotify-link").evaluate(el =>
+    getComputedStyle(el).backgroundColor), "rgb(30, 215, 96)");
+  await page.locator("#close-detail").click();
+  await page.unroute("**/api/detail?*");
+  await page.unroute("https://lastfm.freetls.fastly.net/**");
   // Date drill-down and search are functional, not decorative.
   await page.locator(".bar-chart button").nth(3).click();
   await page.locator("#content table").waitFor();

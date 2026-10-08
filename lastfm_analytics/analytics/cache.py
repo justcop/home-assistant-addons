@@ -87,7 +87,8 @@ class ViewCache:
                 row = conn.execute(
                     "SELECT * FROM view_cache WHERE cache_key=?", (key,)
                 ).fetchone()
-                if row:
+                if row and time.time() - row["accessed"] > 900:
+                    # Avoid a SQLite write on every cache hit or polling request.
                     conn.execute(
                         "UPDATE view_cache SET accessed=? WHERE cache_key=?",
                         (time.time(), key),

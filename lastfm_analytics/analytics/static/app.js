@@ -528,11 +528,20 @@ async function load({historyMode = "push"} = {}) {
     }
   }
 }
+function artistLogoHTML(detail) {
+  return detail.artist_logo
+    ? `<img class="artist-logo" src="${esc(detail.artist_logo)}" alt="${esc(detail.artist_name || detail.name)} logo" decoding="async" referrerpolicy="no-referrer" fetchpriority="high">`
+    : "";
+}
 function artworkHTML(detail, kind) {
-  if (kind === "artist" && (detail.artist_photo || detail.artist_logo)) {
-    return `<figure class="detail-artwork artist-assets">${detail.artist_photo ? `<img src="${esc(detail.artist_photo)}" alt="${esc(detail.artist_name || detail.name)} artist photo" width="112" height="112" decoding="async" referrerpolicy="no-referrer">` : ""}${detail.artist_logo ? `<img class="artist-logo" src="${esc(detail.artist_logo)}" alt="${esc(detail.artist_name || detail.name)} logo" decoding="async" referrerpolicy="no-referrer">` : ""}<figcaption>TheAudioDB</figcaption></figure>`;
+  if (kind === "artist" && detail.artist_photo) {
+    return `<figure class="detail-artwork artist-photo"><img src="${esc(detail.artist_photo)}" alt="${esc(detail.artist_name || detail.name)} artist photo" width="112" height="112" decoding="async" referrerpolicy="no-referrer"><figcaption>TheAudioDB</figcaption></figure>`;
   }
-  if (!detail.artwork) return `<p class="method-note" role="status">${detail.artwork_pending ? "Loading album artwork…" : "No album artwork available"}</p>`;
+  if (!detail.artwork) {
+    // A logo by itself is enough for an artist header, without a fallback box.
+    if (kind === "artist" && detail.artist_logo) return "";
+    return `<p class="method-note" role="status">${detail.artwork_pending ? "Loading artwork…" : "No album artwork available"}</p>`;
+  }
   const art = detail.artwork;
   return `<figure class="detail-artwork"><img src="${esc(art.url)}" alt="Cover of ${esc(art.album)} by ${esc(art.artist)}" width="112" height="112" decoding="async" referrerpolicy="no-referrer"><figcaption>${kind === "album" ? "Album cover" : esc(art.album)} · ${esc(art.source || "Last.fm")}</figcaption></figure>`;
 }
@@ -540,11 +549,19 @@ function spotifyLink(detail, kind) {
   const artist = kind === "artist" ? detail.name : detail.artist;
   const query = kind === "artist"
     ? `artist:"${artist}"`
-    : kind === "album"
-      ? `album:"${detail.name}" artist:"${artist}"`
-      : `track:"${detail.name}" artist:"${artist}"`;
+    : kind === "album" ? `album:"${detail.name}" artist:"${artist}"`
+    : `track:"${detail.name}" artist:"${artist}"`;
   const url = "https://open.spotify.com/search/" + encodeURIComponent(query);
-  return `<a class="button spotify-link" href="${url}" target="_blank" rel="noopener noreferrer" aria-label="Find ${esc(detail.name)} on Spotify">♫ Find on Spotify</a>`;
+  const icon = `<svg class="spotify-mark" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="11" fill="currentColor"/><path d="M5.1 8.8c4.4-1.35 9.9-.75 13.9 1.55M6.1 12c3.7-1.15 8.1-.5 11.45 1.5M7.1 15.05c3.05-.9 6.5-.4 9.25 1.25" stroke="#1ed760" stroke-width="1.7" stroke-linecap="round" fill="none"/></svg>`;
+  return `<a class="button spotify-link" href="${url}" target="_blank" rel="noopener noreferrer" aria-label="Find ${esc(detail.name)} on Spotify">${icon}<span>Find on Spotify</span></a>`;
+}
+function detailHeaderHTML(detail, kind) {
+  const links = `${spotifyLink(detail, kind)} ${recordStoreLink(detail, kind)} <span id="shelf-link-slot"></span>`;
+  const content = `<div><h2>${esc(detail.name)}</h2><p>${esc(detail.artist)}</p>${links}</div>`;
+  if (kind === "artist") {
+    return `<div class="artist-detail-hero"><div id="artist-logo-slot" class="artist-logo-stage">${artistLogoHTML(detail)}</div><div class="detail-heading artist-detail-heading"><div id="detail-artwork-slot">${artworkHTML(detail, kind)}</div>${content}</div></div>`;
+  }
+  return `<div class="detail-heading"><div id="detail-artwork-slot">${artworkHTML(detail, kind)}</div>${content}</div>`;
 }
 function audioShelfLink(base, path, label) {
   return `<a class="button" href="${esc(base + '/' + path)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>`;
@@ -579,15 +596,20 @@ async function loadShelfLinks(detail, kind, serial) {
   }
 }
 function bindArtworkError(detail, kind) {
-  document.querySelectorAll("#detail-content .detail-artwork img").forEach(img => {
+  document.querySelectorAll("#detail-hero .detail-artwork img, #detail-hero .artist-logo-stage img").forEach(img => {
     img.onerror = () => {
       const url = img.getAttribute("src");
+      if (detail.artist_logo === url) {
+        detail.artist_logo = null;
+        const slot = $("#artist-logo-slot");
+        if (slot) slot.innerHTML = artistLogoHTML(detail);
+        return;
+      }
       if (detail.artist_photo === url) detail.artist_photo = null;
-      if (detail.artist_logo === url) detail.artist_logo = null;
       if (detail.artwork?.url === url) detail.artwork = null;
       const figure = img.closest("figure");
       img.remove();
-      if (!figure.querySelector("img")) {
+      if (figure && !figure.querySelector("img")) {
         $("#detail-artwork-slot").innerHTML = artworkHTML(detail, kind);
         bindArtworkError(detail, kind);
       }
@@ -595,61 +617,64 @@ function bindArtworkError(detail, kind) {
   });
 }
 async function showDetail(kind, id, groupMode = false, restoring = false) {
-  if (!restoring) {
-    history.pushState({listening:true, nav:navigationState(), detail:{kind,id,groupMode}}, "", location.href);
-  }
+  if (!restoring) history.pushState({listening:true, nav:navigationState(), detail:{kind,id,groupMode}}, "", location.href);
   const serial = ++detailSerial;
   clearTimeout(cacheTimers.detail);
   $("#detail-cache-status").hidden = true;
   const dialog = $("#detail-dialog");
   const mode = groupMode ? "merged" : state.mode;
-  const extra = {
-    entity: kind,
-    id,
-    mode,
-    period: groupMode ? "all" : state.period,
-  };
+  const extra = {entity:kind,id,mode,period:groupMode?"all":state.period};
   $("#detail-kind").textContent = kind.toUpperCase();
-  $("#detail-content").innerHTML =
-    '<div class="loading">Loading details…</div>';
+  $("#detail-content").innerHTML = '<div class="loading">Loading details…</div>';
   if (!dialog.open) dialog.showModal();
+  // Begin analytics immediately, but do not delay the visible header for it.
+  const analyticsTask = api("overview", extra).then(data => ({data}), error => ({error}));
   try {
-    const [detail, data] = await Promise.all([
-      api("detail", extra),
-      api("overview", extra),
-    ]);
+    const detail = await api("detail", extra);
     if (serial !== detailSerial || !dialog.open) return;
-    const renderDetail = (data) => {
-    replaceCachedView("#detail-content",
-      `<div class="detail-heading"><div id="detail-artwork-slot">${artworkHTML(detail, kind)}</div><div><h2>${esc(detail.name)}</h2><p>${esc(detail.artist)}</p>${spotifyLink(detail, kind)} ${recordStoreLink(detail, kind)} <span id="shelf-link-slot"></span></div></div>${metrics(data, mode, {kind, id, name:detail.name}, groupMode)}<section class="panel">${panelHead("Listening history", "Select a bar to inspect individual scrobbles.")}${chart(data, { kind, id, name: detail.name }, mode)}</section>${detail.versions.length ? `<div class="panel-head" style="margin-top:23px"><div><h2>Versions</h2><p>All-time plays for the selected source, including versions outside the selected period.</p></div></div><div class="table-wrap"><table><thead><tr><th>Scrobbled name</th><th class="num">Plays</th><th>First / latest play</th><th></th></tr></thead><tbody>${detail.versions.map((v) => `<tr><td class="name-cell"><strong>${esc(v.name)}</strong><small>${v.manual ? "Manual decision" : "Automatic grouping"}</small></td><td class="num">${number(v.plays)}</td><td><small>${formatDate(v.first_play)}<br>${formatDate(v.last_play)}</small></td><td>${detail.versions.length > 1 ? `<button class="button" data-separate="${v.id}" data-name="${esc(v.name)}">Separate</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : ""}<div class="dialog-actions" style="margin-top:18px"><button class="button primary" data-show-history="${kind}" data-id="${esc(id)}" data-name="${esc(detail.name)}" data-mode="${mode}" data-all="${groupMode}">View scrobbles →</button></div>`);
+    $("#detail-content").innerHTML = `<div id="detail-hero">${detailHeaderHTML(detail, kind)}</div><div id="detail-analytics"><div class="loading">Loading listening analysis…</div></div>`;
     bindArtworkError(detail, kind);
     loadShelfLinks(detail, kind, serial);
+    // Artwork is independent of the heavy analytics calculation.
+    if (detail.artwork_pending) {
+      (async () => {
+        // Space out background artwork checks rather than polling every second.
+        for (const delay of [1000, 1800, 3000, 5000, 8000, 11000]) {
+          await new Promise(resolve => setTimeout(resolve, delay));
+          if (serial !== detailSerial || !dialog.open) return;
+          let next;
+          try { next = await api("artwork", extra); } catch (_) { continue; }
+          if (serial !== detailSerial || !dialog.open) return;
+          const oldArtwork = artworkHTML(detail, kind), oldLogo = artistLogoHTML(detail);
+          Object.assign(detail, next);
+          if (artworkHTML(detail, kind) !== oldArtwork) {
+            $("#detail-artwork-slot").innerHTML = artworkHTML(detail, kind);
+            bindArtworkError(detail, kind);
+          }
+          const logoSlot = $("#artist-logo-slot");
+          if (logoSlot && oldLogo !== artistLogoHTML(detail)) {
+            logoSlot.innerHTML = artistLogoHTML(detail);
+            bindArtworkError(detail, kind);
+          }
+          if (!next.artwork_pending) return;
+        }
+      })().catch(() => {});
+    }
+    const result = await analyticsTask;
+    if (serial !== detailSerial || !dialog.open) return;
+    if (result.error) throw result.error;
+    const data = result.data;
+    const renderDetail = next => {
+      replaceCachedView("#detail-analytics",
+        `${metrics(next, mode, {kind,id,name:detail.name}, groupMode)}<section class="panel">${panelHead("Listening history", "Select a bar to inspect individual scrobbles.")}${chart(next, {kind,id,name:detail.name}, mode)}</section>${detail.versions.length ? `<div class="panel-head" style="margin-top:23px"><div><h2>Versions</h2><p>All-time plays for the selected source, including versions outside the selected period.</p></div></div><div class="table-wrap"><table><thead><tr><th>Scrobbled name</th><th class="num">Plays</th><th>First / latest play</th><th></th></tr></thead><tbody>${detail.versions.map(v => `<tr><td class="name-cell"><strong>${esc(v.name)}</strong><small>${v.manual ? "Manual decision" : "Automatic grouping"}</small></td><td class="num">${number(v.plays)}</td><td><small>${formatDate(v.first_play)}<br>${formatDate(v.last_play)}</small></td><td>${detail.versions.length > 1 ? `<button class="button" data-separate="${v.id}" data-name="${esc(v.name)}">Separate</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : ""}<div class="dialog-actions" style="margin-top:18px"><button class="button primary" data-show-history="${kind}" data-id="${esc(id)}" data-name="${esc(detail.name)}" data-mode="${mode}" data-all="${groupMode}">View scrobbles →</button></div>`);
     };
     renderDetail(data);
     watchCachedView("detail", "overview", extra, data, renderDetail, () => serial === detailSerial && dialog.open, "#detail-cache-status");
-    if (detail.artwork_pending) {
-      for (let attempt = 0; attempt < 30; attempt++) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        if (serial !== detailSerial || !dialog.open) return;
-        let result;
-        try { result = await api("artwork", extra); } catch (_) { continue; }
-        if (serial !== detailSerial || !dialog.open) return;
-        const previousArtwork = artworkHTML(detail, kind);
-        Object.assign(detail, result);
-        if (artworkHTML(detail, kind) !== previousArtwork) {
-          $("#detail-artwork-slot").innerHTML = artworkHTML(detail, kind);
-          bindArtworkError(detail, kind);
-        }
-        if (!result.artwork_pending) break;
-      }
-      if (detail.artwork_pending && !detail.artwork && !detail.artist_photo && !detail.artist_logo && serial === detailSerial && dialog.open) {
-        detail.artwork_pending = false;
-        $("#detail-artwork-slot").innerHTML = '<p class="method-note">Artwork is taking longer to load. Reopen these details to retry.</p>';
-      }
-    }
   } catch (error) {
-    $("#detail-content").innerHTML =
-      `<div class="empty">${esc(error.message)}</div>`;
+    if (serial === detailSerial && dialog.open) {
+      const target = $("#detail-analytics") || $("#detail-content");
+      target.innerHTML = `<div class="empty">${esc(error.message)}</div>`;
+    }
   }
 }
 function confirmAction(title, description, fn) {
