@@ -130,11 +130,16 @@ class Store:
         account_rows = extract_rows(accounts_payload, 'accounts')
         transaction_rows = extract_rows(transactions_payload, 'transactions')
         pulled = datetime.now(timezone.utc).isoformat()
-        active_ids = {
-            str(row.get('uid') or row.get('accountUid') or row.get('id'))
-            for row in active_rows
-            if isinstance(row, dict) and (row.get('uid') or row.get('accountUid') or row.get('id'))
-        }
+        active_ids = set()
+        for row in active_rows:
+            if isinstance(row, dict):
+                uid = row.get('uid') or row.get('accountUid') or row.get('id')
+            elif isinstance(row, (str, int)):
+                uid = row
+            else:
+                uid = None
+            if uid:
+                active_ids.add(str(uid))
         stored_accounts = 0
         stored_transactions = 0
         with closing(self.connect()) as con, con:
