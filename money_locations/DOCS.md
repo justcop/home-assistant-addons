@@ -84,6 +84,20 @@ Every successful write retains a copy of the preceding state inside the database
 
 To restore, download a recovery copy or use an exported JSON file. Select it under **Import or restore** and type `RESTORE` when replacing existing data. The current state is backed up before replacement. Files are validated before an atomic database update. A stale browser revision is rejected instead of overwriting another tab's changes.
 
+## LifeStage / Moneyhub data pull
+
+Version 0.4.0 adds an experimental read-only connector to the LifeStage Money web application, formerly Moneyhub. Open **Backups & settings** and use the LifeStage / Moneyhub panel.
+
+The first connection is deliberately manual: enter the LifeStage email, tenant ID and password, then enter the normal LifeStage 2FA code when prompted. The password, 2FA code, login challenge and authenticated CSRF token exist only in process memory and are lost on add-on restart or explicit disconnect. Only the email, tenant ID and generated device ID are retained to make the next connection easier.
+
+The tenant ID is temporarily a technical field while automatic discovery is unfinished. It can be read from the request payload of the LifeStage web login: open browser developer tools, Network, select the POST request named **login**, and inspect the `tenantId` value in the request payload.
+
+Once authenticated, select a date range and choose **Pull accounts & transactions**. The add-on requests active accounts, all accounts and transactions for that date range and stores the raw provider records in dedicated SQLite tables. Accounts and transactions are keyed by their LifeStage/Moneyhub UID, so pulling an overlapping date range updates existing records instead of duplicating them.
+
+This first stage is intentionally isolated from the accounting model. Imported transactions do **not** populate snapshot balances, income, investment contributions, mortgage costs or spending yet. Use the recent-transactions preview to verify that the connection is retrieving the expected data before account matching and transaction classification are enabled.
+
+LifeStage raw imports are retained in the same SQLite database and therefore in Home Assistant backups that include `/share/money_locations`. They are not yet included in the app's JSON export.
+
 ## Current scope
 
 GBP and a single household dataset. No bank connections, Google Drive synchronisation, statement imports, OCR or AI. Pension entitlement outside tracked accounts is not valued. Historical account-level returns cannot be recovered from aggregate category flows. Percentage returns currently use gross inferred return divided by opening balance as a sanity check; they are not Modified Dietz or another money-weighted performance measure. No API credentials are needed.

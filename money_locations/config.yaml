@@ -1,5 +1,5 @@
 name: Money Locations
-version: "0.3.0"
+version: "0.4.0"
 slug: money_locations
 description: Net financial assets, inferred savings and investment returns from flexible snapshots.
 url: https://github.com/justcop/home-assistant-addons/tree/main/money_locations

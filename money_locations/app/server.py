@@ -1,7 +1,7 @@
 """Dependency-free, password-protected web service with transactional local persistence."""
 from copy import deepcopy
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import csv
 import hashlib
@@ -20,6 +20,7 @@ import uuid
 from urllib.parse import urlsplit, parse_qs
 
 from model import blank_state, validate_state, new_snapshot, problems, report, all_reports, money
+from moneyhub import MoneyhubClient, MoneyhubError, extract_rows
 
 ROOT = Path(__file__).parent
 MAX_BODY = 20 * 1024 * 1024
@@ -37,7 +38,12 @@ class Store:
         with closing(self.connect()) as con, con:
             con.execute('CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL, body TEXT NOT NULL)')
             con.execute('CREATE TABLE IF NOT EXISTS backups (id INTEGER PRIMARY KEY, created TEXT, reason TEXT, revision INTEGER, body TEXT)')
+            con.execute('CREATE TABLE IF NOT EXISTS moneyhub_settings (id INTEGER PRIMARY KEY CHECK(id=1), email TEXT NOT NULL, tenant_id TEXT NOT NULL, device_id TEXT NOT NULL)')
+            con.execute('CREATE TABLE IF NOT EXISTS moneyhub_imports (id INTEGER PRIMARY KEY, pulled TEXT NOT NULL, start_date TEXT NOT NULL, end_date TEXT NOT NULL, account_count INTEGER NOT NULL, transaction_count INTEGER NOT NULL)')
+            con.execute('CREATE TABLE IF NOT EXISTS moneyhub_accounts (uid TEXT PRIMARY KEY, active INTEGER NOT NULL, pulled TEXT NOT NULL, body TEXT NOT NULL)')
+            con.execute('CREATE TABLE IF NOT EXISTS moneyhub_transactions (uid TEXT PRIMARY KEY, account_uid TEXT, txn_date TEXT, modified TEXT, deleted INTEGER NOT NULL, pulled TEXT NOT NULL, body TEXT NOT NULL)')
             con.execute('INSERT OR IGNORE INTO state VALUES (1, 0, ?)', (json.dumps(blank_state()),))
+            con.execute("INSERT OR IGNORE INTO moneyhub_settings VALUES (1, '', '', '')")
 
     def connect(self):
         return sqlite3.connect(self.path, timeout=30)
@@ -74,6 +80,133 @@ class Store:
         if not row:
             raise ValueError('Backup not found.')
         return json.loads(row[0])
+
+
+    def moneyhub_settings(self):
+        with closing(self.connect()) as con, con:
+            email, tenant_id, device_id = con.execute(
+                'SELECT email,tenant_id,device_id FROM moneyhub_settings WHERE id=1'
+            ).fetchone()
+        return {'email': email, 'tenant_id': tenant_id, 'device_id': device_id}
+
+    def set_moneyhub_settings(self, email, tenant_id, device_id):
+        email = str(email or '').strip()
+        tenant_id = str(tenant_id or '').strip()
+        device_id = str(device_id or '').strip()
+        if len(email) > 320 or len(tenant_id) > 200 or len(device_id) > 200:
+            raise ValueError('LifeStage connector settings are too long.')
+        with closing(self.connect()) as con, con:
+            con.execute(
+                'UPDATE moneyhub_settings SET email=?,tenant_id=?,device_id=? WHERE id=1',
+                (email, tenant_id, device_id),
+            )
+
+    def moneyhub_summary(self):
+        with closing(self.connect()) as con, con:
+            email, tenant_id, device_id = con.execute(
+                'SELECT email,tenant_id,device_id FROM moneyhub_settings WHERE id=1'
+            ).fetchone()
+            account_count = con.execute('SELECT COUNT(*) FROM moneyhub_accounts').fetchone()[0]
+            transaction_count = con.execute('SELECT COUNT(*) FROM moneyhub_transactions').fetchone()[0]
+            row = con.execute(
+                'SELECT pulled,start_date,end_date,account_count,transaction_count FROM moneyhub_imports ORDER BY id DESC LIMIT 1'
+            ).fetchone()
+        last_pull = None
+        if row:
+            last_pull = dict(zip(
+                ('pulled','start_date','end_date','account_count','transaction_count'), row
+            ))
+        return {
+            'email': email,
+            'tenant_id': tenant_id,
+            'device_id': device_id,
+            'account_count': account_count,
+            'transaction_count': transaction_count,
+            'last_pull': last_pull,
+        }
+
+    def save_moneyhub_pull(self, start_date, end_date, active_payload, accounts_payload, transactions_payload):
+        active_rows = extract_rows(active_payload, 'accounts', 'activeAccounts')
+        account_rows = extract_rows(accounts_payload, 'accounts')
+        transaction_rows = extract_rows(transactions_payload, 'transactions')
+        pulled = datetime.now(timezone.utc).isoformat()
+        active_ids = set()
+        for row in active_rows:
+            if isinstance(row, dict):
+                uid = row.get('uid') or row.get('accountUid') or row.get('id')
+            elif isinstance(row, (str, int)):
+                uid = row
+            else:
+                uid = None
+            if uid:
+                active_ids.add(str(uid))
+        stored_accounts = 0
+        stored_transactions = 0
+        with closing(self.connect()) as con, con:
+            for row in account_rows:
+                if not isinstance(row, dict):
+                    continue
+                uid = row.get('uid') or row.get('accountUid') or row.get('id')
+                if not uid:
+                    continue
+                uid = str(uid)
+                con.execute(
+                    'INSERT INTO moneyhub_accounts(uid,active,pulled,body) VALUES(?,?,?,?) '
+                    'ON CONFLICT(uid) DO UPDATE SET active=excluded.active,pulled=excluded.pulled,body=excluded.body',
+                    (uid, 1 if uid in active_ids else 0, pulled, json.dumps(row, allow_nan=False)),
+                )
+                stored_accounts += 1
+            for row in transaction_rows:
+                if not isinstance(row, dict) or not row.get('uid'):
+                    continue
+                uid = str(row['uid'])
+                con.execute(
+                    'INSERT INTO moneyhub_transactions(uid,account_uid,txn_date,modified,deleted,pulled,body) VALUES(?,?,?,?,?,?,?) '
+                    'ON CONFLICT(uid) DO UPDATE SET account_uid=excluded.account_uid,txn_date=excluded.txn_date,modified=excluded.modified,deleted=excluded.deleted,pulled=excluded.pulled,body=excluded.body',
+                    (
+                        uid,
+                        str(row.get('accountUid') or ''),
+                        str(row.get('date') or ''),
+                        str(row.get('dateModified') or ''),
+                        1 if row.get('deleted') else 0,
+                        pulled,
+                        json.dumps(row, allow_nan=False),
+                    ),
+                )
+                stored_transactions += 1
+            con.execute(
+                'INSERT INTO moneyhub_imports(pulled,start_date,end_date,account_count,transaction_count) VALUES(?,?,?,?,?)',
+                (pulled, start_date, end_date, stored_accounts, stored_transactions),
+            )
+        return {
+            'pulled': pulled,
+            'accounts_received': stored_accounts,
+            'transactions_received': stored_transactions,
+        }
+
+
+    def moneyhub_recent_transactions(self, limit=20):
+        limit = max(1, min(int(limit), 100))
+        with closing(self.connect()) as con, con:
+            rows = con.execute(
+                'SELECT body FROM moneyhub_transactions WHERE deleted=0 '
+                'ORDER BY txn_date DESC, modified DESC, uid DESC LIMIT ?',
+                (limit,),
+            ).fetchall()
+        output = []
+        for (body,) in rows:
+            row = json.loads(body)
+            output.append({
+                'uid': row.get('uid'),
+                'accountUid': row.get('accountUid'),
+                'date': row.get('date'),
+                'amount': row.get('amount'),
+                'currency': row.get('currency'),
+                'description': row.get('cleanDescription') or row.get('description') or row.get('transactionInformation'),
+                'categoryId': row.get('categoryId'),
+                'status': row.get('status'),
+            })
+        return output
 
 
 def apply_action(state, action, data):
@@ -234,6 +367,17 @@ class Handler(BaseHTTPRequestHandler):
             if path=='/api/backups':
                 self.reply(200,self.server.store.backups())
                 return
+            if path=='/api/moneyhub/status':
+                summary = self.server.store.moneyhub_summary()
+                with self.server.moneyhub_lock:
+                    summary['auth_status'] = self.server.moneyhub.status if self.server.moneyhub else 'signed_out'
+                self.reply(200, summary)
+                return
+            if path=='/api/moneyhub/transactions':
+                query = parse_qs(urlsplit(self.path).query)
+                limit = int(query.get('limit', ['20'])[0])
+                self.reply(200, self.server.store.moneyhub_recent_transactions(limit))
+                return
             if path=='/api/backup':
                 bid=int(parse_qs(urlsplit(self.path).query)['id'][0])
                 self.reply(200,self.server.store.backup(bid),attachment='money-locations-backup.json')
@@ -314,6 +458,56 @@ class Handler(BaseHTTPRequestHandler):
                         self.server.sessions.pop(cookie['money_session'].value, None)
                 self.reply(200, {'ok': True}, cookie=self.session_cookie('', 0))
                 return
+            if path == '/api/moneyhub/disconnect':
+                with self.server.moneyhub_lock:
+                    self.server.moneyhub = None
+                self.reply(200, {'status': 'signed_out'})
+                return
+            if path == '/api/moneyhub/login':
+                email = str(data.get('email', '')).strip()
+                tenant_id = str(data.get('tenant_id', '')).strip()
+                password = str(data.get('password', ''))
+                settings = self.server.store.moneyhub_settings()
+                device_id = settings.get('device_id') or str(uuid.uuid4())
+                client = MoneyhubClient(email, tenant_id, device_id=device_id)
+                result = client.start_login(password)
+                self.server.store.set_moneyhub_settings(email, tenant_id, client.device_id)
+                with self.server.moneyhub_lock:
+                    self.server.moneyhub = client
+                self.reply(200, result)
+                return
+            if path == '/api/moneyhub/verify':
+                with self.server.moneyhub_lock:
+                    client = self.server.moneyhub
+                if not client:
+                    raise ValueError('Start LifeStage login first.')
+                result = client.verify_totp(data.get('totp'))
+                self.reply(200, result)
+                return
+            if path == '/api/moneyhub/pull':
+                start_date = str(data.get('start_date', ''))
+                end_date = str(data.get('end_date', ''))
+                start = date.fromisoformat(start_date)
+                end = date.fromisoformat(end_date)
+                if end < start:
+                    raise ValueError('LifeStage pull end date must be on or after the start date.')
+                if (end - start).days > 3700:
+                    raise ValueError('LifeStage pull range is too large.')
+                with self.server.moneyhub_lock:
+                    client = self.server.moneyhub
+                if not client or not client.authenticated:
+                    raise ValueError('Authenticate with LifeStage before pulling data.')
+                payload = client.pull(start_date, end_date)
+                result = self.server.store.save_moneyhub_pull(
+                    start_date,
+                    end_date,
+                    payload['active_accounts'],
+                    payload['accounts'],
+                    payload['transactions'],
+                )
+                result['summary'] = self.server.store.moneyhub_summary()
+                self.reply(200, result)
+                return
             if path=='/api/preview':
                 _,state=self.server.store.read()
                 s=data['snapshot']
@@ -346,6 +540,8 @@ def create_server(path, host='0.0.0.0', port=8099, local=False, password='', dir
     server.sessions={}
     server.failures={}
     server.auth_lock=threading.Lock()
+    server.moneyhub=None
+    server.moneyhub_lock=threading.Lock()
     return server
 
 

@@ -15,7 +15,8 @@ A local financial tracker for Home Assistant. Record dated account balances and 
 - Safe historical editing: existing final figures can be corrected, while inserting or moving historical snapshots requires affected later snapshots to be reopened and reviewed.
 - Historical category-level contributions, without inventing individual account returns.
 - SQLite persistence in `/share/money_locations`, recovery copies, complete JSON export/restore and CSV balance export.
-- Home Assistant Ingress and optional password-protected direct access. No Google credentials, AI service or external finance API is required.
+- Experimental read-only LifeStage / former Moneyhub pull: manual password + 2FA authentication, then account and transaction download into a separate raw-import store. Imported transactions do not yet alter snapshots or calculations.
+- Home Assistant Ingress and optional password-protected direct access. No Google credentials or AI service is required.
 
 ## Install
 

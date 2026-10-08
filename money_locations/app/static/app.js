@@ -39,6 +39,11 @@ const today = () =>
     day: "2-digit",
   }).format(new Date());
 const clone = (v) => JSON.parse(JSON.stringify(v));
+const dateOffset = (days) => {
+  const d = new Date(today() + "T12:00:00");
+  d.setDate(d.getDate() + days);
+  return new Intl.DateTimeFormat("en-CA", {timeZone:"Europe/London",year:"numeric",month:"2-digit",day:"2-digit"}).format(d);
+};
 const signed = (v) =>
   `<span class="${v < 0 ? "negative" : "positive"}">${gbp(v)}</span>`;
 const pct = (v) =>
@@ -293,7 +298,7 @@ function settings() {
       "Backups & settings",
       "Your data stays here. Export a complete copy whenever you need it.",
     ) +
-    `<section class="panel"><h2>Import or restore</h2><p>Select a Money Locations JSON file. Importing replaces the current dataset and saves a recovery copy first.</p><input type="file" id="import-file" accept=".json,application/json"><div class="actions">${state.snapshots.length ? input("Type RESTORE to replace current data", 'id="restore-confirm"') : ""}<button id="import" class="primary">${state.snapshots.length ? "Restore file" : "Import history"}</button></div></section><section class="panel"><h2>Export your data</h2><div class="actions"><a class="button primary" href="api/export" download>Complete backup (JSON)</a><a class="button" href="api/csv" download>Balance history (CSV)</a><button id="show-backups">Recovery copies</button></div><p class="muted subtle">The JSON export includes all accounts, balances, activity, draft snapshots, notes and valuations. CSV is a balance-and-flow table for spreadsheets. Data survives reinstalls in /share/money_locations. Include the share folder in Home Assistant backups.</p><div id="backups"></div></section><section class="panel"><h2>Home valuations</h2><p class="muted">Enter your share of the property value. The latest valuation on or before each snapshot is used.</p><div class="form-grid">${input("Valuation date", 'id="valuation-date" type="date"', today())}${input("Value of your share (£)", 'id="valuation-value" type="number" min="0" step="0.01"')}${input("Notes", 'id="valuation-notes"')}</div><p><button id="add-valuation">Save valuation</button></p>${state.valuations
+    `<section class="panel"><h2>LifeStage / Moneyhub data pull</h2><p class="muted">Experimental read-only connection to the LifeStage web API. It stores downloaded accounts and transactions separately and does not alter snapshots or calculations yet.</p><div id="moneyhub-panel"><p class="muted">Loading connector status…</p></div></section><section class="panel"><h2>Import or restore</h2><p>Select a Money Locations JSON file. Importing replaces the current dataset and saves a recovery copy first.</p><input type="file" id="import-file" accept=".json,application/json"><div class="actions">${state.snapshots.length ? input("Type RESTORE to replace current data", 'id="restore-confirm"') : ""}<button id="import" class="primary">${state.snapshots.length ? "Restore file" : "Import history"}</button></div></section><section class="panel"><h2>Export your data</h2><div class="actions"><a class="button primary" href="api/export" download>Complete backup (JSON)</a><a class="button" href="api/csv" download>Balance history (CSV)</a><button id="show-backups">Recovery copies</button></div><p class="muted subtle">The JSON export includes all accounts, balances, activity, draft snapshots, notes and valuations. CSV is a balance-and-flow table for spreadsheets. LifeStage raw imports are stored separately in the same SQLite database and are not yet included in these exports. Data survives reinstalls in /share/money_locations. Include the share folder in Home Assistant backups.</p><div id="backups"></div></section><section class="panel"><h2>Home valuations</h2><p class="muted">Enter your share of the property value. The latest valuation on or before each snapshot is used.</p><div class="form-grid">${input("Valuation date", 'id="valuation-date" type="date"', today())}${input("Value of your share (£)", 'id="valuation-value" type="number" min="0" step="0.01"')}${input("Notes", 'id="valuation-notes"')}</div><p><button id="add-valuation">Save valuation</button></p>${state.valuations
       .sort((a, b) => b.date.localeCompare(a.date))
       .map(
         (v) =>
@@ -303,6 +308,40 @@ function settings() {
         "",
       )}</section><section class="panel"><h2>Income sources</h2><p>${state.income_sources.map(esc).join(" · ")}</p><div class="actions">${input("New source", 'id="source-name"')}<button id="add-source">Add source</button></div></section><section class="panel explanation"><h2>How the figures work</h2><p>Investment growth is the change in account balance after removing contributions, adding back withdrawals, and removing relief and capital adjustments. Cash interest is entered explicitly.</p><p>Mortgage interest reduces investment returns in proportion to closing stocks and P2P balances. Net financial assets include the mortgage as a negative balance while excluding the property value unless you explicitly include home. Savings are inferred from the change in net financial assets less net investment return, tax benefits and exceptional capital changes. Mortgage principal repayment is part of savings.</p><p>Inferred spending is ordinary income less inferred savings. Excluded payments reduce both displayed income and spending equally. Home revaluation is shown separately.</p><p>Historical blanks remain unrecorded. They contribute zero to legacy totals, matching the source spreadsheet. Older returns are estimates where contribution, interest or relief records are incomplete.</p>${state.source_notes.map((n) => `<p class="muted subtle">${esc(n)}</p>`).join("")}</section>`
   );
+}
+async function loadMoneyhubPanel(message = "") {
+  const host = $("#moneyhub-panel");
+  if (!host) return;
+  const s = await api("moneyhub/status");
+  const recent = s.transaction_count
+    ? await api("moneyhub/transactions?limit=10")
+    : [];
+  const last = s.last_pull
+    ? `Last pull: <strong>${esc(new Date(s.last_pull.pulled).toLocaleString("en-GB"))}</strong> · ${day(s.last_pull.start_date)} to ${day(s.last_pull.end_date)} · ${s.last_pull.account_count} accounts · ${s.last_pull.transaction_count} transactions received.`
+    : "No LifeStage data pulled yet.";
+  const statusText =
+    s.auth_status === "authenticated"
+      ? "Authenticated for this app session"
+      : s.auth_status === "totp_required"
+        ? "Waiting for 2FA code"
+        : "Not authenticated";
+  const login =
+    s.auth_status === "signed_out"
+      ? `<div class="form-grid">${input("LifeStage email", 'id="moneyhub-email" type="email" autocomplete="username"', s.email || "")}${input("Tenant ID", 'id="moneyhub-tenant" autocomplete="off"', s.tenant_id || "", "Temporary technical field while we finish automatic discovery.")}${input("Password", 'id="moneyhub-password" type="password" autocomplete="current-password"', "", "Used only for this login request and never stored.")}</div><p><button id="moneyhub-login">Start LifeStage login</button></p>`
+      : '<p><button id="moneyhub-disconnect">Disconnect LifeStage session</button></p>';
+  const totp =
+    s.auth_status === "totp_required"
+      ? `<div class="actions">${input("2FA code", 'id="moneyhub-totp" inputmode="numeric" autocomplete="one-time-code"')}<button id="moneyhub-verify" class="primary">Verify 2FA</button></div>`
+      : "";
+  const pull =
+    s.auth_status === "authenticated"
+      ? `<div class="form-grid">${input("Transactions from", 'id="moneyhub-start" type="date"', dateOffset(-90))}${input("Transactions to", 'id="moneyhub-end" type="date"', today())}</div><p><button id="moneyhub-pull" class="primary">Pull accounts & transactions</button></p>`
+      : "";
+  const recentTable = recent.length
+    ? `<h3>Recently imported transactions</h3><div class="table-wrap"><table><thead><tr><th>Date</th><th>Description</th><th>Account ID</th><th class="num">Amount</th></tr></thead><tbody>${recent.map((t) => `<tr><td>${esc((t.date || "").slice(0,10))}</td><td>${esc(t.description || "—")}</td><td><small>${esc(t.accountUid || "—")}</small></td><td class="num">${gbp(Number(t.amount || 0))}</td></tr>`).join("")}</tbody></table></div>`
+    : "";
+  host.innerHTML =
+    `${message ? `<div class="notice good">${esc(message)}</div>` : ""}<p><strong>${esc(statusText)}</strong></p>${login}${totp}${pull}<p class="muted subtle">${last} Stored total: ${s.account_count} accounts and ${s.transaction_count} unique transactions. 2FA codes, passwords and LifeStage session tokens are never written to the database.</p>${recentTable}`;
 }
 async function saveEdit(finalize = false) {
   clearTimeout(timer);
@@ -405,6 +444,7 @@ async function route() {
       )();
     $("#view").innerHTML = html;
     bindForm();
+    if (page === "settings") loadMoneyhubPanel().catch(error);
   } catch (e) {
     error(e);
   }
@@ -562,6 +602,38 @@ document.addEventListener("click", async (e) => {
         };
         await action("account", { account: a });
         await route();
+        break;
+      }
+      case "moneyhub-disconnect":
+        await api("moneyhub/disconnect", {});
+        await loadMoneyhubPanel("LifeStage session disconnected.");
+        break;
+      case "moneyhub-login": {
+        const result = await api("moneyhub/login", {
+          email: $("#moneyhub-email").value,
+          tenant_id: $("#moneyhub-tenant").value,
+          password: $("#moneyhub-password").value,
+        });
+        $("#moneyhub-password").value = "";
+        await loadMoneyhubPanel(
+          result.status === "totp_required"
+            ? "Password accepted. Enter the LifeStage 2FA code."
+            : "LifeStage authenticated."
+        );
+        break;
+      }
+      case "moneyhub-verify":
+        await api("moneyhub/verify", { totp: $("#moneyhub-totp").value });
+        await loadMoneyhubPanel("LifeStage 2FA accepted.");
+        break;
+      case "moneyhub-pull": {
+        const result = await api("moneyhub/pull", {
+          start_date: $("#moneyhub-start").value,
+          end_date: $("#moneyhub-end").value,
+        });
+        await loadMoneyhubPanel(
+          `Pulled ${result.accounts_received} accounts and ${result.transactions_received} transactions.`
+        );
         break;
       }
       case "add-source":

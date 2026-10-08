@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0
+
+- Add an experimental read-only LifeStage / former Moneyhub connector using the site's native HTTP login and TOTP flow, without browser automation.
+- Pull active accounts, all accounts and dated transactions into dedicated SQLite tables without changing snapshot accounting.
+- Keep LifeStage passwords, TOTP codes, login challenges and CSRF session tokens in memory only; persist only email, tenant ID and device ID.
+- Upsert imported accounts and transactions by provider UID so repeated pulls are idempotent and provider edits replace the stored raw record.
+- Show pull status, stored counts and a recent-transaction preview in Backups & settings.
+- Add an explicit LifeStage session disconnect and HTTPS CA certificates to the add-on image.
+- Add deterministic authentication-derivation and raw-import regression tests.
+
+
 ## 0.3.0
 
 - Replace the algebraic reconciliation presentation with an explicit period breakdown and clearly label savings and spending as inferred.
