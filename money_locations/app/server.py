@@ -1,8 +1,14 @@
-"""Dependency-free, ingress-only web service with transactional local persistence."""
+"""Dependency-free, password-protected web service with transactional local persistence."""
 from copy import deepcopy
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import csv
+import hashlib
+import hmac
+from http.cookies import SimpleCookie
+import secrets
+import threading
+import time
 import io
 import json
 import mimetypes
@@ -138,11 +144,32 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *_):
         pass  # Do not log financial payloads or identifying paths.
 
+    def authenticated(self):
+        if self.server.local and not self.server.password_hash:
+            return True
+        cookie = SimpleCookie()
+        try:
+            cookie.load(self.headers.get('Cookie', ''))
+            token = cookie['money_session'].value
+        except (KeyError, ValueError):
+            return False
+        with self.server.auth_lock:
+            expiry = self.server.sessions.get(token, 0)
+            return expiry > time.time()
+
+    def session_cookie(self, token, age):
+        # Only the actual ingress proxy may supply the cookie path.
+        path = self.headers.get('X-Ingress-Path', '/') if self.client_address[0] == '172.30.32.2' else '/'
+        if not path.startswith('/') or any(c in path for c in ';\r\n'):
+            path = '/'
+        path = path.rstrip('/') + '/'
+        return f'money_session={token}; Path={path}; HttpOnly; SameSite=Strict; Max-Age={age}'
+
     def allowed(self):
         expected = '127.0.0.1' if self.server.local else '172.30.32.2'
-        return self.client_address[0] == expected
+        return self.server.direct or self.client_address[0] == expected
 
-    def reply(self, status, payload, content_type='application/json', attachment=None):
+    def reply(self, status, payload, content_type='application/json', attachment=None, cookie=None):
         if content_type=='application/json':
             payload = json.dumps(payload, allow_nan=False).encode()
         elif isinstance(payload,str):
@@ -154,6 +181,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('X-Content-Type-Options','nosniff')
         self.send_header('Referrer-Policy','same-origin')
         self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'")
+        if cookie:
+            self.send_header('Set-Cookie', cookie)
         if attachment:
             self.send_header('Content-Disposition', 'attachment; filename="'+attachment+'"')
         self.end_headers()
@@ -165,6 +194,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             path = urlsplit(self.path).path
+            if path == '/api/auth/status':
+                self.reply(200, {'authenticated': self.authenticated(), 'configured': bool(self.server.password_hash) or self.server.local})
+                return
+            if path.startswith('/api/') and not self.authenticated():
+                self.reply(401, {'error': 'Please log in to access your financial data.'})
+                return
             revision,state = self.server.store.read()
             if path=='/api/state':
                 self.reply(200, {'revision':revision,'state':state,'reports':all_reports(state)})
@@ -189,7 +224,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply(200,output.getvalue(),'text/csv; charset=utf-8',attachment='money-locations-balances.csv')
             elif path=='/health':
                 self.reply(200,{'status':'ok'})
-            elif path in ('/','/index.html','/app.js','/style.css'):
+            elif path in ('/','/index.html','/app.js','/style.css','/icon.png'):
                 name='index.html' if path=='/' else path[1:]
                 self.reply(200,(ROOT/'static'/name).read_bytes(), mimetypes.guess_type(name)[0] or 'text/plain')
             else:
@@ -207,6 +242,40 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError('Upload must be between 1 byte and 20 MB.')
             data=json.loads(self.rfile.read(size),parse_constant=lambda _: (_ for _ in ()).throw(ValueError('Invalid number.')))
             path=urlsplit(self.path).path
+            if path == '/api/auth/login':
+                if not self.server.password_hash:
+                    self.reply(403, {'error': 'Set web_password in the add-on configuration, then restart.'})
+                    return
+                key = self.client_address[0]
+                now = time.time()
+                with self.server.auth_lock:
+                    count, until = self.server.failures.get(key, (0, 0))
+                    if until > now:
+                        self.reply(429, {'error': 'Too many login attempts. Try again in one minute.'})
+                        return
+                    supplied = str(data.get('password', ''))
+                    digest = hashlib.pbkdf2_hmac('sha256', supplied.encode(), self.server.salt, 200000)
+                    if not hmac.compare_digest(digest, self.server.password_hash):
+                        count = count + 1 if until > now - 60 else 1
+                        self.server.failures[key] = (count, now + 60 if count >= 5 else now)
+                        self.reply(401, {'error': 'Incorrect password.'})
+                        return
+                    self.server.failures.pop(key, None)
+                    self.server.sessions = {k: v for k, v in self.server.sessions.items() if v > now}
+                    token = secrets.token_urlsafe(32)
+                    self.server.sessions[token] = now + 12 * 3600
+                self.reply(200, {'ok': True}, cookie=self.session_cookie(token, 12 * 3600))
+                return
+            if not self.authenticated():
+                self.reply(401, {'error': 'Please log in to access your financial data.'})
+                return
+            if path == '/api/auth/logout':
+                cookie = SimpleCookie(self.headers.get('Cookie', ''))
+                with self.server.auth_lock:
+                    if 'money_session' in cookie:
+                        self.server.sessions.pop(cookie['money_session'].value, None)
+                self.reply(200, {'ok': True}, cookie=self.session_cookie('', 0))
+                return
             if path=='/api/preview':
                 _,state=self.server.store.read()
                 s=data['snapshot']
@@ -229,17 +298,59 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(500,{'error':'The operation could not be saved. Your previous data is unchanged.'})
 
 
-def create_server(path, host='0.0.0.0', port=8099, local=False):
+def create_server(path, host='0.0.0.0', port=8099, local=False, password='', direct=False):
     server=ThreadingHTTPServer((host,port),Handler)
     server.store=Store(path)
     server.local=local
+    server.direct=direct
+    server.salt=secrets.token_bytes(32)
+    server.password_hash=hashlib.pbkdf2_hmac('sha256', password.encode(), server.salt, 200000) if password else None
+    server.sessions={}
+    server.failures={}
+    server.auth_lock=threading.Lock()
     return server
+
+
+def persistent_path(data_dir, shared_dir=None):
+    """Migrate once using SQLite's backup API; never overwrite shared data.
+
+    Failure is fatal rather than silently opening a fresh, empty database.
+    The legacy database remains untouched for recovery.
+    """
+    legacy = Path(data_dir) / 'money.sqlite'
+    if shared_dir is None:
+        return legacy
+    folder = Path(shared_dir)
+    folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+    target = folder / 'money.sqlite'
+    if not target.exists() and legacy.exists():
+        temp = folder / 'migration.sqlite'
+        try:
+            with sqlite3.connect(f'file:{legacy}?mode=ro', uri=True) as source, sqlite3.connect(temp) as dest:
+                source.backup(dest)
+                if dest.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
+                    raise RuntimeError('Existing database failed its integrity check.')
+                row = dest.execute('SELECT body FROM state WHERE id=1').fetchone()
+                validate_state(json.loads(row[0]))
+            os.chmod(temp, 0o600)
+            temp.replace(target)
+        finally:
+            temp.unlink(missing_ok=True)
+    return target
 
 
 if __name__=='__main__':
     os.umask(0o077)
     local=os.environ.get('MONEY_LOCAL')=='1'
-    path=Path(os.environ.get('MONEY_DATA','/data'))/'money.sqlite'
-    server=create_server(path,host='127.0.0.1' if local else '0.0.0.0',port=int(os.environ.get('PORT','8099')),local=local)
-    print('Money Locations ready', flush=True)
+    data_dir=Path(os.environ.get('MONEY_DATA','/data'))
+    options_path=data_dir/'options.json'
+    options=json.loads(options_path.read_text()) if options_path.exists() else {}
+    password=options.get('web_password', '')
+    shared=None if local else os.environ.get('MONEY_SHARED','/share/money_locations')
+    path=persistent_path(data_dir, shared)
+    server=create_server(path,host='127.0.0.1' if local else '0.0.0.0',port=int(os.environ.get('PORT','8099')),local=local,password=password)
+    if not local and password:
+        direct=create_server(path,port=8100,password=password,direct=True)
+        threading.Thread(target=direct.serve_forever, daemon=True).start()
+    print('Money Locations ready; database: '+str(path), flush=True)
     server.serve_forever()

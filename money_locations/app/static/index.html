@@ -4,11 +4,23 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Money Locations</title>
+    <link rel="icon" href="icon.png" />
     <link rel="stylesheet" href="style.css" />
     <script src="app.js" defer></script>
   </head>
   <body>
-    <div class="shell">
+    <section id="login" class="login" hidden>
+      <img src="icon.png" width="80" height="80" alt="Money Locations" />
+      <h1>Money Locations</h1>
+      <p id="login-note">Log in to your financial picture.</p>
+      <form id="login-form">
+        <label for="password">Password</label>
+        <input id="password" type="password" autocomplete="current-password" required />
+        <button type="submit">Log in</button>
+      </form>
+      <p id="login-error" role="alert"></p>
+    </section>
+    <div class="shell" hidden>
       <aside>
         <a class="brand" href="#overview"
           ><span class="mark">£</span
@@ -26,7 +38,7 @@
       <main>
         <header>
           <div class="eyebrow">YOUR FINANCIAL PICTURE</div>
-          <div id="save-status" role="status"></div>
+          <div id="save-status" role="status"></div><button id="logout" type="button">Log out</button>
         </header>
         <div id="error" role="alert" hidden></div>
         <div id="view"><p>Loading your accounts…</p></div>

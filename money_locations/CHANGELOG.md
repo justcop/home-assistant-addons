@@ -1,3 +1,11 @@
+# 0.2.0
+
+- Add square icon and wide Home Assistant logo, plus matching app branding.
+- Add password login for Ingress and optional direct access on separate port 8100.
+- Move authoritative SQLite storage to /share/money_locations so reinstalling preserves history.
+- Automatically migrate an existing /data database without overwriting shared data.
+- Document backup requirements and recovery of history from older installations.
+
 # Changelog
 
 ## 0.1.0

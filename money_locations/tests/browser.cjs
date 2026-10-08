@@ -9,6 +9,7 @@ const assert = require("node:assert/strict");
 
 (async () => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "money-browser-"));
+  fs.writeFileSync(path.join(temp, "options.json"), JSON.stringify({web_password: "browser-fixture"}));
   const port = "18129";
   const server = spawn(
     process.env.PYTHON || "python",
@@ -38,6 +39,12 @@ const assert = require("node:assert/strict");
     page.on("dialog", (d) => d.accept());
     const base = "http://127.0.0.1:" + port;
     await page.goto(base);
+    await page.getByLabel("Password", {exact: true}).fill("wrong");
+    await page.getByRole("button", {name: "Log in", exact: true}).click();
+    await page.getByText("Incorrect password.", {exact: true}).waitFor();
+    assert.equal((await page.request.get(base + "/api/export")).status(), 401);
+    await page.getByLabel("Password", {exact: true}).fill("browser-fixture");
+    await page.getByRole("button", {name: "Log in", exact: true}).click();
     await page
       .getByRole("heading", { name: "Welcome to Money Locations" })
       .waitFor();
@@ -192,9 +199,12 @@ const assert = require("node:assert/strict");
     await page.locator("#finalize").click();
     await page.getByRole("heading", { name: "Period review" }).waitFor();
     assert.match(await page.locator("#view").innerText(), /£1,100.00/);
+    await page.getByRole("button", {name: "Log out", exact: true}).click();
+    await page.getByLabel("Password", {exact: true}).waitFor();
+    assert.equal((await page.request.get(base + "/api/export")).status(), 401);
     assert.deepEqual(errors, []);
     console.log(
-      "Browser checks passed: import, missing-balance guard, unchanged confirmation, draft persistence, SIPP relief, finalisation, final edits, mobile width, backup/export and property toggle.",
+      "Browser checks passed: password login/logout and export protection, import, missing-balance guard, unchanged confirmation, draft persistence, SIPP relief, finalisation, final edits, mobile width, backup/export and property toggle.",
     );
   } finally {
     if (browser) await browser.close();

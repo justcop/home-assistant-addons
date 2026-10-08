@@ -1,5 +1,5 @@
 name: Money Locations
-version: "0.1.0"
+version: "0.2.0"
 slug: money_locations
 description: Monthly balances, savings and investment returns with clear reconciliations.
 url: https://github.com/justcop/home-assistant-addons/tree/main/money_locations
@@ -14,5 +14,14 @@ panel_icon: mdi:finance
 panel_title: Money Locations
 panel_admin: true
 backup: cold
-options: {}
-schema: {}
+map:
+  - share:rw
+ports:
+  8100/tcp: null
+ports_description:
+  8100/tcp: Optional password-protected web interface
+webui: http://[HOST]:[PORT:8100]
+options:
+  web_password: ""
+schema:
+  web_password: password
