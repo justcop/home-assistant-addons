@@ -90,6 +90,8 @@ def apply_action(state, action, data):
             raise ValueError('Snapshot not found.')
         # Preserve the account checklist captured when this snapshot was created.
         s['required_accounts'] = prior['required_accounts']
+        if prior['status']=='final' and s['status']!='final':
+            raise ValueError('Use Reopen as draft so later periods are reopened safely as well.')
         if prior['status']=='final' and s['date']!=prior['date']:
             raise ValueError('Reopen this snapshot before changing its date.')
         if any(v['id']!=s['id'] and v['date']==s['date'] for v in state['snapshots']):
