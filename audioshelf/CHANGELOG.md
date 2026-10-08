@@ -1,3 +1,8 @@
+# 0.6.7
+
+- A distinctive two-tone record label and an off-centre groove marker now make platter rotation obvious while music is playing. Keep the tonearm stationary and show a subtle playing indicator, without changing the Now Playing bar height. Honour reduced-motion preferences.
+- Play/pause commands no longer report a false failure if the response from the server fails after Spotify has already obeyed. Confirm ambiguous responses against the real playback state, and distinguish failures in the command from later status-refresh errors.
+
 # 0.6.6
 
 - The Now Playing bar uses Spotify's current album cover, even when the record is not on your shelf. Larger artwork fills the existing bar without making it taller.
