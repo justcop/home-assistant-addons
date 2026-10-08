@@ -31,6 +31,7 @@ options:
   sync_interval_seconds: 300
   reconcile_days: 7
   demo_mode: false
+  artwork_lookups: true
   web_password: ""
 schema:
   audioshelf_url: str?
@@ -41,4 +42,5 @@ schema:
   sync_interval_seconds: int(60,86400)
   reconcile_days: int(2,90)
   demo_mode: bool
+  artwork_lookups: bool
   web_password: password?
