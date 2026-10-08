@@ -607,8 +607,8 @@ function bindArtworkError(detail, kind) {
       }
       if (detail.artist_photo === url) detail.artist_photo = null;
       if (detail.artwork?.url === url) detail.artwork = null;
-      img.remove();
       const figure = img.closest("figure");
+      img.remove();
       if (figure && !figure.querySelector("img")) {
         $("#detail-artwork-slot").innerHTML = artworkHTML(detail, kind);
         bindArtworkError(detail, kind);
