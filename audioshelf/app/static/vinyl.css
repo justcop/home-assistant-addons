@@ -140,3 +140,30 @@
   #turntable .now-playing-details>span{margin-top:2px}
   #turntable .now-playing-details .track-progress{margin-top:3px}
 }
+
+/* A deliberately asymmetric record label and a light groove mark make motion
+   legible at 39–55px. The tonearm stays still while the platter turns. */
+#turntable .turntable-platter{position:relative}
+#turntable .turntable-platter::before{
+  content:"A";position:absolute;inset:28%;border-radius:50%;
+  display:grid;place-items:center;background:linear-gradient(130deg,#f1d3a6 0 41%,#ca8967 43% 100%);
+  color:#342f2c;font:700 11px Georgia,serif;transform:rotate(-24deg);
+  box-shadow:0 0 0 1px #191b19,0 0 0 2px #cbcabf;
+}
+#turntable .turntable-platter::after{
+  content:"";position:absolute;left:17%;top:12%;width:4px;height:11px;
+  background:#e3e0c9;border-radius:2px;transform:rotate(-38deg);
+  box-shadow:0 0 1px #0007;
+}
+#turntable .turntable-toggle.is-spinning .turntable-platter{animation-duration:1.8s}
+#turntable .turntable-toggle:not(.is-spinning) .turntable-tonearm{transform:rotate(39deg)}
+#turntable .turntable-toggle::after{
+  content:"";position:absolute;bottom:-1px;right:0;width:5px;height:5px;
+  border-radius:50%;background:#939590;box-shadow:0 0 0 1px #0002;pointer-events:none;
+}
+#turntable .turntable-toggle.is-spinning::after{background:#6ca66a;box-shadow:0 0 5px #6ca66a}
+@media(max-width:700px){#turntable .turntable-platter::before{font-size:9px}}
+@media(prefers-reduced-motion:reduce){
+  #turntable .is-spinning .turntable-platter{animation:none}
+  #turntable .is-spinning .turntable-platter::after{background:#f9f0c6}
+}
