@@ -107,7 +107,7 @@ function chart(data, key) {
       175 - ((r[key] - min) / (max - min)) * 150,
     ]);
   const poly = pts.map((p) => p.join(",")).join(" ");
-  return `<svg class="chart" viewBox="0 0 660 210" role="img" aria-label="Financial position over time"><line class="grid" x1="64" y1="25" x2="640" y2="25"/><line class="grid" x1="64" y1="175" x2="640" y2="175"/><text x="0" y="29">£${Math.round(max / 1000)}k</text><text x="0" y="179">£${Math.round(min / 1000)}k</text><polygon class="area" points="${pts[0][0]},175 ${poly} ${pts.at(-1)[0]},175"/><polyline class="line" points="${poly}"/><text x="64" y="205">${esc(day(data[0].date))}</text><text x="640" y="205" text-anchor="end">${esc(day(data.at(-1).date))}</text></svg>`;
+  return `<svg class="chart" viewBox="0 0 660 210" role="img" aria-label="Net financial assets over time"><line class="grid" x1="64" y1="25" x2="640" y2="25"/><line class="grid" x1="64" y1="175" x2="640" y2="175"/><text x="0" y="29">£${Math.round(max / 1000)}k</text><text x="0" y="179">£${Math.round(min / 1000)}k</text><polygon class="area" points="${pts[0][0]},175 ${poly} ${pts.at(-1)[0]},175"/><polyline class="line" points="${poly}"/><text x="64" y="205">${esc(day(data[0].date))}</text><text x="640" y="205" text-anchor="end">${esc(day(data.at(-1).date))}</text></svg>`;
 }
 function metric(label, value, sub = "", hero = false) {
   return `<div class="card ${hero ? "hero" : ""}"><span class="muted">${label}</span><strong class="metric">${gbp(value)}</strong><small class="muted">${sub}</small></div>`;
