@@ -40,6 +40,7 @@ DEFAULTS = {
     "web_password": "",
     "source_api_token": "",
     "audioshelf_url": "",
+    "artwork_lookups": True,
 }
 
 
@@ -74,6 +75,8 @@ def validate_config(config):
         raise ConfigurationError(
             "timezone must be an IANA timezone such as Europe/London"
         ) from None
+    if not isinstance(config["artwork_lookups"], bool):
+        raise ConfigurationError("artwork_lookups must be true or false")
     if not isinstance(config["demo_mode"], bool):
         raise ConfigurationError("demo_mode must be true or false")
     if not isinstance(config["web_password"], str):
@@ -150,7 +153,7 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
     worker = SyncWorker(database, config)
     app.extensions["database"] = database
     app.extensions["sync_worker"] = worker
-    artwork_worker = ArtworkWorker(config["api_key"], enabled=start_worker)
+    artwork_worker = ArtworkWorker(config["api_key"], enabled=start_worker and config["artwork_lookups"])
     app.extensions["artwork_worker"] = artwork_worker
 
     def calculate_rankings(db, args):
@@ -478,6 +481,8 @@ self.addEventListener('fetch', event => {
             return jsonify(insights.history(conn, dates(conn), request.args, tz))
 
     def detail_artwork(db, result=None):
+        if not config["artwork_lookups"]:
+            return dict(artwork=None, artwork_pending=False, artist_photo=None, artist_logo=None)
         kind, value = request.args.get("entity"), request.args.get("id")
         raw = request.args.get("mode") == "raw"
         with db.connect() as conn:
