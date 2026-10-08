@@ -1,4 +1,18 @@
-# 0.2.0
+# Changelog
+
+## 0.3.0
+
+- Replace the algebraic reconciliation presentation with an explicit period breakdown and clearly label savings and spending as inferred.
+- Keep mortgage debt in net financial assets while property value remains optional, matching the investment-leverage accounting convention.
+- Add 30-day-normalised savings, spending and net-return comparisons for uneven snapshot intervals.
+- Add simple opening-balance return percentages and warnings for implausible inferred investment returns and negative inferred spending.
+- Add safe reopening of final snapshots; reopening a historical period also reopens downstream final periods so their flows can be reviewed.
+- Validate account wrapper and accessibility classifications on imports and saves.
+- Authenticate protected POST requests before reading large bodies, cap login bodies, and avoid holding the auth lock during PBKDF2.
+- Close SQLite connections explicitly, keep health checks independent of Ingress/data reads, and avoid loading the database for static files.
+- Remove personal income-source defaults from the public app template and harden CSV string output.
+
+## 0.2.0
 
 - Add square icon and wide Home Assistant logo, plus matching app branding.
 - Add password login for Ingress and optional direct access on separate port 8100.
@@ -6,13 +20,11 @@
 - Automatically migrate an existing /data database without overwriting shared data.
 - Document backup requirements and recovery of history from older installations.
 
-# Changelog
-
 ## 0.1.0
 
 - Initial local financial tracker with monthly snapshots, editable history and account classifications.
 - Per-account flows and grouped returns with mortgage interest allocated as investment cost.
 - Separate pension tax benefits, excluded payments and exceptional capital changes.
-- Optional dated home valuations, responsive dashboard and reconciliations.
+- Optional dated home valuations and responsive dashboard.
 - Transactional storage, draft saving, recovery copies and JSON/CSV exports.
 - Private historical import converter and synthetic regression tests.
