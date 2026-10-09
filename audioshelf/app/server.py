@@ -569,7 +569,7 @@ def create_app(options=None):
                 if not payload.get('release_id') or not payload.get('spotify_album_id'):
                     raise AppError('Select a fully Spotify-matched MusicBrainz edition.')
                 album = playable_releases.select(album_id, payload['release_id'],
-                    payload['spotify_album_id'], reviewed=True, add_to_shelf=True)
+                    payload['spotify_album_id'], reviewed=False, add_to_shelf=True)
                 return jsonify(album)
             # Backward compatibility for existing integrations. The interactive
             # Record Store always sends a Spotify-verified edition choice.
