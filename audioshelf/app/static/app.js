@@ -424,13 +424,22 @@ document.addEventListener('error',event=>{if(event.target instanceof HTMLImageEl
 document.querySelector('.close-modal').addEventListener('click',()=>modal.close());
 modal.addEventListener('click',event=>{if(event.target===modal)modal.close();});
 function releasePickerHtml(state,error=''){
-  const coverMode=state.mode==='cover';
-  return `<h2>${coverMode?'Choose album cover':'Choose the original edition'}</h2><p>${coverMode?'Choose a front cover without changing your tracklist or Spotify mappings. If a cover is unavailable, try another edition or upload one.':'Prefer the original standard release, without bonus tracks. Your choice replaces the tracklist and clears Spotify mappings.'}</p><p class="muted">Using this album’s country and format preferences. <a href="#settings">Global Settings ↗</a>. More editions may be on later pages.</p>${state.items.map(r=>`<button class="choice ${coverMode?'cover-choice':''}" data-action="${coverMode?'choose-cover':'choose-release'}" data-id="${escapeHtml(r.id)}">${coverMode?`<img src="api/albums/${id(currentAlbum.id)}/artwork-preview/${id(r.id)}" alt="Front cover preview" loading="lazy">`:''}<span>${escapeHtml(r.title)}<small>${escapeHtml([r.country,r.date,...(r.media||[]).map(m=>`${m.format||'Audio'}: ${m['track-count']||'?'} tracks`),r.disambiguation].filter(Boolean).join(' · '))}</small></span></button>`).join('')}${!state.items.length&&!error?`<div class="note">${state.next!==null?'No matching editions on this page. Load more to check the remaining editions.':'No editions match your release filters. Change the formats or restrictions in Settings.'}</div>`:''}${error?`<div class="note">${escapeHtml(error)}</div>`:''}${state.next!==null||error?`<button class="secondary" data-action="load-releases">${error?'Retry edition search':'Load more editions'}</button>`:''}`;
+  const coverMode=state.mode==='cover',adding=state.mode==='add';
+  const description=coverMode
+    ?'Choose a front cover without changing your tracklist or Spotify mappings.'
+    :adding?'Only editions whose entire MusicBrainz tracklist can be verified on your Spotify account appear here. Choose one to add to your shelf with the matching already complete.'
+    :'Only editions with every track verified on Spotify appear here. Choosing one replaces the original tracklist and its mappings.';
+  return `<h2>${coverMode?'Choose album cover':adding?'Add a playable edition':'Choose a Spotify-playable tracklist'}</h2><p>${description}</p><p class="muted">Using the preferred MusicBrainz countries and formats. Each batch checks up to four editions against Spotify in your market; more may be available on later pages. <a href="#settings">Settings ↗</a></p>${state.items.map(r=>`<button class="choice ${coverMode?'cover-choice':''}" data-action="${coverMode?'choose-cover':'choose-release'}" data-id="${escapeHtml(r.id)}" ${coverMode?'':`data-spotify-id="${escapeHtml(r.spotify_album_id)}"`}>${coverMode?`<img src="api/albums/${id(state.album)}/artwork-preview/${id(r.id)}" alt="Front cover preview" loading="lazy">`:''}<span>${escapeHtml(r.title)}<small>${escapeHtml([r.country,r.date,...(r.media||[]).map(m=>`${m.format||'Audio'}: ${m['track-count']||'?'} tracks`),r.disambiguation].filter(Boolean).join(' · '))}${!coverMode?` · ✓ ${r.matched_tracks} verified Spotify tracks · ${escapeHtml(r.spotify_album_name)}`:''}</small></span></button>`).join('')}${!state.items.length&&!error?`<div class="note">${state.next!==null?'No fully matched editions in this batch. Check more MusicBrainz editions.':coverMode?'No editions match your release filters. Change the filters in Settings.':'No fully Spotify-matched editions found under your current release preferences. Try changing country/format preferences or choose a different album.'}</div>`:''}${error?`<div class="note">${escapeHtml(error)}</div>`:''}${state.next!==null||error?`<button class="secondary" data-action="load-releases">${error?'Retry checks':'Check more editions'}</button>`:''}`;
+}
+async function openPlayableReleasePicker(albumId,mode){
+  releasePicker={album:albumId,mode,items:[],offset:0,next:0};
+  showModal('<h2>Checking Spotify compatibility</h2>'+loading('Finding MusicBrainz editions with fully matched Spotify tracks…'));
+  await loadReleasePage();
 }
 async function loadReleasePage(){
   const state=releasePicker,generation=routeGeneration;
   try{
-    const result=await api(`albums/${id(state.album)}/releases?offset=${state.next??state.offset}`);
+    const result=await api(`albums/${id(state.album)}/releases?offset=${state.next??state.offset}${state.mode==='cover'?'':'&playable=1'}`);
     if(generation!==routeGeneration||releasePicker!==state||!modal.open)return;
     state.offset=state.next??state.offset;state.next=result.next_offset;
     const seen=new Set(state.items.map(r=>r.id));state.items.push(...result.releases.filter(r=>!seen.has(r.id)));
@@ -568,9 +577,7 @@ document.addEventListener('click',async event=>{
     if(action==='artwork-cache-clear'){await caches.delete(artworkCacheName());await refreshArtworkCacheSettings();toast('Downloaded artwork cleared on this device.');}
     if(action==='search-kind'){searchKind=button.dataset.kind;storeSearch={kind:searchKind,query:'',results:null};await route();}
     if(action==='add'){
-      const a=await api(`albums/${id(button.dataset.id)}/shelf`,'POST');markCollected(a.id);toast(`${a.title} added to your shelf.`);
-      if(generation!==routeGeneration)return;
-      if(location.hash.startsWith('#album/'))content.innerHTML=albumPage(a);else{button.textContent='✓ On your shelf';button.setAttribute('aria-label',`${a.title} is on your shelf`);button.dataset.action='';button.closest('.album-card')?.classList.add('just-collected');}
+      await openPlayableReleasePicker(button.dataset.id,'add');
     }
     if(action==='security')await securitySettings();
     if(action==='accounts')await accountSettings();
@@ -639,9 +646,7 @@ document.addEventListener('click',async event=>{
     }
     if(action==='pick-catalogue')document.querySelector('#catalogue-series').value=button.dataset.id;
     if(action==='releases'||action==='cover-editions'){
-      releasePicker={album:currentAlbum.id,mode:action==='cover-editions'?'cover':'tracks',items:[],offset:0,next:0};
-      showModal(`<h2>${releasePicker.mode==='cover'?'Choose album cover':'Choose the original edition'}</h2>`+loading('Finding MusicBrainz editions…'));
-      await loadReleasePage();
+      await openPlayableReleasePicker(currentAlbum.id,action==='cover-editions'?'cover':'tracks');
     }
     if(action==='load-releases')await loadReleasePage();
     if(action==='choose-cover'){
@@ -650,8 +655,21 @@ document.addEventListener('click',async event=>{
       await invalidateCachedCover(currentAlbum.id);artworkRevision=Date.now();modal.close();content.innerHTML=albumPage(currentAlbum);toast('Edition cover saved.');
     }
     if(action==='choose-release'){
-      if(!confirm('Replace the original tracklist with this edition and clear its Spotify mappings?'))return;
-      const album=await api(`albums/${id(currentAlbum.id)}/release`,'POST',{release_id:button.dataset.id,confirmed:true});if(generation!==routeGeneration)return;currentAlbum=album;modal.close();content.innerHTML=albumPage(currentAlbum);toast('Original tracklist updated. Match Spotify tracks again.');
+      const state=releasePicker;
+      if(!state||!button.dataset.spotifyId)return;
+      if(state.mode==='tracks'&&!confirm('Replace the original tracklist and its Spotify mappings with this fully matched edition?'))return;
+      const album=await api(`albums/${id(state.album)}/${state.mode==='add'?'shelf':'release'}`,'POST',
+        {release_id:button.dataset.id,spotify_album_id:button.dataset.spotifyId,confirmed:true});
+      if(generation!==routeGeneration)return;
+      modal.close();markCollected(album.id);
+      if(state.mode==='add'){
+        toast(`${album.title} added to your shelf, with every track matched on Spotify.`);
+        if(location.hash.startsWith('#album/')){currentAlbum=album;content.innerHTML=albumPage(album);}
+        else await route();
+      }else{
+        currentAlbum=album;content.innerHTML=albumPage(album);
+        toast('Original tracklist and all Spotify mappings updated.');
+      }
     }
     if(action==='track'){
       const track=currentAlbum.tracks.find(t=>t.position===Number(button.dataset.position));
