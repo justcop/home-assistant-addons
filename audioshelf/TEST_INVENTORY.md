@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-09T12:39:47+01:00 (Europe/London).
+Reviewed: 2026-10-09T12:45:31+01:00 (Europe/London).
 
-Reviewed new playback handshake tests for job bearer isolation, cancellation, correct phone and first-track confirmation, and Android link composition; account isolation preserved.
+Reviewed 0.6.13 PWA artwork cache, including measured on-device cache usage, offline album covers, manual preload/clear, per-account storage isolation and cache persistence between releases. Rebased on passing Android helper 0.1.9 verified playback handshake; all 295 backend cases and existing Android/browser regression checks retained.
 
-<!-- inventory: {"reviewed_at":"2026-10-09T12:39:47+01:00","review_note":"Reviewed new playback handshake tests for job bearer isolation, cancellation, correct phone and first-track confirmation, and Android link composition; account isolation preserved.","source_sha256":"1c8c831b6a1ce41fc3397258d47e3ecdf96cfde5cfbe1b59d80a71ffed6299b8"} -->
+<!-- inventory: {"reviewed_at":"2026-10-09T12:45:31+01:00","review_note":"Reviewed 0.6.13 PWA artwork cache, including measured on-device cache usage, offline album covers, manual preload/clear, per-account storage isolation and cache persistence between releases. Rebased on passing Android helper 0.1.9 verified playback handshake; all 295 backend cases and existing Android/browser regression checks retained.","source_sha256":"a26cf770689a41f18bfcdaf0de97357acf953c263f350bd7d51256efb5271a37"} -->
 
 ## Backend cases (295)
 
