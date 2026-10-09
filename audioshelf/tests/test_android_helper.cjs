@@ -51,7 +51,7 @@ assert(context.androidHelperLink(false,sampleJob));
 context.statusInfo.spotify_client_id='';
 assert.equal(context.androidHelperLink(false,sampleJob),null);
 // Exercise the real playback entry points, including async handoff creation.
-let calls=[], launches=[], createJob;
+let calls=[], launches=[], createJob, nextJobStatus, notifications=[], playbackUpdates=[];
 context.statusInfo.spotify_client_id='c'.repeat(32);
 context.statusInfo.preferred_device.name='My phone';
 let pageUrl='https://audioshelf.example/#album/saved';
@@ -59,14 +59,15 @@ Object.defineProperty(context.location,'href',{get:()=>pageUrl,set:value=>launch
 const progressIndicator={textContent:''};
 Object.assign(context,{
   routeGeneration:1, playbackCommand:0, checkingPlayback:false,
-  id:encodeURIComponent, modal:{open:true,close(){}},
+  id:encodeURIComponent, modal:{open:true,close(){this.open=false;}},
   document:{hidden:false,querySelector:selector=>selector==='#playback-handoff-status'?progressIndicator:null},
-  beginPlayback(){}, failPlaybackStart(){}, toast(){},
+  beginPlayback(...args){playbackUpdates.push(args);}, failPlaybackStart(){}, toast(message){notifications.push(message);},
   showModal(){context.modal.open=true;},
   api:async (url,method,body)=>{
     calls.push({url,method,body});
     if(url.endsWith('/playback-handoff')&&method==='POST')return createJob?createJob():{id:'job',state:'waiting',helper_token:'token-for-job'};
     if(url.endsWith('/play'))return {track_count:2,device:'My phone'};
+    if(url.includes('spotify/playback-handoff/')&&method!=='DELETE')return nextJobStatus||{state:'waiting'};
     return {state:'waiting'};
   }
 });
@@ -115,5 +116,30 @@ const request=()=>({album:{id:'album',tracks:[{spotify_id:'track',title:'Track',
   await stale;
   assert.equal(launches.length,1,'Cancelled async handoff never launches the helper');
   assert(calls.some(call=>call.url.endsWith('/late-job')&&call.method==='DELETE'));
-  console.log('Android helper eligibility, automatic wake, playback and cancellation tests passed');
+
+  // After Spotify accepts Play, close only the blocking wake dialog while
+  // retaining the server job and STARTING turntable. Final verification must
+  // still succeed even if the user navigates or opens a different modal.
+  createJob=null;
+  calls=[];nextJobStatus={state:'waiting',phase:'waiting_for_device',play_accepted:false};
+  const confirming=request();
+  await context.playbackHandoff(confirming,'Phone unavailable');
+  assert(!confirming.confirmingInBackground);
+  nextJobStatus={state:'waiting',phase:'confirming_playback',play_accepted:true};
+  await context.retryPendingPlayback(true);
+  assert(confirming.confirmingInBackground,'Accepted Play transfers to nonblocking confirmation');
+  assert.equal(context.modal.open,false,'Accepted Play dismisses the blocking wake dialog');
+  assert(notifications.some(n=>n.includes('Confirming playback')),'Never announce Playing before verification');
+  assert(!calls.some(call=>call.method==='DELETE'),'Dismissal after accepted Play cannot cancel its job');
+  context.routeGeneration=2;
+  context.modal.open=true; // Simulate browsing and opening an unrelated dialog.
+  nextJobStatus={state:'started',play_accepted:true,result:{
+    track_count:1,device:'My phone',first_track:{id:'track',title:'Track',duration_ms:1000},started_at:Date.now()/1000
+  }};
+  await context.retryPendingPlayback(true);
+  assert.equal(playbackUpdates.at(-1)[3],true,'Verified server result is authoritative for immediate PLAYING');
+  assert.equal(context.modal.open,true,'Do not close a different dialog when background verification succeeds');
+  assert(notifications.some(n=>n.includes('Playing 1 tracks')),'Verified background completion notifies the user');
+  assert(!calls.some(call=>call.method==='DELETE'),'Browsing after accepted Play never cancels the job');
+  console.log('Android helper eligibility, early return, background Play confirmation, playback and cancellation tests passed');
 })().catch(error=>{console.error(error);process.exitCode=1;});
