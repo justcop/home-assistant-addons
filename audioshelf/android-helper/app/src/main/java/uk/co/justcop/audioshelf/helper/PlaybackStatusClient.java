@@ -16,9 +16,14 @@ final class PlaybackStatusClient {
         final String state;
         final String message, phase;
         final int httpStatus, deviceChecks, confirmationChecks;
-        Result(String state, String message, String phase, int httpStatus, int devices, int confirmations) {
+        final boolean playAccepted;
+        final int deviceSeenMs, playAcceptedMs, lastDeviceCheckMs, lastDeviceProbeMs;
+        Result(String state, String message, String phase, int httpStatus, int devices, int confirmations,
+               boolean accepted, int seenMs, int acceptedMs, int checkMs, int probeMs) {
             this.state = state; this.message = message; this.phase = phase;
             this.httpStatus = httpStatus; deviceChecks = devices; confirmationChecks = confirmations;
+            playAccepted = accepted; deviceSeenMs = seenMs; playAcceptedMs = acceptedMs;
+            lastDeviceCheckMs = checkMs; lastDeviceProbeMs = probeMs;
         }
         String progress() {
             String detail;
@@ -27,6 +32,7 @@ final class PlaybackStatusClient {
                 case "waiting_for_device": detail = "preferred phone not available yet"; break;
                 case "preparing_playback": detail = "phone found; preparing playback"; break;
                 case "sending_play": detail = "sending Play to Spotify"; break;
+                case "play_accepted": detail = "Spotify accepted Play; verifying in the background"; break;
                 case "confirming_playback": detail = "Play sent; checking Spotify playback"; break;
                 case "no_player_state": detail = "Spotify has not returned player state yet"; break;
                 case "wrong_device": detail = "Spotify reports a different device"; break;
@@ -35,7 +41,13 @@ final class PlaybackStatusClient {
                 case "confirmed": detail = "requested track confirmed playing on the selected phone"; break;
                 default: detail = state.equals("waiting") ? "waiting for playback confirmation (update AudioShelf for detailed progress)" : state;
             }
-            return detail + (deviceChecks < 0 ? "" : " [device checks " + deviceChecks + ", playback checks " + confirmationChecks + "]");
+            String counts = deviceChecks < 0 ? "" :
+                " [device checks " + deviceChecks + ", playback checks " + confirmationChecks + "]";
+            String times = lastDeviceCheckMs < 0 ? "" :
+                " [server: last device check +" + lastDeviceCheckMs + "ms, request " + lastDeviceProbeMs + "ms]";
+            if (deviceSeenMs >= 0) times += " [phone found at server +" + deviceSeenMs + "ms]";
+            if (playAcceptedMs >= 0) times += " [Play accepted at server +" + playAcceptedMs + "ms]";
+            return detail + counts + times;
         }
     }
 
@@ -56,7 +68,8 @@ final class PlaybackStatusClient {
 
     static Result parse(int code, String response) throws IOException {
         if (code == 401 || code == 403 || code == 404 || code == 410)
-            return new Result("expired", "Playback request unavailable.", "expired", code, -1, -1);
+            return new Result("expired", "Playback request unavailable.", "expired", code, -1, -1,
+                false, -1, -1, -1, -1);
         if (code != 200) throw new HttpFailure(code);
         try {
             JsonObject object = JsonParser.parseString(response).getAsJsonObject();
@@ -69,10 +82,18 @@ final class PlaybackStatusClient {
             String phase = object.has("phase") ? object.get("phase").getAsString() : "";
             int devices = object.has("device_checks") ? object.get("device_checks").getAsInt() : -1;
             int confirmations = object.has("confirmation_checks") ? object.get("confirmation_checks").getAsInt() : -1;
-            return new Result(state, message, phase, code, devices, confirmations);
+            boolean accepted = object.has("play_accepted") && !object.get("play_accepted").isJsonNull()
+                && object.get("play_accepted").getAsBoolean();
+            return new Result(state, message, phase, code, devices, confirmations, accepted,
+                optionalMillis(object, "device_seen_ms"), optionalMillis(object, "play_accepted_ms"),
+                optionalMillis(object, "last_device_check_ms"), optionalMillis(object, "last_device_probe_ms"));
         } catch (RuntimeException exception) {
             throw new IOException("Invalid playback response", exception);
         }
+    }
+
+    private static int optionalMillis(JsonObject object, String name) {
+        return object.has(name) && !object.get(name).isJsonNull() ? object.get(name).getAsInt() : -1;
     }
 
     static Result poll(String origin, String account, String job, String token, Progress progress) throws IOException {

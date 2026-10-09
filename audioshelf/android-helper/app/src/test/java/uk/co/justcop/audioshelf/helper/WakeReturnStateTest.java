@@ -15,6 +15,21 @@ public class WakeReturnStateTest {
         assertFalse(state.shouldPoll(false));
     }
 
+    @Test public void returnOnPlayAcceptanceDoesNotWaitForSpotifyConfirmation() {
+        assertEquals(20000, WakeReturnState.WAKE_WINDOW_MS);
+        WakeReturnState state = new WakeReturnState();
+        state.onServerState("waiting");
+        assertFalse(state.shouldReturn(true, false));
+        state.onPlayAccepted();
+        assertTrue(state.shouldReturn(true, false));
+        assertFalse(state.shouldPoll(false));
+        assertFalse(state.shouldReturn(false, false));
+        assertFalse(state.shouldReturn(true, true));
+        assertTrue(state.shouldPoll(true)); // Hold keeps watching for the actual result.
+        state.onServerState("started");
+        assertFalse(state.shouldPoll(true));
+    }
+
     @Test public void confirmedPlaybackReturnsBeforeDeadlineEvenWithoutSdkConnection() {
         WakeReturnState state = new WakeReturnState();
         state.onServerState("started");

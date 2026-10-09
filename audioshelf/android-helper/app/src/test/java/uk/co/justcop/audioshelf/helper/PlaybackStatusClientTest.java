@@ -17,6 +17,23 @@ public class PlaybackStatusClientTest {
         assertTrue(PlaybackStatusClient.parse(200, "{\"state\":\"waiting\"}").progress().contains("update AudioShelf"));
     }
 
+    @Test public void acceptedPlayHasDistinctFlagAndTimedDeviceDiscovery() throws Exception {
+        PlaybackStatusClient.Result pending = PlaybackStatusClient.parse(200,
+            "{\"state\":\"waiting\",\"phase\":\"sending_play\",\"play_accepted\":false}");
+        assertFalse(pending.playAccepted);
+        PlaybackStatusClient.Result accepted = PlaybackStatusClient.parse(200,
+            "{\"state\":\"waiting\",\"phase\":\"confirming_playback\",\"play_accepted\":true,"
+            + "\"device_seen_ms\":7170,\"play_accepted_ms\":9350,"
+            + "\"last_device_check_ms\":7170,\"last_device_probe_ms\":125}");
+        assertTrue(accepted.playAccepted);
+        assertEquals("waiting", accepted.state);
+        assertEquals(7170, accepted.deviceSeenMs);
+        assertEquals(9350, accepted.playAcceptedMs);
+        assertTrue(accepted.progress().contains("phone found at server +7170ms"));
+        assertTrue(accepted.progress().contains("Play accepted at server +9350ms"));
+        assertFalse(PlaybackStatusClient.parse(200, "{\"state\":\"waiting\"}").playAccepted);
+    }
+
     @Test public void distinguishesDnsTlsHttpAndTimeoutWithoutLoggingPrivateExceptionText() {
         assertEquals("DNS could not resolve AudioShelf", PlaybackStatusClient.describe(new java.net.UnknownHostException("private.host")));
         assertEquals("HTTPS/TLS connection failed", PlaybackStatusClient.describe(new javax.net.ssl.SSLException("private host and certificate")));

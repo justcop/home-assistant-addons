@@ -1,3 +1,9 @@
+# 0.6.15
+
+- Expose a persistent, authenticated Play-accepted flag as soon as Spotify successfully responds to the canonical album/disc playback request. Confirmation of the selected device and exact track continues independently.
+- Log device-discovery timing, Spotify device request duration and Play acceptance time through the existing read-only helper endpoint, without sending Spotify tokens or playback commands to the helper.
+- Poll Spotify Connect for the preferred waking phone every second for the first 15 seconds, then return to the existing two-second interval. Do not switch devices, repeat ambiguous Play requests or weaken playback verification.
+
 # 0.6.14
 
 - Respond immediately to helper playback-status snapshots and report device discovery, Play dispatch and exact-track confirmation progress. Keep helper reads available during slow Spotify Play requests.

@@ -38,13 +38,17 @@ class PlaybackHandoff:
 
     def start(self, album, disc, preferred, owner, authorized):
         token = secrets.token_urlsafe(32)
+        started = time.monotonic()
         with self.changed:
             self.cancel_all()
             job = {'id': secrets.token_urlsafe(24), 'state': 'waiting', 'result': None,
                    'error': None, 'owner': owner, 'stop': threading.Event(),
                    'phase': 'checking_devices', 'device_checks': 0, 'confirmation_checks': 0,
+                   'play_accepted': False, 'device_seen_ms': None, 'play_accepted_ms': None,
+                   'last_device_check_ms': None, 'last_device_probe_ms': None,
+                   'created_monotonic': started,
                    'helper_token_hash': hashlib.sha256(token.encode()).digest(),
-                   'deadline': time.monotonic() + self.timeout,
+                   'deadline': started + self.timeout,
                    'payload': (copy.deepcopy(album), disc, copy.deepcopy(preferred), authorized)}
             self.job = job
             self.publish_helper(job)
@@ -68,16 +72,19 @@ class PlaybackHandoff:
         # so a slow Spotify Play request cannot block the status/health response.
         with self.helper_changed:
             job['helper_view'] = {key: job[key] for key in
-                                  ('state', 'error', 'phase', 'device_checks', 'confirmation_checks')}
+                                  ('state', 'error', 'phase', 'device_checks', 'confirmation_checks',
+                                   'play_accepted', 'device_seen_ms', 'play_accepted_ms',
+                                   'last_device_check_ms', 'last_device_probe_ms')}
             self.helper_job = job
             self.helper_changed.notify_all()
 
-    def progress(self, job, phase, counter=None):
+    def progress(self, job, phase, counter=None, **metrics):
         with self.lock:
             if self.job is job and job['state'] == 'waiting':
                 job['phase'] = phase
                 if counter:
                     job[counter] += 1
+                job.update(metrics)
                 self.publish_helper(job)
 
     def helper_status(self, identifier, bearer, wait=20):
@@ -157,26 +164,38 @@ class PlaybackHandoff:
                 guard()
                 self.progress(job, 'sending_play')
                 try:
-                    return send()
+                    response = send()
                 finally:
                     # An ambiguous transport failure must never requeue the record.
                     command_sent = True
+                # Only a successful Spotify API response means Play was accepted.
+                # Keep confirming the exact device/track after the helper returns.
+                self.progress(job, 'play_accepted', play_accepted=True,
+                              play_accepted_ms=int((time.monotonic() - job['created_monotonic']) * 1000))
+                return response
 
         while not job['stop'].is_set():
             try:
                 guard()
                 self.progress(job, 'checking_devices', 'device_checks')
+                probe_started = time.monotonic()
                 devices = self.spotify.devices()
+                checked_at = time.monotonic()
+                probe_metrics = {
+                    'last_device_check_ms': int((checked_at - job['created_monotonic']) * 1000),
+                    'last_device_probe_ms': int((checked_at - probe_started) * 1000),
+                }
                 ready = [d for d in devices if d['id'] == preferred['id']]
                 if not ready:
                     ready = [d for d in devices if d['name'] == preferred['name'] and d['type'] == preferred['type']]
                 if len(ready) == 1 and not ready[0].get('is_restricted'):
                     guard()
-                    self.progress(job, 'preparing_playback')
+                    self.progress(job, 'preparing_playback',
+                                  device_seen_ms=probe_metrics['last_device_check_ms'], **probe_metrics)
                     result = self.spotify.play(album, disc, preferred_device=preferred, guard=guard, dispatch=dispatch)
                     self.confirm_playing(job, result, guard)
                     return
-                self.progress(job, 'waiting_for_device')
+                self.progress(job, 'waiting_for_device', **probe_metrics)
             except AppError as error:
                 if command_sent:
                     self.set_status(job, 'unconfirmed', error='Spotify may have received Play, but the requested track was not confirmed on your phone. Check Spotify.')
@@ -190,4 +209,8 @@ class PlaybackHandoff:
                                 error='Spotify may have received Play, but confirmation failed. Check your phone.' if command_sent
                                 else 'Spotify playback could not be started. Please retry.')
                 return
-            job['stop'].wait(min(self.interval, max(0, job['deadline'] - time.monotonic())))
+            # Faster discovery for the first 15 seconds of a cold Spotify wake.
+            # A configured shorter interval (e.g. tests) is preserved.
+            interval = (min(self.interval, 1.0) if time.monotonic() - job['created_monotonic'] < 15
+                        else self.interval)
+            job['stop'].wait(min(interval, max(0, job['deadline'] - time.monotonic())))

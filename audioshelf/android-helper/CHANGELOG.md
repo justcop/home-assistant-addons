@@ -1,3 +1,10 @@
+# 0.1.13
+
+- Return to AudioShelf immediately once the server reports Spotify accepted the Play command, without waiting for exact-track verification. Keep normal final confirmation and failure reporting in AudioShelf.
+- Extend the independent fallback from eight seconds to 20 seconds for slower cold starts. It remains a maximum rather than a compulsory wait, and never implies playback success.
+- Increase read-only AudioShelf status polling to 350 ms once device preparation begins and 750 ms otherwise. Show server-relative device check, HTTP probe, discovery and Play acceptance times in the diagnostic log.
+- Requires AudioShelf 0.6.15 to support Play-accepted return; older servers still work through their verified result or the fallback.
+
 # 0.1.12
 
 - Request immediate AudioShelf job snapshots every second instead of starting with a 20-second long poll. Use shorter connection/read timeouts so failures are visible inside the wake window.
