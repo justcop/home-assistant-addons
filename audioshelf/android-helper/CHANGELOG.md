@@ -1,3 +1,10 @@
+# 0.1.17
+
+- Start the Spotify App Remote connection only after the helper Activity becomes visible/resumed, rather than during onCreate before onResume. This aligns more closely with Spotify's foreground/activity lifecycle guidance and may avoid the silent no-callback authorization startup seen on Android 17.
+- If the user deliberately taps **Open Spotify to restore connection**, extend the helper's active monitoring by 15 seconds from that action, even if the button was pressed at 19.5 seconds. Keep the server's original independent playback job and its own expiry unchanged. Normal background-only wake still returns on its original 20-second deadline.
+- Distinguish the recovery grace deadline clearly in logs. After returning from foreground Spotify, continue using the live original job and existing safeguards for SDK retry, device pinning and avoiding duplicate playback.
+- Continue to never open Spotify in the foreground automatically or send Play commands from the helper. Add JVM regressions for visibility-gated initial SDK connection and bounded recovery window.
+
 # 0.1.16
 
 - Fix missing Spotify recovery button when App Remote silently stalls without invoking either SDK callback. After three seconds without a callback, display **Open Spotify to restore connection** while AudioShelf keeps its existing device-pinned playback job running. Retain the existing 1.2-second recovery option on an explicit SDK failure.

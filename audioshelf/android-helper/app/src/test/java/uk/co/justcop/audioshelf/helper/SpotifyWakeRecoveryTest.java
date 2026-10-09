@@ -4,6 +4,22 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class SpotifyWakeRecoveryTest {
+    @Test public void manualRecoveryHasAnIndependentBoundedConnectWindow() {
+        assertEquals(15000, SpotifyWakeRecovery.USER_RECOVERY_GRACE_MS);
+        assertTrue(SpotifyWakeRecovery.USER_RECOVERY_GRACE_MS > 3000);
+        // An ordinary wake is still governed by the original 20-second
+        // deadline. Only the explicit user gesture reschedules that callback.
+        assertEquals(20000, WakeReturnState.WAKE_WINDOW_MS);
+    }
+
+    @Test public void sdkConnectionOnlyBeginsWithVisibleActivityOnce() {
+        assertFalse(SpotifyWakeRecovery.shouldStartInitialSdk(false,true,false,true));
+        assertFalse(SpotifyWakeRecovery.shouldStartInitialSdk(true,false,false,true));
+        assertFalse(SpotifyWakeRecovery.shouldStartInitialSdk(true,true,true,true));
+        assertFalse(SpotifyWakeRecovery.shouldStartInitialSdk(true,true,false,false));
+        assertTrue(SpotifyWakeRecovery.shouldStartInitialSdk(true,true,false,true));
+    }
+
     @Test public void hungSdkConnectionOffersManualFallbackAfterThreeSeconds() {
         assertFalse(SpotifyWakeRecovery.shouldOfferManualRecovery(false,false,true,0));
         assertFalse(SpotifyWakeRecovery.shouldOfferManualRecovery(false,false,true,2999));
