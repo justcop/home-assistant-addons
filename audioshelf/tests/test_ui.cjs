@@ -317,6 +317,36 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.goto(base+'/#settings');
     await page.getByRole('heading',{name:'Settings.'}).waitFor();
     await page.getByLabel('Country preference order').fill('US, GB');
+    // The standalone PWA retains private shelf thumbnails across app updates.
+    assert.equal(await page.getByRole('heading',{name:'Offline artwork'}).count(),1);
+    await page.waitForFunction(()=>!!navigator.serviceWorker.controller);
+    await page.getByRole('button',{name:'Save my shelf’s artwork'}).click();
+    await page.locator('#toast').filter({hasText:'Shelf artwork ready on this device'}).waitFor();
+    await page.waitForFunction(()=>document.querySelector('#artwork-cache-stats')?.textContent.includes('stored on this device'));
+    const cacheBefore=await page.evaluate(async()=>{
+      const name=artworkCacheName(),cache=await caches.open(name),keys=await cache.keys();
+      const stats=await artworkCacheStats();
+      return {name,urls:keys.map(key=>key.url),...stats};
+    });
+    assert(cacheBefore.albums>=1&&cacheBefore.files>=1&&cacheBefore.bytes>0,'Artwork preloading must persist WebP thumbnails in Cache Storage');
+    assert(cacheBefore.urls.every(source=>{const url=new URL(source);return url.searchParams.get('account')==='owner'&&['128','320','640'].includes(url.searchParams.get('size'))&&/\/api\/albums\/[a-f0-9-]{36}\/artwork$/i.test(url.pathname);}), 'Only private shelf thumbnails are cached');
+    assert((await page.locator('#artwork-cache-stats').textContent()).includes('thumbnail'));
+    // A stored thumbnail can be served by the service worker without network.
+    await page.context().setOffline(true);
+    const offlineCover=await page.evaluate(async url=>{
+      const response=await fetch(url,{credentials:'same-origin'});
+      return {ok:response.ok,type:response.headers.get('Content-Type'),bytes:(await response.blob()).size};
+    },cacheBefore.urls[0]);
+    await page.context().setOffline(false);
+    assert(offlineCover.ok&&offlineCover.bytes>0&&offlineCover.type?.includes('image/'),'Offline browsing uses the locally stored cover');
+    // Explicit clear reclaims space and does not affect the server-side artwork.
+    await page.getByRole('button',{name:'Clear downloaded artwork'}).click();
+    await page.waitForFunction(()=>document.querySelector('#artwork-cache-stats')?.textContent.includes('0 thumbnails'));
+    assert.equal((await page.evaluate(()=>artworkCacheStats())).files,0);
+    await page.getByRole('button',{name:'Save my shelf’s artwork'}).click();
+    await page.locator('#toast').filter({hasText:'Shelf artwork ready on this device'}).waitFor();
+    await page.waitForFunction(()=>document.querySelector('#artwork-cache-stats')?.textContent.includes('stored on this device') &&
+      !document.querySelector('#artwork-cache-stats')?.textContent.includes('0 thumbnails'));
     const initialVersion=await page.evaluate(()=>document.documentElement.dataset.assetVersion);
     await page.route('**/api/status',async route=>{
       const response=await fixtureFetch(base+'/api/status');const body=await response.json();
@@ -353,6 +383,13 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
       throw new Error('Updated service worker did not activate and remove stale cache');
     });
     assert(workerState.keys.includes('audioshelf-shell-'+workerState.tag));
+    assert(workerState.keys.includes(cacheBefore.name),'Updating the PWA must not delete stored artwork');
+    const accountSwap=await page.evaluate(async()=>{
+      await syncArtworkCacheAccount('deadbeefdeadbeefdeadbeefdeadbeef');
+      return (await caches.keys()).filter(key=>key.startsWith(ARTWORK_CACHE_PREFIX));
+    });
+    assert(!accountSwap.includes(cacheBefore.name),'Switching accounts must discard the previous account’s artwork');
+
 
     console.log('Browser checks passed: collection, artwork selection, edition retry, track review and playback, release preferences, all 10 themes and contrast, catalogue overrides, diagnostics, desktop and ingress.');
   }finally{if(browser)await browser.close();server.kill('SIGTERM');}

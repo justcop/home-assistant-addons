@@ -1,3 +1,8 @@
+# 0.6.13
+
+- Offline artwork cache for collected albums in the standalone AudioShelf PWA, retained across app updates and isolated per account. Settings displays the measured number of albums, cached thumbnail files and total local cache size, with controls to preload the shelf and clear local artwork.
+- Existing authenticated Android helper playback-result handshake from 0.6.12 is retained. Cached artwork reloads when edited and its seven-day refresh policy prevents permanent staleness; Record Store and Spotify media are not cached.
+
 # 0.6.12
 
 - Enable short-lived, scoped Android helper playback-status long polling; don't use SDK callbacks or timers as proof of playback.
