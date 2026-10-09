@@ -15,6 +15,7 @@ from .artwork import Artwork
 from .errors import AppError
 from .musicbrainz import MusicBrainz
 from .playback import PlaybackHandoff
+from .playable_releases import PlayableReleases
 from .security import Security
 from .spotify import Spotify, atomic_private_json
 from .storage import Store
@@ -112,7 +113,8 @@ class Accounts:
             security = Security(private, '', self.options.get('allow_support_access', False), password_hash=account['password_hash'])
             security.account_name = account['username']
             context = SimpleNamespace(store=store, spotify=spotify, musicbrainz=musicbrainz,
-                                      artwork=Artwork(store, spotify, musicbrainz), security=security, handoff=PlaybackHandoff(spotify))
+                                      artwork=Artwork(store, spotify, musicbrainz), security=security, handoff=PlaybackHandoff(spotify),
+                                      playable_releases=PlayableReleases(store, musicbrainz, spotify))
             self.contexts[identifier] = (account['password_hash'], context)
             return context
 
