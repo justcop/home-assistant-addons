@@ -44,7 +44,7 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.getByRole('button',{name:'Add to shelf'}).click();
     await page.getByRole('heading',{name:'Add a playable edition'}).waitFor();
     await page.locator('[data-action="choose-release"][data-spotify-id]').first().click();
-    await page.getByRole('button',{name:'The Original Album is on your shelf'}).waitFor();
+    await page.locator('.album-card .badge').filter({hasText:'On your shelf'}).waitFor();
     await page.locator('.album-title').click();
     await page.getByRole('heading',{name:'The Original Album',exact:true}).waitFor();
     assert.equal(await page.locator('.track-row').count(),2);
