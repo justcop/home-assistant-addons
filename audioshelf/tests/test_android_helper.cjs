@@ -21,6 +21,7 @@ assert(link.includes('package=uk.co.justcop.audioshelf.helper;'));
 assert(link.includes('client_id='+'c'.repeat(32)));
 assert(link.includes('origin=https%3A%2F%2Faudioshelf.example'));
 assert(link.includes('S.browser_fallback_url=https%3A%2F%2Faudioshelf.example%2F%23album%2Fsaved;end'));
+assert.equal(new URLSearchParams(link.slice(link.indexOf('?')+1,link.indexOf('#Intent'))).get('return_url'),context.location.href,'Return to the exact album page');
 assert(!link.includes('album_id='),'The helper must not receive playback content');
 assert(context.playbackWakeLinks().includes('Wake Spotify and return'));
 assert(context.playbackWakeLinks().includes('href="spotify:"'),'Manual fallback stays available');

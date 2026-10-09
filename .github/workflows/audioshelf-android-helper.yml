@@ -51,7 +51,7 @@ jobs:
       - name: Upload installable APK
         uses: actions/upload-artifact@v4
         with:
-          name: audioshelf-spotify-helper-0.1.1
+          name: audioshelf-spotify-helper-0.1.2
           path: |
             audioshelf/android-helper/app/build/outputs/apk/debug/app-debug.apk
             audioshelf/android-helper/signing-fingerprint.txt

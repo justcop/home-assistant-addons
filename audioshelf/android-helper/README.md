@@ -1,6 +1,6 @@
 # AudioShelf Spotify Helper, Android prototype
 
-Small companion app for the installed AudioShelf web app. It connects to the local Spotify app through Spotify App Remote, then closes its own task to reveal the existing AudioShelf browser/PWA task. It never sends play commands, selects a device, changes the album, or receives AudioShelf cookies or Spotify access tokens.
+Small companion app for the installed AudioShelf web app. It explicitly opens the local Spotify app, allows five seconds for it to register its Connect device, then opens the trusted AudioShelf HTTPS page and closes its own task. An optional Spotify App Remote connection can also wake the service but is not required for the launch or return. It never sends play commands, selects a device, changes the album, or receives AudioShelf cookies or Spotify access tokens.
 
 AudioShelf's existing server handoff continues waiting for the preferred device and sends the canonical album/disc tracklist exactly as before. An available preferred device needs no helper. The helper button appears only in the unavailable-device waiting dialog, on Android HTTPS, when the browser-specific helper setting is enabled and the preferred device type is Smartphone. Speakers and computers retain the manual Open Spotify route.
 
@@ -17,7 +17,7 @@ Before using it, edit the same Spotify developer application whose client ID is 
 5. Install Spotify and log in with the Spotify account connected to AudioShelf.
 6. In AudioShelf Settings on that phone, enable **Use the installed Android Spotify helper on this phone** and select the phone as the preferred playback device.
 
-When the phone is unavailable, press **Wake Spotify and return** in the waiting dialog. On first use, the helper asks you to confirm the AudioShelf origin. Spotify may also ask for authorisation. After the connection attempt finishes, the helper automatically closes. AudioShelf checks whether the preferred device actually appeared and whether playback started. A failed App Remote session can still wake Spotify successfully. The regular **Open Spotify** link remains available if the helper fails or is absent.
+When the phone is unavailable, press **Wake Spotify and return** in the waiting dialog. On first use, the helper asks you to confirm the AudioShelf origin. Spotify opens in the foreground, then the helper returns automatically after five seconds, even if its optional SDK connection fails. AudioShelf checks whether the preferred device actually appeared and whether playback started. The regular **Open Spotify** link remains available if the helper fails or is absent. AudioShelf 0.6.10 sends the exact page URL; older versions return to the server origin.
 
 The launch needs a deliberate tap because browsers restrict automatic app launches after asynchronous network requests. No additional tap is needed to return after a successful connection. Closing the waiting dialog cancels playback; waking Spotify does not override that cancellation.
 
@@ -39,13 +39,13 @@ No signing key is committed or uploaded as a build artifact. By default, GitHub 
 
 For consistent updates, generate a private keystore once with alias `prototype`, using the same password for the store and key. Add its base64 content to repository secret `AUDIOSHELF_ANDROID_KEYSTORE_BASE64` and its password to `AUDIOSHELF_ANDROID_KEYSTORE_PASSWORD`. The workflow will reuse it. Keep a secure backup of the key. Builds from fork pull requests do not receive these secrets and use a temporary test key instead.
 
-Spotify App Remote is a beta SDK. Real-device verification is required, particularly when Spotify is not running and when AudioShelf is installed as a PWA. Closing the helper reveals the existing task; it does not reopen a URL in a potentially different browser or try to force an activity launch from the background. There is no delayed blind switch to Spotify and back. If the SDK connection fails or times out, the helper automatically returns to AudioShelf, whose existing waiting dialog checks the selected device and shows any actual playback failure. If Spotify is not installed or the launch request is invalid, the helper shows an error and a return button. It disconnects on exit and does not keep a background service running.
+Spotify App Remote is a beta SDK. Real-device verification is required, particularly when Spotify is not running and when AudioShelf is installed as a PWA. Android resolves the return HTTPS link to the installed PWA or browser according to the phone's link settings. The original page is normally reused, but Android/browser task handling can reload it. Automatic return uses Android's recent-foreground activity launch allowance; manufacturer restrictions may affect this. Five seconds is a warm-up interval, not a claim that playback succeeded: AudioShelf's existing server handoff remains responsible for readiness and playback. If Spotify is not installed or the request is invalid, the helper shows an error and a return button. It disconnects on exit and does not keep a background service running.
 
 Acceptance checks on the phone:
 
 - Preferred phone available: normal playback, no helper.
-- Spotify not running: helper connects, returns to the existing AudioShelf page, correct album/disc plays once on the phone.
+- Spotify not running: Spotify visibly opens, helper returns to AudioShelf, correct album/disc plays once on the phone.
 - Another speaker available: preferred phone remains selected, no playback on the speaker.
 - Selected speaker unavailable: no phone helper offered.
-- Authorisation refused or Spotify absent: visible error and manual fallback.
+- SDK authorisation unavailable: Spotify still opens and returns; Spotify absent: visible error and manual fallback.
 - Cancel waiting request or switch albums: no stale playback from waking Spotify.
