@@ -123,14 +123,16 @@ public final class SpotifyDiagnosticActivity extends Activity {
             if (!SpotifyServicePolicy.candidate(s.name)) continue;
             event("Candidate " + s.name + "; exported=" + s.exported
                 + "; permission required=" + (s.permission != null) + ".");
-            if (s.exported) candidates.add(s);
+            if (s.exported && s.permission == null) candidates.add(s);
         }
         if (candidates.size() != 1) {
-            event("Exported candidates=" + candidates.size()
-                + ". No unambiguous safe direct bind target. This does not prove SDK binding is broken.");
+            event("Unprotected, exported Spotify App Remote protocol candidates=" + candidates.size()
+                + ". No unambiguous direct bind target. This does not prove SDK binding is broken.");
             return;
         }
         String name = candidates.get(0).name;
+        event("Identified Spotify App Remote protocol service: " + name
+            + ". Testing Android reachability only, not authorisation.");
         binder = new ServiceConnection() {
             @Override public void onServiceConnected(ComponentName target, IBinder service) {
                 event("onServiceConnected: binder reachable for " + name
@@ -194,9 +196,10 @@ public final class SpotifyDiagnosticActivity extends Activity {
         pending = true;
         sdkButton.setEnabled(false);
         int current = ++attempt;
-        status.setText("Waiting for Spotify App Remote callback…");
+        status.setText("Waiting up to 30 seconds for Spotify App Remote callback…");
         event("Isolated SDK test started. Spotify installed; client ID validated; "
             + "registered redirect configured; showAuthView=true; no Play.");
+        event("Leave this diagnostic screen open for 30 seconds to capture an SDK callback or the local timeout.");
         try {
             SpotifyAppRemote.setDebugMode(true);
             event("Verbose Spotify SDK debugging enabled in Android logcat.");
