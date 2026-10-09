@@ -289,3 +289,33 @@ def test_ambiguous_play_transport_failure_never_claims_accepted_or_requeues():
     assert helper['play_accepted'] is False
     assert len(commands)==1
     assert spotify.play.call_count==1
+
+
+def test_cold_start_polling_is_fast_only_during_initial_phone_discovery():
+    manager=PlaybackHandoff(Mock(),interval=2)
+    assert manager.device_poll_interval(0)==.5
+    assert manager.device_poll_interval(4.999)==.5
+    assert manager.device_poll_interval(5)==1
+    assert manager.device_poll_interval(14.999)==1
+    assert manager.device_poll_interval(15)==2
+    manager.interval=.01
+    assert manager.device_poll_interval(0)==.01
+    assert manager.device_poll_interval(7)==.01
+    assert manager.device_poll_interval(60)==.01
+
+
+def test_owner_snapshot_exposes_safe_progress_but_not_playback_capability():
+    spotify=Mock()
+    spotify.devices.return_value=[]
+    manager=PlaybackHandoff(spotify,interval=.01)
+    job=manager.start({'id':'test'},None,PHONE,'owner',lambda:True)
+    try:
+        snapshot=manager.status(job['id'],'owner')
+        assert snapshot['state']=='waiting'
+        assert snapshot['phase'] in ('checking_devices','waiting_for_device')
+        assert snapshot['play_accepted'] is False
+        assert 'helper_token' not in snapshot
+        assert 'helper_token_hash' not in snapshot
+        assert 'payload' not in snapshot
+    finally:
+        manager.cancel_all()
