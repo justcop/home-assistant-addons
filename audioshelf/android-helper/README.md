@@ -17,7 +17,18 @@ Before using it, edit the same Spotify developer application whose client ID is 
 5. Install Spotify and log in with the Spotify account connected to AudioShelf.
 6. In AudioShelf Settings on that phone, enable **Use the installed Android Spotify helper on this phone** and select the phone as the preferred playback device.
 
-With the helper setting enabled, press Play as usual. When the phone is unavailable, AudioShelf automatically launches the helper. On first use, confirm the AudioShelf origin. The routine SDK connection attempts to wake Spotify silently, without asking its background service to start an Android authorisation screen. An SDK error does not mean Spotify failed to wake, so it never triggers a Spotify launcher intent. Any saved foreground-recovery setting from 0.1.10 is ignored. Spotify itself may request first-use authorisation; automatic return waits until the helper is visible again.
+## Pair Spotify App Remote separately (0.1.19)
+
+Spotify's Android App Remote authorisation is separate from the Web API connection used by AudioShelf. On recent Android versions the Spotify background service can be blocked from opening its own authorisation screen during an automatic wake. Complete authorisation deliberately while setting up the helper:
+
+1. Launch one Play attempt from AudioShelf to establish the trusted server and Spotify client ID, even if the attempt cannot wake Spotify.
+2. Open **AudioShelf Spotify Helper** directly from the Android app drawer and press **Authorise Spotify App Remote**. Accept any Spotify approval prompt. This pairing action uses the configured client ID and the registered `audioshelf-helper://spotify-callback` redirect; it never issues Play.
+3. The helper must report **Spotify App Remote authorised and connected successfully** before treating pairing as successful. If it reports `UserNotAuthorizedException` or stalls, check that package `uk.co.justcop.audioshelf.helper`, the APK's SHA-1 fingerprint and the redirect URI are registered under the **same** client ID in the Spotify Developer Dashboard. If Android did not show an approval prompt, open Spotify itself, return to the helper and retry pairing.
+4. When pairing succeeds, use Play from AudioShelf as usual with Spotify closed. The normal helper wake now uses a **noninteractive** Spotify SDK connection (`showAuthView(false)`); it does not attempt to display the authorisation UI. The existing one-tap foreground fallback remains available if Android still will not start Spotify's background service.
+
+Spotify authorisation may later be revoked or need renewal; in that case pair again from the helper's launcher. Do not disconnect AudioShelf's Web API account, reinstall Spotify, or grant notification access merely to complete pairing. **Successful pairing is not proof that every cold background service launch will work:** real phone verification is needed.
+
+With the helper setting enabled, press Play as usual. When the phone is unavailable, AudioShelf automatically launches the helper. On first use, confirm the AudioShelf origin. The routine SDK connection attempts to wake Spotify silently, without asking its background service to start an Android authorisation screen. An SDK error does not mean Spotify failed to wake, so it never automatically triggers a Spotify launcher intent. Any saved foreground-recovery setting from 0.1.10 is ignored.
 
 ## AudioShelf playback feedback
 
@@ -55,7 +66,7 @@ Logs retain the beginning and latest events if their size limit is reached, mark
 
 ## Updating the helper
 
-Ensure AudioShelf is at v0.6.15 or later, then install helper 0.1.19 over the existing helper. No new server update is needed to compare wake methods. Afterwards, open **AudioShelf Spotify Helper** from the phone's app drawer. It checks for a published update automatically, and **Check for updates** retries manually. Accept **Download**, then confirm Android's installation screen. On the first update Android may ask you to allow this helper to install apps; enable that setting and return. Installation still needs Android's confirmation. The signing fingerprint stays the same while the repository uses the same private signing key.
+Ensure AudioShelf is at v0.6.15 or later, then install helper 0.1.19 over the existing helper. No new server update is needed for App Remote pairing. Afterwards, open **AudioShelf Spotify Helper** from the phone's app drawer. It checks for a published update automatically, and **Check for updates** retries manually. Accept **Download**, then confirm Android's installation screen. On the first update Android may ask you to allow this helper to install apps; enable that setting and return. Installation still needs Android's confirmation. The signing fingerprint stays the same while the repository uses the same private signing key.
 
 Update checks and prompts run only when opening the helper directly, never during the wake-and-return flow. Downloads must match the fixed GitHub helper channel, declared checksum and size, helper package, a newer version, and the installed signing certificate. A failed verification leaves the installed helper unchanged. The downloaded APK is shared only with the Android installer through a private FileProvider.
 
