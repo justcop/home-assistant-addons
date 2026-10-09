@@ -124,6 +124,12 @@ const request=()=>({album:{id:'album',tracks:[{spotify_id:'track',title:'Track',
   calls=[];nextJobStatus={state:'waiting',phase:'waiting_for_device',play_accepted:false};
   const confirming=request();
   await context.playbackHandoff(confirming,'Phone unavailable');
+  // playbackHandoff intentionally starts its first status read without awaiting it.
+  // Let that in-flight read settle before triggering a new accepted-Play snapshot.
+  for(let attempt=0;attempt<12&&vm.runInContext('checkingPlayback',context);attempt++){
+    await new Promise(resolve=>setImmediate(resolve));
+  }
+  assert.equal(vm.runInContext('checkingPlayback',context),false,'Initial handoff status read completes');
   assert(!confirming.confirmingInBackground);
   nextJobStatus={state:'waiting',phase:'confirming_playback',play_accepted:true};
   await context.retryPendingPlayback(true);
