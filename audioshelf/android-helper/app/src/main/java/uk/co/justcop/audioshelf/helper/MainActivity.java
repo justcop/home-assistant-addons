@@ -1,11 +1,16 @@
 package uk.co.justcop.audioshelf.helper;
 
 import android.app.Activity;
+import android.app.ActivityManager;
+import android.app.ActivityOptions;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.ActivityNotFoundException;
+import android.content.pm.ActivityInfo;
+import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
@@ -104,15 +109,26 @@ public final class MainActivity extends Activity {
             return;
         }
         connecting = true;
-        message.setText("Opening Spotify…\nAudioShelf will keep your selected device and tracklist.");
+        message.setText("Waking Spotify…\nPlease wait here. AudioShelf will keep your selected device and tracklist.");
+        ActivityManager.AppTask helperTask = currentHelperTask();
         try {
-            // A real launcher intent wakes Spotify independently of SDK authentication.
-            startActivity(spotify);
+            // Keep the explicit wake independently of SDK authentication. Android's
+            // launch-behind option only works with compatible target launch modes.
+            if (supportsLaunchBehind(spotify)) {
+                spotify.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT);
+                startActivity(spotify, ActivityOptions.makeTaskLaunchBehind().toBundle());
+            } else {
+                startActivity(spotify);
+            }
+            // Restore only our own existing task, never launch a second helper or
+            // reach into Spotify's task. This also handles targets that ignore the
+            // launch-behind request. The five-second warm-up still runs in full.
+            handler.post(() -> restoreHelper(helperTask));
         } catch (ActivityNotFoundException | SecurityException error) {
             fail("Spotify could not open. Open Spotify manually and return to AudioShelf.");
             return;
         }
-        // Give the foreground app time to register its Connect device. SDK failure
+        // Give Spotify time to register its Connect device while the helper waits. SDK failure
         // must not shorten this interval. AudioShelf's server checks actual readiness.
         handler.postDelayed(timeout, 5000);
         ConnectionParams params = new ConnectionParams.Builder(clientId)
@@ -135,6 +151,39 @@ public final class MainActivity extends Activity {
         });
     }
 
+    private boolean supportsLaunchBehind(Intent spotify) {
+        try {
+            ActivityInfo info = getPackageManager().getActivityInfo(spotify.getComponent(), 0);
+            return (info.launchMode == ActivityInfo.LAUNCH_MULTIPLE
+                || info.launchMode == ActivityInfo.LAUNCH_SINGLE_TOP)
+                && info.documentLaunchMode != ActivityInfo.DOCUMENT_LAUNCH_NEVER;
+        } catch (PackageManager.NameNotFoundException error) {
+            return false;
+        }
+    }
+
+    private ActivityManager.AppTask currentHelperTask() {
+        ActivityManager manager = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
+        if (manager == null) return null;
+        for (ActivityManager.AppTask task : manager.getAppTasks()) {
+            ActivityManager.RecentTaskInfo info = task.getTaskInfo();
+            int id = Build.VERSION.SDK_INT >= 29 ? info.taskId : info.id;
+            if (id == getTaskId()) return task;
+        }
+        return null;
+    }
+
+    private void restoreHelper(ActivityManager.AppTask task) {
+        if (completed || isFinishing() || isDestroyed() || task == null) return;
+        try {
+            task.moveToFront();
+        } catch (IllegalArgumentException | SecurityException error) {
+            // Some phones restrict task movement. Keep the proven automatic return
+            // rather than abandoning the handoff or keeping the user in Spotify.
+            Log.w("AudioShelfHelper", "Helper focus could not be restored: " + error.getClass().getSimpleName());
+        }
+    }
+
     private void returnToAudioShelf() {
         if (completed || isFinishing() || isDestroyed()) return;
         Intent back = new Intent(Intent.ACTION_VIEW, returnUri);
@@ -142,7 +191,7 @@ public final class MainActivity extends Activity {
         back.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         try {
             // Resolve the trusted HTTPS URL normally, including an installed PWA.
-            // Returning immediately after our foreground launch is deliberate: waiting
+            // Returning shortly after our explicit launch is deliberate: waiting
             // for onResume would trap the user in Spotify until they press Back.
             startActivity(back);
             finishHelper();
