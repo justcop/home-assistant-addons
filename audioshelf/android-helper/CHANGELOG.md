@@ -1,3 +1,10 @@
+# 0.1.19
+
+- Separate explicit Spotify App Remote authorisation from background playback. Open the helper from the app drawer and use **Authorise Spotify App Remote** to approve the native SDK scope in a deliberate foreground setup session. The existing trusted Spotify client ID is reused and never displayed or stored as a new secret; no playback commands are issued.
+- Routine Play handoffs use `showAuthView(false)`: don't ask Spotify's background service to launch a potentially blocked Android authorisation activity. Continue the existing server-owned Spotify Connect polling, selected-device safeguards, canonical queue and 20-second return deadline. The explicit recovery button remains available for cold starts that still fail.
+- Pairing reports successful native SDK connection only after `onConnected`, or describes the SDK exception and directs the user to verify the Spotify developer Android package and signing SHA-1. Do not treat Web API connection or an issued Play command as proof of native App Remote authorisation.
+- This targets a documented Android/Spotify background-activity authorisation failure. It is not a guarantee of silent cold starts on Android 17; complete real-device verification is still required. Add JVM regressions for interactive vs noninteractive modes.
+
 # 0.1.18
 
 - Add diagnostic settings to compare **Previous wake method** (0.1.14 initial SDK timing, immediately after request validation and server approval) with **Current wake method** (0.1.17 timing, after the helper becomes visible). The default remains Current. Both methods use the same SDK call, playback monitoring, recovery and return policy; this comparison does not restore the entire old app.
