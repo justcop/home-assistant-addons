@@ -42,6 +42,22 @@ def release_rank(release, original_date, filters=None):
             format_rank, date or '9999', release['id'])
 
 
+def credited_artists(credits):
+    """Return recorded credit labels and their canonical MusicBrainz artists.
+
+    An edition can print a longer performer credit than the underlying artist
+    identity, so compare both without inventing name-specific aliases.
+    """
+    names = []
+    for credit in credits or []:
+        if not isinstance(credit, dict):
+            continue
+        for name in (credit.get('name'), (credit.get('artist') or {}).get('name')):
+            if name and name not in names:
+                names.append(name)
+    return names
+
+
 def release_tracks(release):
     tracks = []
     for medium in sorted(release.get('media', []), key=lambda m: m.get('position', 1)):
@@ -52,6 +68,7 @@ def release_tracks(release):
             if recording.get('video'):
                 continue
             tracks.append({'title': track.get('title') or recording.get('title', 'Untitled'),
+                'artist_names': credited_artists(track.get('artist-credit') or recording.get('artist-credit')),
                 'disc_number': medium.get('position', 1), 'track_number': track.get('position', len(tracks)+1),
                 'duration_ms': track.get('length') or recording.get('length'),
                 'recording_id': recording.get('id'), 'isrcs': recording.get('isrcs', []),
@@ -230,7 +247,7 @@ class MusicBrainz:
                       key=lambda r: release_rank(r, album['release_date'], filters))
 
     def use_release(self, album_id, release_id, reviewed=False):
-        release = self.get('release/'+mbid(release_id), {'inc':'recordings+release-groups+isrcs'})
+        release = self.get('release/'+mbid(release_id), {'inc':'recordings+release-groups+isrcs+artist-credits'})
         if release.get('release-group',{}).get('id') != album_id or release.get('status') != 'Official':
             raise AppError('Choose an official edition of this album.')
         if not matches_filters(release, self.store.release_filters(album_id)):

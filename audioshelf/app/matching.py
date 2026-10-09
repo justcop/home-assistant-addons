@@ -21,8 +21,12 @@ def normalize(value, track=False):
 def track_assessment(canonical, spotify, artist_names):
     if spotify.get('is_playable') is False or spotify.get('restrictions'):
         return {'score': 0, 'verified': False, 'reason': 'unavailable'}
-    credited = {normalize(a['name']) for a in spotify.get('artists', [])}
-    if not credited.intersection({normalize(a) for a in artist_names}):
+    # Use MusicBrainz's release-track performers when supplied. A different
+    # singer/conductor on one track is not a different edition of the album.
+    # Without per-track credits, fall back to the release-group artist.
+    allowed = canonical.get('artist_names') or artist_names
+    credited = {normalize(a['name']) for a in spotify.get('artists', []) if a.get('name')}
+    if not credited.intersection({normalize(name) for name in allowed if name}):
         return {'score': 0, 'verified': False, 'reason': 'artist_mismatch'}
     left, right = normalize(canonical['title'], True), normalize(spotify['name'], True)
     recording_title = normalize(canonical.get('recording_title') or '', True)

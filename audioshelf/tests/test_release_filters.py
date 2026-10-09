@@ -135,7 +135,7 @@ def test_upgrade_from_version_two_keeps_collection_and_sets_defaults(application
     assert reloaded.release_filters() == DEFAULT_FILTERS
     assert reloaded.album(ALBUM) == before
     with reloaded.connect() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 4
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 5
 
 
 def test_country_and_format_priorities_with_original_reissue_safeguard():

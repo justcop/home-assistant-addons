@@ -1,3 +1,12 @@
+# 0.6.19
+
+- Fix mixed-performer album matching, including the original 13-track *Yellow Submarine*: an album's MusicBrainz release-group artist does not necessarily perform every track.
+- Read MusicBrainz release-track performer credits and their canonical artist identities when fetching a MusicBrainz edition. Require Spotify's track-level artist to match one of those exact identities; fall back to the album artist only when the track has no performer credits. No Beatles, George Martin, orchestra, or other artist-specific matching exceptions.
+- Preserve existing safeguards against wrong performers, cover versions, remixes, demos, live recordings and implausible track durations.
+- New Spotify-verifiable release picker now accepts complete legitimate mixed-performer editions, rather than excluding them for album-artist mismatches.
+- Persist track performer credits in database schema v5 with non-destructive migration from earlier versions. Existing shelf membership, album review, artwork and manually corrected Spotify mappings are preserved.
+- Includes mixed-performer soundtrack and unrelated collaborative-album regressions, mismatched artist and recording rejection, complete 13-track Spotify mapping, and migration tests.
+
 # 0.6.18
 
 - When adding an album from the Record Store, select a MusicBrainz release whose **entire canonical audio tracklist** can be verified against the connected Spotify catalogue in the configured market. Do not offer partially matched releases or silently save unplayable albums.

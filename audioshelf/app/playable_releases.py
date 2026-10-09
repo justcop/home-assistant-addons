@@ -21,7 +21,7 @@ class PlayableReleases:
     def inspect(self, album_id, release_id):
         album = self.store.album(mbid(album_id))
         release = self.musicbrainz.get('release/' + mbid(release_id),
-                                      {'inc': 'recordings+release-groups+isrcs'})
+                                      {'inc': 'recordings+release-groups+isrcs+artist-credits'})
         if release.get('release-group', {}).get('id') != album_id or release.get('status') != 'Official':
             raise AppError('Choose an official MusicBrainz edition of this album.')
         if not matches_filters(release, self.store.release_filters(album_id)):

@@ -1,12 +1,12 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-09T16:34:11+01:00 (Europe/London).
+Reviewed: 2026-10-09T16:57:39+01:00 (Europe/London).
 
-Reviewed account-isolation browser regression for Spotify-verified MusicBrainz editions. Alice intentionally disconnects Spotify and tries Add to shelf; the UI refuses to add an unverified album while preserving an empty personal shelf. She reconnects her own Spotify, chooses a fully matched MusicBrainz edition and adds a mapped album. Bob and owner libraries, sessions and preferences remain independent. The browser fixture now supplies Spotify album-search and track metadata to each connected account while retaining distinct device identifiers and tokens. Other Classic and Vinyl release-picker browser checks passed in the previous run; full tests rerun here.
+Reviewed generic MusicBrainz per-track artist credit matching in AudioShelf 0.6.19, not an album- or artist-specific exception. The original Yellow Submarine is a regression example with 13 tracks and separate credited performers. Other tests require exact track-artist identity, preserve strict rejection of wrong artists, live versions and bad durations, confirm full 13-track Spotify match and playable MusicBrainz picker, and verify schema v4 to v5 migration preserves collected albums and manual mappings. Existing tracks with missing credits still use release-group artists until the user explicitly chooses a verified edition. MusicBrainz official release credits are canonical input; manual real-account verification is still needed.
 
-<!-- inventory: {"reviewed_at": "2026-10-09T16:34:11+01:00", "review_note": "Reviewed account-isolation browser regression for Spotify-verified MusicBrainz editions. Alice intentionally disconnects Spotify and tries Add to shelf; the UI refuses to add an unverified album while preserving an empty personal shelf. She reconnects her own Spotify, chooses a fully matched MusicBrainz edition and adds a mapped album. Bob and owner libraries, sessions and preferences remain independent. The browser fixture now supplies Spotify album-search and track metadata to each connected account while retaining distinct device identifiers and tokens. Other Classic and Vinyl release-picker browser checks passed in the previous run; full tests rerun here.", "source_sha256": "7dd52530ff9b34926e7b21a31d08053f838fe2846eee71250721ededdc887679"} -->
+<!-- inventory: {"reviewed_at": "2026-10-09T16:57:39+01:00", "review_note": "Reviewed generic MusicBrainz per-track artist credit matching in AudioShelf 0.6.19, not an album- or artist-specific exception. The original Yellow Submarine is a regression example with 13 tracks and separate credited performers. Other tests require exact track-artist identity, preserve strict rejection of wrong artists, live versions and bad durations, confirm full 13-track Spotify match and playable MusicBrainz picker, and verify schema v4 to v5 migration preserves collected albums and manual mappings. Existing tracks with missing credits still use release-group artists until the user explicitly chooses a verified edition. MusicBrainz official release credits are canonical input; manual real-account verification is still needed.", "source_sha256": "ccfb216919c8b419e5c9e356a5dc63099e953693a34a4d00410e8413f488bad7"} -->
 
-## Backend cases (308)
+## Backend cases (314)
 
 1. `audioshelf/tests/test_accounts.py::test_account_creation_and_management_require_admin_and_fresh_password`
 2. `audioshelf/tests/test_accounts.py::test_background_playback_is_account_and_session_scoped`
@@ -312,10 +312,16 @@ Reviewed account-isolation browser regression for Spotify-verified MusicBrainz e
 302. `audioshelf/tests/test_spotify_auth_playback.py::test_unavailable_or_ambiguous_preference_never_plays_elsewhere[devices2]`
 303. `audioshelf/tests/test_spotify_auth_playback.py::test_unreviewed_tracklist_cannot_play`
 304. `audioshelf/tests/test_spotify_auth_playback.py::test_untrusted_spotify_urls_not_fetched`
-305. `audioshelf/tests/test_vinyl.py::test_interface_persists_and_invalid_choice_is_atomic`
-306. `audioshelf/tests/test_vinyl.py::test_playback_does_not_misidentify_shared_or_uncollected_tracks`
-307. `audioshelf/tests/test_vinyl.py::test_playback_tracks_spotify_pause_and_relinked_library_track`
-308. `audioshelf/tests/test_vinyl.py::test_shelf_furniture_persists_and_rejects_invalid_choices`
+305. `audioshelf/tests/test_track_artist_credits.py::test_artist_safeguard_stays_strict_for_uncredited_and_wrong_credit`
+306. `audioshelf/tests/test_track_artist_credits.py::test_complete_soundtrack_matches_without_special_cases`
+307. `audioshelf/tests/test_track_artist_credits.py::test_musicbrainz_track_performers_are_extracted_from_each_medium`
+308. `audioshelf/tests/test_track_artist_credits.py::test_performer_credits_are_general_for_any_collaborative_album`
+309. `audioshelf/tests/test_track_artist_credits.py::test_selecting_soundtrack_maps_every_track_and_keeps_review`
+310. `audioshelf/tests/test_track_artist_credits.py::test_store_migration_keeps_shelf_and_hand_mappings`
+311. `audioshelf/tests/test_vinyl.py::test_interface_persists_and_invalid_choice_is_atomic`
+312. `audioshelf/tests/test_vinyl.py::test_playback_does_not_misidentify_shared_or_uncollected_tracks`
+313. `audioshelf/tests/test_vinyl.py::test_playback_tracks_spotify_pause_and_relinked_library_track`
+314. `audioshelf/tests/test_vinyl.py::test_shelf_furniture_persists_and_rejects_invalid_choices`
 
 ## Other release checks
 
