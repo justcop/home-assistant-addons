@@ -10,6 +10,12 @@
             android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/update_paths" />
         </provider>
+        <service android:name=".SpotifyNotificationAccess" android:label="AudioShelf Spotify playback detection"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
         <activity android:name=".MainActivity" android:exported="true"
             android:excludeFromRecents="true" android:launchMode="singleTask"
             android:configChanges="orientation|screenSize">

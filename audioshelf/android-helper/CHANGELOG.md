@@ -1,3 +1,10 @@
+# 0.1.11
+
+- Remove foreground Spotify recovery and its saved opt-in. SDK failure no longer launches Spotify or implies the background wake failed.
+- Add local Spotify playback detection using Android media sessions, with a one-time notification-access setup button. Detect a fresh local playing transition independently of the Spotify SDK and AudioShelf network connection; ignore existing playback, other apps and remote playback routes.
+- Return early on local playback detection or an authenticated AudioShelf job result. Restore the independent eight-second return deadline when neither signal arrives. The deadline is logged as unconfirmed, not playback success.
+- Keep diagnostic hold, saved logs and server monitoring. Android media observation reads no notification text and sends no playback commands; transient track identity is kept only in memory to reject stale playback.
+
 # 0.1.10
 
 - Start the Spotify SDK wake before the AudioShelf long-poll rather than racing their initialisation.

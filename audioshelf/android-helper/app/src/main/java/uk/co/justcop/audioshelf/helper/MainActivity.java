@@ -3,6 +3,7 @@ package uk.co.justcop.audioshelf.helper;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
+import android.provider.Settings;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.ActivityNotFoundException;
@@ -22,7 +23,6 @@ import android.widget.ScrollView;
 import android.widget.Toast;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-import android.view.View;
 import com.spotify.android.appremote.api.ConnectionParams;
 import com.spotify.android.appremote.api.Connector;
 import com.spotify.android.appremote.api.SpotifyAppRemote;
@@ -33,18 +33,32 @@ public final class MainActivity extends Activity {
     private final ExecutorService statusExecutor = Executors.newSingleThreadExecutor();
     private SpotifyAppRemote remote;
     private HelperUpdater updater;
+    private SpotifyPlaybackMonitor playbackMonitor;
+    private Button playbackAccess;
+    private boolean localMonitorError;
+    private String lastLocalStatus;
     private boolean checkUpdatesWhenVisible;
     private TextView message, diagnostics;
-    private Button spotifyFallbackButton;
     private final StringBuilder diagnosticLog = new StringBuilder();
     private long diagnosticStartedAt;
     private boolean wakeRequest, keepOpen;
     private String lastPlayerStatus;
-    private boolean completed, connecting, resumed, returnRequested, sdkFailed, fallbackAttempted, autoFallback;
+    private boolean completed, connecting, resumed, sdkFailed;
+    private final WakeReturnState wakeReturn = new WakeReturnState();
     private String lastStatusError;
     private String origin, accountId, jobId, helperToken, lastServerState;
     private Uri returnUri;
     private final Runnable pollStatus = this::readPlaybackStatus;
+    private final Runnable pollLocalPlayback = this::readLocalPlayback;
+    private final Runnable returnDeadline = () -> {
+        if (completed || isFinishing() || isDestroyed()) return;
+        wakeReturn.onDeadline();
+        record("Eight-second wake window elapsed. Playback is not confirmed here; AudioShelf continues checking.");
+        message.setText(keepOpen ? "Wake window finished. Diagnostic hold keeps this log open." :
+            "Returning to AudioShelf to check playback…");
+        if (keepOpen) record("Diagnostic hold enabled; status monitoring continues until the job finishes.");
+        returnWhenVisible();
+    };
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -65,20 +79,14 @@ public final class MainActivity extends Activity {
             else finishHelper();
         });
         layout.addView(back);
-        spotifyFallbackButton = new Button(this);
-        spotifyFallbackButton.setText("Open Spotify now (recovery)");
-        spotifyFallbackButton.setOnClickListener(v -> launchSpotifyFallback());
-        spotifyFallbackButton.setVisibility(View.GONE);
-        layout.addView(spotifyFallbackButton);
-        autoFallback = getPreferences(MODE_PRIVATE).getBoolean("auto_foreground_fallback", true);
-        CheckBox fallback = new CheckBox(this);
-        fallback.setText("Open Spotify if background wake fails");
-        fallback.setChecked(autoFallback);
-        fallback.setOnCheckedChangeListener((button, checked) -> {
-            autoFallback = checked;
-            getPreferences(MODE_PRIVATE).edit().putBoolean("auto_foreground_fallback", checked).apply();
-        });
-        layout.addView(fallback);
+        playbackAccess = new Button(this);
+        playbackAccess.setText("Enable Spotify playback detection");
+        playbackAccess.setOnClickListener(v -> new AlertDialog.Builder(this)
+            .setTitle("Detect Spotify playing on this phone")
+            .setMessage("Enable notification access for AudioShelf Spotify Helper in Android settings. The helper uses it only to read Spotify's media-session playback state while waking Spotify. It does not read or save notification text.")
+            .setPositiveButton("Open Android settings", (dialog, which) -> startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)))
+            .setNegativeButton("Cancel", null).show());
+        layout.addView(playbackAccess);
         keepOpen = getPreferences(MODE_PRIVATE).getBoolean("keep_open_diagnostics", false);
         CheckBox hold = new CheckBox(this);
         hold.setText("Keep open for diagnostics (return manually)");
@@ -185,14 +193,45 @@ public final class MainActivity extends Activity {
     }
 
     private void watchAndConnect(String clientId) {
-        // Start the Spotify SDK wake before any long-poll network request.
+        // The deadline is independent of SDK callbacks and network status requests.
+        handler.postDelayed(returnDeadline, WakeReturnState.WAKE_WINDOW_MS);
+        record("Background-only wake. Return on AudioShelf result, otherwise after eight seconds.");
+        playbackMonitor = new SpotifyPlaybackMonitor(this);
+        record(SpotifyPlaybackMonitor.enabled(this) ? "Local Spotify playback detection enabled." :
+            "Local Spotify playback detection unavailable: enable notification access in the helper.");
+        // Establish a baseline before waking Spotify so existing playback is ignored.
+        readLocalPlayback();
         connect(clientId);
+        if (completed) return;
         record("AudioShelf job status monitoring started.");
         readPlaybackStatus();
     }
 
+    private void readLocalPlayback() {
+        if (completed || playbackMonitor == null || !wakeReturn.shouldPoll(keepOpen)) return;
+        try {
+            boolean started = playbackMonitor.sample();
+            if (!playbackMonitor.status.equals(lastLocalStatus)) {
+                lastLocalStatus = playbackMonitor.status;
+                record("Android playback: " + lastLocalStatus + ".");
+            }
+            if (started) {
+                wakeReturn.onLocalPlayback();
+                handler.removeCallbacks(returnDeadline);
+                record("Android confirms Spotify started playing locally. Returning without waiting for SDK or server.");
+                message.setText("Spotify is playing on this phone. Returning to AudioShelf…");
+                returnWhenVisible();
+                return;
+            }
+        } catch (SecurityException error) {
+            if (!localMonitorError) record("Local playback access not ready or revoked. Server status and return deadline remain active.");
+            localMonitorError = true;
+        }
+        handler.postDelayed(pollLocalPlayback, 500);
+    }
+
     private void readPlaybackStatus() {
-        if (completed || isFinishing() || isDestroyed() || returnRequested) return;
+        if (completed || isFinishing() || isDestroyed() || !wakeReturn.shouldPoll(keepOpen)) return;
         statusExecutor.execute(() -> {
             PlaybackStatusClient.Result response = null;
             IOException failure = null;
@@ -204,15 +243,14 @@ public final class MainActivity extends Activity {
             final PlaybackStatusClient.Result result = response;
             final IOException error = failure;
             handler.post(() -> {
-                if (completed || isFinishing() || isDestroyed() || returnRequested) return;
+                if (completed || isFinishing() || isDestroyed() || !wakeReturn.shouldPoll(keepOpen)) return;
                 if (error != null) {
                     String reason = error.getClass().getSimpleName();
                     if (!reason.equals(lastStatusError)) {
                         lastStatusError = reason;
-                        record("AudioShelf connection unavailable: " + reason + ". Retrying while job remains active.");
+                        record("AudioShelf connection unavailable: " + reason + ". Retrying until the wake window ends.");
                     }
-                    message.setText(sdkFailed ? "Spotify background wake failed. Open Spotify to recover.\nAudioShelf is also reconnecting." :
-                        "AudioShelf connection temporarily unavailable. Check Wi-Fi, mobile data or private DNS; you can open Spotify now.");
+                    message.setText("AudioShelf status connection unavailable. Background wake continues; automatic return has a time limit.");
                     handler.postDelayed(pollStatus, 2500);
                     return;
                 }
@@ -225,13 +263,14 @@ public final class MainActivity extends Activity {
                     record("AudioShelf playback: " + result.state + ".");
                 }
                 if (result.state.equals("waiting")) {
-                    message.setText(sdkFailed ? "Spotify background wake failed. Open Spotify to recover; AudioShelf is still waiting for your phone…" :
+                    message.setText(sdkFailed ? "Spotify SDK session failed, but background waking may still work. Waiting for AudioShelf…" :
                         "Waiting for AudioShelf to confirm playback on your phone…");
                     handler.post(pollStatus);
                     return;
                 }
-                returnRequested = true;
-                record("AudioShelf job finished: " + result.state + ". Returning without an SDK timer.");
+                wakeReturn.onServerState(result.state);
+                handler.removeCallbacks(returnDeadline);
+                record("AudioShelf job finished: " + result.state + ". Returning before the wake deadline if possible.");
                 message.setText(result.state.equals("started") ? "Playback confirmed. Returning to AudioShelf…" :
                     "AudioShelf reports: " + result.message + "\nReturning to show the result…");
                 if (keepOpen) record("Diagnostic hold enabled; waiting for manual return.");
@@ -254,15 +293,13 @@ public final class MainActivity extends Activity {
             record("Spotify version unavailable.");
         }
         connecting = true;
-        spotifyFallbackButton.setVisibility(View.VISIBLE);
         // Spotify SDK wakes its service; AudioShelf confirms real playback.
         message.setText("Waking Spotify…\nPlease wait here. AudioShelf will keep your selected device and tracklist.");
         // Restore the original SDK service wake, with no Spotify launcher intent.
         // Keep the helper alive while the service/device settles, including when
         // the SDK session fails after successfully waking the Spotify process.
-        // A pending SDK callback is not a reason to trap the user here for 45 seconds.
-        // Spotify can wake and play without ever establishing an App Remote session.
-        // No SDK timeout governs return; server-confirmed playback does.
+        // Spotify can wake and play without establishing an App Remote session.
+        // Only an AudioShelf job result or the independent wake deadline triggers return.
         ConnectionParams params = new ConnectionParams.Builder(clientId)
             .setRedirectUri("audioshelf-helper://spotify-callback")
             .showAuthView(true).build();
@@ -295,44 +332,17 @@ public final class MainActivity extends Activity {
                     if (completed || isFinishing() || isDestroyed()) return;
                     sdkFailed = true;
                     record("Spotify SDK failed: " + WakeDiagnostics.failure(error));
-                    record("Background wake unconfirmed. Foreground Spotify recovery available.");
-                    message.setText("Spotify background wake failed. Open Spotify to start the phone player; AudioShelf keeps your album request.");
-                    if (autoFallback && resumed && !keepOpen) {
-                        record("Automatic recovery enabled: launching Spotify after SDK failure.");
-                        launchSpotifyFallback();
-                    } else {
-                        record(keepOpen ? "Diagnostic hold prevents automatic fallback." :
-                            "Foreground fallback awaits a tap or helper foreground.");
-                    }
+                    record("SDK session failure does not confirm wake failure. Keeping Spotify in the background.");
+                    message.setText("Spotify SDK session failed. Background waking may still work; waiting for AudioShelf or the return deadline.");
                 });
             }
         });
     }
 
-    private void launchSpotifyFallback() {
-        if (!wakeRequest || completed || fallbackAttempted) return;
-        Intent launch = getPackageManager().getLaunchIntentForPackage("com.spotify.music");
-        if (launch == null) {
-            record("Spotify launcher unavailable; installation may need repairing.");
-            message.setText("Spotify could not be opened. Try opening it from the app drawer, then return to AudioShelf.");
-            return;
-        }
-        try {
-            fallbackAttempted = true;
-            record("Opening Spotify in foreground as wake recovery. AudioShelf still controls playback.");
-            message.setText("Spotify opened. Return to AudioShelf once it becomes available; your album job remains pending.");
-            startActivity(launch);
-        } catch (ActivityNotFoundException | SecurityException error) {
-            fallbackAttempted = false;
-            record("Spotify foreground recovery failed: " + error.getClass().getSimpleName() + ".");
-            message.setText("Could not launch Spotify. Open it manually, then return to AudioShelf.");
-        }
-    }
-
     private void returnWhenVisible() {
         // Do not steal focus from Spotify's first-use authorisation screen. Normal
         // background waking leaves this helper visible throughout the wait.
-        if (resumed && returnRequested && !completed && !keepOpen) returnToAudioShelf();
+        if (!completed && wakeReturn.shouldReturn(resumed, keepOpen)) returnToAudioShelf();
     }
 
     private void returnToAudioShelf() {
@@ -373,9 +383,9 @@ public final class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         resumed = true;
+        if (playbackAccess != null) playbackAccess.setText(SpotifyPlaybackMonitor.enabled(this) ?
+            "Spotify playback detection enabled" : "Enable Spotify playback detection");
         if (wakeRequest) record("Helper visible.");
-        if (sdkFailed && autoFallback && !keepOpen && !fallbackAttempted && !returnRequested)
-            launchSpotifyFallback();
         returnWhenVisible();
     }
     @Override protected void onPause() { resumed = false; if (wakeRequest) record("Helper left foreground."); super.onPause(); }
