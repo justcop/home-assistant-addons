@@ -511,7 +511,7 @@ public final class MainActivity extends Activity {
 
     private void showPairingStatus(String detail) {
         if (pairingStatus != null) pairingStatus.setText(detail);
-        if (message != null) message.setText("AudioShelf Spotify Helper " + BuildConfig.VERSION_NAME + "\\n" + detail);
+        if (message != null) message.setText("AudioShelf Spotify Helper " + BuildConfig.VERSION_NAME + "\n" + detail);
     }
 
     private void pairSpotifyRemote() {
