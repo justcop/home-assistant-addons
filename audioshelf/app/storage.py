@@ -19,7 +19,7 @@ class Store:
         self.catalogue_lock = threading.RLock()
         with self.connect() as db:
             version = db.execute('PRAGMA user_version').fetchone()[0]
-            if version > 4:
+            if version > 5:
                 raise RuntimeError('This database needs a newer AudioShelf version.')
             db.executescript('''
                 CREATE TABLE IF NOT EXISTS artists (
@@ -54,7 +54,9 @@ class Store:
                 db.execute("ALTER TABLE tracks ADD COLUMN recording_title TEXT NOT NULL DEFAULT ''")
             if 'recording_aliases' not in columns:
                 db.execute("ALTER TABLE tracks ADD COLUMN recording_aliases TEXT NOT NULL DEFAULT '[]'")
-            db.execute('PRAGMA user_version=4')
+            if 'artist_names' not in columns:
+                db.execute("ALTER TABLE tracks ADD COLUMN artist_names TEXT NOT NULL DEFAULT '[]'")
+            db.execute('PRAGMA user_version=5')
             db.commit()
             if version == 1:
                 db.execute('VACUUM')
@@ -204,6 +206,7 @@ class Store:
             for track in result['tracks']:
                 track['isrcs'] = json.loads(track['isrcs'])
                 track['recording_aliases'] = json.loads(track['recording_aliases'])
+                track['artist_names'] = json.loads(track['artist_names'])
         result['playable'] = bool(result['tracks']) and all(t['spotify_id'] and t['verified'] for t in result['tracks'])
         result['release_countries'] = self.release_countries(album_id)
         result['release_filters'] = self.release_filters(album_id)
@@ -213,12 +216,20 @@ class Store:
         with self.connect() as db:
             db.execute('DELETE FROM tracks WHERE album_id=?', (album_id,))
             for position, track in enumerate(tracks, 1):
-                db.execute('INSERT INTO tracks(album_id,position,title,disc_number,track_number,duration_ms,recording_id,isrcs,recording_title,recording_aliases) '
-                           'VALUES (?,?,?,?,?,?,?,?,?,?)', (album_id, position, track['title'], track['disc_number'],
+                db.execute('INSERT INTO tracks(album_id,position,title,disc_number,track_number,duration_ms,recording_id,isrcs,recording_title,recording_aliases,artist_names) '
+                           'VALUES (?,?,?,?,?,?,?,?,?,?,?)', (album_id, position, track['title'], track['disc_number'],
                            track['track_number'], track.get('duration_ms'), track.get('recording_id'), json.dumps(track.get('isrcs', [])),
-                           track.get('recording_title', ''), json.dumps(track.get('recording_aliases', []))))
+                           track.get('recording_title', ''), json.dumps(track.get('recording_aliases', [])),
+                           json.dumps(track.get('artist_names', []))))
             db.execute('UPDATE albums SET release_id=?,release_label=?,canonical_reviewed=?,spotify_album_id=NULL,spotify_album_name=NULL WHERE id=?',
                        (release['id'], release.get('label', release.get('title','')), int(reviewed), album_id))
+
+    def track_artist_metadata(self, album_id, credits):
+        """Backfill official per-track performer credits without touching any mapping."""
+        with self.connect() as db:
+            for position, names in credits.items():
+                db.execute('UPDATE tracks SET artist_names=? WHERE album_id=? AND position=?',
+                           (json.dumps(names), album_id, position))
 
     def recording_metadata(self, album_id, recording_id, title, aliases, isrcs):
         with self.connect() as db:
