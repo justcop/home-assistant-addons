@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-09T12:34:03+01:00 (Europe/London).
+Reviewed: 2026-10-09T12:36:18+01:00 (Europe/London).
 
-Reviewed integrated AudioShelf 0.6.13 cache tests alongside the authenticated Spotify helper playback handshake. Browser tests verify measured cache size, offline thumbnail retrieval, preload completion and clearing, account isolation, cache persistence through app updates, Android handoff, and catalogue navigation. Source fingerprint covers the current workflow and helper tests.
+Reviewed AudioShelf 0.6.13 integration of PWA artwork caching with the authenticated Android helper handshake. The updated 293-case backend suite and browser scenarios cover per-account local cache size, offline thumbnail fetches, preload/clear, retention across PWA updates, and preserved Spotify playback. The test source SHA-256 was independently checked against the standard abc hash vector.
 
-<!-- inventory: {"reviewed_at":"2026-10-09T12:34:03+01:00","review_note":"Reviewed integrated AudioShelf 0.6.13 cache tests alongside the authenticated Spotify helper playback handshake. Browser tests verify measured cache size, offline thumbnail retrieval, preload completion and clearing, account isolation, cache persistence through app updates, Android handoff, and catalogue navigation. Source fingerprint covers the current workflow and helper tests.","source_sha256":"684bb855bd1af6fd4a134f715eebaf7271712da3dd077df25c001692967a6965"} -->
+<!-- inventory: {"reviewed_at":"2026-10-09T12:36:18+01:00","review_note":"Reviewed AudioShelf 0.6.13 integration of PWA artwork caching with the authenticated Android helper handshake. The updated 293-case backend suite and browser scenarios cover per-account local cache size, offline thumbnail fetches, preload/clear, retention across PWA updates, and preserved Spotify playback. The test source SHA-256 was independently checked against the standard abc hash vector.","source_sha256":"ad5b8a3c945b43f295d4321389f9273a8e420387a048b5144770f5ea7fb34a56"} -->
 
 ## Backend cases (293)
 
