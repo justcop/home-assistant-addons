@@ -132,6 +132,8 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert.equal(await page.locator('.sleeve').count(),17);
     await noOverflow();await shot('store-desktop');
     await page.getByRole('button',{name:'Add Open Windows to shelf',exact:true}).click();
+    await page.getByRole('heading',{name:'Add a playable edition'}).waitFor();
+    await page.locator('[data-action="choose-release"][data-spotify-id]').first().click();
     await page.locator('#toast').filter({hasText:'Open Windows added'}).waitFor();
     assert(page.url().endsWith('#store'));
     await page.getByRole('link',{name:'Open Windows',exact:true}).click();

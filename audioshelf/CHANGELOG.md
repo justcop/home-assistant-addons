@@ -1,3 +1,12 @@
+# 0.6.18
+
+- When adding an album from the Record Store, select a MusicBrainz release whose **entire canonical audio tracklist** can be verified against the connected Spotify catalogue in the configured market. Do not offer partially matched releases or silently save unplayable albums.
+- Paginate the expensive MusicBrainz/Spotify compatibility checks in small batches (four editions at a time), with a continuation button if a batch has no complete matches. Retain the album's country, media, studio-catalogue and remaster preferences.
+- Choosing an edition preflights every track against Spotify before replacing any stored tracklist or mappings, then saves verified Spotify mappings together with shelf membership. The first-play tracklist review remains required.
+- Changing a MusicBrainz tracklist on an existing album now also shows only fully playable choices and saves the Spotify mapping in the same operation, instead of clearing matches.
+- Cover-art edition browsing remains independent of Spotify playback and is not filtered. Legacy import/API addition remains compatible; disconnected users can still browse without hiding the MusicBrainz catalogue.
+- Multi-user accounts get independent Spotify market/session checking. Add backend and browser regressions for incomplete tracks, atomic rejection, paginated candidates and playable choices.
+
 # 0.6.17
 
 - Confirm the chosen Spotify phone and first track every 500 ms during the first ten seconds after Play acceptance, once per second for another ten seconds, then at the existing interval. Retain stricter test/configured intervals and one-minute timeout. Device-discovery cadence is unchanged.

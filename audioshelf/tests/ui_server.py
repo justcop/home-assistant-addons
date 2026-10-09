@@ -81,12 +81,20 @@ phone_available=True
 album_id='s'*22
 source={'id':album_id,'name':'The Original Album (Deluxe Edition)','release_date':'2007-04-23','tracks':{'next':None,'items':[
     spotify_track('Opening','a'*22),spotify_track('Closing','b'*22,240000),spotify_track('Japanese bonus track','c'*22)]}}
+open_windows_id='w'*22
+open_windows_source={'id':open_windows_id,'name':'Open Windows','release_date':'2024','tracks':{
+    'next':None,'items':[{**spotify_track('Opening','d'*22),'artists':[{'name':'June & The Satellites'}]},
+                         {**spotify_track('Closing','e'*22,240000),'artists':[{'name':'June & The Satellites'}]}]}}
 
 
 def spotify_api(method,path,params=None,body=None):
     if path=='me/player/devices':return {'devices':[{'id':'phone','name':'Fixture phone','type':'Smartphone','is_active':True,'is_restricted':False}] if phone_available else [{'id':'speaker','name':'Speaker','type':'Speaker','is_active':True,'is_restricted':False}]}
-    if path=='search':return {'albums':{'items':[{'id':album_id}]}}
+    if path=='search':
+        if 'Open Windows' in (params or {}).get('q',''):
+            return {'albums':{'items':[{'id':open_windows_id}]}}
+        return {'albums':{'items':[{'id':album_id}]}}
     if path=='albums/'+album_id:return source
+    if path=='albums/'+open_windows_id:return open_windows_source
     if path=='me/player':return {'device':{'id':'phone','name':'Fixture phone'},'shuffle_state':False,'repeat_state':'off',**playback_state}
     if path=='me/player/pause':
         playback_state['is_playing']=False
@@ -132,7 +140,7 @@ def fixture_account_context(identifier):
         context.spotify._token_request=lambda body:{'access_token':identifier,'refresh_token':identifier,'expires_in':3600}
         context.spotify.api=lambda method,path,params=None,body=None: (
             {'devices':[{'id':identifier,'name':'Personal player','type':'Computer','is_active':True,'is_restricted':False}]}
-            if path=='me/player/devices' else {})
+            if path=='me/player/devices' else spotify_api(method,path,params,body))
     return context
 
 app.extensions['accounts'].context=fixture_account_context
