@@ -104,8 +104,8 @@ function wakePlaybackHelper(request){
   location.href=link;
   return true;
 }
-function playbackWakeLinks(){
-  const helper=androidHelperLink();
+function playbackWakeLinks(request=null){
+  const helper=androidHelperLink(false,request);
   return `${helper?`<a class="primary" data-action="open-playback-helper" href="${escapeHtml(helper)}">Wake Spotify and return</a>`:''}<a class="${helper?'secondary':'primary'}" data-action="open-playback-spotify" href="${spotifyAppLink()}">Open Spotify</a>`;
 }
 function androidHelperSettings(){
