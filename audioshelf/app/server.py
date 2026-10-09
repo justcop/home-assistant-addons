@@ -131,7 +131,9 @@ def create_app(options=None):
                 allowed_hosts.add(external.netloc)
             if origin and not ingress() and urlsplit(origin).netloc not in allowed_hosts:
                 raise AppError('Use the same AudioShelf address for this action.', 403)
-        if request.path.startswith('/api/') and request.path not in {'/api/status','/api/login','/api/login/ingress'}:
+        # Helper status has its own per-job bearer authentication, not a browser session.
+        helper_read = request.method == 'GET' and request.path.startswith('/api/helper/playback-handoff/')
+        if request.path.startswith('/api/') and not helper_read and request.path not in {'/api/status','/api/login','/api/login/ingress'}:
             g.identity = identity()
             if g.identity is None:
                 raise AppError('Enter your AudioShelf password. If none is set, configure one in Home Assistant or use ingress.', 401)
@@ -690,6 +692,17 @@ def create_app(options=None):
             return bool(enabled and context.security.version() == version
                         and person and person['role'] in ('owner', 'control'))
         return jsonify(handoff.start(album, disc, preferred, playback_owner(), authorized)), 202
+
+    @app.get('/api/helper/playback-handoff/<account_id>/<job_id>')
+    def helper_playback_status(account_id, job_id):
+        if account_id != 'owner' and not (len(account_id) == 32 and all(c in '0123456789abcdef' for c in account_id)):
+            raise AppError('Unknown playback job.', 404)
+        if not accounts.enabled(account_id):
+            raise AppError('Unknown playback job.', 404)
+        context = accounts.context(account_id)
+        header = request.headers.get('Authorization', '')
+        token = header[7:] if header.startswith('Bearer ') else ''
+        return jsonify(context.handoff.helper_status(job_id, token))
 
     @app.route('/api/spotify/playback-handoff/<job_id>', methods=['GET', 'DELETE'])
     def playback_job(job_id):

@@ -1,3 +1,9 @@
+# 0.6.12
+
+- Enable short-lived, scoped Android helper playback-status long polling; don't use SDK callbacks or timers as proof of playback.
+- Confirm the selected phone and exact first track are playing before reporting success; distinguish accepted-but-unverified Spotify playback and never reissue it.
+- Preserve cancellation and multi-account isolation, invalidating helper tokens when a job is replaced.
+
 # 0.6.11
 
 - Automatically launch the enabled Android helper after Play finds the preferred phone unavailable. Available devices play directly. Preserve the selected album/disc, cancellation and manual wake fallback.

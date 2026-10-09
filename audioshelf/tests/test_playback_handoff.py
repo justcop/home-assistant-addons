@@ -30,7 +30,9 @@ def test_waits_for_snapshot_phone_then_dispatches_exact_disc_once(application, m
     def api(method,path,params=None,body=None):
         calls.append((method,path,params,body))
         if path=='me/player/devices':return {'devices':[PHONE] if available.is_set() else [SPEAKER]}
-        if path=='me/player':return {'device':PHONE,'shuffle_state':False,'repeat_state':'off'}
+        if path=='me/player':return {'device':PHONE,'shuffle_state':False,'repeat_state':'off',
+                                    'is_playing':any(c[1]=='me/player/play' for c in calls),
+                                    'item':{'id':'b'*22}}
         return {}
     monkeypatch.setattr(spotify,'api',api)
     manager=PlaybackHandoff(spotify,interval=.01)
@@ -72,6 +74,13 @@ def test_handoff_routes_validate_and_keep_status_private(application,client,monk
     assert post(client,f'/api/albums/{ALBUM}/playback-handoff',{'disc_number':3}).status_code==400
     response=post(client,f'/api/albums/{ALBUM}/playback-handoff',{'disc_number':1})
     assert response.status_code==202
+    assert len(response.json['helper_token']) >= 40
+    helper_path='/api/helper/playback-handoff/owner/'+response.json['id']
+    assert client.get(helper_path).status_code==404
+    assert client.get(helper_path,headers={'Authorization':'Bearer invalid'}).status_code==404
+    helper_header={'Authorization':'Bearer '+response.json['helper_token']}
+    unauthed=application.test_client()
+    assert unauthed.get(helper_path,headers=helper_header).json['state']=='waiting'
     path='/api/spotify/playback-handoff/'+response.json['id']
     assert client.get(path).json['state']=='waiting'
     # Separate authenticated owner session still cannot inspect another session's job.
@@ -80,6 +89,7 @@ def test_handoff_routes_validate_and_keep_status_private(application,client,monk
     assert outsider.get(path).status_code==401
     with pytest.raises(AppError):application.extensions['playback_handoff'].status(response.json['id'],'other-owner')
     assert post(client,path,method='DELETE').json['state']=='cancelled'
+    assert unauthed.get(helper_path,headers=helper_header).json['state']=='cancelled'
 
 
 def test_worker_stops_on_spotify_errors_without_repeating_queue():
@@ -133,3 +143,41 @@ def test_revoking_real_session_cancels_server_job(application,monkeypatch):
     while manager.job['state']=='waiting' and time.monotonic()<deadline:time.sleep(.005)
     assert manager.job['state']=='expired'
     assert client.get('/api/spotify/playback-handoff/'+response.json['id']).status_code==401
+
+def test_wrong_track_or_wrong_device_never_falsely_confirm_playback(application, monkeypatch):
+    spotify=application.extensions['spotify']; album=ready_album(application)
+    phase={'track': 'wrong', 'device': 'speaker', 'playing': True}
+    def api(method, path, params=None, body=None):
+        if path=='me/player/devices':return {'devices':[PHONE]}
+        if path=='me/player':
+            return {'device':{'id':phase['device']},'item':{'id':phase['track']},
+                    'is_playing':phase['playing'],'shuffle_state':False,'repeat_state':'off'}
+        if path=='me/player/play':phase.update(device='speaker',track='wrong')
+        return {}
+    monkeypatch.setattr(spotify,'api',api)
+    manager=PlaybackHandoff(spotify,interval=.01)
+    job=manager.start(album,None,PHONE,'owner',lambda:True)
+    time.sleep(.06)
+    assert manager.status(job['id'],'owner')['state']=='waiting'
+    phase['device']='phone'
+    time.sleep(.03)
+    assert manager.status(job['id'],'owner')['state']=='waiting'
+    phase['track']='a'*22
+    phase['playing']=False
+    time.sleep(.03)
+    assert manager.status(job['id'],'owner')['state']=='waiting'
+    phase['playing']=True
+    assert finished(manager,job)['state']=='started'
+
+
+def test_helper_token_revoked_on_job_replacement_and_cannot_access_other_jobs():
+    spotify=Mock();spotify.devices.return_value=[]
+    manager=PlaybackHandoff(spotify,interval=.01)
+    first=manager.start({'id':'first'},None,PHONE,'owner',lambda:True)
+    token=first['helper_token']
+    assert manager.helper_status(first['id'],token,wait=0)['state']=='waiting'
+    second=manager.start({'id':'second'},None,PHONE,'owner',lambda:True)
+    with pytest.raises(AppError):manager.helper_status(first['id'],token,wait=0)
+    with pytest.raises(AppError):manager.helper_status(second['id'],token,wait=0)
+    assert manager.helper_status(second['id'],second['helper_token'],wait=0)['state']=='waiting'
+    manager.cancel_all()

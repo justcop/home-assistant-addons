@@ -88,14 +88,15 @@ function browserPreferenceKey(name){return name+(statusInfo.account?.id && statu
 function shouldOpenSpotify(){try{return localStorage.getItem(browserPreferenceKey('audioshelf-open-spotify'))==='true';}catch{return false;}}
 function spotifyAppLink(){return 'spotify:';}
 function androidHelperEnabled(){try{return /Android/i.test(navigator.userAgent)&&localStorage.getItem(browserPreferenceKey('audioshelf-android-helper'))==='true';}catch{return false;}}
-function androidHelperLink(automatic=false){
-  if(!androidHelperEnabled()||!statusInfo.spotify_client_id||statusInfo.preferred_device?.type!=='Smartphone'||location.protocol!=='https:')return null;
-  const query=new URLSearchParams({client_id:statusInfo.spotify_client_id,origin:location.origin,return_url:location.href});
+function androidHelperLink(automatic=false,request=null){
+  const active=request||pendingPlayback;
+  if(!androidHelperEnabled()||!statusInfo.spotify_client_id||statusInfo.preferred_device?.type!=='Smartphone'||location.protocol!=='https:'||!active?.job||!active.helperToken)return null;
+  const query=new URLSearchParams({client_id:statusInfo.spotify_client_id,origin:location.origin,return_url:location.href,account_id:statusInfo.account.id,job_id:active.job,helper_token:active.helperToken});
   return `intent://wake?${query}#Intent;scheme=audioshelf-helper;package=uk.co.justcop.audioshelf.helper;${automatic?'':`S.browser_fallback_url=${encodeURIComponent(location.href)};`}end`;
 }
 function wakePlaybackHelper(request){
   if(pendingPlayback!==request||request.generation!==routeGeneration||!request.job||request.helperLaunched)return false;
-  const link=androidHelperLink(true);
+  const link=androidHelperLink(true,request);
   if(!link)return false;
   request.helperLaunched=true;
   // No browser fallback navigation: a blocked launch must preserve the live job
@@ -138,6 +139,7 @@ async function playbackHandoff(request,message){
   try{job=await api(`albums/${id(request.album.id)}/playback-handoff`,'POST',request.disc===null?{}:{disc_number:request.disc});}
   catch(error){if(pendingPlayback===request){pendingPlayback=null;failPlaybackStart();}throw error;}
   request.job=job.id;
+  request.helperToken=job.helper_token;
   if(pendingPlayback!==request||request.generation!==routeGeneration){await api(`spotify/playback-handoff/${id(job.id)}`,'DELETE');return;}
   showModal(`<h2>Waiting for ${escapeHtml(statusInfo.preferred_device.name)}</h2><p>${escapeHtml(message)}</p><div class="actions">${playbackWakeLinks()}<button class="secondary" data-action="play" ${request.disc===null?'':`data-disc="${request.disc}"`}>Retry playback</button><button class="secondary" data-action="playback-devices">Change device</button></div><p>${androidHelperLink()?'The helper wakes Spotify and returns here automatically. If it did not open, tap “Wake Spotify and return”.':'You can stay in Spotify.'} AudioShelf waits up to one minute and sends this synced ${request.disc===null?'album':'disc'} to your chosen device. Closing this dialog cancels the request.</p>`);
   wakePlaybackHelper(request);
@@ -177,7 +179,7 @@ async function retryPendingPlayback(){
       beginPlayback(request.album,job.result);modal.close();toast(`Playing ${job.result.track_count} tracks on ${job.result.device}.`);
     }else{
       failPlaybackStart();
-      showModal(`<h2>Spotify did not start</h2><p>${escapeHtml(job.error||'Playback request cancelled.')}</p><div class="actions"><a class="secondary" href="${spotifyAppLink()}">Open Spotify</a><button class="primary" data-action="play" ${request.disc===null?'':`data-disc="${request.disc}"`}>Retry playback</button><button class="secondary" data-action="playback-devices">Change device</button></div>`);
+      showModal(`<h2>${job.state==='unconfirmed'?'Spotify playback not confirmed':'Spotify did not start'}</h2><p>${escapeHtml(job.error||'Playback request cancelled.')}</p><div class="actions"><a class="secondary" href="${spotifyAppLink()}">Open Spotify</a><button class="primary" data-action="play" ${request.disc===null?'':`data-disc="${request.disc}"`}>Retry playback</button><button class="secondary" data-action="playback-devices">Change device</button></div>`);
     }
   }catch(error){if(pendingPlayback===request){cancelPendingPlayback();toast(error.message);}}
   finally{checkingPlayback=false;}

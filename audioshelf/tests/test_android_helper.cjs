@@ -15,36 +15,42 @@ const context = vm.createContext({
   statusInfo:{account:{id:'owner'},spotify_client_id:'c'.repeat(32),preferred_device:{id:'phone',type:'Smartphone'}}
 });
 vm.runInContext(functions,context);
-const link = context.androidHelperLink();
+const sampleJob={job:'j'.repeat(25),helperToken:'t'.repeat(43)};
+const link = context.androidHelperLink(false,sampleJob);
 assert(link.startsWith('intent://wake?'));
 assert(link.includes('package=uk.co.justcop.audioshelf.helper;'));
 assert(link.includes('client_id='+'c'.repeat(32)));
 assert(link.includes('origin=https%3A%2F%2Faudioshelf.example'));
+assert(link.includes('job_id='+'j'.repeat(25)));
+assert(link.includes('helper_token='+'t'.repeat(43)));
+assert(link.includes('account_id=owner'));
 assert(link.includes('S.browser_fallback_url=https%3A%2F%2Faudioshelf.example%2F%23album%2Fsaved;end'));
 assert.equal(new URLSearchParams(link.slice(link.indexOf('?')+1,link.indexOf('#Intent'))).get('return_url'),context.location.href,'Return to the exact album page');
 assert(!link.includes('album_id='),'The helper must not receive playback content');
+assert(!context.androidHelperLink(false,{}),'No helper launch without scoped job credentials');
+context.pendingPlayback=sampleJob;
 assert(context.playbackWakeLinks().includes('Wake Spotify and return'));
 assert(context.playbackWakeLinks().includes('href="spotify:"'),'Manual fallback stays available');
 for(const type of ['Speaker','Computer','TV',undefined]){
   context.statusInfo.preferred_device.type=type;
-  assert.equal(context.androidHelperLink(),null,`No phone helper for ${type}`);
+  assert.equal(context.androidHelperLink(false,sampleJob),null,`No phone helper for ${type}`);
 }
 context.statusInfo.preferred_device.type='Smartphone';
 context.location.protocol='http:';
-assert.equal(context.androidHelperLink(),null);
+assert.equal(context.androidHelperLink(false,sampleJob),null);
 context.location.protocol='https:';
 context.navigator.userAgent='Desktop Chrome';
-assert.equal(context.androidHelperLink(),null);
+assert.equal(context.androidHelperLink(false,sampleJob),null);
 context.navigator.userAgent='Android';
 preferences.set('audioshelf-android-helper','false');
-assert.equal(context.androidHelperLink(),null);
+assert.equal(context.androidHelperLink(false,sampleJob),null);
 preferences.set('audioshelf-android-helper','true');
 context.statusInfo.account.id='other-user';
-assert.equal(context.androidHelperLink(),null,'Helper opt-in must be account scoped');
+assert.equal(context.androidHelperLink(false,sampleJob),null,'Helper opt-in must be account scoped');
 preferences.set('audioshelf-android-helper:other-user','true');
-assert(context.androidHelperLink());
+assert(context.androidHelperLink(false,sampleJob));
 context.statusInfo.spotify_client_id='';
-assert.equal(context.androidHelperLink(),null);
+assert.equal(context.androidHelperLink(false,sampleJob),null);
 // Exercise the real playback entry points, including async handoff creation.
 let calls=[], launches=[], createJob;
 context.statusInfo.spotify_client_id='c'.repeat(32);
@@ -58,7 +64,7 @@ Object.assign(context,{
   showModal(){context.modal.open=true;},
   api:async (url,method,body)=>{
     calls.push({url,method,body});
-    if(url.endsWith('/playback-handoff')&&method==='POST')return createJob?createJob():{id:'job',state:'waiting'};
+    if(url.endsWith('/playback-handoff')&&method==='POST')return createJob?createJob():{id:'job',state:'waiting',helper_token:'token-for-job'};
     if(url.endsWith('/play'))return {track_count:2,device:'My phone'};
     return {state:'waiting'};
   }
@@ -74,6 +80,8 @@ const request=()=>({album:{id:'album',tracks:[{spotify_id:'track',title:'Track',
   await context.playbackHandoff(pending,'Phone unavailable');
   assert.equal(launches.length,1,'Unavailable opted-in phone automatically wakes once');
   assert(launches[0].startsWith('intent://wake?'));
+  assert(launches[0].includes('helper_token=token-for-job'));
+  assert(launches[0].includes('job_id=job'));
   assert(!launches[0].includes('browser_fallback_url'),'Blocked automatic launch must not reload the page');
   assert.equal(calls[0].body.disc_number,2,'Handoff keeps the requested disc');
   assert.equal(context.wakePlaybackHelper(pending),false,'Never loop helper launches while waiting');

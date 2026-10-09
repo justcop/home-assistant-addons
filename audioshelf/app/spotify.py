@@ -292,5 +292,5 @@ class Spotify:
                 return self.api('PUT','me/player/play', params, {'uris':uris,'position_ms':0})
             dispatch(send) if dispatch else send()
             self.store.set_setting('last_played_album', album['id'])
-            return {'started':True,'started_at':time.time(),'track_count':len(uris),'device':device.get('name','Spotify'),
+            return {'started':True,'started_at':time.time(),'track_count':len(uris),'device':device.get('name','Spotify'),'device_id':device['id'],
                     'first_track':{'id':tracks[0]['spotify_id'],'title':tracks[0]['title'],'duration_ms':tracks[0].get('duration_ms')}}
