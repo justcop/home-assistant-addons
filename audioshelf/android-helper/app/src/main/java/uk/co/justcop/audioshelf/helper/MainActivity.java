@@ -49,6 +49,7 @@ public final class MainActivity extends Activity {
     private String transportStage = "not started";
     private boolean serverContacted;
     private boolean playAcceptanceLogged;
+    private boolean deviceReadinessLogged;
     private int statusAttempts;
     private String origin, accountId, jobId, helperToken, lastServerState;
     private Uri returnUri;
@@ -201,7 +202,7 @@ public final class MainActivity extends Activity {
     private void watchAndConnect(String clientId) {
         // The deadline is independent of SDK callbacks and network status requests.
         handler.postDelayed(returnDeadline, WakeReturnState.WAKE_WINDOW_MS);
-        record("Background-only wake. Return when Spotify accepts Play, otherwise after 20 seconds.");
+        record("Background-only wake. Return when AudioShelf finds the selected Spotify Connect phone, otherwise after 20 seconds.");
         playbackMonitor = new SpotifyPlaybackMonitor(this);
         record(SpotifyPlaybackMonitor.enabled(this) ? "Local Spotify playback detection enabled." :
             "Optional local playback detection disabled. Using AudioShelf server feedback.");
@@ -284,6 +285,27 @@ public final class MainActivity extends Activity {
                     record("AudioShelf playback: " + result.state + ".");
                 }
                 if (result.state.equals("waiting")) {
+                    // The server has already selected exactly one unrestricted matching
+                    // Spotify Connect phone. Its worker continues Play and verification
+                    // independently of this helper and of the PWA foreground state.
+                    boolean selectedPhoneFound = "preparing_playback".equals(result.phase)
+                        || "sending_play".equals(result.phase);
+                    if (selectedPhoneFound) {
+                        wakeReturn.onDeviceReady();
+                        handler.removeCallbacks(returnDeadline);
+                        if (!deviceReadinessLogged) {
+                            deviceReadinessLogged = true;
+                            record("Selected phone found on Spotify Connect. Returning before Play; AudioShelf's server continues playback independently.");
+                        }
+                        message.setText(keepOpen ? "Phone found. Watching server playback for diagnostics…" :
+                            "Phone found. Returning while AudioShelf starts playback…");
+                        if (keepOpen) {
+                            handler.postDelayed(pollStatus, 350);
+                        } else {
+                            returnWhenVisible();
+                        }
+                        return;
+                    }
                     if (result.playAccepted) {
                         wakeReturn.onPlayAccepted();
                         handler.removeCallbacks(returnDeadline);
@@ -363,7 +385,7 @@ public final class MainActivity extends Activity {
                     })).setErrorCallback(error -> handler.post(() -> {
                         if (!completed) record("Player status unavailable: " + WakeDiagnostics.failure(error));
                     }));
-                    // SDK connection is diagnostic; job status governs return.
+                    // SDK connection is diagnostic; server device readiness governs return.
                 });
             }
             @Override public void onFailure(Throwable error) {

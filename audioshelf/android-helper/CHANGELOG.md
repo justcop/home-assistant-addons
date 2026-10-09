@@ -1,3 +1,10 @@
+# 0.1.14
+
+- Return to AudioShelf as soon as the authenticated server identifies the unique, unrestricted preferred phone on Spotify Connect, without waiting for playback preparation or for Spotify to accept Play.
+- Continue the existing server-owned canonical album/disc queue and exact-device/track confirmation after the helper closes. A return at discovery never claims Play succeeded; the PWA continues monitoring success or failure.
+- Keep Play-accepted and verified-playback early-return fallbacks, the 20-second maximum for slow discovery, first-use authorisation safety and optional diagnostic hold. In diagnostic hold, continue reading final job state after discovery.
+- Requires AudioShelf 0.6.15 or later for immediate status snapshots. Test on a real phone because disconnecting Spotify App Remote sooner could affect certain device wake-ups.
+
 # 0.1.13
 
 - Return to AudioShelf immediately once the server reports Spotify accepted the Play command, without waiting for exact-track verification. Keep normal final confirmation and failure reporting in AudioShelf.
