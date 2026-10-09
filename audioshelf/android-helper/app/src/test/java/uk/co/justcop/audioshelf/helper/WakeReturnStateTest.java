@@ -25,6 +25,9 @@ public class WakeReturnStateTest {
         assertFalse(state.shouldPoll(false));
         assertFalse(state.shouldReturn(false, false));
         assertFalse(state.shouldReturn(true, true));
+        assertTrue(state.shouldPoll(true)); // Hold keeps watching for the actual result.
+        state.onServerState("started");
+        assertFalse(state.shouldPoll(true));
     }
 
     @Test public void confirmedPlaybackReturnsBeforeDeadlineEvenWithoutSdkConnection() {
