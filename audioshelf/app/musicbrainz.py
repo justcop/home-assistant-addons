@@ -43,11 +43,10 @@ def release_rank(release, original_date, filters=None):
 
 
 def credited_artists(credits):
-    """Return both printed credit and MusicBrainz artist identity.
+    """Return recorded credit labels and their canonical MusicBrainz artists.
 
-    The name on a record can be 'George Martin and His Orchestra' while the
-    credited artist entity is 'George Martin'. Neither belongs to the release
-    group's primary artist, The Beatles.
+    An edition can print a longer performer credit than the underlying artist
+    identity, so compare both without inventing name-specific aliases.
     """
     names = []
     for credit in credits or []:
