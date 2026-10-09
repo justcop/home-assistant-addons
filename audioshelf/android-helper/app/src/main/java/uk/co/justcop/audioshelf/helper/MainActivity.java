@@ -374,8 +374,9 @@ public final class MainActivity extends Activity {
     }
 
     private void startInitialSdkWake() {
-        if (!wakeRequest || sdkWakeStarted || completed || wakeClientId == null
-                || playbackMonitor == null) return;
+        if (!SpotifyWakeRecovery.shouldStartInitialSdk(resumed, wakeRequest,
+                sdkWakeStarted, !completed && !isFinishing() && !isDestroyed()
+                    && wakeClientId != null && playbackMonitor != null)) return;
         sdkWakeStarted = true;
         connect(wakeClientId);
         handler.removeCallbacks(silentSdkRecovery);
