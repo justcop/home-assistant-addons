@@ -1,3 +1,7 @@
+# 0.1.6
+
+- Return immediately after Spotify App Remote connects successfully. Keep the five-second settling window after connection failure and the 45-second pending connection timeout.
+
 # 0.1.5
 
 - Add automatic update checks when opening the helper directly, a Check for updates button, verified APK downloads, and Android install confirmation. Updates never interrupt Spotify handover.

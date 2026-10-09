@@ -1,3 +1,7 @@
+# 0.6.11
+
+- Automatically launch the enabled Android helper after Play finds the preferred phone unavailable. Available devices play directly. Preserve the selected album/disc, cancellation and manual wake fallback.
+
 # 0.6.10
 
 - Send the exact AudioShelf page URL to Android helper 0.1.2 for the return after explicitly opening Spotify.

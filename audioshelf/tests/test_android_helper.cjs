@@ -45,4 +45,56 @@ preferences.set('audioshelf-android-helper:other-user','true');
 assert(context.androidHelperLink());
 context.statusInfo.spotify_client_id='';
 assert.equal(context.androidHelperLink(),null);
-console.log('Android helper eligibility and intent tests passed');
+// Exercise the real playback entry points, including async handoff creation.
+let calls=[], launches=[], createJob;
+context.statusInfo.spotify_client_id='c'.repeat(32);
+context.statusInfo.preferred_device.name='My phone';
+let pageUrl='https://audioshelf.example/#album/saved';
+Object.defineProperty(context.location,'href',{get:()=>pageUrl,set:value=>launches.push(value)});
+Object.assign(context,{
+  routeGeneration:1, playbackCommand:0, checkingPlayback:false,
+  id:encodeURIComponent, modal:{open:true,close(){}}, document:{hidden:false},
+  beginPlayback(){}, failPlaybackStart(){}, toast(){},
+  showModal(){context.modal.open=true;},
+  api:async (url,method,body)=>{
+    calls.push({url,method,body});
+    if(url.endsWith('/playback-handoff')&&method==='POST')return createJob?createJob():{id:'job',state:'waiting'};
+    if(url.endsWith('/play'))return {track_count:2,device:'My phone'};
+    return {state:'waiting'};
+  }
+});
+vm.runInContext(source.slice(source.indexOf('let pendingPlayback='),source.indexOf("window.addEventListener('focus',retryPendingPlayback)")),context);
+const request=()=>({album:{id:'album',tracks:[{spotify_id:'track',title:'Track',duration_ms:1000,disc_number:2}]},disc:2,generation:1});
+(async()=>{
+  await context.startPlayback(request());
+  assert.equal(launches.length,0,'Available phone plays without waking helper');
+  assert.equal(calls[0].body.disc_number,2);
+  calls=[];
+  const pending=request();
+  await context.playbackHandoff(pending,'Phone unavailable');
+  assert.equal(launches.length,1,'Unavailable opted-in phone automatically wakes once');
+  assert(launches[0].startsWith('intent://wake?'));
+  assert(!launches[0].includes('browser_fallback_url'),'Blocked automatic launch must not reload the page');
+  assert.equal(calls[0].body.disc_number,2,'Handoff keeps the requested disc');
+  assert.equal(context.wakePlaybackHelper(pending),false,'Never loop helper launches while waiting');
+  context.cancelPendingPlayback();
+  assert.equal(context.wakePlaybackHelper(pending),false,'Cancelled request cannot wake Spotify');
+  assert(calls.some(call=>call.method==='DELETE'),'Cancellation still cancels server playback');
+  for(const disabled of ['preference','speaker']){
+    if(disabled==='preference')preferences.set('audioshelf-android-helper:other-user','false');
+    else {preferences.set('audioshelf-android-helper:other-user','true');context.statusInfo.preferred_device.type='Speaker';}
+    await context.playbackHandoff(request(),'Unavailable');
+    assert.equal(launches.length,1,`No automatic wake for ${disabled}`);
+    context.cancelPendingPlayback();
+  }
+  context.statusInfo.preferred_device.type='Smartphone';
+  let resolveJob;
+  createJob=()=>new Promise(resolve=>{resolveJob=resolve;});
+  const stale=context.playbackHandoff(request(),'Unavailable');
+  context.cancelPendingPlayback();
+  resolveJob({id:'late-job',state:'waiting'});
+  await stale;
+  assert.equal(launches.length,1,'Cancelled async handoff never launches the helper');
+  assert(calls.some(call=>call.url.endsWith('/late-job')&&call.method==='DELETE'));
+  console.log('Android helper eligibility, automatic wake, playback and cancellation tests passed');
+})().catch(error=>{console.error(error);process.exitCode=1;});

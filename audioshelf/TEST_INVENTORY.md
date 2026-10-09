@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-09T10:20:31+01:00 (Europe/London).
+Reviewed: 2026-10-09T10:59:56+01:00 (Europe/London).
 
-Reviewed unchanged five vinyl appearance assertions sampled from one attached platter in a single browser turn, avoiding polling redraw races. Helper-only focus changes require native APK/lint and real phone verification; no playback or app behavior assertions removed.
+Reviewed helper tests covering available-device playback, one automatic wake for an opted-in unavailable phone, selected disc preservation, disabled and non-phone fallback, cancellation and delayed handoff cancellation. Existing browser and backend cases retained.
 
-<!-- inventory: {"reviewed_at": "2026-10-09T10:20:31+01:00", "review_note": "Reviewed unchanged five vinyl appearance assertions sampled from one attached platter in a single browser turn, avoiding polling redraw races. Helper-only focus changes require native APK/lint and real phone verification; no playback or app behavior assertions removed.", "source_sha256": "b48f65d52b6d58b9cb3107bc757c55bddb7f7d0ce53861a2dbab37eadce31c86"} -->
+<!-- inventory: {"reviewed_at": "2026-10-09T10:59:56+01:00", "review_note": "Reviewed helper tests covering available-device playback, one automatic wake for an opted-in unavailable phone, selected disc preservation, disabled and non-phone fallback, cancellation and delayed handoff cancellation. Existing browser and backend cases retained.", "source_sha256": "087d4af126a780c894cdafc47afb4d096966de1b4d8d46e924d0556f0f338ca6"} -->
 
 ## Backend cases (293)
 

@@ -28,7 +28,7 @@ public final class MainActivity extends Activity {
     private boolean completed, connecting, resumed, returnRequested;
     private long wakeStartedAt;
     private Uri returnUri;
-    private final Runnable timeout = this::scheduleReturn;
+    private final Runnable timeout = () -> scheduleReturn(false);
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -134,22 +134,23 @@ public final class MainActivity extends Activity {
                         return;
                     }
                     remote = appRemote;
-                    scheduleReturn();
+                    scheduleReturn(true);
                 });
             }
             @Override public void onFailure(Throwable error) {
                 // A failed SDK session can still wake Spotify. Allow the full
                 // warm-up in the helper before AudioShelf checks device readiness.
                 Log.w("AudioShelfHelper", "Spotify SDK connection failed: " + error.getClass().getSimpleName());
-                handler.post(() -> scheduleReturn());
+                handler.post(() -> scheduleReturn(false));
             }
         });
     }
 
-    private void scheduleReturn() {
+    private void scheduleReturn(boolean connected) {
         if (completed || isFinishing() || isDestroyed()) return;
         handler.removeCallbacks(timeout);
-        long remaining = Math.max(0, 5000 - (SystemClock.elapsedRealtime() - wakeStartedAt));
+        // A connected SDK service is ready; only failed wakes need settling time.
+        long remaining = connected ? 0 : Math.max(0, 5000 - (SystemClock.elapsedRealtime() - wakeStartedAt));
         handler.postDelayed(() -> {
             if (completed || isFinishing() || isDestroyed()) return;
             returnRequested = true;

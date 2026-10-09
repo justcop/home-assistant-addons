@@ -88,17 +88,27 @@ function browserPreferenceKey(name){return name+(statusInfo.account?.id && statu
 function shouldOpenSpotify(){try{return localStorage.getItem(browserPreferenceKey('audioshelf-open-spotify'))==='true';}catch{return false;}}
 function spotifyAppLink(){return 'spotify:';}
 function androidHelperEnabled(){try{return /Android/i.test(navigator.userAgent)&&localStorage.getItem(browserPreferenceKey('audioshelf-android-helper'))==='true';}catch{return false;}}
-function androidHelperLink(){
+function androidHelperLink(automatic=false){
   if(!androidHelperEnabled()||!statusInfo.spotify_client_id||statusInfo.preferred_device?.type!=='Smartphone'||location.protocol!=='https:')return null;
   const query=new URLSearchParams({client_id:statusInfo.spotify_client_id,origin:location.origin,return_url:location.href});
-  return `intent://wake?${query}#Intent;scheme=audioshelf-helper;package=uk.co.justcop.audioshelf.helper;S.browser_fallback_url=${encodeURIComponent(location.href)};end`;
+  return `intent://wake?${query}#Intent;scheme=audioshelf-helper;package=uk.co.justcop.audioshelf.helper;${automatic?'':`S.browser_fallback_url=${encodeURIComponent(location.href)};`}end`;
+}
+function wakePlaybackHelper(request){
+  if(pendingPlayback!==request||request.generation!==routeGeneration||!request.job||request.helperLaunched)return false;
+  const link=androidHelperLink(true);
+  if(!link)return false;
+  request.helperLaunched=true;
+  // No browser fallback navigation: a blocked launch must preserve the live job
+  // and its manual wake link rather than reload and lose the pending request.
+  location.href=link;
+  return true;
 }
 function playbackWakeLinks(){
   const helper=androidHelperLink();
   return `${helper?`<a class="primary" data-action="open-playback-helper" href="${escapeHtml(helper)}">Wake Spotify and return</a>`:''}<a class="${helper?'secondary':'primary'}" data-action="open-playback-spotify" href="${spotifyAppLink()}">Open Spotify</a>`;
 }
 function androidHelperSettings(){
-  return /Android/i.test(navigator.userAgent)?`<label class="check-option"><input type="checkbox" id="android-helper" ${androidHelperEnabled()?'checked':''}> Use the installed Android Spotify helper on this phone</label><p class="muted">When the selected phone is unavailable, the waiting dialog offers “Wake Spotify and return”. Install and configure the helper first. Available devices play normally. This setting is saved only in this browser.</p>`:'';
+  return /Android/i.test(navigator.userAgent)?`<label class="check-option"><input type="checkbox" id="android-helper" ${androidHelperEnabled()?'checked':''}> Use the installed Android Spotify helper on this phone</label><p class="muted">Press Play to start music normally. If the selected phone is unavailable, AudioShelf automatically opens the helper to wake Spotify and return. Install and configure the helper first. Available devices play normally. This setting is saved only in this browser.</p>`:'';
 }
 let pendingPlayback=null, checkingPlayback=false;
 function cancelPendingPlayback(){
@@ -129,7 +139,8 @@ async function playbackHandoff(request,message){
   catch(error){if(pendingPlayback===request){pendingPlayback=null;failPlaybackStart();}throw error;}
   request.job=job.id;
   if(pendingPlayback!==request||request.generation!==routeGeneration){await api(`spotify/playback-handoff/${id(job.id)}`,'DELETE');return;}
-  showModal(`<h2>Waiting for ${escapeHtml(statusInfo.preferred_device.name)}</h2><p>${escapeHtml(message)}</p><div class="actions">${playbackWakeLinks()}<button class="secondary" data-action="play" ${request.disc===null?'':`data-disc="${request.disc}"`}>Retry playback</button><button class="secondary" data-action="playback-devices">Change device</button></div><p>You can stay in Spotify. AudioShelf waits up to one minute and sends this synced ${request.disc===null?'album':'disc'} to your chosen device. Closing this dialog cancels the request.</p>`);
+  showModal(`<h2>Waiting for ${escapeHtml(statusInfo.preferred_device.name)}</h2><p>${escapeHtml(message)}</p><div class="actions">${playbackWakeLinks()}<button class="secondary" data-action="play" ${request.disc===null?'':`data-disc="${request.disc}"`}>Retry playback</button><button class="secondary" data-action="playback-devices">Change device</button></div><p>${androidHelperLink()?'The helper wakes Spotify and returns here automatically. If it did not open, tap “Wake Spotify and return”.':'You can stay in Spotify.'} AudioShelf waits up to one minute and sends this synced ${request.disc===null?'album':'disc'} to your chosen device. Closing this dialog cancels the request.</p>`);
+  wakePlaybackHelper(request);
   retryPendingPlayback();
 }
 async function startPlayback(request,openApp=true){
