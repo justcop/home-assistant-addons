@@ -1,3 +1,10 @@
+# 0.1.15
+
+- When Spotify App Remote fails early with `UserNotAuthorizedException`, diagnose it as an App Remote authorisation failure, separate from AudioShelf Web API rate limits. The server continues looking for the specifically selected phone for the normal 20-second window, so a successful background wake still returns automatically as before.
+- Add an explicit, user-controlled **Open Spotify to restore connection** recovery button when any SDK connection fails. The button is hidden until a short settling window has passed. Never launch Spotify automatically and never send playback commands or select another device.
+- When the user taps recovery, launch only Spotify's installed launcher activity; continue monitoring the authenticated AudioShelf job. After the user returns to the helper, retry the App Remote authorisation while the server continues the original device-pinned job. Automatic return to AudioShelf is still governed only by preferred-phone discovery, accepted Play, verified playback or the original wake deadline.
+- Preserve the existing helper behaviour on successful wakes and the optional diagnostic hold. A manual recovery may require returning via Android Back; modern Android restricts silent app-to-app focus switching.
+
 # 0.1.14
 
 - Return to AudioShelf as soon as the authenticated server identifies the unique, unrestricted preferred phone on Spotify Connect, without waiting for playback preparation or for Spotify to accept Play.
