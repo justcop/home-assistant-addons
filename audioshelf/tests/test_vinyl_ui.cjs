@@ -182,11 +182,19 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert.equal(await page.locator('.turntable-toggle.is-spinning').count(),1);
     // A rotating symmetrical circle looks stationary: the asymmetric label
     // and groove marker must visibly change orientation while playing.
-    assert.equal(await page.locator('.turntable-platter').evaluate(el=>getComputedStyle(el,'::before').content),'"AS"');
-    assert(await page.locator('.turntable-platter').evaluate(el=>getComputedStyle(el,'::before').backgroundImage.includes('conic-gradient')),'The label uses the AudioShelf cream/green palette');
-    assert(await page.locator('.turntable-platter').evaluate(el=>getComputedStyle(el).backgroundImage.includes('repeating-radial-gradient')),'Fine matte grooves replace the reflective face');
-    assert(!await page.locator('.turntable-platter').evaluate(el=>getComputedStyle(el).backgroundImage.includes('linear-gradient')),'No moving glossy reflection on the disc');
-    assert.equal(await page.locator('.turntable-platter').evaluate(el=>getComputedStyle(el,'::after').width),'4px','A small spindle sits at the centre');
+    // Playback polling replaces the platter. Resolve and read the same attached
+    // element within one browser turn, rather than sampling detached locator nodes.
+    const platterStyle=await page.evaluate(()=>{
+      const el=document.querySelector('.turntable-platter');
+      const face=getComputedStyle(el),label=getComputedStyle(el,'::before');
+      return {label:label.content,labelBackground:label.backgroundImage,
+        faceBackground:face.backgroundImage,spindleWidth:getComputedStyle(el,'::after').width};
+    });
+    assert.equal(platterStyle.label,'"AS"');
+    assert(platterStyle.labelBackground.includes('conic-gradient'),'The label uses the AudioShelf cream/green palette');
+    assert(platterStyle.faceBackground.includes('repeating-radial-gradient'),'Fine matte grooves replace the reflective face');
+    assert(!platterStyle.faceBackground.includes('linear-gradient'),'No moving glossy reflection on the disc');
+    assert.equal(platterStyle.spindleWidth,'4px','A small spindle sits at the centre');
     await page.emulateMedia({reducedMotion:'no-preference'});
     await page.waitForFunction(()=>{const el=document.querySelector('.turntable-platter');return el&&getComputedStyle(el).animationName==='audioshelf-spin';});
     // The turntable is redrawn by playback polling. Sample the current attached

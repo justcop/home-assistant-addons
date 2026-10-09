@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-09T09:29:05+01:00 (Europe/London).
+Reviewed: 2026-10-09T10:20:31+01:00 (Europe/London).
 
-Reviewed helper exact HTTPS return route and main matte-vinyl coverage. Attached-platter sampling avoids redraw races without weakening rotation or motion-preference assertions. Container CI uses AudioShelf 0.6.10. Native handover needs a phone test.
+Reviewed unchanged five vinyl appearance assertions sampled from one attached platter in a single browser turn, avoiding polling redraw races. Helper-only focus changes require native APK/lint and real phone verification; no playback or app behavior assertions removed.
 
-<!-- inventory: {"reviewed_at": "2026-10-09T09:29:05+01:00", "review_note": "Reviewed helper exact HTTPS return route and main matte-vinyl coverage. Attached-platter sampling avoids redraw races without weakening rotation or motion-preference assertions. Container CI uses AudioShelf 0.6.10. Native handover needs a phone test.", "source_sha256": "13c4da0d9c22d3e4de7159424fc30c3e3c3bfa43bb0fcf8d0ee6ee3fde7ba689"} -->
+<!-- inventory: {"reviewed_at": "2026-10-09T10:20:31+01:00", "review_note": "Reviewed unchanged five vinyl appearance assertions sampled from one attached platter in a single browser turn, avoiding polling redraw races. Helper-only focus changes require native APK/lint and real phone verification; no playback or app behavior assertions removed.", "source_sha256": "b48f65d52b6d58b9cb3107bc757c55bddb7f7d0ce53861a2dbab37eadce31c86"} -->
 
 ## Backend cases (293)
 
