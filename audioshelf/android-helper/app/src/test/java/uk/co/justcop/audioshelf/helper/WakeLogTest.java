@@ -25,6 +25,24 @@ public class WakeLogTest {
         assertTrue(text.length() < 16200);
     }
 
+    @Test public void pairingTraceIsIndependentOfPreviousWakeAndResetsForEveryAttempt() {
+        WakeLog oldWake = new WakeLog();
+        oldWake.append("[0.001s] Previous wake failed");
+        WakeLog pairing = new WakeLog();
+        pairing.append("[0.000s] Pairing button pressed");
+        pairing.append("[0.100s] Spotify SDK pending");
+        assertEquals("[0.001s] Previous wake failed\\n", oldWake.toString());
+        assertTrue(pairing.toString().contains("Pairing button pressed"));
+        assertFalse(pairing.toString().contains("Previous wake failed"));
+
+        pairing = new WakeLog(); // New pairing should clear its own prior attempt.
+        pairing.append("[0.000s] Pairing button pressed again");
+        pairing.append("[30.000s] Pairing timed out; no authorisation confirmed");
+        assertFalse(pairing.toString().contains("Spotify SDK pending"));
+        assertTrue(pairing.toString().contains("no authorisation confirmed"));
+        assertTrue(oldWake.toString().contains("Previous wake failed"));
+    }
+
     @Test public void normalWakeLogIsCompleteAndOversizedEventsRemainBounded() {
         WakeLog log = new WakeLog();
         log.append("First");
