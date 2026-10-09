@@ -221,6 +221,10 @@ Spotify handoff: Open Spotify launches the app without selecting an album or tra
 
 Mobile covers: the browser selects 128, 320 or 640 pixel WebP images for the displayed size and screen density. Small originals are not enlarged. Shelf variants share the replaceable artwork cache and are evicted with removed albums; store-only browsing and edition previews do not persist derived images. Uploaded originals remain durable. Private ETag revalidation saves repeat image transfers while requiring authentication and checking for cover changes. The update prompt is a sticky contrasting banner; its Reload button still protects unsaved edits and in-flight changes.
 
+## Playback startup feedback
+
+When Spotify is unavailable on your selected phone, AudioShelf shows the chosen album as STARTING while the Android helper wakes it. During the first 15 seconds of the handoff, the visible AudioShelf page checks its own playback job twice per second, including immediately on return from the helper. The waiting dialog reports when Spotify Connect finds the phone and when Play is submitted. It switches to Playing only after server verification of the intended phone and first track, without a page reload or manual refresh. Long-running jobs taper to one-second then two-second polling; cancelling the dialog still cancels the pending playback job.
+
 ## Android Spotify handover helper
 
 An optional [Android companion helper](android-helper/README.md) can wake Spotify and return to the installed web app when the preferred phone is unavailable. Normal playback stays in the web app. The helper includes a GitHub Actions APK build and Spotify developer setup instructions.
