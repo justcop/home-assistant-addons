@@ -1,3 +1,7 @@
+# 0.6.10
+
+- Send the exact AudioShelf page URL to Android helper 0.1.2 for the return after explicitly opening Spotify.
+
 # 0.6.9
 
 - Redesign the Now Playing record as a matte black disc with clear concentric grooves, inspired by the supplied vinyl animation. Remove the reflective streak and oversized decorative mark.

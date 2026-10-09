@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-09T09:19:48+01:00 (Europe/London).
+Reviewed: 2026-10-09T09:29:05+01:00 (Europe/London).
 
-Reviewed v0.6.9 browser coverage of the matte groove-textured platter, cream-and-green AudioShelf label, central spindle, unmodified tonearm, visible 33⅓ RPM rotation and reduced-motion behaviour. Existing pause/play, album navigation, Android helper and mobile overflow checks remain in place.
+Reviewed helper exact HTTPS return route and main matte-vinyl coverage. Attached-platter sampling avoids redraw races without weakening rotation or motion-preference assertions. Container CI uses AudioShelf 0.6.10. Native handover needs a phone test.
 
-<!-- inventory: {"reviewed_at":"2026-10-09T09:19:48+01:00","review_note":"Reviewed v0.6.9 browser coverage of the matte groove-textured platter, cream-and-green AudioShelf label, central spindle, unmodified tonearm, visible 33⅓ RPM rotation and reduced-motion behaviour. Existing pause/play, album navigation, Android helper and mobile overflow checks remain in place.","source_sha256":"e9b23960ba2a114b9d0928f5f8beabdb306aefd875503fe8760748e8f9353250"} -->
+<!-- inventory: {"reviewed_at": "2026-10-09T09:29:05+01:00", "review_note": "Reviewed helper exact HTTPS return route and main matte-vinyl coverage. Attached-platter sampling avoids redraw races without weakening rotation or motion-preference assertions. Container CI uses AudioShelf 0.6.10. Native handover needs a phone test.", "source_sha256": "13c4da0d9c22d3e4de7159424fc30c3e3c3bfa43bb0fcf8d0ee6ee3fde7ba689"} -->
 
 ## Backend cases (293)
 

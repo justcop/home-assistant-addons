@@ -3,6 +3,7 @@ package uk.co.justcop.audioshelf.helper;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
+import android.content.ActivityNotFoundException;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
@@ -21,8 +22,9 @@ public final class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private SpotifyAppRemote remote;
     private TextView message;
-    private boolean resumed, returnRequested, completed, connecting;
-    private final Runnable timeout = () -> returnToAudioShelf("Returning to AudioShelf to check whether Spotify is ready…");
+    private boolean completed, connecting;
+    private Uri returnUri;
+    private final Runnable timeout = this::returnToAudioShelf;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -37,7 +39,10 @@ public final class MainActivity extends Activity {
         layout.addView(message);
         Button back = new Button(this);
         back.setText("Return to AudioShelf");
-        back.setOnClickListener(v -> finishHelper());
+        back.setOnClickListener(v -> {
+            if (returnUri != null) { completed = false; returnToAudioShelf(); }
+            else finishHelper();
+        });
         layout.addView(back);
         setContentView(layout);
         Uri data = getIntent().getData();
@@ -47,11 +52,14 @@ public final class MainActivity extends Activity {
         }
         String clientId = data.getQueryParameter("client_id");
         String origin = data.getQueryParameter("origin");
+        String returnUrl = data.getQueryParameter("return_url");
         if (!"audioshelf-helper".equals(data.getScheme()) || !"wake".equals(data.getHost())
-                || clientId == null || !clientId.matches("[a-fA-F0-9]{32}") || !validOrigin(origin)) {
+                || clientId == null || !clientId.matches("[a-fA-F0-9]{32}") || !validOrigin(origin)
+                || !validReturnUrl(returnUrl, origin)) {
             fail("Invalid AudioShelf helper request.");
             return;
         }
+        returnUri = Uri.parse(returnUrl == null ? origin : returnUrl);
         String trusted = getPreferences(MODE_PRIVATE).getString("trusted_origin", "");
         String trustedClient = getPreferences(MODE_PRIVATE).getString("trusted_client", "");
         if (origin.equals(trusted) && clientId.equals(trustedClient)) {
@@ -60,7 +68,7 @@ public final class MainActivity extends Activity {
             message.setText("Confirm your AudioShelf server.");
             new AlertDialog.Builder(this)
                 .setTitle("Allow AudioShelf to wake Spotify?")
-                .setMessage(origin + "\n\nThis helper only connects to Spotify. AudioShelf controls playback on your saved device.")
+                .setMessage(origin + "\n\nThis helper opens Spotify, then returns to this AudioShelf server. AudioShelf controls playback on your saved device.")
                 .setPositiveButton("Allow", (dialog, which) -> {
                     getPreferences(MODE_PRIVATE).edit().putString("trusted_origin", origin)
                         .putString("trusted_client", clientId).apply();
@@ -79,18 +87,37 @@ public final class MainActivity extends Activity {
             && (uri.getPath() == null || uri.getPath().isEmpty());
     }
 
+    private boolean validReturnUrl(String value, String origin) {
+        if (value == null) return true; // Older AudioShelf versions return to their origin.
+        if (value.length() > 8192) return false;
+        Uri uri = Uri.parse(value);
+        Uri base = Uri.parse(origin);
+        return "https".equals(uri.getScheme()) && uri.getUserInfo() == null
+            && base.getHost().equalsIgnoreCase(uri.getHost()) && base.getPort() == uri.getPort();
+    }
+
     private void connect(String clientId) {
         if (completed || connecting) return;
-        if (!SpotifyAppRemote.isSpotifyInstalled(this)) {
+        Intent spotify = getPackageManager().getLaunchIntentForPackage("com.spotify.music");
+        if (spotify == null) {
             fail("Install Spotify and log in on this phone first.");
             return;
         }
         connecting = true;
-        message.setText("Waking Spotify…\nAudioShelf will keep your selected device and tracklist.");
-        handler.postDelayed(timeout, 45000);
+        message.setText("Opening Spotify…\nAudioShelf will keep your selected device and tracklist.");
+        try {
+            // A real launcher intent wakes Spotify independently of SDK authentication.
+            startActivity(spotify);
+        } catch (ActivityNotFoundException | SecurityException error) {
+            fail("Spotify could not open. Open Spotify manually and return to AudioShelf.");
+            return;
+        }
+        // Give the foreground app time to register its Connect device. SDK failure
+        // must not shorten this interval. AudioShelf's server checks actual readiness.
+        handler.postDelayed(timeout, 5000);
         ConnectionParams params = new ConnectionParams.Builder(clientId)
             .setRedirectUri("audioshelf-helper://spotify-callback")
-            .showAuthView(true).build();
+            .showAuthView(false).build();
         SpotifyAppRemote.connect(this, params, new Connector.ConnectionListener() {
             @Override public void onConnected(SpotifyAppRemote appRemote) {
                 handler.post(() -> {
@@ -99,32 +126,29 @@ public final class MainActivity extends Activity {
                         return;
                     }
                     remote = appRemote;
-                    returnToAudioShelf("Returning to AudioShelf…");
                 });
             }
             @Override public void onFailure(Throwable error) {
-                // Binding to Spotify can wake it even when the App Remote session
-                // fails. The server handoff, not this SDK callback, decides whether
-                // the preferred device is ready and whether playback has started.
+                // The explicit launch and scheduled return remain active.
                 Log.w("AudioShelfHelper", "Spotify SDK connection failed: " + error.getClass().getSimpleName());
-                handler.post(() -> returnToAudioShelf("Returning to AudioShelf to check Spotify…"));
             }
         });
     }
 
-    // Do not launch another activity from the background. Finishing this helper reveals
-    // the browser/PWA task which launched it, preserving its page and pending request.
-    private void returnToAudioShelf(String text) {
+    private void returnToAudioShelf() {
         if (completed || isFinishing() || isDestroyed()) return;
-        returnRequested = true;
-        handler.removeCallbacks(timeout);
-        message.setText(text);
-        returnWhenVisible();
-    }
-    private void returnWhenVisible() {
-        if (resumed && returnRequested && !completed) handler.postDelayed(() -> {
-            if (resumed && returnRequested && !completed) finishHelper();
-        }, 1200);
+        Intent back = new Intent(Intent.ACTION_VIEW, returnUri);
+        back.addCategory(Intent.CATEGORY_BROWSABLE);
+        back.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            // Resolve the trusted HTTPS URL normally, including an installed PWA.
+            // Returning immediately after our foreground launch is deliberate: waiting
+            // for onResume would trap the user in Spotify until they press Back.
+            startActivity(back);
+            finishHelper();
+        } catch (ActivityNotFoundException | SecurityException error) {
+            fail("Spotify was opened. Return to AudioShelf to check playback.");
+        }
     }
     private void fail(String reason) {
         if (completed || isDestroyed()) return;
@@ -141,8 +165,6 @@ public final class MainActivity extends Activity {
         remote = null;
         finishAndRemoveTask();
     }
-    @Override protected void onResume() { super.onResume(); resumed = true; returnWhenVisible(); }
-    @Override protected void onPause() { resumed = false; super.onPause(); }
     @Override protected void onDestroy() {
         completed = true;
         handler.removeCallbacksAndMessages(null);

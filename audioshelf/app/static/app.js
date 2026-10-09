@@ -90,7 +90,7 @@ function spotifyAppLink(){return 'spotify:';}
 function androidHelperEnabled(){try{return /Android/i.test(navigator.userAgent)&&localStorage.getItem(browserPreferenceKey('audioshelf-android-helper'))==='true';}catch{return false;}}
 function androidHelperLink(){
   if(!androidHelperEnabled()||!statusInfo.spotify_client_id||statusInfo.preferred_device?.type!=='Smartphone'||location.protocol!=='https:')return null;
-  const query=new URLSearchParams({client_id:statusInfo.spotify_client_id,origin:location.origin});
+  const query=new URLSearchParams({client_id:statusInfo.spotify_client_id,origin:location.origin,return_url:location.href});
   return `intent://wake?${query}#Intent;scheme=audioshelf-helper;package=uk.co.justcop.audioshelf.helper;S.browser_fallback_url=${encodeURIComponent(location.href)};end`;
 }
 function playbackWakeLinks(){
