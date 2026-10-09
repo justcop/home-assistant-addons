@@ -7,6 +7,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import android.view.Gravity;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -20,8 +21,8 @@ public final class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private SpotifyAppRemote remote;
     private TextView message;
-    private boolean resumed, connected, completed, connecting;
-    private final Runnable timeout = () -> fail("Spotify did not connect in time. Check that it is installed and logged in, then retry from AudioShelf.");
+    private boolean resumed, returnRequested, completed, connecting;
+    private final Runnable timeout = () -> returnToAudioShelf("Returning to AudioShelf to check whether Spotify is ready…");
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -98,23 +99,31 @@ public final class MainActivity extends Activity {
                         return;
                     }
                     remote = appRemote;
-                    connected = true;
-                    handler.removeCallbacks(timeout);
-                    message.setText("Spotify is ready. Returning to AudioShelf…");
-                    returnWhenVisible();
+                    returnToAudioShelf("Returning to AudioShelf…");
                 });
             }
             @Override public void onFailure(Throwable error) {
-                handler.post(() -> fail("Spotify could not connect. Check the helper package name, signing fingerprint and redirect URI in your Spotify developer app. You can still use Open Spotify in AudioShelf."));
+                // Binding to Spotify can wake it even when the App Remote session
+                // fails. The server handoff, not this SDK callback, decides whether
+                // the preferred device is ready and whether playback has started.
+                Log.w("AudioShelfHelper", "Spotify SDK connection failed: " + error.getClass().getSimpleName());
+                handler.post(() -> returnToAudioShelf("Returning to AudioShelf to check Spotify…"));
             }
         });
     }
 
     // Do not launch another activity from the background. Finishing this helper reveals
     // the browser/PWA task which launched it, preserving its page and pending request.
+    private void returnToAudioShelf(String text) {
+        if (completed || isFinishing() || isDestroyed()) return;
+        returnRequested = true;
+        handler.removeCallbacks(timeout);
+        message.setText(text);
+        returnWhenVisible();
+    }
     private void returnWhenVisible() {
-        if (resumed && connected && !completed) handler.postDelayed(() -> {
-            if (resumed && connected && !completed) finishHelper();
+        if (resumed && returnRequested && !completed) handler.postDelayed(() -> {
+            if (resumed && returnRequested && !completed) finishHelper();
         }, 1200);
     }
     private void fail(String reason) {
