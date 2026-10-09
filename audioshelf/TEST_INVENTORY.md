@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-09T12:00:47+01:00 (Europe/London).
+Reviewed: 2026-10-09T12:04:32+01:00 (Europe/London).
 
-Reviewed AudioShelf 0.6.12 PWA artwork cache coverage: Cache Storage keeps only collected album thumbnails, reports precise local thumbnail count and bytes in Settings, supports on-demand preloading and clearing, retrieves previously cached artwork without a network, retains artwork across service worker upgrades, and clears previous-account images. Existing offline shell, cover mutation, browser accounts, Spotify playback and add-on build checks remain in place.
+Reviewed AudioShelf 0.6.12 browser coverage: account-partitioned shelf thumbnail Cache Storage, exact cache size in Settings, manual 320px preloading, clearing, offline cached image access, retention across service worker updates, and account-switch eviction. The browser also requests 128/640px variants during regular viewing, so all supported shelf sizes are deliberately covered; Record Store previews remain uncached.
 
-<!-- inventory: {"reviewed_at":"2026-10-09T12:00:47+01:00","review_note":"Reviewed AudioShelf 0.6.12 PWA artwork cache coverage: Cache Storage keeps only collected album thumbnails, reports precise local thumbnail count and bytes in Settings, supports on-demand preloading and clearing, retrieves previously cached artwork without a network, retains artwork across service worker upgrades, and clears previous-account images. Existing offline shell, cover mutation, browser accounts, Spotify playback and add-on build checks remain in place.","source_sha256":"bb245d2523b39cc1b7f4e3a39c96271a517f5b84bdf28db9849b3d3a31d3998e"} -->
+<!-- inventory: {"reviewed_at":"2026-10-09T12:04:32+01:00","review_note":"Reviewed AudioShelf 0.6.12 browser coverage: account-partitioned shelf thumbnail Cache Storage, exact cache size in Settings, manual 320px preloading, clearing, offline cached image access, retention across service worker updates, and account-switch eviction. The browser also requests 128/640px variants during regular viewing, so all supported shelf sizes are deliberately covered; Record Store previews remain uncached.","source_sha256":"e67ba1f3c894748f69d2f4bfdd36bea69a64f2ce32bfcf69de252f4f6a4cac46"} -->
 
 ## Backend cases (293)
 
