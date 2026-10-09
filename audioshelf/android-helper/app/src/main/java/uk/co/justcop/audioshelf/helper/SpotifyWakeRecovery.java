@@ -1,23 +1,16 @@
 package uk.co.justcop.audioshelf.helper;
 
-/**
- * Fallback for Android/Spotify App Remote authorization failures when the
- * selected phone never appears on Spotify Connect.
- *
- * Background SDK service startup is still the preferred path. Opening the
- * normal Spotify activity is recovery only, never a playback command.
- */
+/** A missing App Remote callback is not a successful background Spotify wake. */
 final class SpotifyWakeRecovery {
-    static final long FOREGROUND_AFTER_MS = 10000;
+    static final long NO_CALLBACK_GRACE_MS = 3000;
 
-    static boolean shouldOpenAutomatically(boolean sdkFailed, boolean serverContacted,
-                                           String serverState, boolean deviceReady,
-                                           boolean playAccepted, boolean completed,
-                                           boolean visible, boolean diagnosticsHold,
-                                           boolean alreadyOpened, long elapsedMs) {
-        return sdkFailed && serverContacted && "waiting".equals(serverState)
-            && !deviceReady && !playAccepted && !completed
-            && visible && !diagnosticsHold && !alreadyOpened
-            && elapsedMs >= FOREGROUND_AFTER_MS;
+    static boolean shouldOfferManualRecovery(boolean callbackReceived,
+                                              boolean phoneReady,
+                                              boolean requestActive,
+                                              long elapsedMs) {
+        // Only offer an escape hatch, never launch Spotify automatically.
+        // AudioShelf alone remains responsible for device choice and playback.
+        return !callbackReceived && !phoneReady && requestActive
+            && elapsedMs >= NO_CALLBACK_GRACE_MS;
     }
 }
