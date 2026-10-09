@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-09T08:44:53+01:00 (Europe/London).
+Reviewed: 2026-10-09T09:19:48+01:00 (Europe/London).
 
-Reviewed helper intent coverage and original playback regressions. Turntable animation checks now wait for the browser to apply changed motion preferences before asserting the same animation name and visible rotation. Android CI explicitly installs supported SDK packages. All 293 backend cases remain; Android cold-start/PWA return still require real-phone testing.
+Reviewed v0.6.9 browser coverage of the matte groove-textured platter, cream-and-green AudioShelf label, central spindle, unmodified tonearm, visible 33⅓ RPM rotation and reduced-motion behaviour. Existing pause/play, album navigation, Android helper and mobile overflow checks remain in place.
 
-<!-- inventory: {"reviewed_at": "2026-10-09T08:44:53+01:00", "review_note": "Reviewed helper intent coverage and original playback regressions. Turntable animation checks now wait for the browser to apply changed motion preferences before asserting the same animation name and visible rotation. Android CI explicitly installs supported SDK packages. All 293 backend cases remain; Android cold-start/PWA return still require real-phone testing.", "source_sha256": "7cb8efa3df897469b0f408178b5ebcb849d848e5b50ec53f39058b413b0cdb5e"} -->
+<!-- inventory: {"reviewed_at":"2026-10-09T09:19:48+01:00","review_note":"Reviewed v0.6.9 browser coverage of the matte groove-textured platter, cream-and-green AudioShelf label, central spindle, unmodified tonearm, visible 33⅓ RPM rotation and reduced-motion behaviour. Existing pause/play, album navigation, Android helper and mobile overflow checks remain in place.","source_sha256":"e9b23960ba2a114b9d0928f5f8beabdb306aefd875503fe8760748e8f9353250"} -->
 
 ## Backend cases (293)
 
