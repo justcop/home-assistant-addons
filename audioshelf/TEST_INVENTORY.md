@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-09T12:04:32+01:00 (Europe/London).
+Reviewed: 2026-10-09T12:26:23+01:00 (Europe/London).
 
-Reviewed AudioShelf 0.6.12 browser coverage: account-partitioned shelf thumbnail Cache Storage, exact cache size in Settings, manual 320px preloading, clearing, offline cached image access, retention across service worker updates, and account-switch eviction. The browser also requests 128/640px variants during regular viewing, so all supported shelf sizes are deliberately covered; Record Store previews remain uncached.
+Reviewed v0.6.12 browser tests: preloading must finish before measuring downloaded thumbnail count and bytes, proper account-specific 128/320/640px images are retained, offline image access works, and clear/update/account isolation is covered. Tests were adjusted to wait for successful preload completion rather than old Settings text.
 
-<!-- inventory: {"reviewed_at":"2026-10-09T12:04:32+01:00","review_note":"Reviewed AudioShelf 0.6.12 browser coverage: account-partitioned shelf thumbnail Cache Storage, exact cache size in Settings, manual 320px preloading, clearing, offline cached image access, retention across service worker updates, and account-switch eviction. The browser also requests 128/640px variants during regular viewing, so all supported shelf sizes are deliberately covered; Record Store previews remain uncached.","source_sha256":"e67ba1f3c894748f69d2f4bfdd36bea69a64f2ce32bfcf69de252f4f6a4cac46"} -->
+<!-- inventory: {"reviewed_at":"2026-10-09T12:26:23+01:00","review_note":"Reviewed v0.6.12 browser tests: preloading must finish before measuring downloaded thumbnail count and bytes, proper account-specific 128/320/640px images are retained, offline image access works, and clear/update/account isolation is covered. Tests were adjusted to wait for successful preload completion rather than old Settings text.","source_sha256":"d79b1317dbabcfcac096fc468de7ef83187594287c94349d5a7d045f96c7f32a"} -->
 
 ## Backend cases (293)
 
