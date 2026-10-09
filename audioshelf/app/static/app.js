@@ -271,7 +271,11 @@ async function startPlayback(request,openApp=true){
 async function retryPendingPlayback(force=false){
   const request=pendingPlayback;
   if(!request||checkingPlayback||document.hidden)return;
-  if(request.generation!==routeGeneration||!modal.open){cancelPendingPlayback();return;}
+  // Once Spotify accepts Play, playback/verification is server-owned. The user
+  // can browse or open another dialog without accidentally cancelling the job.
+  if(!request.confirmingInBackground&&(request.generation!==routeGeneration||!modal.open)){
+    cancelPendingPlayback();return;
+  }
   const now=Date.now();
   if(!force&&now-lastPendingPollAt<pendingPollInterval(request))return;
   lastPendingPollAt=now;
@@ -284,15 +288,32 @@ async function retryPendingPlayback(force=false){
     const job=await api(`spotify/playback-handoff/${id(request.job)}`);
     if(pendingPlayback!==request)return;
     if(job.state==='waiting'){
-      showHandoffProgress(job);
+      if(job.play_accepted&&!request.confirmingInBackground){
+        // A submitted Play is not confirmed playback. Close the blocking
+        // wake dialog, but retain the job and STARTING state while the server
+        // verifies the chosen phone and track. Never cancel just for browsing.
+        request.confirmingInBackground=true;
+        if(modal.open)modal.close();
+        toast('Play sent to Spotify. Confirming playback in the background…');
+      }else if(!request.confirmingInBackground){
+        showHandoffProgress(job);
+      }
       return;
     }
     pendingPlayback=null;
     if(job.state==='started'){
-      beginPlayback(request.album,job.result);modal.close();toast(`Playing ${job.result.track_count} tracks on ${job.result.device}.`);
+      // The worker already verified the correct device and first track.
+      // Do not wait for a second, possibly stale, Spotify player read.
+      beginPlayback(request.album,job.result,false,true);
+      if(!request.confirmingInBackground&&modal.open)modal.close();
+      toast(`Playing ${job.result.track_count} tracks on ${job.result.device}.`);
     }else{
       failPlaybackStart();
-      showModal(`<h2>${job.state==='unconfirmed'?'Spotify playback not confirmed':'Spotify did not start'}</h2><p>${escapeHtml(job.error||'Playback request cancelled.')}</p><div class="actions"><a class="secondary" href="${spotifyAppLink()}">Open Spotify</a><button class="primary" data-action="play" ${request.disc===null?'':`data-disc="${request.disc}"`}>Retry playback</button><button class="secondary" data-action="playback-devices">Change device</button></div>`);
+      if(request.confirmingInBackground){
+        toast(`Spotify playback not confirmed: ${job.error||'Check Spotify and retry.'}`);
+      }else{
+        showModal(`<h2>${job.state==='unconfirmed'?'Spotify playback not confirmed':'Spotify did not start'}</h2><p>${escapeHtml(job.error||'Playback request cancelled.')}</p><div class="actions"><a class="secondary" href="${spotifyAppLink()}">Open Spotify</a><button class="primary" data-action="play" ${request.disc===null?'':`data-disc="${request.disc}"`}>Retry playback</button><button class="secondary" data-action="playback-devices">Change device</button></div>`);
+      }
     }
   }catch(error){if(pendingPlayback===request){cancelPendingPlayback();toast(error.message);}}
   finally{checkingPlayback=false;}
@@ -300,7 +321,11 @@ async function retryPendingPlayback(force=false){
 window.addEventListener('focus',retryPendingPlayback);
 document.addEventListener('visibilitychange',retryPendingPlayback);
 setInterval(retryPendingPlayback,500);
-modal.addEventListener('close',cancelPendingPlayback);
+modal.addEventListener('close',()=>{
+  // Closing the initial wake dialog cancels the request; after Play has been
+  // accepted the server must finish confirming it in the background.
+  if(!pendingPlayback?.confirmingInBackground)cancelPendingPlayback();
+});
 document.addEventListener('change',async event=>{
   if(event.target.id==='show-skip-controls'){
     const box=event.target,enabled=box.checked;box.disabled=true;
