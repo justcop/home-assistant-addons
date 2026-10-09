@@ -319,3 +319,16 @@ def test_owner_snapshot_exposes_safe_progress_but_not_playback_capability():
         assert 'payload' not in snapshot
     finally:
         manager.cancel_all()
+
+def test_spotify_player_confirmation_polling_is_fast_after_play_then_tapers():
+    manager=PlaybackHandoff(Mock(),interval=2)
+    assert manager.confirmation_poll_interval(0)==.5
+    assert manager.confirmation_poll_interval(9.999)==.5
+    assert manager.confirmation_poll_interval(10)==1
+    assert manager.confirmation_poll_interval(19.999)==1
+    assert manager.confirmation_poll_interval(20)==2
+    manager.interval=.01
+    assert manager.confirmation_poll_interval(0)==.01
+    assert manager.confirmation_poll_interval(15)==.01
+    assert manager.confirmation_poll_interval(60)==.01
+

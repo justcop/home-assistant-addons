@@ -1,3 +1,11 @@
+# 0.6.17
+
+- Confirm the chosen Spotify phone and first track every 500 ms during the first ten seconds after Play acceptance, once per second for another ten seconds, then at the existing interval. Retain stricter test/configured intervals and one-minute timeout. Device-discovery cadence is unchanged.
+- On the server's authenticated Play-accepted acknowledgement, release the blocking wake dialog and keep monitoring final verification in the background, even if the user browses or opens another dialog. Keep the turntable at STARTING, do not claim success or cancel the server job. Closing the waiting dialog *before* Play acceptance still cancels the request.
+- As soon as the server independently verifies the intended device and first track are playing, update the turntable to PLAYING synchronously and show the success notification. Do not require another potentially delayed/stale Spotify status request to render success; continue normal status refresh and stale-track protections.
+- If background verification fails, report that honestly with a toast and clear the pending startup state. Starting another album still cancels/replaces a pending job.
+- Preserve Android helper 0.1.14, the selected device and canonical album/disc tracklist. Includes server/browser regression tests.
+
 # 0.6.16
 
 - Check Spotify Connect for the selected phone every 500 ms during the first five seconds of a cold wake, every second until 15 seconds, then at the existing slower interval; respect shorter test/configuration intervals and the existing job cancellation and one-minute expiry.

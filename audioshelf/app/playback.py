@@ -146,12 +146,22 @@ class PlaybackHandoff:
             track_ids = (item.get('id'), (item.get('linked_from') or {}).get('id'))
             if (state.get('is_playing') is True and device.get('id') == wanted_device
                     and wanted_track in track_ids):
+                # This verified observation is authoritative for the PWA's
+                # initial PLAYING state. Don't require a second Spotify read.
                 self.set_status(job, 'started', result=result)
                 return
             phase = ('no_player_state' if not state else 'wrong_device' if device.get('id') != wanted_device
                      else 'wrong_track' if wanted_track not in track_ids else 'paused')
             self.progress(job, phase)
-            job['stop'].wait(min(self.interval, max(0, job['deadline'] - time.monotonic())))
+            now = time.monotonic()
+            accepted_at = job.get('play_accepted_monotonic') or job['created_monotonic']
+            interval = self.confirmation_poll_interval(now - accepted_at)
+            job['stop'].wait(min(interval, max(0, job['deadline'] - now)))
+
+    def confirmation_poll_interval(self, elapsed):
+        """Verify Spotify promptly after Play, then back off on slow devices."""
+        target = 0.5 if elapsed < 10 else 1.0 if elapsed < 20 else self.interval
+        return min(self.interval, target)
 
     def device_poll_interval(self, elapsed):
         """Favor low-latency discovery early, without busy-looping slow phones."""
@@ -177,8 +187,10 @@ class PlaybackHandoff:
                     command_sent = True
                 # Only a successful Spotify API response means Play was accepted.
                 # Keep confirming the exact device/track after the helper returns.
+                accepted_at = time.monotonic()
+                job['play_accepted_monotonic'] = accepted_at
                 self.progress(job, 'play_accepted', play_accepted=True,
-                              play_accepted_ms=int((time.monotonic() - job['created_monotonic']) * 1000))
+                              play_accepted_ms=int((accepted_at - job['created_monotonic']) * 1000))
                 return response
 
         while not job['stop'].is_set():

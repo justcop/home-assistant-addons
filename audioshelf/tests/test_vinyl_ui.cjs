@@ -342,6 +342,28 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     }
     await page.evaluate(()=>applyTheme('midnight'));
     assert.equal(await page.locator('.shelf-row .album-title').first().evaluate(el=>getComputedStyle(el).color),'rgb(40, 43, 39)','White shelves retain readable captions with dark surrounding themes');
+    // The server worker has already independently observed the exact first
+    // track playing on the intended phone. Render PLAYING synchronously, without
+    // waiting for a redundant Spotify /me/player request to complete.
+    const verifiedStartup=await page.evaluate(()=>{
+      const album={id:'f5093c06-23e3-4f01-aeaa-40f72885ee3a',
+        title:'The Original Album',artists:[{name:'The Artist'}]};
+      const result={first_track:{id:'a'.repeat(22),title:'Opening',duration_ms:180000},
+        device:'Fixture phone',started_at:Date.now()/1000};
+      const originalRefresh=refreshPlayback;
+      refreshPlayback=async()=>{}; // Deliberately withhold the follow-up request.
+      try{
+        beginPlayback(album,result,true);
+        const unverifiedLabel=document.querySelector('#turntable small b').textContent;
+        beginPlayback(album,result,false,true);
+        const verifiedLabel=document.querySelector('#turntable small b').textContent;
+        return {unverifiedLabel,verifiedLabel,playing:playbackState.playing,starting:playbackState.starting};
+      }finally{refreshPlayback=originalRefresh;}
+    });
+    assert.equal(verifiedStartup.unverifiedLabel,'STARTING');
+    assert.equal(verifiedStartup.verifiedLabel,'PLAYING','Server-confirmed track must show PLAYING without a second Spotify request');
+    assert.equal(verifiedStartup.playing,true);
+    assert.equal(verifiedStartup.starting,false);
     assert.deepEqual(errors,[]);
     console.log('Vinyl browser checks passed: two rooms, responsive sleeves, browsing restoration, collect in place, rapid startup despite stale replies, progress/pause/track boundaries, playback independence/outage, album settings, Classic persistence.');
   }finally{if(browser)await browser.close();server.kill('SIGTERM');}

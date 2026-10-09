@@ -149,15 +149,19 @@ function updateTrackProgress(){
   progress.setAttribute('aria-valuetext',`${playbackTime(position)} of ${playbackTime(playbackState.duration_ms)}`);
   document.querySelector('#turntable [data-elapsed]').textContent=playbackTime(position);
 }
-function beginPlayback(album,result,awaiting=false){
+function beginPlayback(album,result,awaiting=false,verified=false){
   const first=result.first_track;
   const elapsed=result.started_at?Math.max(0,Date.now()-result.started_at*1000):0;
   // Invalidate reads started before this Play command.
   playbackEpoch++;playbackBusy=false;
   playbackStart=first&&(awaiting||elapsed<8000)?{id:first.id,observedAt:performance.now()-elapsed,expires:awaiting?Infinity:Date.now()+8000-elapsed,awaiting}:null;
-  playbackState={active:true,playing:false,starting:true,album:album.title,album_id:album.id,
+  // A verified server handoff has already observed the correct phone AND first
+  // track playing. Show PLAYING immediately rather than waiting for another
+  // potentially stale /me/player response. Unverified commands stay STARTING.
+  playbackState={active:true,playing:verified,starting:!verified,album:album.title,album_id:album.id,
     artist:album.artists.map(a=>a.name).join(', '),track:first?.title||'Waiting for Spotify status',
-    duration_ms:first?.duration_ms,progress_ms:0,observedAt:performance.now(),device:result.device};
+    duration_ms:first?.duration_ms,progress_ms:verified?Math.min(first?.duration_ms||0,elapsed):0,
+    observedAt:performance.now(),device:result.device};
   renderTurntable();if(!awaiting)refreshPlayback(true);
 }
 function failPlaybackStart(){
