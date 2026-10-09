@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-09T12:36:18+01:00 (Europe/London).
+Reviewed: 2026-10-09T12:39:13+01:00 (Europe/London).
 
-Reviewed AudioShelf 0.6.13 integration of PWA artwork caching with the authenticated Android helper handshake. The updated 293-case backend suite and browser scenarios cover per-account local cache size, offline thumbnail fetches, preload/clear, retention across PWA updates, and preserved Spotify playback. The test source SHA-256 was independently checked against the standard abc hash vector.
+Reviewed integrated AudioShelf 0.6.13 PWA cache changes with the current authenticated Android Spotify helper handshake, including offline shelf thumbnail reads, device cache size and clear/preload Settings actions, account isolation, and existing playback regression tests. The test inventory checker now prints the expected source hash to ease future reviews.
 
-<!-- inventory: {"reviewed_at":"2026-10-09T12:36:18+01:00","review_note":"Reviewed AudioShelf 0.6.13 integration of PWA artwork caching with the authenticated Android helper handshake. The updated 293-case backend suite and browser scenarios cover per-account local cache size, offline thumbnail fetches, preload/clear, retention across PWA updates, and preserved Spotify playback. The test source SHA-256 was independently checked against the standard abc hash vector.","source_sha256":"ad5b8a3c945b43f295d4321389f9273a8e420387a048b5144770f5ea7fb34a56"} -->
+<!-- inventory: {"reviewed_at":"2026-10-09T12:39:13+01:00","review_note":"Reviewed integrated AudioShelf 0.6.13 PWA cache changes with the current authenticated Android Spotify helper handshake, including offline shelf thumbnail reads, device cache size and clear/preload Settings actions, account isolation, and existing playback regression tests. The test inventory checker now prints the expected source hash to ease future reviews.","source_sha256":"798b6222d822445147117c06a385e7f869088837e731ff77065b35c1aba07d83"} -->
 
 ## Backend cases (293)
 
