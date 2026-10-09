@@ -58,7 +58,7 @@ public final class MainActivity extends Activity {
         wakeReturn.onDeadline();
         record(serverContacted ? "Last AudioShelf progress: " + lastServerProgress :
             "No authenticated AudioShelf status received before return. Last network step: " + transportStage);
-        record("Eight-second wake window elapsed. Playback is not confirmed here; AudioShelf continues checking.");
+        record("20-second wake deadline reached. Play was not confirmed accepted; AudioShelf continues checking.");
         message.setText(keepOpen ? "Wake window finished. Diagnostic hold keeps this log open." :
             "Returning to AudioShelf to check playback…");
         if (keepOpen) record("Diagnostic hold enabled; status monitoring continues until the job finishes.");
@@ -200,7 +200,7 @@ public final class MainActivity extends Activity {
     private void watchAndConnect(String clientId) {
         // The deadline is independent of SDK callbacks and network status requests.
         handler.postDelayed(returnDeadline, WakeReturnState.WAKE_WINDOW_MS);
-        record("Background-only wake. Return on AudioShelf result, otherwise after eight seconds.");
+        record("Background-only wake. Return when Spotify accepts Play, otherwise after 20 seconds.");
         playbackMonitor = new SpotifyPlaybackMonitor(this);
         record(SpotifyPlaybackMonitor.enabled(this) ? "Local Spotify playback detection enabled." :
             "Optional local playback detection disabled. Using AudioShelf server feedback.");
@@ -283,9 +283,21 @@ public final class MainActivity extends Activity {
                     record("AudioShelf playback: " + result.state + ".");
                 }
                 if (result.state.equals("waiting")) {
+                    if (result.playAccepted) {
+                        wakeReturn.onPlayAccepted();
+                        handler.removeCallbacks(returnDeadline);
+                        record("Spotify accepted Play. Returning now; AudioShelf will verify the requested phone and track independently.");
+                        message.setText("Play command accepted. Returning to AudioShelf while it confirms playback…");
+                        if (keepOpen) record("Diagnostic hold enabled; waiting for manual return.");
+                        returnWhenVisible();
+                        return;
+                    }
                     message.setText(sdkFailed ? "Spotify SDK session failed, but background waking may still work. Waiting for AudioShelf…" :
-                        "Waiting for AudioShelf to confirm playback on your phone…");
-                    handler.postDelayed(pollStatus, 1000);
+                        "Waiting for Spotify to accept Play on your phone…");
+                    handler.postDelayed(pollStatus,
+                        ("preparing_playback".equals(result.phase) || "sending_play".equals(result.phase)
+                            || "play_accepted".equals(result.phase) || "confirming_playback".equals(result.phase))
+                            ? 350 : 750);
                     return;
                 }
                 wakeReturn.onServerState(result.state);
