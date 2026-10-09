@@ -1,0 +1,35 @@
+name: Refresh AudioShelf 0.6.18 final browser inventory (temporary)
+on:
+  push:
+    branches: [audioshelf-playable-release-selection]
+    paths: ['.github/workflows/audioshelf-inventory-browser-final.yml']
+permissions:
+  contents: write
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: pip install -r audioshelf/requirements.txt pytest==8.4.2 PyYAML==6.0.2
+      - name: Refresh reviewed AudioShelf inventory
+        run: >
+          python audioshelf/scripts/test_inventory.py --update --review-note
+          "Reviewed the existing AudioShelf browser end-to-end flow for 0.6.18:
+          newly collected albums have all canonical tracks mapped already, so
+          the test now invokes Find another edition rather than Match Spotify
+          tracks. Compatibility selection still filters incomplete releases,
+          refuses bad maps without mutating a shelf, saves all verified mappings
+          together, requires first-play tracklist review, preserves existing
+          shelf albums until deliberate replacement and keeps cover-art choice
+          separate. Unit tests passed on the preceding run; browser and Docker
+          tests will be rerun after this inventory refresh."
+      - name: Commit test inventory
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add audioshelf/TEST_INVENTORY.md
+          git commit -m 'Review AudioShelf 0.6.18 mapped-album browser fixture'
+          git push origin HEAD:audioshelf-playable-release-selection
