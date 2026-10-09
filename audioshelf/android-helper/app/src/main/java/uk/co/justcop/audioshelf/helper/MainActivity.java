@@ -3,6 +3,8 @@ package uk.co.justcop.audioshelf.helper;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.ActivityNotFoundException;
 import android.net.Uri;
 import android.os.Bundle;
@@ -12,6 +14,9 @@ import android.os.SystemClock;
 import android.util.Log;
 import android.view.Gravity;
 import android.widget.Button;
+import android.widget.CheckBox;
+import android.widget.ScrollView;
+import android.widget.Toast;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import com.spotify.android.appremote.api.ConnectionParams;
@@ -24,14 +29,22 @@ public final class MainActivity extends Activity {
     private SpotifyAppRemote remote;
     private HelperUpdater updater;
     private boolean checkUpdatesWhenVisible;
-    private TextView message;
+    private TextView message, diagnostics;
+    private final StringBuilder diagnosticLog = new StringBuilder();
+    private long diagnosticStartedAt;
+    private boolean wakeRequest, keepOpen;
+    private String lastPlayerStatus;
     private boolean completed, connecting, resumed, returnRequested;
     private long wakeStartedAt;
     private Uri returnUri;
-    private final Runnable timeout = () -> scheduleReturn(false);
+    private final Runnable timeout = () -> {
+        record("Spotify SDK timed out after 45 seconds. Playback readiness is unknown.");
+        scheduleReturn(false);
+    };
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        diagnosticStartedAt = SystemClock.elapsedRealtime();
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setGravity(Gravity.CENTER);
@@ -48,9 +61,37 @@ public final class MainActivity extends Activity {
             else finishHelper();
         });
         layout.addView(back);
+        keepOpen = getPreferences(MODE_PRIVATE).getBoolean("keep_open_diagnostics", false);
+        CheckBox hold = new CheckBox(this);
+        hold.setText("Keep open for diagnostics (return manually)");
+        hold.setChecked(keepOpen);
+        hold.setOnCheckedChangeListener((button, checked) -> {
+            keepOpen = checked;
+            getPreferences(MODE_PRIVATE).edit().putBoolean("keep_open_diagnostics", checked).apply();
+            if (wakeRequest) record(checked ? "Diagnostic hold enabled. Automatic return paused." : "Diagnostic hold disabled.");
+            if (!checked) returnWhenVisible();
+        });
+        layout.addView(hold);
+        Button copy = new Button(this);
+        copy.setText("Copy log");
+        copy.setOnClickListener(v -> {
+            ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            clipboard.setPrimaryClip(ClipData.newPlainText("AudioShelf helper diagnostics", diagnosticLog.toString()));
+            Toast.makeText(this, "Log copied", Toast.LENGTH_SHORT).show();
+        });
+        layout.addView(copy);
+        diagnostics = new TextView(this);
+        diagnostics.setTextSize(13);
+        diagnostics.setTextIsSelectable(true);
+        diagnostics.setTypeface(android.graphics.Typeface.MONOSPACE);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(diagnostics);
+        layout.addView(scroll, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
         setContentView(layout);
         Uri data = getIntent().getData();
         if (data == null) {
+            diagnosticLog.append(getPreferences(MODE_PRIVATE).getString("last_wake_log", "No wake attempt recorded yet."));
+            diagnostics.setText(diagnosticLog.toString());
             TextView updateStatus = new TextView(this);
             updateStatus.setGravity(Gravity.CENTER);
             updateStatus.setPadding(0, padding, 0, padding);
@@ -61,9 +102,12 @@ public final class MainActivity extends Activity {
             update.setOnClickListener(v -> updater.check());
             layout.addView(update);
             checkUpdatesWhenVisible = true;
-            message.setText("Open this helper from AudioShelf's waiting-for-device dialog.\n\nEnable the Android Spotify helper in AudioShelf Settings after configuring the Spotify developer app. Setup instructions are in the Android helper README.");
+            message.setText("AudioShelf helper " + BuildConfig.VERSION_NAME + "\nPress Play in AudioShelf to wake Spotify.\nLast wake log below.");
             return;
         }
+        wakeRequest = true;
+        record("AudioShelf helper " + BuildConfig.VERSION_NAME + " (" + BuildConfig.VERSION_CODE + ")");
+        record("Wake request received. " + (keepOpen ? "Diagnostic hold enabled." : "Automatic return enabled."));
         String clientId = data.getQueryParameter("client_id");
         String origin = data.getQueryParameter("origin");
         String returnUrl = data.getQueryParameter("return_url");
@@ -74,9 +118,11 @@ public final class MainActivity extends Activity {
             return;
         }
         returnUri = Uri.parse(returnUrl == null ? origin : returnUrl);
+        record("Request and HTTPS return address validated. No playback commands are sent by this helper.");
         String trusted = getPreferences(MODE_PRIVATE).getString("trusted_origin", "");
         String trustedClient = getPreferences(MODE_PRIVATE).getString("trusted_client", "");
         if (origin.equals(trusted) && clientId.equals(trustedClient)) {
+            record("Saved AudioShelf server trusted.");
             connect(clientId);
         } else {
             message.setText("Confirm your AudioShelf server.");
@@ -86,6 +132,7 @@ public final class MainActivity extends Activity {
                 .setPositiveButton("Allow", (dialog, which) -> {
                     getPreferences(MODE_PRIVATE).edit().putString("trusted_origin", origin)
                         .putString("trusted_client", clientId).apply();
+                    record("AudioShelf server approved.");
                     connect(clientId);
                 })
                 .setNegativeButton("Cancel", (dialog, which) -> finishHelper())
@@ -116,6 +163,13 @@ public final class MainActivity extends Activity {
             fail("Install Spotify and log in on this phone first.");
             return;
         }
+        record("Spotify installed. Starting background SDK connection.");
+        try {
+            record("Spotify version " + getPackageManager().getPackageInfo("com.spotify.music", 0).versionName
+                + "; Android API " + android.os.Build.VERSION.SDK_INT + ".");
+        } catch (android.content.pm.PackageManager.NameNotFoundException ignored) {
+            record("Spotify version unavailable.");
+        }
         connecting = true;
         wakeStartedAt = SystemClock.elapsedRealtime();
         message.setText("Waking Spotify…\nPlease wait here. AudioShelf will keep your selected device and tracklist.");
@@ -134,14 +188,31 @@ public final class MainActivity extends Activity {
                         return;
                     }
                     remote = appRemote;
+                    record("Spotify SDK connected. This does not confirm Spotify Connect device readiness or playback.");
+                    appRemote.getPlayerApi().subscribeToPlayerState().setEventCallback(state -> handler.post(() -> {
+                        if (completed || isFinishing() || isDestroyed()) return;
+                        String status = state.isPaused ? "paused" : "playing";
+                        status += state.track == null ? "; no track" : "; track present";
+                        if (!status.equals(lastPlayerStatus)) {
+                            lastPlayerStatus = status;
+                            record("Spotify player reports " + status + ".");
+                        }
+                    })).setErrorCallback(error -> handler.post(() -> {
+                        if (!completed) record("Player status unavailable: " + WakeDiagnostics.failure(error));
+                    }));
                     scheduleReturn(true);
                 });
             }
             @Override public void onFailure(Throwable error) {
                 // A failed SDK session can still wake Spotify. Allow the full
                 // warm-up in the helper before AudioShelf checks device readiness.
-                Log.w("AudioShelfHelper", "Spotify SDK connection failed: " + error.getClass().getSimpleName());
-                handler.post(() -> scheduleReturn(false));
+                Log.w("AudioShelfHelper", "Spotify SDK connection failed: " + WakeDiagnostics.failure(error));
+                handler.post(() -> {
+                    if (completed || isFinishing() || isDestroyed()) return;
+                    record("Spotify SDK failed: " + WakeDiagnostics.failure(error));
+                    record("Spotify may still have woken. AudioShelf must check device readiness.");
+                    scheduleReturn(false);
+                });
             }
         });
     }
@@ -149,12 +220,15 @@ public final class MainActivity extends Activity {
     private void scheduleReturn(boolean connected) {
         if (completed || isFinishing() || isDestroyed()) return;
         handler.removeCallbacks(timeout);
-        // A connected SDK service is ready; only failed wakes need settling time.
-        long remaining = connected ? 0 : Math.max(0, 5000 - (SystemClock.elapsedRealtime() - wakeStartedAt));
+        // SDK connection is not confirmation that the Spotify Connect device is ready.
+        // Keep the working settling window before disconnecting the remote session.
+        long remaining = Math.max(0, 5000 - (SystemClock.elapsedRealtime() - wakeStartedAt));
+        record((connected ? "Connected" : "Connection unsuccessful") + "; settling for " + remaining + " ms before return.");
         handler.postDelayed(() -> {
             if (completed || isFinishing() || isDestroyed()) return;
             returnRequested = true;
-            message.setText("Returning to AudioShelf to check Spotify…");
+            record("Settling complete. " + (keepOpen ? "Waiting for manual return; keep this log visible." : "Return requested."));
+            message.setText(keepOpen ? "Wake attempt finished.\nRead or copy the log, then return to AudioShelf." : "Returning to AudioShelf to check Spotify…");
             returnWhenVisible();
         }, remaining);
     }
@@ -162,7 +236,7 @@ public final class MainActivity extends Activity {
     private void returnWhenVisible() {
         // Do not steal focus from Spotify's first-use authorisation screen. Normal
         // background waking leaves this helper visible throughout the wait.
-        if (resumed && returnRequested && !completed) returnToAudioShelf();
+        if (resumed && returnRequested && !completed && !keepOpen) returnToAudioShelf();
     }
 
     private void returnToAudioShelf() {
@@ -174,6 +248,7 @@ public final class MainActivity extends Activity {
             // Resolve the trusted HTTPS URL normally, including an installed PWA.
             // The automatic return runs while the helper is visible. SDK service
             // waking does not put Spotify in the foreground.
+            record("Opening AudioShelf return address.");
             startActivity(back);
             finishHelper();
         } catch (ActivityNotFoundException | SecurityException error) {
@@ -186,17 +261,19 @@ public final class MainActivity extends Activity {
         handler.removeCallbacksAndMessages(null);
         if (remote != null) SpotifyAppRemote.disconnect(remote);
         remote = null;
+        record(reason);
         message.setText(reason);
     }
     private void finishHelper() {
+        record(remote != null ? "Disconnecting Spotify SDK session and closing helper." : "Closing helper; no connected Spotify SDK session.");
         completed = true;
         handler.removeCallbacksAndMessages(null);
         if (remote != null) SpotifyAppRemote.disconnect(remote);
         remote = null;
         finishAndRemoveTask();
     }
-    @Override protected void onResume() { super.onResume(); resumed = true; returnWhenVisible(); }
-    @Override protected void onPause() { resumed = false; super.onPause(); }
+    @Override protected void onResume() { super.onResume(); resumed = true; if (wakeRequest) record("Helper visible."); returnWhenVisible(); }
+    @Override protected void onPause() { resumed = false; if (wakeRequest) record("Helper left foreground."); super.onPause(); }
     @Override public void onWindowFocusChanged(boolean focused) {
         super.onWindowFocusChanged(focused);
         if (focused && updater != null) {
@@ -215,8 +292,26 @@ public final class MainActivity extends Activity {
         if (remote != null) SpotifyAppRemote.disconnect(remote);
         super.onDestroy();
     }
+    private void record(String event) {
+        if (!wakeRequest || diagnostics == null) return;
+        diagnosticLog.append(WakeDiagnostics.line(SystemClock.elapsedRealtime() - diagnosticStartedAt, event)).append('\n');
+        if (diagnosticLog.length() > 12000) {
+            int cut = diagnosticLog.indexOf("\n", diagnosticLog.length() - 10000);
+            diagnosticLog.delete(0, cut >= 0 ? cut + 1 : diagnosticLog.length() - 10000);
+        }
+        diagnostics.setText(diagnosticLog.toString());
+        getPreferences(MODE_PRIVATE).edit().putString("last_wake_log", diagnosticLog.toString()).apply();
+    }
+
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        // Ignore duplicate launches while a connection is pending. Retry uses a fresh task.
+        // A launcher instance used to inspect logs can receive the next wake intent.
+        if (!wakeRequest || completed) {
+            setIntent(intent);
+            recreate();
+            return;
+        }
+        // Ignore duplicate launches during an active wake without replacing its log.
+        record("Duplicate launch ignored while current helper task is open.");
     }
 }

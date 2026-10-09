@@ -2,12 +2,13 @@ plugins { id 'com.android.application' }
 android {
     namespace 'uk.co.justcop.audioshelf.helper'
     compileSdk 35
+    buildFeatures { buildConfig true }
     defaultConfig {
         applicationId 'uk.co.justcop.audioshelf.helper'
         minSdk 26
         targetSdk 35
-        versionCode 7
-        versionName '0.1.6'
+        versionCode 8
+        versionName '0.1.7'
     }
     signingConfigs {
         prototype {
