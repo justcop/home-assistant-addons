@@ -4,6 +4,18 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class WakeLogTest {
+    @Test public void newPairingClearsPreviousDisplayedLogWithoutCarryingHistory() {
+        WakeLog log = new WakeLog();
+        log.append("Previous pairing failed");
+        for (int i = 0; i < 500; i++) log.append("Long previous progress update " + i);
+        log.clear();
+        assertEquals("", log.toString());
+        log.append("[0.000s] Fresh pairing tapped");
+        assertEquals("[0.000s] Fresh pairing tapped\\n".replace("\\\\n", "\\n"), log.toString());
+        assertFalse(log.toString().contains("Previous pairing failed"));
+        assertFalse(log.toString().contains("middle log entries omitted"));
+    }
+
     @Test public void longPollingRunRetainsStartupSdkOutcomeAndFinalResultInOrder() {
         WakeLog log = new WakeLog();
         log.append("[0.000s] AudioShelf helper 0.1.18");
