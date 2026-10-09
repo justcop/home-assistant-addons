@@ -1,3 +1,9 @@
+# 0.1.10
+
+- Start the Spotify SDK wake before the AudioShelf long-poll rather than racing their initialisation.
+- Recover from an explicit Spotify SDK failure with a foreground Spotify launch (on by default, disabled during diagnostic hold). The original phone, canonical album and playback job remain unchanged. A manual **Open Spotify now** action is available without waiting.
+- Distinguish Spotify SDK failures from network/DNS errors and suppress duplicate network-error logs. Actual playback is still confirmed by AudioShelf, never by a timer.
+
 # 0.1.9
 
 - Return on authenticated AudioShelf playback-job result rather than SDK callback/timeout. Diagnose SDK and network failures separately; preserve manual and diagnostic hold.
