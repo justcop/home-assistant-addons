@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-09T10:59:56+01:00 (Europe/London).
+Reviewed: 2026-10-09T12:00:47+01:00 (Europe/London).
 
-Reviewed helper tests covering available-device playback, one automatic wake for an opted-in unavailable phone, selected disc preservation, disabled and non-phone fallback, cancellation and delayed handoff cancellation. Existing browser and backend cases retained.
+Reviewed AudioShelf 0.6.12 PWA artwork cache coverage: Cache Storage keeps only collected album thumbnails, reports precise local thumbnail count and bytes in Settings, supports on-demand preloading and clearing, retrieves previously cached artwork without a network, retains artwork across service worker upgrades, and clears previous-account images. Existing offline shell, cover mutation, browser accounts, Spotify playback and add-on build checks remain in place.
 
-<!-- inventory: {"reviewed_at": "2026-10-09T10:59:56+01:00", "review_note": "Reviewed helper tests covering available-device playback, one automatic wake for an opted-in unavailable phone, selected disc preservation, disabled and non-phone fallback, cancellation and delayed handoff cancellation. Existing browser and backend cases retained.", "source_sha256": "087d4af126a780c894cdafc47afb4d096966de1b4d8d46e924d0556f0f338ca6"} -->
+<!-- inventory: {"reviewed_at":"2026-10-09T12:00:47+01:00","review_note":"Reviewed AudioShelf 0.6.12 PWA artwork cache coverage: Cache Storage keeps only collected album thumbnails, reports precise local thumbnail count and bytes in Settings, supports on-demand preloading and clearing, retrieves previously cached artwork without a network, retains artwork across service worker upgrades, and clears previous-account images. Existing offline shell, cover mutation, browser accounts, Spotify playback and add-on build checks remain in place.","source_sha256":"bb245d2523b39cc1b7f4e3a39c96271a517f5b84bdf28db9849b3d3a31d3998e"} -->
 
 ## Backend cases (293)
 
