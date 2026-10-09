@@ -40,7 +40,9 @@ public final class MainActivity extends Activity {
     private String lastLocalStatus;
     private boolean checkUpdatesWhenVisible;
     private TextView message, diagnostics;
-    private final StringBuilder diagnosticLog = new StringBuilder();
+    private final WakeLog diagnosticLog = new WakeLog();
+    private final WakeProgressLog progressLog = new WakeProgressLog();
+    private WakeMethod wakeMethod;
     private long diagnosticStartedAt;
     private boolean wakeRequest, keepOpen;
     private String lastPlayerStatus;
@@ -121,6 +123,7 @@ public final class MainActivity extends Activity {
             .setNegativeButton("Cancel", null).show());
         layout.addView(playbackAccess);
         keepOpen = getPreferences(MODE_PRIVATE).getBoolean("keep_open_diagnostics", false);
+        wakeMethod = WakeMethod.fromPreference(getPreferences(MODE_PRIVATE).getString("wake_method", "current"));
         CheckBox hold = new CheckBox(this);
         hold.setText("Keep open for diagnostics (return manually)");
         hold.setChecked(keepOpen);
@@ -131,11 +134,36 @@ public final class MainActivity extends Activity {
             if (!checked) returnWhenVisible();
         });
         layout.addView(hold);
+        Button method = new Button(this);
+        method.setText("Diagnostic settings: " + wakeMethod.label);
+        // Freeze the method for a whole attempt. Settings are available when
+        // opening the helper directly, before AudioShelf launches a new job.
+        method.setEnabled(getIntent().getData() == null);
+        method.setOnClickListener(v -> {
+            WakeMethod[] methods = WakeMethod.values();
+            String[] labels = new String[methods.length];
+            for (int i = 0; i < methods.length; i++) labels[i] = methods[i].label + "\n" + methods[i].timing;
+            final int[] selected = {wakeMethod.ordinal()};
+            new AlertDialog.Builder(this)
+                .setTitle("Compare Spotify wake methods")
+                .setSingleChoiceItems(labels, selected[0], (dialog, which) -> selected[0] = which)
+                .setPositiveButton("Save for diagnostic test", (dialog, which) -> {
+                    wakeMethod = methods[selected[0]];
+                    getPreferences(MODE_PRIVATE).edit().putString("wake_method", wakeMethod.preference)
+                        .putBoolean("keep_open_diagnostics", true).apply();
+                    keepOpen = true;
+                    hold.setChecked(true);
+                    method.setText("Diagnostic settings: " + wakeMethod.label);
+                    Toast.makeText(this, "Method saved. Diagnostic hold enabled. Press Play in AudioShelf.", Toast.LENGTH_LONG).show();
+                })
+                .setNegativeButton("Cancel", null).show();
+        });
+        layout.addView(method);
         Button copy = new Button(this);
         copy.setText("Copy log");
         copy.setOnClickListener(v -> {
             ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-            clipboard.setPrimaryClip(ClipData.newPlainText("AudioShelf helper diagnostics", diagnosticLog.toString()));
+            clipboard.setPrimaryClip(ClipData.newPlainText("AudioShelf helper diagnostics", diagnostics.getText()));
             Toast.makeText(this, "Log copied", Toast.LENGTH_SHORT).show();
         });
         layout.addView(copy);
@@ -149,8 +177,7 @@ public final class MainActivity extends Activity {
         setContentView(layout);
         Uri data = getIntent().getData();
         if (data == null) {
-            diagnosticLog.append(getPreferences(MODE_PRIVATE).getString("last_wake_log", "No wake attempt recorded yet."));
-            diagnostics.setText(diagnosticLog.toString());
+            diagnostics.setText(getPreferences(MODE_PRIVATE).getString("last_wake_log", "No wake attempt recorded yet."));
             TextView updateStatus = new TextView(this);
             updateStatus.setGravity(Gravity.CENTER);
             updateStatus.setPadding(0, padding, 0, padding);
@@ -167,6 +194,7 @@ public final class MainActivity extends Activity {
         wakeRequest = true;
         record("AudioShelf helper " + BuildConfig.VERSION_NAME + " (" + BuildConfig.VERSION_CODE + ")");
         record("Wake request received. " + (keepOpen ? "Diagnostic hold enabled." : "Automatic return enabled."));
+        record("Selected " + wakeMethod.label + ": " + wakeMethod.timing + ".");
         String clientId = data.getQueryParameter("client_id");
         origin = data.getQueryParameter("origin");
         accountId = data.getQueryParameter("account_id");
@@ -235,12 +263,10 @@ public final class MainActivity extends Activity {
             "Optional local playback detection disabled. Using AudioShelf server feedback.");
         // Establish a baseline before waking Spotify so existing playback is ignored.
         readLocalPlayback();
-        // Spotify recommends connecting while the helper activity is visible.
-        // Previously we called App Remote from onCreate, several milliseconds
-        // before onResume. Its authorization view may be blocked while Spotify
-        // is backgrounded, leaving neither onConnected nor onFailure.
-        if (resumed) startInitialSdkWake();
-        else record("Waiting for the helper to become visible before attempting Spotify App Remote.");
+        // Only initial SDK timing differs between methods. Both wait for request
+        // validation/trust and use the same connection and server-owned playback.
+        startInitialSdkWake();
+        if (!sdkWakeStarted) record("Waiting for the helper to become visible before attempting Spotify App Remote.");
         if (completed) return;
         record("AudioShelf job status monitoring started.");
         readPlaybackStatus();
@@ -272,7 +298,8 @@ public final class MainActivity extends Activity {
     private void readPlaybackStatus() {
         if (completed || isFinishing() || isDestroyed() || !wakeReturn.shouldPoll(keepOpen)) return;
         int attempt = ++statusAttempts;
-        record("AudioShelf status request " + attempt + " started (immediate response requested).");
+        boolean traceRequest = attempt == 1 || lastStatusError != null;
+        if (traceRequest) record("AudioShelf status request " + attempt + " started (immediate response requested).");
         statusExecutor.execute(() -> {
             PlaybackStatusClient.Result response = null;
             IOException failure = null;
@@ -280,7 +307,7 @@ public final class MainActivity extends Activity {
                 response = PlaybackStatusClient.poll(origin, accountId, jobId, helperToken, stage -> handler.post(() -> {
                     if (completed || isFinishing() || isDestroyed()) return;
                     transportStage = stage;
-                    record("AudioShelf request " + attempt + ": " + stage + ".");
+                    if (traceRequest) record("AudioShelf request " + attempt + ": " + stage + ".");
                 }));
             } catch (IOException exception) {
                 failure = exception;
@@ -293,7 +320,8 @@ public final class MainActivity extends Activity {
                     String reason = PlaybackStatusClient.describe(error);
                     if (!reason.equals(lastStatusError)) {
                         lastStatusError = reason;
-                        record("AudioShelf connection unavailable: " + reason + ". Retrying until the wake window ends.");
+                        record("AudioShelf request " + attempt + " failed: " + reason
+                            + ". Last network step: " + transportStage + ". Retrying until the wake window ends.");
                     }
                     message.setText("AudioShelf status connection unavailable. Background wake continues; automatic return has a time limit.");
                     handler.postDelayed(pollStatus, 500);
@@ -308,9 +336,11 @@ public final class MainActivity extends Activity {
                     lastStatusError = null;
                 }
                 String progress = result.progress();
-                if (!progress.equals(lastServerProgress)) {
-                    lastServerProgress = progress;
-                    record("AudioShelf progress: " + progress + ".");
+                lastServerProgress = progress;
+                if (progressLog.shouldRecord(result.state, result.phase, result.playAccepted,
+                        result.deviceSeenMs, SystemClock.elapsedRealtime() - diagnosticStartedAt)) {
+                    record("AudioShelf progress: " + progress + " [status request " + attempt
+                        + ", HTTP " + result.httpStatus + "].");
                 }
                 if (!result.state.equals(lastServerState)) {
                     lastServerState = result.state;
@@ -327,7 +357,9 @@ public final class MainActivity extends Activity {
                         handler.removeCallbacks(returnDeadline);
                         if (!deviceReadinessLogged) {
                             deviceReadinessLogged = true;
-                            record("Selected phone found on Spotify Connect. Returning before Play; AudioShelf's server continues playback independently.");
+                            record(keepOpen
+                                ? "Selected phone found on Spotify Connect. Diagnostic hold continues through playback confirmation."
+                                : "Selected phone found on Spotify Connect. Returning before Play; AudioShelf's server continues playback independently.");
                         }
                         message.setText(keepOpen ? "Phone found. Watching server playback for diagnostics…" :
                             "Phone found. Returning while AudioShelf starts playback…");
@@ -364,9 +396,10 @@ public final class MainActivity extends Activity {
                 }
                 wakeReturn.onServerState(result.state);
                 handler.removeCallbacks(returnDeadline);
-                record("AudioShelf job finished: " + result.state + ". Returning before the wake deadline if possible.");
-                message.setText(result.state.equals("started") ? "Playback confirmed. Returning to AudioShelf…" :
-                    "AudioShelf reports: " + result.message + "\nReturning to show the result…");
+                record("AudioShelf job finished: " + result.state + ". "
+                    + (keepOpen ? "Diagnostic hold keeps this result open." : "Returning to AudioShelf if visible."));
+                message.setText((result.state.equals("started") ? "Playback confirmed." : "AudioShelf reports: " + result.message)
+                    + (keepOpen ? "\nCopy the log, then return manually." : "\nReturning to AudioShelf…"));
                 if (keepOpen) record("Diagnostic hold enabled; waiting for manual return.");
                 returnWhenVisible();
             });
@@ -374,10 +407,11 @@ public final class MainActivity extends Activity {
     }
 
     private void startInitialSdkWake() {
-        if (!SpotifyWakeRecovery.shouldStartInitialSdk(resumed, wakeRequest,
+        if (!wakeMethod.shouldStart(resumed, wakeRequest,
                 sdkWakeStarted, !completed && !isFinishing() && !isDestroyed()
                     && wakeClientId != null && playbackMonitor != null)) return;
         sdkWakeStarted = true;
+        record("Starting " + wakeMethod.label + "; helper resumed=" + resumed + ".");
         connect(wakeClientId);
         handler.removeCallbacks(silentSdkRecovery);
         handler.postDelayed(silentSdkRecovery, SpotifyWakeRecovery.NO_CALLBACK_GRACE_MS);
@@ -578,13 +612,10 @@ public final class MainActivity extends Activity {
     }
     private void record(String event) {
         if (!wakeRequest || diagnostics == null) return;
-        diagnosticLog.append(WakeDiagnostics.line(SystemClock.elapsedRealtime() - diagnosticStartedAt, event)).append('\n');
-        if (diagnosticLog.length() > 12000) {
-            int cut = diagnosticLog.indexOf("\n", diagnosticLog.length() - 10000);
-            diagnosticLog.delete(0, cut >= 0 ? cut + 1 : diagnosticLog.length() - 10000);
-        }
-        diagnostics.setText(diagnosticLog.toString());
-        getPreferences(MODE_PRIVATE).edit().putString("last_wake_log", diagnosticLog.toString()).apply();
+        diagnosticLog.append(WakeDiagnostics.line(SystemClock.elapsedRealtime() - diagnosticStartedAt, event));
+        String text = diagnosticLog.toString();
+        diagnostics.setText(text);
+        getPreferences(MODE_PRIVATE).edit().putString("last_wake_log", text).apply();
     }
 
     @Override protected void onNewIntent(Intent intent) {

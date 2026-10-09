@@ -1,3 +1,10 @@
+# 0.1.18
+
+- Add diagnostic settings to compare **Previous wake method** (0.1.14 initial SDK timing, immediately after request validation and server approval) with **Current wake method** (0.1.17 timing, after the helper becomes visible). The default remains Current. Both methods use the same SDK call, playback monitoring, recovery and return policy; this comparison does not restore the entire old app.
+- Choosing a method enables **Keep open for diagnostics**, so both tests can observe the full server job. Settings are changed from the launcher between attempts; the active method is frozen and named in each log, along with whether the Activity had resumed at SDK startup.
+- Condense successful polling into phase changes and five-second snapshots with counters and HTTP status. Keep first-connection details, connection errors/recovery, SDK events and final outcomes. Long logs retain startup plus recent entries instead of deleting the beginning. Copy log and saved logs show the same retained text.
+- Add regressions for both lifecycle sequences, trust gating, duplicate prevention, polling summaries and log retention. No server update, notification permission or Spotify foreground launch is required for comparison.
+
 # 0.1.17
 
 - Start the Spotify App Remote connection only after the helper Activity becomes visible/resumed, rather than during onCreate before onResume. This aligns more closely with Spotify's foreground/activity lifecycle guidance and may avoid the silent no-callback authorization startup seen on Android 17.
