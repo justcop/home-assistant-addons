@@ -12,6 +12,14 @@ final class WakeLog {
     private boolean startupComplete;
     private int recentLength, omitted;
 
+    void clear() {
+        startup.setLength(0);
+        recent.clear();
+        startupComplete = false;
+        recentLength = 0;
+        omitted = 0;
+    }
+
     void append(String line) {
         if (line.length() > LINE_LIMIT) line = line.substring(0, LINE_LIMIT) + "…";
         line += "\n";
