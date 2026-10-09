@@ -6,7 +6,7 @@ AudioShelf's existing server handoff continues waiting for the preferred device 
 
 ## Build and install
 
-Run **AudioShelf Android helper APK** from GitHub Actions after merging, or download its APK artifact from the pull request build. Unzip it and install `app-debug.apk`, allowing installation from your browser/file manager when Android asks. Builds run on demand and for changes to this helper in a pull request, not for every backend commit. Temporary APK artifacts expire after seven days.
+Run **AudioShelf Android helper APK** from GitHub Actions after merging, or download its APK artifact from the pull request build. On helper 0.1.15, if App Remote fails to authorise and Spotify never appears as a Connect device, the helper reveals **Open Spotify to restore connection**. This deliberately opens Spotify only when you tap it, never automatically. Approve any Spotify request, press Android Back to return to the helper, and the helper will retry the SDK connection while AudioShelf keeps the original phone-pinned playback job. If Spotify has already appeared, the helper closes normally before Play as before. Spotify App Remote authorisation is separate from the AudioShelf Web API token or rate limits. Unzip it and install `app-debug.apk`, allowing installation from your browser/file manager when Android asks. Builds run on demand and for changes to this helper in a pull request, not for every backend commit. Temporary APK artifacts expire after seven days.
 
 Before using it, edit the same Spotify developer application whose client ID is configured in AudioShelf:
 
@@ -41,7 +41,7 @@ For a failed attempt, open the helper directly and enable **Keep open for diagno
 
 ## Updating the helper
 
-Ensure AudioShelf is at v0.6.15 or later, then install helper 0.1.14 over the existing helper. Both versions are required for this handshake. Afterwards, open **AudioShelf Spotify Helper** from the phone's app drawer. It checks for a published update automatically, and **Check for updates** retries manually. Accept **Download**, then confirm Android's installation screen. On the first update Android may ask you to allow this helper to install apps; enable that setting and return. Installation still needs Android's confirmation. The signing fingerprint stays the same while the repository uses the same private signing key.
+Ensure AudioShelf is at v0.6.15 or later, then install helper 0.1.15 over the existing helper. Both versions are required for this handshake. Afterwards, open **AudioShelf Spotify Helper** from the phone's app drawer. It checks for a published update automatically, and **Check for updates** retries manually. Accept **Download**, then confirm Android's installation screen. On the first update Android may ask you to allow this helper to install apps; enable that setting and return. Installation still needs Android's confirmation. The signing fingerprint stays the same while the repository uses the same private signing key.
 
 Update checks and prompts run only when opening the helper directly, never during the wake-and-return flow. Downloads must match the fixed GitHub helper channel, declared checksum and size, helper package, a newer version, and the installed signing certificate. A failed verification leaves the installed helper unchanged. The downloaded APK is shared only with the Android installer through a private FileProvider.
 

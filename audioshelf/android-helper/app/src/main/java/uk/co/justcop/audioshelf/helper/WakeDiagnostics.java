@@ -8,6 +8,15 @@ final class WakeDiagnostics {
         return String.format(Locale.US, "[%.3fs] %s", Math.max(0, elapsedMs) / 1000.0, event);
     }
 
+    static boolean isAuthorizationFailure(Throwable error) {
+        // Spotify wraps the checked SDK error in a transport exception on some
+        // versions. Inspect exception types only; never log raw OAuth payloads.
+        for (int depth = 0; error != null && depth < 8; depth++, error = error.getCause()) {
+            if ("UserNotAuthorizedException".equals(error.getClass().getSimpleName())) return true;
+        }
+        return false;
+    }
+
     static String failure(Throwable error) {
         if (error == null) return "Unknown error";
         StringBuilder result = new StringBuilder();
