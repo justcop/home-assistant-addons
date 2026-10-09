@@ -223,7 +223,7 @@ Mobile covers: the browser selects 128, 320 or 640 pixel WebP images for the dis
 
 ## Playback startup feedback
 
-When Spotify is unavailable on your selected phone, AudioShelf shows the chosen album as STARTING while the Android helper wakes it. During the first 15 seconds of the handoff, the visible AudioShelf page checks its own playback job twice per second, including immediately on return from the helper. The waiting dialog reports when Spotify Connect finds the phone and when Play is submitted. It switches to Playing only after server verification of the intended phone and first track, without a page reload or manual refresh. Long-running jobs taper to one-second then two-second polling; cancelling the dialog still cancels the pending playback job.
+When Spotify is unavailable on your selected phone, AudioShelf shows the chosen album as STARTING while the Android helper wakes it. During the first 15 seconds of the handoff, the visible AudioShelf page checks its own playback job twice per second, including immediately on return from the helper. The waiting dialog reports when Spotify Connect finds the phone and when Play is submitted. The wake dialog closes when Spotify accepts Play, allowing normal browsing while server confirmation continues. The turntable remains STARTING until the server verifies the intended phone and first track, then switches immediately to PLAYING without waiting for a redundant Spotify player request. Playback failures are shown rather than silently reported as success, with no page reload or manual refresh. Long-running jobs taper to one-second then two-second polling; cancelling the dialog still cancels the pending playback job.
 
 ## Android Spotify handover helper
 
