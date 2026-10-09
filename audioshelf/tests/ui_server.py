@@ -140,7 +140,7 @@ def fixture_account_context(identifier):
         context.spotify._token_request=lambda body:{'access_token':identifier,'refresh_token':identifier,'expires_in':3600}
         context.spotify.api=lambda method,path,params=None,body=None: (
             {'devices':[{'id':identifier,'name':'Personal player','type':'Computer','is_active':True,'is_restricted':False}]}
-            if path=='me/player/devices' else {})
+            if path=='me/player/devices' else spotify_api(method,path,params,body))
     return context
 
 app.extensions['accounts'].context=fixture_account_context
