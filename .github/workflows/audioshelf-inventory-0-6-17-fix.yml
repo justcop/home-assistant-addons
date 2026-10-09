@@ -1,0 +1,34 @@
+name: Refresh AudioShelf 0.6.17 reviewed tests (temporary)
+on:
+  push:
+    branches: [audioshelf-speed-live-play-confirmation]
+    paths: ['.github/workflows/audioshelf-inventory-0-6-17-fix.yml']
+permissions:
+  contents: write
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: pip install -r audioshelf/requirements.txt pytest==8.4.2 PyYAML==6.0.2
+      - name: Update reviewed AudioShelf test inventory
+        run: >
+          python audioshelf/scripts/test_inventory.py --update --review-note
+          "Reviewed 0.6.17 backend confirmation timing and PWA instant verified playback,
+          including the unit-test fix that awaits the initial independently scheduled
+          status read before simulating accepted Spotify Play. This prevents a test
+          harness race without changing production handoff behaviour. Test cases
+          still cover cancellation before acceptance, background verification after
+          acceptance, browsing without cancellation, exact phone and first track
+          correctness, and stale Spotify state protection. Real-device verification
+          remains necessary to quantify the improved Now Playing latency."
+      - name: Commit updated inventory
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add audioshelf/TEST_INVENTORY.md
+          git commit -m 'Refresh reviewed 0.6.17 asynchronous handoff tests'
+          git push origin HEAD:audioshelf-speed-live-play-confirmation
