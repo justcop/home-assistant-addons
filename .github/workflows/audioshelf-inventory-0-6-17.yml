@@ -1,0 +1,35 @@
+name: Refresh AudioShelf 0.6.17 test inventory (temporary)
+on:
+  push:
+    branches: [audioshelf-speed-live-play-confirmation]
+    paths: ['.github/workflows/audioshelf-inventory-0-6-17.yml']
+permissions:
+  contents: write
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: pip install -r audioshelf/requirements.txt pytest==8.4.2 PyYAML==6.0.2
+      - name: Review and refresh inventory
+        run: >
+          python audioshelf/scripts/test_inventory.py --update --review-note
+          "Reviewed server confirmation after Spotify Play: ten seconds of bounded 500ms
+          verified-device-and-track polling, next ten seconds at 1s, then default interval.
+          Reviewed JavaScript browser tests that distinguish accepted from verified
+          playback, preserve background verification through navigation and non-playback
+          dialogs without cancellation, and render PLAYING immediately from the
+          authoritative server result without a second Spotify request. The pending
+          wake dialog still cancels before accepted Play, later failures remain visible,
+          and canonical tracks plus device pinning are preserved. Live Spotify
+          behaviour and network conditions need real phone verification."
+      - name: Commit reviewed inventory
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add audioshelf/TEST_INVENTORY.md
+          git commit -m 'Review AudioShelf 0.6.17 confirmation regressions'
+          git push origin HEAD:audioshelf-speed-live-play-confirmation
