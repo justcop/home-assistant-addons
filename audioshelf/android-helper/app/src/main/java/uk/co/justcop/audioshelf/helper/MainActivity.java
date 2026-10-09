@@ -45,7 +45,10 @@ public final class MainActivity extends Activity {
     private String lastPlayerStatus;
     private boolean completed, connecting, resumed, sdkFailed;
     private final WakeReturnState wakeReturn = new WakeReturnState();
-    private String lastStatusError;
+    private String lastStatusError, lastServerProgress;
+    private String transportStage = "not started";
+    private boolean serverContacted;
+    private int statusAttempts;
     private String origin, accountId, jobId, helperToken, lastServerState;
     private Uri returnUri;
     private final Runnable pollStatus = this::readPlaybackStatus;
@@ -53,6 +56,8 @@ public final class MainActivity extends Activity {
     private final Runnable returnDeadline = () -> {
         if (completed || isFinishing() || isDestroyed()) return;
         wakeReturn.onDeadline();
+        record(serverContacted ? "Last AudioShelf progress: " + lastServerProgress :
+            "No authenticated AudioShelf status received before return. Last network step: " + transportStage);
         record("Eight-second wake window elapsed. Playback is not confirmed here; AudioShelf continues checking.");
         message.setText(keepOpen ? "Wake window finished. Diagnostic hold keeps this log open." :
             "Returning to AudioShelf to check playback…");
@@ -198,7 +203,7 @@ public final class MainActivity extends Activity {
         record("Background-only wake. Return on AudioShelf result, otherwise after eight seconds.");
         playbackMonitor = new SpotifyPlaybackMonitor(this);
         record(SpotifyPlaybackMonitor.enabled(this) ? "Local Spotify playback detection enabled." :
-            "Local Spotify playback detection unavailable: enable notification access in the helper.");
+            "Optional local playback detection disabled. Using AudioShelf server feedback.");
         // Establish a baseline before waking Spotify so existing playback is ignored.
         readLocalPlayback();
         connect(clientId);
@@ -232,11 +237,17 @@ public final class MainActivity extends Activity {
 
     private void readPlaybackStatus() {
         if (completed || isFinishing() || isDestroyed() || !wakeReturn.shouldPoll(keepOpen)) return;
+        int attempt = ++statusAttempts;
+        record("AudioShelf status request " + attempt + " started (immediate response requested).");
         statusExecutor.execute(() -> {
             PlaybackStatusClient.Result response = null;
             IOException failure = null;
             try {
-                response = PlaybackStatusClient.poll(origin, accountId, jobId, helperToken);
+                response = PlaybackStatusClient.poll(origin, accountId, jobId, helperToken, stage -> handler.post(() -> {
+                    if (completed || isFinishing() || isDestroyed()) return;
+                    transportStage = stage;
+                    record("AudioShelf request " + attempt + ": " + stage + ".");
+                }));
             } catch (IOException exception) {
                 failure = exception;
             }
@@ -245,18 +256,27 @@ public final class MainActivity extends Activity {
             handler.post(() -> {
                 if (completed || isFinishing() || isDestroyed() || !wakeReturn.shouldPoll(keepOpen)) return;
                 if (error != null) {
-                    String reason = error.getClass().getSimpleName();
+                    String reason = PlaybackStatusClient.describe(error);
                     if (!reason.equals(lastStatusError)) {
                         lastStatusError = reason;
                         record("AudioShelf connection unavailable: " + reason + ". Retrying until the wake window ends.");
                     }
                     message.setText("AudioShelf status connection unavailable. Background wake continues; automatic return has a time limit.");
-                    handler.postDelayed(pollStatus, 2500);
+                    handler.postDelayed(pollStatus, 500);
                     return;
+                }
+                if (!serverContacted && result.httpStatus == 200) {
+                    serverContacted = true;
+                    record("Connected to AudioShelf. Playback-job access accepted.");
                 }
                 if (lastStatusError != null) {
                     record("AudioShelf status connection restored.");
                     lastStatusError = null;
+                }
+                String progress = result.progress();
+                if (!progress.equals(lastServerProgress)) {
+                    lastServerProgress = progress;
+                    record("AudioShelf progress: " + progress + ".");
                 }
                 if (!result.state.equals(lastServerState)) {
                     lastServerState = result.state;
@@ -265,7 +285,7 @@ public final class MainActivity extends Activity {
                 if (result.state.equals("waiting")) {
                     message.setText(sdkFailed ? "Spotify SDK session failed, but background waking may still work. Waiting for AudioShelf…" :
                         "Waiting for AudioShelf to confirm playback on your phone…");
-                    handler.post(pollStatus);
+                    handler.postDelayed(pollStatus, 1000);
                     return;
                 }
                 wakeReturn.onServerState(result.state);

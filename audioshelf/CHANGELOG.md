@@ -1,3 +1,8 @@
+# 0.6.14
+
+- Respond immediately to helper playback-status snapshots and report device discovery, Play dispatch and exact-track confirmation progress. Keep helper reads available during slow Spotify Play requests.
+- Preserve per-job authentication, cancellation, selected device and canonical tracklist handling. Helper 0.1.12 uses this feedback without requiring Android notification access.
+
 # 0.6.13
 
 - Locally cache collected albums' resized WebP covers in the standalone PWA, preserving saved images across ordinary updates without touching the existing Home Assistant server cache.

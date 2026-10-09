@@ -80,6 +80,11 @@ def test_handoff_routes_validate_and_keep_status_private(application,client,monk
     assert client.get(helper_path,headers={'Authorization':'Bearer invalid'}).status_code==404
     helper_header={'Authorization':'Bearer '+response.json['helper_token']}
     unauthed=application.test_client()
+    immediate=unauthed.get(helper_path+'?wait=0',headers=helper_header)
+    assert immediate.status_code==200
+    assert immediate.json['state']=='waiting'
+    assert immediate.json['phase'] in ('checking_devices','waiting_for_device')
+    assert 'helper_token' not in immediate.json and 'result' not in immediate.json
     # A valid helper token is verified after cancellation (no 20-second long-poll).
     path='/api/spotify/playback-handoff/'+response.json['id']
     assert client.get(path).json['state']=='waiting'
@@ -157,14 +162,23 @@ def test_wrong_track_or_wrong_device_never_falsely_confirm_playback(application,
     monkeypatch.setattr(spotify,'api',api)
     manager=PlaybackHandoff(spotify,interval=.01)
     job=manager.start(album,None,PHONE,'owner',lambda:True)
-    time.sleep(.06)
+    def await_phase(expected):
+        deadline=time.monotonic()+1
+        while time.monotonic()<deadline:
+            status=manager.helper_status(job['id'],job['helper_token'],wait=0)
+            if status['phase']==expected:
+                assert status['state']=='waiting'
+                return
+            time.sleep(.005)
+        pytest.fail('Did not receive helper phase: '+expected)
+    await_phase('wrong_device')
     assert manager.status(job['id'],'owner')['state']=='waiting'
     phase['device']='phone'
-    time.sleep(.03)
+    await_phase('wrong_track')
     assert manager.status(job['id'],'owner')['state']=='waiting'
     phase['track']='a'*22
     phase['playing']=False
-    time.sleep(.03)
+    await_phase('paused')
     assert manager.status(job['id'],'owner')['state']=='waiting'
     phase['playing']=True
     assert finished(manager,job)['state']=='started'
@@ -181,3 +195,35 @@ def test_helper_token_revoked_on_job_replacement_and_cannot_access_other_jobs():
     with pytest.raises(AppError):manager.helper_status(second['id'],token,wait=0)
     assert manager.helper_status(second['id'],second['helper_token'],wait=0)['state']=='waiting'
     manager.cancel_all()
+
+
+def test_helper_feedback_remains_readable_while_spotify_play_is_blocked():
+    spotify=Mock();spotify.devices.return_value=[PHONE]
+    sending=threading.Event();release=threading.Event();received=threading.Event();responses=[]
+    result={'device_id':'phone','first_track':{'id':'track'}}
+    def play(album,disc,preferred_device,guard,dispatch):
+        def send():
+            sending.set()
+            assert release.wait(2)
+        dispatch(send)
+        return result
+    spotify.play.side_effect=play
+    spotify.api.return_value={'device':PHONE,'item':{'id':'track'},'is_playing':True}
+    manager=PlaybackHandoff(spotify,interval=.01)
+    job=manager.start({},None,PHONE,'owner',lambda:True)
+    def read():
+        responses.append(manager.helper_status(job['id'],job['helper_token'],wait=0))
+        received.set()
+    try:
+        assert sending.wait(1)
+        reader=threading.Thread(target=read,daemon=True);reader.start()
+        assert received.wait(.5), 'Helper feedback blocked behind a Spotify network request'
+        assert responses[0]['state']=='waiting'
+        assert responses[0]['phase']=='sending_play'
+        assert responses[0]['device_checks']==1
+    finally:
+        release.set()
+    assert finished(manager,job)['state']=='started'
+    confirmed=manager.helper_status(job['id'],job['helper_token'],wait=0)
+    assert confirmed['phase']=='confirmed'
+    assert confirmed['confirmation_checks']==1
