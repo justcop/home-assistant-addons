@@ -11,7 +11,7 @@ public class WakeLogTest {
         log.clear();
         assertEquals("", log.toString());
         log.append("[0.000s] Fresh pairing tapped");
-        assertEquals("[0.000s] Fresh pairing tapped\\n".replace("\\\\n", "\\n"), log.toString());
+        assertEquals("[0.000s] Fresh pairing tapped\n", log.toString());
         assertFalse(log.toString().contains("Previous pairing failed"));
         assertFalse(log.toString().contains("middle log entries omitted"));
     }
