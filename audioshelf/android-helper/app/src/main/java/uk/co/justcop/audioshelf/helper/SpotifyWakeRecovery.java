@@ -8,11 +8,6 @@ final class SpotifyWakeRecovery {
     // The server independently stops its playback job after 60 seconds.
     static final long USER_RECOVERY_GRACE_MS = 15000;
 
-    static boolean shouldStartInitialSdk(boolean resumed, boolean wakeRequest,
-                                         boolean sdkWakeStarted, boolean active) {
-        return resumed && wakeRequest && !sdkWakeStarted && active;
-    }
-
     static boolean shouldOfferManualRecovery(boolean callbackReceived,
                                               boolean phoneReady,
                                               boolean requestActive,
