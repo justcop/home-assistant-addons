@@ -1,3 +1,10 @@
+# 0.1.22
+
+- Correct the isolated diagnostic's overly broad candidate filter, which wrongly included AndroidX widget RemoteViews services and therefore skipped the actual binding test on Spotify 9.1.88. Identify Spotify's exported AppProtocolRemoteService specifically and exclude services requiring privileged permissions.
+- Log the selected protocol service and actual bind result/callback, distinguishing Android service reachability from SDK authorisation.
+- Explicitly request a full 30-second observation before copying the isolated SDK log. The previous 2.4-second sample ended too early to establish an SDK timeout.
+- Keep normal pairing, background wake, device selection and canonical playback unchanged.
+
 # 0.1.21
 
 - Add an isolated, user-initiated Spotify App Remote connection test in its own Android Activity, following the documented sample-style connection pattern with the helper's existing app registration.
