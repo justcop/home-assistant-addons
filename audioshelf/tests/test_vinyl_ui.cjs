@@ -185,12 +185,14 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert.equal(await page.locator('.turntable-platter').evaluate(el=>getComputedStyle(el,'::before').content),'"A"');
     assert.equal(await page.locator('.turntable-platter').evaluate(el=>getComputedStyle(el,'::after').width),'4px');
     await page.emulateMedia({reducedMotion:'no-preference'});
+    await page.waitForFunction(()=>{const el=document.querySelector('.turntable-platter');return el&&getComputedStyle(el).animationName==='audioshelf-spin';});
     assert.equal(await page.locator('.turntable-platter').evaluate(el=>getComputedStyle(el).animationName),'audioshelf-spin');
     const angleBefore=await page.locator('.turntable-platter').evaluate(el=>getComputedStyle(el).transform);
     await wait(200);
     const angleAfter=await page.locator('.turntable-platter').evaluate(el=>getComputedStyle(el).transform);
     assert.notEqual(angleAfter,angleBefore,'Playing platter visibly rotates');
     await page.emulateMedia({reducedMotion:'reduce'});
+    await page.waitForFunction(()=>{const el=document.querySelector('.turntable-platter');return el&&getComputedStyle(el).animationName==='none';});
     assert.equal(await page.locator('.turntable-platter').evaluate(el=>getComputedStyle(el).animationName),'none');
     // A proxy can report 502 after Spotify successfully paused the track.
     // Recheck actual player state rather than reporting a false failure.

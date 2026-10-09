@@ -1,3 +1,8 @@
+# 0.6.8
+
+- Add an optional Android companion helper to wake Spotify and return to the existing AudioShelf page when the selected phone is unavailable. Available-device playback and tracklist handling are unchanged.
+- Add an on-demand APK build with configurable private signing and setup instructions.
+
 # 0.6.7
 
 - A distinctive two-tone record label and an off-centre groove marker now make platter rotation obvious while music is playing. Keep the tonearm stationary and show a subtle playing indicator, without changing the Now Playing bar height. Honour reduced-motion preferences.

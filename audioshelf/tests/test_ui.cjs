@@ -115,10 +115,20 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.getByRole('button',{name:'Fixture phone',exact:false}).click();
     await page.waitForFunction(()=>!document.querySelector('#modal').open);
     assert.equal((await (await fixtureFetch(base+'/__test/play-calls')).json()).calls.length,2,'Changing the preferred device alone must not restart music');
+    // The optional helper never participates in successful playback. On HTTP,
+    // even an opted-in Android browser must retain the ordinary Spotify fallback.
+    await page.evaluate(()=>{
+      Object.defineProperty(navigator,'userAgent',{configurable:true,value:'Mozilla/5.0 Android'});
+      localStorage.setItem(browserPreferenceKey('audioshelf-android-helper'),'true');
+      statusInfo.spotify_client_id='c'.repeat(32);
+    });
+    assert.equal(await page.evaluate(()=>androidHelperEnabled()),true);
+    assert.equal(await page.evaluate(()=>androidHelperLink()),null,'Helper requests require HTTPS');
     // Success handoff also opens the app without selecting Spotify content.
     await page.evaluate(()=>localStorage.setItem('audioshelf-open-spotify','true'));
     await page.getByRole('button',{name:'Play album'}).click();
     await page.getByRole('heading',{name:'Playing on Fixture phone',exact:true}).waitFor();
+    assert.equal(await page.locator('[data-action="open-playback-helper"]').count(),0,'Available phone must never launch the helper');
     assert.equal(await page.getByRole('link',{name:'Open Spotify',exact:true}).getAttribute('href'),'spotify:');
     await page.getByRole('button',{name:'Close',exact:true}).click();
     await page.evaluate(()=>localStorage.removeItem('audioshelf-open-spotify'));

@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-08T23:27:00+01:00 (Europe/London).
+Reviewed: 2026-10-09T08:44:53+01:00 (Europe/London).
 
-Reviewed AudioShelf 0.6.7 browser regression coverage of visible platter rotation, an asymmetric label and marker, pause/resume state, reduced-motion preferences, and recovery from an erroneous HTTP response after Spotify has already applied a command. Existing canonical album navigation, skip preference, responsiveness and backend tests remain unchanged.
+Reviewed helper intent coverage and original playback regressions. Turntable animation checks now wait for the browser to apply changed motion preferences before asserting the same animation name and visible rotation. Android CI explicitly installs supported SDK packages. All 293 backend cases remain; Android cold-start/PWA return still require real-phone testing.
 
-<!-- inventory: {"reviewed_at":"2026-10-08T23:27:00+01:00","review_note":"Reviewed AudioShelf 0.6.7 browser regression coverage of visible platter rotation, an asymmetric label and marker, pause/resume state, reduced-motion preferences, and recovery from an erroneous HTTP response after Spotify has already applied a command. Existing canonical album navigation, skip preference, responsiveness and backend tests remain unchanged.","source_sha256":"f5588509415b2e1f37832733bc6920358ebb93bd8950e677e5b57824680f5a68"} -->
+<!-- inventory: {"reviewed_at": "2026-10-09T08:44:53+01:00", "review_note": "Reviewed helper intent coverage and original playback regressions. Turntable animation checks now wait for the browser to apply changed motion preferences before asserting the same animation name and visible rotation. Android CI explicitly installs supported SDK packages. All 293 backend cases remain; Android cold-start/PWA return still require real-phone testing.", "source_sha256": "7cb8efa3df897469b0f408178b5ebcb849d848e5b50ec53f39058b413b0cdb5e"} -->
 
 ## Backend cases (293)
 
