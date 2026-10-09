@@ -51,7 +51,7 @@ async function api(path, method='GET', body={}) {
 
 /* Local, account-partitioned PWA cache. Separate from the server cache. */
 const ARTWORK_CACHE_PREFIX='audioshelf-artwork-v1-';
-let artworkCacheAccountSynced=null,artworkPreloadBusy=false;
+let artworkCacheAccountSynced=undefined,artworkPreloadBusy=false;
 function artworkCacheSupported(){
   return 'caches' in window && 'serviceWorker' in navigator && !document.baseURI.includes('/hassio_ingress/');
 }
