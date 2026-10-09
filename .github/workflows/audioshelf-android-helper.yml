@@ -63,7 +63,7 @@ jobs:
       - name: Upload installable APK
         uses: actions/upload-artifact@v4
         with:
-          name: audioshelf-spotify-helper-0.1.16
+          name: audioshelf-spotify-helper-0.1.17
           path: |
             audioshelf/android-helper/app/build/outputs/apk/debug/app-debug.apk
             audioshelf/android-helper/signing-fingerprint.txt
@@ -85,7 +85,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
         with:
-          name: audioshelf-spotify-helper-0.1.16
+          name: audioshelf-spotify-helper-0.1.17
           path: helper-release
       - name: Prepare verified update metadata
         run: python audioshelf/android-helper/prepare-release.py helper-release
