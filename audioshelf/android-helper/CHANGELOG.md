@@ -1,3 +1,10 @@
+# 0.1.16
+
+- Fix missing Spotify recovery button when App Remote silently stalls without invoking either SDK callback. After three seconds without a callback, display **Open Spotify to restore connection** while AudioShelf keeps its existing device-pinned playback job running. Retain the existing 1.2-second recovery option on an explicit SDK failure.
+- This is strictly a user-initiated fallback: never automatically bring Spotify to the foreground. Healthy SDK connections and normal phone-discovery returns remain unchanged.
+- If Spotify was manually opened while an App Remote request is still pending, do not start a duplicate connection when returning to the helper. Once a prior failed attempt has finished, retry safely, with a fresh no-callback timeout.
+- Android regression tests cover callback silence, early successes and completed jobs. No changes to AudioShelf server, Spotify queue, tracklist, connected device or Android notification permissions.
+
 # 0.1.15
 
 - When Spotify App Remote fails early with `UserNotAuthorizedException`, diagnose it as an App Remote authorisation failure, separate from AudioShelf Web API rate limits. The server continues looking for the specifically selected phone for the normal 20-second window, so a successful background wake still returns automatically as before.
