@@ -1,3 +1,7 @@
+# 0.1.9
+
+- Return on authenticated AudioShelf playback-job result rather than SDK callback/timeout. Diagnose SDK and network failures separately; preserve manual and diagnostic hold.
+
 # 0.1.8
 
 - Return automatically after eight seconds if Spotify's App Remote SDK never calls back, even if background playback has already begun; the previous 45-second wait left the helper visible unnecessarily.
