@@ -321,6 +321,7 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert.equal(await page.getByRole('heading',{name:'Offline artwork'}).count(),1);
     await page.waitForFunction(()=>!!navigator.serviceWorker.controller);
     await page.getByRole('button',{name:'Save my shelf’s artwork'}).click();
+    await page.locator('#toast').filter({hasText:'Shelf artwork ready on this device'}).waitFor();
     await page.waitForFunction(()=>document.querySelector('#artwork-cache-stats')?.textContent.includes('stored on this device'));
     const cacheBefore=await page.evaluate(async()=>{
       const name=artworkCacheName(),cache=await caches.open(name),keys=await cache.keys();
@@ -343,6 +344,7 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.waitForFunction(()=>document.querySelector('#artwork-cache-stats')?.textContent.includes('0 thumbnails'));
     assert.equal((await page.evaluate(()=>artworkCacheStats())).files,0);
     await page.getByRole('button',{name:'Save my shelf’s artwork'}).click();
+    await page.locator('#toast').filter({hasText:'Shelf artwork ready on this device'}).waitFor();
     await page.waitForFunction(()=>document.querySelector('#artwork-cache-stats')?.textContent.includes('stored on this device') &&
       !document.querySelector('#artwork-cache-stats')?.textContent.includes('0 thumbnails'));
     const initialVersion=await page.evaluate(()=>document.documentElement.dataset.assetVersion);
