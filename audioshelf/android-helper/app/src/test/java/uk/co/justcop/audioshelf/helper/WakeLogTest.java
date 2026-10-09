@@ -31,7 +31,7 @@ public class WakeLogTest {
         WakeLog pairing = new WakeLog();
         pairing.append("[0.000s] Pairing button pressed");
         pairing.append("[0.100s] Spotify SDK pending");
-        assertEquals("[0.001s] Previous wake failed\\n", oldWake.toString());
+        assertEquals("[0.001s] Previous wake failed\n", oldWake.toString());
         assertTrue(pairing.toString().contains("Pairing button pressed"));
         assertFalse(pairing.toString().contains("Previous wake failed"));
 
