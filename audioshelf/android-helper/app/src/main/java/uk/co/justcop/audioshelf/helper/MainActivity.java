@@ -8,6 +8,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Log;
 import android.view.Gravity;
 import android.widget.Button;
@@ -21,10 +22,13 @@ import com.spotify.android.appremote.api.SpotifyAppRemote;
 public final class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private SpotifyAppRemote remote;
+    private HelperUpdater updater;
+    private boolean checkUpdatesWhenVisible;
     private TextView message;
-    private boolean completed, connecting;
+    private boolean completed, connecting, resumed, returnRequested;
+    private long wakeStartedAt;
     private Uri returnUri;
-    private final Runnable timeout = this::returnToAudioShelf;
+    private final Runnable timeout = this::scheduleReturn;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -47,6 +51,16 @@ public final class MainActivity extends Activity {
         setContentView(layout);
         Uri data = getIntent().getData();
         if (data == null) {
+            TextView updateStatus = new TextView(this);
+            updateStatus.setGravity(Gravity.CENTER);
+            updateStatus.setPadding(0, padding, 0, padding);
+            layout.addView(updateStatus);
+            updater = new HelperUpdater(this, updateStatus);
+            Button update = new Button(this);
+            update.setText("Check for updates");
+            update.setOnClickListener(v -> updater.check());
+            layout.addView(update);
+            checkUpdatesWhenVisible = true;
             message.setText("Open this helper from AudioShelf's waiting-for-device dialog.\n\nEnable the Android Spotify helper in AudioShelf Settings after configuring the Spotify developer app. Setup instructions are in the Android helper README.");
             return;
         }
@@ -68,7 +82,7 @@ public final class MainActivity extends Activity {
             message.setText("Confirm your AudioShelf server.");
             new AlertDialog.Builder(this)
                 .setTitle("Allow AudioShelf to wake Spotify?")
-                .setMessage(origin + "\n\nThis helper opens Spotify, then returns to this AudioShelf server. AudioShelf controls playback on your saved device.")
+                .setMessage(origin + "\n\nThis helper wakes Spotify in the background, then returns to this AudioShelf server. AudioShelf controls playback on your saved device.")
                 .setPositiveButton("Allow", (dialog, which) -> {
                     getPreferences(MODE_PRIVATE).edit().putString("trusted_origin", origin)
                         .putString("trusted_client", clientId).apply();
@@ -98,26 +112,20 @@ public final class MainActivity extends Activity {
 
     private void connect(String clientId) {
         if (completed || connecting) return;
-        Intent spotify = getPackageManager().getLaunchIntentForPackage("com.spotify.music");
-        if (spotify == null) {
+        if (!SpotifyAppRemote.isSpotifyInstalled(this)) {
             fail("Install Spotify and log in on this phone first.");
             return;
         }
         connecting = true;
-        message.setText("Opening Spotify…\nAudioShelf will keep your selected device and tracklist.");
-        try {
-            // A real launcher intent wakes Spotify independently of SDK authentication.
-            startActivity(spotify);
-        } catch (ActivityNotFoundException | SecurityException error) {
-            fail("Spotify could not open. Open Spotify manually and return to AudioShelf.");
-            return;
-        }
-        // Give the foreground app time to register its Connect device. SDK failure
-        // must not shorten this interval. AudioShelf's server checks actual readiness.
-        handler.postDelayed(timeout, 5000);
+        wakeStartedAt = SystemClock.elapsedRealtime();
+        message.setText("Waking Spotify…\nPlease wait here. AudioShelf will keep your selected device and tracklist.");
+        // Restore the original SDK service wake, with no Spotify launcher intent.
+        // Keep the helper alive while the service/device settles, including when
+        // the SDK session fails after successfully waking the Spotify process.
+        handler.postDelayed(timeout, 45000);
         ConnectionParams params = new ConnectionParams.Builder(clientId)
             .setRedirectUri("audioshelf-helper://spotify-callback")
-            .showAuthView(false).build();
+            .showAuthView(true).build();
         SpotifyAppRemote.connect(this, params, new Connector.ConnectionListener() {
             @Override public void onConnected(SpotifyAppRemote appRemote) {
                 handler.post(() -> {
@@ -126,13 +134,34 @@ public final class MainActivity extends Activity {
                         return;
                     }
                     remote = appRemote;
+                    scheduleReturn();
                 });
             }
             @Override public void onFailure(Throwable error) {
-                // The explicit launch and scheduled return remain active.
+                // A failed SDK session can still wake Spotify. Allow the full
+                // warm-up in the helper before AudioShelf checks device readiness.
                 Log.w("AudioShelfHelper", "Spotify SDK connection failed: " + error.getClass().getSimpleName());
+                handler.post(() -> scheduleReturn());
             }
         });
+    }
+
+    private void scheduleReturn() {
+        if (completed || isFinishing() || isDestroyed()) return;
+        handler.removeCallbacks(timeout);
+        long remaining = Math.max(0, 5000 - (SystemClock.elapsedRealtime() - wakeStartedAt));
+        handler.postDelayed(() -> {
+            if (completed || isFinishing() || isDestroyed()) return;
+            returnRequested = true;
+            message.setText("Returning to AudioShelf to check Spotify…");
+            returnWhenVisible();
+        }, remaining);
+    }
+
+    private void returnWhenVisible() {
+        // Do not steal focus from Spotify's first-use authorisation screen. Normal
+        // background waking leaves this helper visible throughout the wait.
+        if (resumed && returnRequested && !completed) returnToAudioShelf();
     }
 
     private void returnToAudioShelf() {
@@ -142,8 +171,8 @@ public final class MainActivity extends Activity {
         back.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         try {
             // Resolve the trusted HTTPS URL normally, including an installed PWA.
-            // Returning immediately after our foreground launch is deliberate: waiting
-            // for onResume would trap the user in Spotify until they press Back.
+            // The automatic return runs while the helper is visible. SDK service
+            // waking does not put Spotify in the foreground.
             startActivity(back);
             finishHelper();
         } catch (ActivityNotFoundException | SecurityException error) {
@@ -165,7 +194,21 @@ public final class MainActivity extends Activity {
         remote = null;
         finishAndRemoveTask();
     }
+    @Override protected void onResume() { super.onResume(); resumed = true; returnWhenVisible(); }
+    @Override protected void onPause() { resumed = false; super.onPause(); }
+    @Override public void onWindowFocusChanged(boolean focused) {
+        super.onWindowFocusChanged(focused);
+        if (focused && updater != null) {
+            if (checkUpdatesWhenVisible) { checkUpdatesWhenVisible = false; updater.check(); }
+            updater.onVisible();
+        }
+    }
+    @Override protected void onActivityResult(int request, int result, Intent data) {
+        super.onActivityResult(request, result, data);
+        if (updater != null) updater.activityResult(request);
+    }
     @Override protected void onDestroy() {
+        if (updater != null) updater.close();
         completed = true;
         handler.removeCallbacksAndMessages(null);
         if (remote != null) SpotifyAppRemote.disconnect(remote);
