@@ -132,6 +132,11 @@ public final class MainActivity extends Activity {
         spotifyPair.setOnClickListener(v -> pairSpotifyRemote());
 
         layout.addView(spotifyPair);
+        Button sdkDiagnostic = new Button(this);
+        sdkDiagnostic.setText("Isolated Spotify SDK diagnostics");
+        sdkDiagnostic.setVisibility(getIntent().getData() == null ? View.VISIBLE : View.GONE);
+        sdkDiagnostic.setOnClickListener(v -> startActivity(new Intent(this, SpotifyDiagnosticActivity.class)));
+        layout.addView(sdkDiagnostic);
         pairingStatus = new TextView(this);
         pairingStatus.setTextSize(15);
         pairingStatus.setText("Spotify App Remote pairing has not been attempted.");
@@ -542,6 +547,8 @@ public final class MainActivity extends Activity {
         showPairingStatus("Pairing started. Waiting for Spotify's authorisation response…");
         pairingRecord("Spotify installed; starting user-initiated interactive App Remote connection.");
         pairingRecord("Using trusted client ID, registered Android redirect URI and showAuthView=true; no Play command.");
+        SpotifyAppRemote.setDebugMode(true);
+        pairingRecord("Verbose SDK diagnostics enabled in Android logcat, not included in the copyable pairing log.");
 
         try {
             ConnectionParams params = new ConnectionParams.Builder(clientId)
@@ -557,6 +564,7 @@ public final class MainActivity extends Activity {
                             return;
                         }
                         pairingSpotify = false;
+                        SpotifyAppRemote.setDebugMode(false);
                         spotifyPair.setEnabled(true);
                         pairingRecord("Spotify App Remote connected successfully. Native SDK authorisation confirmed.");
                         showPairingStatus("Spotify App Remote authorised successfully. Now try Play from AudioShelf with Spotify closed.");
@@ -567,6 +575,7 @@ public final class MainActivity extends Activity {
                     handler.post(() -> {
                         if (isFinishing() || isDestroyed() || attempt != pairingAttemptId || !pairingSpotify) return;
                         pairingSpotify = false;
+                        SpotifyAppRemote.setDebugMode(false);
                         spotifyPair.setEnabled(true);
                         String reason = WakeDiagnostics.failure(error);
                         pairingRecord("Spotify App Remote pairing failed: " + reason);
@@ -576,6 +585,7 @@ public final class MainActivity extends Activity {
             });
         } catch (RuntimeException error) {
             pairingSpotify = false;
+            SpotifyAppRemote.setDebugMode(false);
             spotifyPair.setEnabled(true);
             String reason = WakeDiagnostics.failure(error);
             pairingRecord("Spotify SDK threw while requesting connection: " + reason);
@@ -592,6 +602,7 @@ public final class MainActivity extends Activity {
         handler.postDelayed(() -> {
             if (pairingSpotify && attempt == pairingAttemptId && !isFinishing() && !isDestroyed()) {
                 pairingSpotify = false;
+                SpotifyAppRemote.setDebugMode(false);
                 spotifyPair.setEnabled(true);
                 pairingRecord("Pairing timed out after 30 seconds with no SDK callback. No authorisation was confirmed.");
                 showPairingStatus("Pairing timed out after 30 seconds. No authorisation was confirmed. Open Spotify manually, return here, and try again.");
@@ -718,6 +729,14 @@ public final class MainActivity extends Activity {
         statusExecutor.shutdownNow();
         finishAndRemoveTask();
     }
+    @Override protected void onStart() {
+        super.onStart();
+        if (pairingSpotify) pairingRecord("Helper Activity onStart during pairing.");
+    }
+    @Override protected void onStop() {
+        if (pairingSpotify) pairingRecord("Helper Activity onStop during pairing.");
+        super.onStop();
+    }
     @Override protected void onResume() {
         super.onResume();
         resumed = true;
@@ -752,6 +771,7 @@ public final class MainActivity extends Activity {
     }
     @Override public void onWindowFocusChanged(boolean focused) {
         super.onWindowFocusChanged(focused);
+        if (pairingSpotify) pairingRecord("Helper window focus=" + focused + " during pairing.");
         if (focused && updater != null) {
             if (checkUpdatesWhenVisible) { checkUpdatesWhenVisible = false; updater.check(); }
             updater.onVisible();
@@ -760,9 +780,13 @@ public final class MainActivity extends Activity {
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
         if (updater != null) updater.activityResult(request);
+        if (pairingSpotify) pairingRecord("Helper received Activity result (request code " + request + "); payload not saved.");
     }
     @Override protected void onDestroy() {
         if (updater != null) updater.close();
+        if (pairingSpotify) SpotifyAppRemote.setDebugMode(false);
+        pairingAttemptId++;
+        pairingSpotify = false;
         completed = true;
         handler.removeCallbacksAndMessages(null);
         if (remote != null) SpotifyAppRemote.disconnect(remote);
