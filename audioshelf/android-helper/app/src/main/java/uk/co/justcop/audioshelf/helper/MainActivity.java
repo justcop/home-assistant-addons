@@ -527,6 +527,7 @@ public final class MainActivity extends Activity {
                 sdkCallbackReceived = false;
                 record("Returned from Spotify; retrying App Remote while AudioShelf checks the selected phone.");
                 connect(wakeClientId);
+                handler.postDelayed(silentSdkRecovery, SpotifyWakeRecovery.NO_CALLBACK_GRACE_MS);
             }
         }
     }
