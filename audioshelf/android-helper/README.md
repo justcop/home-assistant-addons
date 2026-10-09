@@ -21,6 +21,16 @@ When the phone is unavailable, press **Wake Spotify and return** in the waiting 
 
 The launch needs a deliberate tap because browsers restrict automatic app launches after asynchronous network requests. No additional tap is needed to return after a successful connection. Closing the waiting dialog cancels playback; waking Spotify does not override that cancellation.
 
+## Updating the helper
+
+Install helper 0.1.5 once over the existing helper. Afterwards, open **AudioShelf Spotify Helper** from the phone's app drawer. It checks for a published update automatically, and **Check for updates** retries manually. Accept **Download**, then confirm Android's installation screen. On the first update Android may ask you to allow this helper to install apps; enable that setting and return. Installation still needs Android's confirmation. The signing fingerprint stays the same while the repository uses the same private signing key.
+
+Update checks and prompts run only when opening the helper directly, never during the wake-and-return flow. Downloads must match the fixed GitHub helper channel, declared checksum and size, helper package, a newer version, and the installed signing certificate. A failed verification leaves the installed helper unchanged. The downloaded APK is shared only with the Android installer through a private FileProvider.
+
+Merging a helper change into main builds it and publishes the APK plus update metadata to the repository's **audioshelf-helper** GitHub release. Main releases require both signing secrets; a temporary key is never published as a self-update. **Run workflow** on main can publish the current helper too. Pull request APKs are previews and do not replace the published update channel. Before the first merge there may be no published update to check.
+
+The Android icon uses the web app's original record and shelf design, with a small green helper badge to distinguish the two installed apps.
+
 ## Local build
 
 Use Java 17 and Android SDK 35. Generate a local test signing key first:
@@ -28,7 +38,7 @@ Use Java 17 and Android SDK 35. Generate a local test signing key first:
 ```sh
 keytool -genkeypair -keystore prototype.keystore -storepass audioshelf-prototype -keypass audioshelf-prototype -alias prototype -keyalg RSA -keysize 2048 -validity 3650 -dname 'CN=AudioShelf Test, O=justcop, C=GB'
 ./prepare-sdk.sh
-./gradlew :app:assembleDebug :app:lintDebug
+./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
 ```
 
 The SDK AAR is fetched from a pinned Spotify commit and checked against its SHA-256. It remains subject to Spotify's SDK terms and notices: https://github.com/spotify/android-sdk/tree/5aa4d62465f61a0677081ae9a3108177d0365fc3.

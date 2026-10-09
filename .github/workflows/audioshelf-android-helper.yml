@@ -1,6 +1,11 @@
 name: AudioShelf Android helper APK
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'audioshelf/android-helper/**'
+      - '.github/workflows/audioshelf-android-helper.yml'
   pull_request:
     paths:
       - 'audioshelf/android-helper/**'
@@ -40,6 +45,10 @@ jobs:
             printf '%s' "$KEYSTORE_BASE64" | base64 --decode > prototype.keystore
             echo "ANDROID_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
           else
+            if [ "$GITHUB_REF" = 'refs/heads/main' ]; then
+              echo 'Stable signing secrets are required for published helper updates.' >&2
+              exit 1
+            fi
             keytool -genkeypair -keystore prototype.keystore -storepass audioshelf-prototype -keypass audioshelf-prototype -alias prototype -keyalg RSA -keysize 2048 -validity 3650 -dname 'CN=AudioShelf Test, O=justcop, C=GB'
             echo 'Test key generated. Without signing secrets, each build has a different fingerprint and requires a fresh install.' >> "$GITHUB_STEP_SUMMARY"
           fi
@@ -47,11 +56,14 @@ jobs:
           cat signing-fingerprint.txt >> "$GITHUB_STEP_SUMMARY"
       - name: Build and lint sideloaded prototype
         working-directory: audioshelf/android-helper
-        run: ./gradlew --no-daemon :app:assembleDebug :app:lintDebug
+        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
+      - name: Validate update metadata
+        working-directory: audioshelf/android-helper
+        run: python prepare-release.py .
       - name: Upload installable APK
         uses: actions/upload-artifact@v4
         with:
-          name: audioshelf-spotify-helper-0.1.4
+          name: audioshelf-spotify-helper-0.1.5
           path: |
             audioshelf/android-helper/app/build/outputs/apk/debug/app-debug.apk
             audioshelf/android-helper/signing-fingerprint.txt
@@ -63,3 +75,30 @@ jobs:
           Configure your Spotify developer app using the helper README before enabling the helper in AudioShelf Settings.
           Use the fingerprint from this build when configuring Spotify. Set signing secrets for consistent fingerprints and installable updates.
           NOTES
+  publish:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: apk
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: audioshelf-spotify-helper-0.1.5
+          path: helper-release
+      - name: Prepare verified update metadata
+        run: python audioshelf/android-helper/prepare-release.py helper-release
+      - name: Publish helper update channel
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" != "$GITHUB_SHA" ]; then
+            echo 'A newer main commit exists; leaving the update channel unchanged.'
+            exit 0
+          fi
+          if ! gh release view audioshelf-helper >/dev/null 2>&1; then
+            gh release create audioshelf-helper --target "$GITHUB_SHA" --title 'AudioShelf Android Helper' --latest=false --notes 'Signed Android helper updates. Open the installed helper to check for updates.'
+          fi
+          gh release upload audioshelf-helper helper-release/AudioShelf-Helper.apk --clobber
+          gh release upload audioshelf-helper helper-release/audioshelf-helper-update.json --clobber

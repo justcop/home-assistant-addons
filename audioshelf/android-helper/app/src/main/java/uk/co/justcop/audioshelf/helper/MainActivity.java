@@ -22,6 +22,8 @@ import com.spotify.android.appremote.api.SpotifyAppRemote;
 public final class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private SpotifyAppRemote remote;
+    private HelperUpdater updater;
+    private boolean checkUpdatesWhenVisible;
     private TextView message;
     private boolean completed, connecting, resumed, returnRequested;
     private long wakeStartedAt;
@@ -49,6 +51,16 @@ public final class MainActivity extends Activity {
         setContentView(layout);
         Uri data = getIntent().getData();
         if (data == null) {
+            TextView updateStatus = new TextView(this);
+            updateStatus.setGravity(Gravity.CENTER);
+            updateStatus.setPadding(0, padding, 0, padding);
+            layout.addView(updateStatus);
+            updater = new HelperUpdater(this, updateStatus);
+            Button update = new Button(this);
+            update.setText("Check for updates");
+            update.setOnClickListener(v -> updater.check());
+            layout.addView(update);
+            checkUpdatesWhenVisible = true;
             message.setText("Open this helper from AudioShelf's waiting-for-device dialog.\n\nEnable the Android Spotify helper in AudioShelf Settings after configuring the Spotify developer app. Setup instructions are in the Android helper README.");
             return;
         }
@@ -184,7 +196,19 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onResume() { super.onResume(); resumed = true; returnWhenVisible(); }
     @Override protected void onPause() { resumed = false; super.onPause(); }
+    @Override public void onWindowFocusChanged(boolean focused) {
+        super.onWindowFocusChanged(focused);
+        if (focused && updater != null) {
+            if (checkUpdatesWhenVisible) { checkUpdatesWhenVisible = false; updater.check(); }
+            updater.onVisible();
+        }
+    }
+    @Override protected void onActivityResult(int request, int result, Intent data) {
+        super.onActivityResult(request, result, data);
+        if (updater != null) updater.activityResult(request);
+    }
     @Override protected void onDestroy() {
+        if (updater != null) updater.close();
         completed = true;
         handler.removeCallbacksAndMessages(null);
         if (remote != null) SpotifyAppRemote.disconnect(remote);
