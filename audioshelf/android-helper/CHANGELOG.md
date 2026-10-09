@@ -1,3 +1,9 @@
+# 0.1.23
+
+- Add a user-initiated isolated App Remote comparison test that temporarily binds Spotify's verified protocol service with Android's BIND_ALLOW_ACTIVITY_STARTS flag before calling the same SDK connection. Android 14+ normally restricts background service activity launches without this foreground-client opt-in.
+- Hold the permission-grant binding only through the diagnostic SDK attempt, bounded by a five-second binder wait and 30-second SDK callback watchdog; release it on completion or Activity destruction.
+- Label ordinary and grant-enabled attempts distinctly in copyable logs. No changes to the server-owned playback, selected devices, albums, ordinary pairing or automatic wake.
+
 # 0.1.22
 
 - Correct the isolated diagnostic's overly broad candidate filter, which wrongly included AndroidX widget RemoteViews services and therefore skipped the actual binding test on Spotify 9.1.88. Identify Spotify's exported AppProtocolRemoteService specifically and exclude services requiring privileged permissions.

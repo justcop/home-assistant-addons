@@ -38,7 +38,8 @@ public final class SpotifyDiagnosticActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final WakeLog log = new WakeLog();
     private TextView output, status;
-    private Button sdkButton;
+    private Button sdkButton, grantButton;
+    private boolean grantWaiting, grantActive;
     private long started;
     private int attempt;
     private boolean pending, closed, bound;
@@ -75,6 +76,11 @@ public final class SpotifyDiagnosticActivity extends Activity {
         sdkButton.setOnClickListener(v -> connect());
         layout.addView(sdkButton);
 
+        grantButton = new Button(this);
+        grantButton.setText("Test SDK with Android 14+ authorisation-screen grant");
+        grantButton.setOnClickListener(v -> connectWithActivityGrant());
+        layout.addView(grantButton);
+
         Button copy = new Button(this);
         copy.setText("Copy SDK diagnostic log");
         copy.setOnClickListener(v -> {
@@ -104,6 +110,10 @@ public final class SpotifyDiagnosticActivity extends Activity {
     }
 
     private void inspectAndBind() {
+        if (pending || grantWaiting) {
+            event("Service probe unavailable while SDK test is active.");
+            return;
+        }
         releaseBinding();
         PackageInfo info;
         try {
@@ -179,8 +189,124 @@ public final class SpotifyDiagnosticActivity extends Activity {
         binder = null;
     }
 
+    /**
+     * Android 14+ normally prevents a service bound from a foreground app from
+     * launching its own auth Activity unless the client explicitly allows it.
+     * This is an opt-in experiment: bind the *already identified Spotify service*
+     * with BIND_ALLOW_ACTIVITY_STARTS, then invoke the unchanged SDK connection.
+     */
+    private void connectWithActivityGrant() {
+        if (pending || grantWaiting || closed) return;
+        if (Build.VERSION.SDK_INT < 34) {
+            event("Activity launch grant requires Android API 34 or later.");
+            return;
+        }
+        if (!SpotifyAppRemote.isSpotifyInstalled(this)) {
+            event("Cannot grant: Spotify SDK reports Spotify not installed.");
+            return;
+        }
+        String trusted = getSharedPreferences(MainActivity.class.getSimpleName(), MODE_PRIVATE)
+            .getString("trusted_client", "");
+        if (!SpotifyRemoteAuthPolicy.validClientId(trusted)) {
+            event("Cannot grant: missing trusted client ID. Trigger Play from AudioShelf first.");
+            return;
+        }
+        releaseBinding();
+        ServiceInfo target = null;
+        try {
+            PackageInfo info = getPackageManager().getPackageInfo(
+                SPOTIFY, PackageManager.GET_SERVICES);
+            for (ServiceInfo service : info.services == null ? new ServiceInfo[0] : info.services) {
+                if (!SpotifyServicePolicy.candidate(service.name) || !service.exported
+                    || service.permission != null) continue;
+                if (target != null) {
+                    event("Multiple candidate services. Grant test blocked for safety.");
+                    return;
+                }
+                target = service;
+            }
+        } catch (PackageManager.NameNotFoundException error) {
+            event("Spotify package not discoverable. Grant test blocked.");
+            return;
+        } catch (RuntimeException error) {
+            event("Could not inspect grant target: " + WakeDiagnostics.failure(error));
+            return;
+        }
+        if (target == null) {
+            event("No suitable exported Spotify protocol service. Grant test blocked.");
+            return;
+        }
+        String name = target.name;
+        grantWaiting = true;
+        grantActive = true;
+        sdkButton.setEnabled(false);
+        grantButton.setEnabled(false);
+        status.setText("Granting Spotify temporary authorisation-screen launch permission…");
+        event("Opt-in Android 14+ test: binding " + name
+            + " with BIND_ALLOW_ACTIVITY_STARTS. Binding held only during this test.");
+        binder = new ServiceConnection() {
+            @Override public void onServiceConnected(ComponentName component, IBinder service) {
+                if (!grantWaiting || closed) return;
+                grantWaiting = false;
+                event("Permission-grant bind onServiceConnected. Invoking identical App Remote SDK connect now.");
+                connect();
+            }
+            @Override public void onServiceDisconnected(ComponentName component) {
+                event("Grant-test service disconnected.");
+            }
+            @Override public void onBindingDied(ComponentName component) {
+                event("Grant-test service binding died.");
+                if (grantWaiting) abortGrant("Grant-test service binding died before SDK started.");
+            }
+            @Override public void onNullBinding(ComponentName component) {
+                event("Grant-test service returned a null binder.");
+                if (grantWaiting) abortGrant("Grant-test service returned a null binder.");
+            }
+        };
+        try {
+            bound = bindService(new Intent().setComponent(new ComponentName(SPOTIFY, name)),
+                binder, Context.BIND_AUTO_CREATE | Context.BIND_ALLOW_ACTIVITY_STARTS);
+            event("Android bindService with activity-start grant returned " + bound + ".");
+            if (!bound) {
+                abortGrant("Android rejected activity-grant service binding.");
+                return;
+            }
+            // Do not invoke SDK until the grant-enabled binder actually connects.
+            handler.postDelayed(() -> {
+                if (grantWaiting && !closed) {
+                    abortGrant("Five seconds without grant-enabled onServiceConnected; no SDK test started.");
+                }
+            }, 5000);
+        } catch (RuntimeException error) {
+            abortGrant("Grant-enabled binding threw: " + WakeDiagnostics.failure(error));
+        }
+    }
+
+    private void abortGrant(String reason) {
+        event(reason);
+        grantWaiting = false;
+        grantActive = false;
+        releaseBinding();
+        sdkButton.setEnabled(true);
+        grantButton.setEnabled(true);
+        status.setText("Grant-enabled binding failed before SDK connection.");
+    }
+
+    private void finishSdkTest() {
+        pending = false;
+        sdkButton.setEnabled(true);
+        grantButton.setEnabled(true);
+        SpotifyAppRemote.setDebugMode(false);
+        if (grantActive) {
+            event("Releasing temporary Android authorisation-screen launch grant.");
+            grantActive = false;
+            releaseBinding();
+        }
+    }
+
     private void connect() {
-        if (pending || closed) return;
+        if (pending || grantWaiting || closed) return;
+        if (!grantActive) releaseBinding();
         String clientId = getSharedPreferences(MainActivity.class.getSimpleName(), MODE_PRIVATE)
             .getString("trusted_client", "");
         if (!SpotifyRemoteAuthPolicy.validClientId(clientId)) {
@@ -195,10 +321,14 @@ public final class SpotifyDiagnosticActivity extends Activity {
         }
         pending = true;
         sdkButton.setEnabled(false);
+        grantButton.setEnabled(false);
         int current = ++attempt;
         status.setText("Waiting up to 30 seconds for Spotify App Remote callback…");
         event("Isolated SDK test started. Spotify installed; client ID validated; "
             + "registered redirect configured; showAuthView=true; no Play.");
+        event(grantActive
+            ? "Mode: temporary Android BIND_ALLOW_ACTIVITY_STARTS grant held during SDK connect."
+            : "Mode: ordinary SDK connection, no Android activity-start grant.");
         event("Leave this diagnostic screen open for 30 seconds to capture an SDK callback or the local timeout.");
         try {
             SpotifyAppRemote.setDebugMode(true);
@@ -213,32 +343,26 @@ public final class SpotifyDiagnosticActivity extends Activity {
                             SpotifyAppRemote.disconnect(appRemote);
                             return;
                         }
-                        pending = false;
-                        sdkButton.setEnabled(true);
                         remote = appRemote;
+                        finishSdkTest();
                         event("SDK onConnected callback! Isolated connection succeeded.");
                         status.setText("App Remote authorised and connected.");
                         disconnect();
-                        SpotifyAppRemote.setDebugMode(false);
                     });
                 }
                 @Override public void onFailure(Throwable error) {
                     handler.post(() -> {
                         if (closed || !pending || current != attempt) return;
-                        pending = false;
-                        sdkButton.setEnabled(true);
                         event("SDK onFailure: " + WakeDiagnostics.failure(error));
+                        finishSdkTest();
                         status.setText("SDK returned a connection failure.");
-                        SpotifyAppRemote.setDebugMode(false);
                     });
                 }
             });
         } catch (RuntimeException error) {
-            pending = false;
-            sdkButton.setEnabled(true);
             event("SDK connect call threw: " + WakeDiagnostics.failure(error));
+            finishSdkTest();
             status.setText("SDK exception.");
-            SpotifyAppRemote.setDebugMode(false);
             return;
         }
         handler.postDelayed(() -> {
@@ -247,11 +371,9 @@ public final class SpotifyDiagnosticActivity extends Activity {
         }, 10000);
         handler.postDelayed(() -> {
             if (!closed && pending && current == attempt) {
-                pending = false;
-                sdkButton.setEnabled(true);
                 event("30-second local watchdog expired with no SDK callback; not a Spotify response.");
+                finishSdkTest();
                 status.setText("No SDK callback. Compare binding and lifecycle diagnostics.");
-                SpotifyAppRemote.setDebugMode(false);
             }
         }, 30000);
     }
@@ -281,6 +403,8 @@ public final class SpotifyDiagnosticActivity extends Activity {
         closed = true;
         attempt++;
         pending = false;
+        grantWaiting = false;
+        grantActive = false;
         handler.removeCallbacksAndMessages(null);
         releaseBinding();
         disconnect();
