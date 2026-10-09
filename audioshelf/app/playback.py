@@ -68,7 +68,7 @@ class PlaybackHandoff:
                 raise AppError('Unknown playback job.', 404)
             if time.monotonic() > job['deadline'] + 60:
                 raise AppError('Playback job is no longer available.', 404)
-            if not job['payload'][4]():
+            if not job['payload'][3]():
                 return {'state': 'expired', 'error': 'Playback authorisation ended.'}
             if job['state'] == 'waiting':
                 self.changed.wait_for(lambda: job['state'] != 'waiting' or self.job is not job,

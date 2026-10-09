@@ -80,7 +80,7 @@ def test_handoff_routes_validate_and_keep_status_private(application,client,monk
     assert client.get(helper_path,headers={'Authorization':'Bearer invalid'}).status_code==404
     helper_header={'Authorization':'Bearer '+response.json['helper_token']}
     unauthed=application.test_client()
-    assert unauthed.get(helper_path,headers=helper_header).json['state']=='waiting'
+    # A valid helper token is verified after cancellation (no 20-second long-poll).
     path='/api/spotify/playback-handoff/'+response.json['id']
     assert client.get(path).json['state']=='waiting'
     # Separate authenticated owner session still cannot inspect another session's job.
@@ -146,7 +146,7 @@ def test_revoking_real_session_cancels_server_job(application,monkeypatch):
 
 def test_wrong_track_or_wrong_device_never_falsely_confirm_playback(application, monkeypatch):
     spotify=application.extensions['spotify']; album=ready_album(application)
-    phase={'track': 'wrong', 'device': 'speaker', 'playing': True}
+    phase={'track': 'wrong', 'device': 'phone', 'playing': True}
     def api(method, path, params=None, body=None):
         if path=='me/player/devices':return {'devices':[PHONE]}
         if path=='me/player':

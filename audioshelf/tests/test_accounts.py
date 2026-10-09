@@ -319,7 +319,9 @@ def test_background_playback_is_account_and_session_scoped(users,monkeypatch):
             ctx.store.set_setting('preferred_device',{'id':name,'name':name,'type':'Computer'})
             with ctx.store.connect() as db: db.execute('UPDATE tracks SET verified=1,spotify_id=?', ('a'*22,))
             monkeypatch.setattr(ctx.spotify,'devices',lambda n=name:[{'id':n,'name':n,'type':'Computer'}] if ready.is_set() else [])
-            monkeypatch.setattr(ctx.spotify,'play',Mock(return_value={'account':name}))
+            monkeypatch.setattr(ctx.spotify,'play',Mock(return_value={'account':name,'device_id':name,'first_track':{'id':'a'*22}}))
+            monkeypatch.setattr(ctx.spotify,'api',lambda method,path,params=None,body=None,n=name:
+                {'device':{'id':n},'item':{'id':'a'*22},'is_playing':True})
             ctx.handoff.interval=.005
             result=post(client,f'/api/albums/{ALBUM}/playback-handoff')
             assert result.status_code==202
@@ -334,7 +336,7 @@ def test_background_playback_is_account_and_session_scoped(users,monkeypatch):
             time.sleep(.005)
         for name,ctx in zip(('alice','bob'),contexts):
             assert ctx.handoff.job['state']=='started'
-            assert ctx.handoff.job['result']=={'account':name}
+            assert ctx.handoff.job['result']=={'account':name,'device_id':name,'first_track':{'id':'a'*22}}
             assert ctx.spotify.play.call_count==1
     finally:
         for ctx in contexts: ctx.handoff.cancel_all()
