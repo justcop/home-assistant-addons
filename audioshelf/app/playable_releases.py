@@ -49,10 +49,16 @@ class PlayableReleases:
         return assessment
 
     def sources(self, album):
-        # Reuse the same exhaustive Spotify search and matching rules as the
-        # ordinary album resolver. Spotify album details are cached per market.
-        options = self.spotify.candidates(album)
-        return [self.spotify.album(item['id']) for item in options]
+        # Resolve each album's Spotify search only once across paginated
+        # MusicBrainz choices. Spotify.album already caches each market-specific
+        # album; cache just the candidate IDs to avoid repeated search calls.
+        key = 'playable-sources:' + self.spotify.market + ':' + album['id']
+        identifiers = self.store.cache_get(key)
+        if identifiers is None:
+            options = self.spotify.candidates(album)
+            identifiers = [item['id'] for item in options]
+            self.store.cache_put(key, identifiers, ttl=900)
+        return [self.spotify.album(identifier) for identifier in identifiers]
 
     def page(self, album_id, offset=0):
         if not self.spotify.connected:
