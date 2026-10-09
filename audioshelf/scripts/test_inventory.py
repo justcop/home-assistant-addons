@@ -70,7 +70,10 @@ def main():
         valid = False
         metadata = {}
     if not valid or metadata.get('source_sha256') != fingerprint or '\n'+cases+'\n' not in text:
-        parser.exit(1, 'Test inventory is stale or unreviewed. Review changed tests, then run test_inventory.py --update --review-note "Describe your review" and commit TEST_INVENTORY.md.\n')
+        parser.exit(1, 'Test inventory is stale or unreviewed. Actual reviewed source SHA-256: '
+            + str(metadata.get('source_sha256', 'missing')) + '; required SHA-256: ' + fingerprint + '. '
+            + 'Review changed tests, then run test_inventory.py --update --review-note "Describe your review" '
+            + 'and commit TEST_INVENTORY.md.\n')
     print(f'Test inventory matches {len(names)} backend cases and reviewed test/CI sources.')
 
 
