@@ -31,6 +31,11 @@ def editions(application,monkeypatch):
     other=release(OTHER)
     all_releases=[good,partial,other]
     def get(entity,params=None):
+        if entity=='release-group/'+ALBUM:
+            return {'id':ALBUM,'title':'The Album','first-release-date':'2007-04-18',
+                'primary-type':'Album','artist-credit':[{'artist':{
+                    'id':'f181961b-20f7-459e-89de-920ef03c7ed0',
+                    'name':'The Artist','sort-name':'Artist, The'}}]}
         if entity=='release':
             return {'releases':all_releases, 'release-count':len(all_releases)}
         if entity.startswith('release/'):
