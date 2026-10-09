@@ -19,8 +19,9 @@ jobs:
           head -n 10 audioshelf/TEST_INVENTORY.md
           grep -n 'test_helper_token_revoked\|test_wrong_track_or_wrong_device' audioshelf/TEST_INVENTORY.md
           python audioshelf/scripts/test_inventory.py
-      - run: python -m pytest audioshelf/tests -q
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
       - run: node --check audioshelf/app/static/app.js && node audioshelf/tests/test_android_helper.cjs
+      - run: python -m pytest audioshelf/tests -q
+
