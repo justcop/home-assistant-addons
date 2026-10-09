@@ -29,6 +29,7 @@ from .storage import Store
 from .themes import THEMES, THEME_IDS
 from .security import Security
 from .playback import PlaybackHandoff
+from .playable_releases import PlayableReleases
 from .now_playing import resolve_album, spotify_artwork
 
 LOG = logging.getLogger('audioshelf')
@@ -66,7 +67,9 @@ def create_app(options=None):
                       SESSION_COOKIE_SAMESITE='Lax', SESSION_COOKIE_SECURE=True, PERMANENT_SESSION_LIFETIME=timedelta(hours=12))
     musicbrainz, spotify = MusicBrainz(store), Spotify(store, options, private_dir)
     artwork = Artwork(store,spotify,musicbrainz)
-    app.extensions.update(store=store, musicbrainz=musicbrainz, spotify=spotify, artwork=artwork)
+    playable_releases = PlayableReleases(store, musicbrainz, spotify)
+    app.extensions.update(store=store, musicbrainz=musicbrainz, spotify=spotify, artwork=artwork,
+                          playable_releases=playable_releases)
     build_path = Path(__file__).resolve().parents[1]/'build.json'
     build = json.loads(build_path.read_text()) if build_path.exists() else {'version':'0.1.0','channel':'local','revision':'local'}
     build['version'] = os.environ.get('AUDIOSHELF_VERSION',build['version'])
@@ -80,7 +83,9 @@ def create_app(options=None):
     app.extensions['security'] = security
     handoff = PlaybackHandoff(spotify)
     app.extensions['playback_handoff'] = handoff
-    owner_context = SimpleNamespace(handoff=handoff, store=store, musicbrainz=musicbrainz, spotify=spotify, artwork=artwork, security=security)
+    owner_context = SimpleNamespace(handoff=handoff, store=store, musicbrainz=musicbrainz,
+                                    spotify=spotify, artwork=artwork, security=security,
+                                    playable_releases=playable_releases)
     accounts = Accounts(collection, cache, private_dir, options, owner_context)
     app.extensions['accounts'] = accounts
     # Every request resolves its own context. No global current-user mutation.
@@ -90,6 +95,7 @@ def create_app(options=None):
     artwork = LocalProxy(lambda: g.context.artwork)
     security = LocalProxy(lambda: g.context.security)
     handoff = LocalProxy(lambda: g.context.handoff)
+    playable_releases = LocalProxy(lambda: g.context.playable_releases)
 
     @app.before_request
     def select_account():
@@ -558,6 +564,15 @@ def create_app(options=None):
         album_id = mbid(album_id)
         with store.catalogue_lock:
             musicbrainz.ensure_group(album_id)
+            payload = request.get_json(silent=True) or {}
+            if payload.get('release_id') or payload.get('spotify_album_id'):
+                if not payload.get('release_id') or not payload.get('spotify_album_id'):
+                    raise AppError('Select a fully Spotify-matched MusicBrainz edition.')
+                album = playable_releases.select(album_id, payload['release_id'],
+                    payload['spotify_album_id'], reviewed=True, add_to_shelf=True)
+                return jsonify(album)
+            # Backward compatibility for existing integrations. The interactive
+            # Record Store always sends a Spotify-verified edition choice.
             musicbrainz.ensure_tracks(album_id)
             store.shelf(album_id,True)
             return jsonify(store.album(album_id))
@@ -572,6 +587,12 @@ def create_app(options=None):
 
     @app.get('/api/albums/<album_id>/releases')
     def releases(album_id):
+        if request.args.get('playable') == '1':
+            try:
+                offset = int(request.args.get('offset', '0'))
+            except ValueError:
+                raise AppError('Invalid edition cursor.') from None
+            return jsonify(playable_releases.page(mbid(album_id), offset))
         if 'offset' in request.args:
             try:
                 offset = int(request.args['offset'])
@@ -587,7 +608,11 @@ def create_app(options=None):
         if request.json.get('confirmed') is not True:
             raise AppError('Confirm the edition change. It replaces the canonical tracks and clears Spotify mappings.')
         with store.catalogue_lock:
-            return jsonify(musicbrainz.use_release(mbid(album_id),request.json.get('release_id'),True))
+            payload = request.json
+            if payload.get('spotify_album_id'):
+                return jsonify(playable_releases.select(mbid(album_id), payload.get('release_id'),
+                                                       payload['spotify_album_id'], reviewed=True))
+            return jsonify(musicbrainz.use_release(mbid(album_id),payload.get('release_id'),True))
 
     @app.get('/api/albums/<album_id>/diagnostics')
     def diagnostic_report(album_id):
