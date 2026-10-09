@@ -1,3 +1,10 @@
+# 0.1.21
+
+- Add an isolated, user-initiated Spotify App Remote connection test in its own Android Activity, following the documented sample-style connection pattern with the helper's existing app registration.
+- Discover Spotify's declared Android services and optionally test one unambiguous exported remote-service candidate by explicit temporary binding. Distinguish accepted bind from actual onServiceConnected; report inconclusive cases honestly.
+- Enable verbose SDK Android logcat diagnostics only for foreground authorisation tests, adding lifecycle/focus transitions to sanitised copyable logs. Add a service-candidate unit test.
+- Do not change AudioShelf playback handoff, device selection, canonical queues or helper wake policy.
+
 # 0.1.20
 
 - Fix the **Authorise Spotify App Remote** launcher button looking inert. The pairing path is not a playback wake, so the existing `record()` intentionally discards its messages. Give pairing its own live, timestamped log directly below the button, saved separately from the last wake log and copied with **Copy pairing log**.

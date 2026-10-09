@@ -16,6 +16,7 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+        <activity android:name=".SpotifyDiagnosticActivity" android:exported="false" />
         <activity android:name=".MainActivity" android:exported="true"
             android:excludeFromRecents="true" android:launchMode="singleTask"
             android:configChanges="orientation|screenSize">
