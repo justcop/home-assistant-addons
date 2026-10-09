@@ -1,3 +1,9 @@
+# 0.6.12
+
+- Cache collected-album WebP thumbnails in a dedicated account-partitioned Cache Storage on the standalone PWA; retain artwork during ordinary service worker updates and recheck cached art periodically.
+- Settings → Offline artwork reports cached album count, thumbnail count and bytes, with controls to preload the shelf, refresh usage and clear local artwork. Preloading requests persistent browser storage where supported.
+- Prevent caching Record Store previews, placeholder responses, unauthorised artwork and Spotify data. Purge local images on signout or account change and invalidate them when a cover is replaced or an album leaves the shelf. Home Assistant ingress continues using the server-side artwork cache.
+
 # 0.6.11
 
 - Automatically launch the enabled Android helper after Play finds the preferred phone unavailable. Available devices play directly. Preserve the selected album/disc, cancellation and manual wake fallback.
