@@ -1,8 +1,8 @@
-# 0.1.3
+# 0.1.4
 
-- Keep the warm-up wait in the helper: request a launch behind it when Spotify supports that launch mode, then restore the helper task promptly.
-- Retain the explicit Spotify launch, full five-second warm-up, optional SDK binding, and trusted AudioShelf return link.
-- A brief Spotify flash is possible on the foreground fallback. If Android restricts task movement, keep the working foreground warm-up and automatic return.
+- Restore the original Spotify App Remote service wake without any launcher intent or foreground task switching. Wait in the helper for at least five seconds before returning, including after an SDK failure.
+- Keep the trusted AudioShelf return link. A pending connection gets up to 45 seconds; first-use Spotify authorisation is allowed to finish before returning.
+- Keep the working foreground route available through AudioShelf's manual Open Spotify link.
 
 # 0.1.2
 
