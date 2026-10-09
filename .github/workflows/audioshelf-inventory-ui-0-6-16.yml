@@ -1,0 +1,33 @@
+name: Refresh AudioShelf test inventory (temporary)
+on:
+  push:
+    branches: [audioshelf-faster-discovery-live-playback]
+    paths: ['.github/workflows/audioshelf-inventory-ui-0-6-16.yml']
+permissions:
+  contents: write
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: pip install -r audioshelf/requirements.txt pytest==8.4.2 PyYAML==6.0.2
+      - name: Review updated UI contract test and regenerate inventory
+        run: >
+          python audioshelf/scripts/test_inventory.py --update --review-note
+          "Reviewed the existing AudioShelf playback and UI cases with the new 500ms
+          Connect discovery and live startup feedback. The UI regression checks now
+          expect Starting playback on Fixture phone in three distinct handoff flows,
+          plus a visible status indicator. Backend tests exercise polling taper and
+          scoped progress without helper capabilities. Exact-track validation, device
+          pinning and cancellation remain required and covered. Real-device startup
+          measurements and Spotify rate-limit monitoring remain necessary."
+      - name: Commit reviewed inventory
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add audioshelf/TEST_INVENTORY.md
+          git commit -m 'Refresh AudioShelf 0.6.16 playback UI inventory'
+          git push origin HEAD:audioshelf-faster-discovery-live-playback
