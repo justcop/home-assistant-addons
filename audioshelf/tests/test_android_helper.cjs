@@ -29,7 +29,7 @@ assert.equal(new URLSearchParams(link.slice(link.indexOf('?')+1,link.indexOf('#I
 assert(!link.includes('album_id='),'The helper must not receive playback content');
 assert(!context.androidHelperLink(false,{}),'No helper launch without scoped job credentials');
 assert(context.playbackWakeLinks(sampleJob).includes('Wake Spotify and return'));
-assert(context.playbackWakeLinks().includes('href="spotify:"'),'Manual fallback stays available');
+assert(context.playbackWakeLinks(sampleJob).includes('href="spotify:"'),'Manual fallback stays available');
 for(const type of ['Speaker','Computer','TV',undefined]){
   context.statusInfo.preferred_device.type=type;
   assert.equal(context.androidHelperLink(false,sampleJob),null,`No phone helper for ${type}`);
