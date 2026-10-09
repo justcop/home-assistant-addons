@@ -15,6 +15,32 @@ public class WakeReturnStateTest {
         assertFalse(state.shouldPoll(false));
     }
 
+    @Test public void discoveredPhoneReturnsBeforePlayIsDispatchedOrConfirmed() {
+        WakeReturnState state = new WakeReturnState();
+        state.onServerState("waiting");
+        assertFalse(state.shouldReturn(true, false));
+        state.onDeviceReady();
+        assertTrue(state.shouldReturn(true, false));
+        assertFalse(state.shouldPoll(false));
+        assertFalse(state.shouldReturn(false, false));
+        assertFalse(state.shouldReturn(true, true));
+    }
+
+    @Test public void diagnosticHoldCanWatchServerAfterDeviceDiscovery() {
+        WakeReturnState state = new WakeReturnState();
+        state.onDeviceReady();
+        assertFalse(state.shouldReturn(true, true));
+        assertTrue(state.shouldPoll(true));
+        state.onServerState("waiting");
+        assertTrue(state.shouldPoll(true));
+        state.onPlayAccepted();
+        assertTrue(state.shouldPoll(true));
+        state.onServerState("started");
+        assertFalse(state.shouldPoll(true));
+        assertFalse(state.shouldReturn(true, true));
+        assertTrue(state.shouldReturn(true, false));
+    }
+
     @Test public void returnOnPlayAcceptanceDoesNotWaitForSpotifyConfirmation() {
         assertEquals(20000, WakeReturnState.WAKE_WINDOW_MS);
         WakeReturnState state = new WakeReturnState();
