@@ -1,3 +1,10 @@
+# 0.6.13
+
+- Locally cache collected albums' resized WebP covers in the standalone PWA, preserving saved images across ordinary updates without touching the existing Home Assistant server cache.
+- Show the number of albums, thumbnails and measured image cache size in Settings → Offline artwork; preload your shelf, refresh its size or clear it from the phone.
+- Partition the cache per AudioShelf account and purge old-account covers on signout/switch; invalidate manually changed artwork, recheck previously cached covers periodically and avoid caching Record Store previews or Spotify content.
+- Preserve the verified-playback Android helper integration shipped in 0.6.12.
+
 # 0.6.12
 
 - Enable short-lived, scoped Android helper playback-status long polling; don't use SDK callbacks or timers as proof of playback.
