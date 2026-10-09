@@ -46,6 +46,7 @@ public final class MainActivity extends Activity {
     private String lastPlayerStatus;
     private boolean completed, connecting, resumed, sdkFailed;
     private boolean foregroundRecoveryOpened, sdkCallbackReceived;
+    private boolean sdkWakeStarted, manualRecoveryGrace;
     private String wakeClientId;
     private final WakeReturnState wakeReturn = new WakeReturnState();
     private String lastStatusError, lastServerProgress;
@@ -78,7 +79,9 @@ public final class MainActivity extends Activity {
         wakeReturn.onDeadline();
         record(serverContacted ? "Last AudioShelf progress: " + lastServerProgress :
             "No authenticated AudioShelf status received before return. Last network step: " + transportStage);
-        record("20-second wake deadline reached. Play was not confirmed accepted; AudioShelf continues checking.");
+        record(manualRecoveryGrace
+            ? "User-initiated Spotify recovery grace ended. Play was not yet confirmed accepted; AudioShelf continues checking."
+            : "20-second wake deadline reached. Play was not confirmed accepted; AudioShelf continues checking.");
         message.setText(keepOpen ? "Wake window finished. Diagnostic hold keeps this log open." :
             "Returning to AudioShelf to check playback…");
         if (keepOpen) record("Diagnostic hold enabled; status monitoring continues until the job finishes.");
@@ -232,8 +235,12 @@ public final class MainActivity extends Activity {
             "Optional local playback detection disabled. Using AudioShelf server feedback.");
         // Establish a baseline before waking Spotify so existing playback is ignored.
         readLocalPlayback();
-        connect(clientId);
-        handler.postDelayed(silentSdkRecovery, SpotifyWakeRecovery.NO_CALLBACK_GRACE_MS);
+        // Spotify recommends connecting while the helper activity is visible.
+        // Previously we called App Remote from onCreate, several milliseconds
+        // before onResume. Its authorization view may be blocked while Spotify
+        // is backgrounded, leaving neither onConnected nor onFailure.
+        if (resumed) startInitialSdkWake();
+        else record("Waiting for the helper to become visible before attempting Spotify App Remote.");
         if (completed) return;
         record("AudioShelf job status monitoring started.");
         readPlaybackStatus();
@@ -366,6 +373,15 @@ public final class MainActivity extends Activity {
         });
     }
 
+    private void startInitialSdkWake() {
+        if (!wakeRequest || sdkWakeStarted || completed || wakeClientId == null
+                || playbackMonitor == null) return;
+        sdkWakeStarted = true;
+        connect(wakeClientId);
+        handler.removeCallbacks(silentSdkRecovery);
+        handler.postDelayed(silentSdkRecovery, SpotifyWakeRecovery.NO_CALLBACK_GRACE_MS);
+    }
+
     private void openSpotifyRecovery() {
         // A failed App Remote authorisation is not evidence that playback
         // commands were sent or that Spotify has even started. Opening the
@@ -383,6 +399,13 @@ public final class MainActivity extends Activity {
             message.setText("Open Spotify and, if asked, approve access. Then press Back to return here; AudioShelf continues waiting for your selected phone.");
             spotifyRecovery.setVisibility(View.GONE);
             startActivity(launch);
+            // The normal 20s deadline is appropriate for silent background
+            // wake, but insufficient when Spotify is deliberately opened at
+            // 19.5s. Give it an additional bounded registration window.
+            handler.removeCallbacks(returnDeadline);
+            handler.postDelayed(returnDeadline, SpotifyWakeRecovery.USER_RECOVERY_GRACE_MS);
+            manualRecoveryGrace = true;
+            record("User-requested Spotify recovery granted 15 seconds for the selected phone to register on Connect.");
         } catch (ActivityNotFoundException | SecurityException error) {
             foregroundRecoveryOpened = false;
             spotifyRecovery.setVisibility(View.VISIBLE);
@@ -513,6 +536,7 @@ public final class MainActivity extends Activity {
         if (playbackAccess != null) playbackAccess.setText(SpotifyPlaybackMonitor.enabled(this) ?
             "Spotify playback detection enabled" : "Enable Spotify playback detection");
         if (wakeRequest) record("Helper visible.");
+        startInitialSdkWake();
         returnWhenVisible();
         if (foregroundRecoveryOpened && !completed && wakeClientId != null
                 && wakeReturn.shouldPoll(keepOpen)) {
