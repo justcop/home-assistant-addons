@@ -70,7 +70,9 @@ async function loadArtwork(event,account) {
     return stored;
   }
   const response=await fetch(request);
-  if(eligibleArtwork(response))event.waitUntil(storeArtwork(cache,request,response));
+  // Complete the cache write before the fetch resolves, so Settings can report
+  // exact sizes and Clear cannot race a pending image write.
+  if(eligibleArtwork(response))await storeArtwork(cache,request,response);
   return response;
 }
 self.addEventListener('fetch', event => {
