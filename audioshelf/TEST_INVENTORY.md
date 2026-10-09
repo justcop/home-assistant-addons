@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-09T15:03:06+01:00 (Europe/London).
+Reviewed: 2026-10-09T15:08:17+01:00 (Europe/London).
 
-Reviewed two new independent backend tests: cold-start discovery polls every 500ms for the first five seconds, then taper while preserving configured shorter intervals; authenticated owner snapshots expose safe phase and Play-accepted progress without leaking helper tokens. Reviewed changed Android helper browser contract tests for live status text, accepted-versus-confirmed playback and visible-page polling taper. Existing device pinning, expiry, account scoping and cancellation tests remain intact. Real device timing and Spotify rate-limit behaviour require manual verification.
+Reviewed the existing AudioShelf playback and UI cases with the new 500ms Connect discovery and live startup feedback. The UI regression checks now expect Starting playback on Fixture phone in three distinct handoff flows, plus a visible status indicator. Backend tests exercise polling taper and scoped progress without helper capabilities. Exact-track validation, device pinning and cancellation remain required and covered. Real-device startup measurements and Spotify rate-limit monitoring remain necessary.
 
-<!-- inventory: {"reviewed_at": "2026-10-09T15:03:06+01:00", "review_note": "Reviewed two new independent backend tests: cold-start discovery polls every 500ms for the first five seconds, then taper while preserving configured shorter intervals; authenticated owner snapshots expose safe phase and Play-accepted progress without leaking helper tokens. Reviewed changed Android helper browser contract tests for live status text, accepted-versus-confirmed playback and visible-page polling taper. Existing device pinning, expiry, account scoping and cancellation tests remain intact. Real device timing and Spotify rate-limit behaviour require manual verification.", "source_sha256": "d234028621adf4a07968f089251b5c38a8a12dd6d7e0837c65cc0f0738c9abad"} -->
+<!-- inventory: {"reviewed_at": "2026-10-09T15:08:17+01:00", "review_note": "Reviewed the existing AudioShelf playback and UI cases with the new 500ms Connect discovery and live startup feedback. The UI regression checks now expect Starting playback on Fixture phone in three distinct handoff flows, plus a visible status indicator. Backend tests exercise polling taper and scoped progress without helper capabilities. Exact-track validation, device pinning and cancellation remain required and covered. Real-device startup measurements and Spotify rate-limit monitoring remain necessary.", "source_sha256": "87f2f8290d09661292ede43e2d5c06a020ed88f4e677ed0ed04e9cd4541055a7"} -->
 
 ## Backend cases (300)
 
