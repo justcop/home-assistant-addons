@@ -16,8 +16,6 @@ class PlaybackHandoff:
         self.spotify = spotify
         self.timeout = timeout
         self.interval = interval
-        # Check a waking phone more frequently, without changing long-running retries.
-        self.wake_interval = min(interval, 1.0)
         self.lock = threading.RLock()
         self.changed = threading.Condition(self.lock)
         self.helper_changed = threading.Condition()
@@ -213,6 +211,6 @@ class PlaybackHandoff:
                 return
             # Faster discovery for the first 15 seconds of a cold Spotify wake.
             # A configured shorter interval (e.g. tests) is preserved.
-            interval = (self.wake_interval if time.monotonic() - job['created_monotonic'] < 15
+            interval = (min(self.interval, 1.0) if time.monotonic() - job['created_monotonic'] < 15
                         else self.interval)
             job['stop'].wait(min(interval, max(0, job['deadline'] - time.monotonic())))
