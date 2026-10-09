@@ -1,0 +1,37 @@
+name: Refresh AudioShelf 0.6.18 inventory after regression fixes (temporary)
+on:
+  push:
+    branches: [audioshelf-playable-release-selection]
+    paths: ['.github/workflows/audioshelf-inventory-playable-final.yml']
+permissions:
+  contents: write
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: pip install -r audioshelf/requirements.txt pytest==8.4.2 PyYAML==6.0.2
+      - name: Refresh reviewed test inventory
+        run: >
+          python audioshelf/scripts/test_inventory.py --update --review-note
+          "Reviewed 0.6.18 Spotify-verified edition selection and existing-shelf
+          compatibility. Fixture MusicBrainz group lookup is now mocked for the
+          new shelf mutation tests, the Classic UI integration expects the
+          refreshed collection badge, and Spotify search source IDs are cached
+          per album and market for fifteen minutes between four-edition batches.
+          Existing user mappings and shelf records remain unchanged during
+          release previews or unsuccessful preflight checks. Full verified
+          album mapping is saved on selection; first-listen canonical tracklist
+          review stays required. Cover choices are independent and multi-user
+          Spotify contexts remain isolated. Test suite and real-user playback
+          are separate validation stages."
+      - name: Commit inventory
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add audioshelf/TEST_INVENTORY.md
+          git commit -m 'Refresh AudioShelf 0.6.18 tests after fixes'
+          git push origin HEAD:audioshelf-playable-release-selection
