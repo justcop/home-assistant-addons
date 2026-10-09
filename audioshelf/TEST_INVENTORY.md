@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-09T10:59:56+01:00 (Europe/London).
+Reviewed: 2026-10-09T12:34:03+01:00 (Europe/London).
 
-Reviewed helper tests covering available-device playback, one automatic wake for an opted-in unavailable phone, selected disc preservation, disabled and non-phone fallback, cancellation and delayed handoff cancellation. Existing browser and backend cases retained.
+Reviewed integrated AudioShelf 0.6.13 cache tests alongside the authenticated Spotify helper playback handshake. Browser tests verify measured cache size, offline thumbnail retrieval, preload completion and clearing, account isolation, cache persistence through app updates, Android handoff, and catalogue navigation. Source fingerprint covers the current workflow and helper tests.
 
-<!-- inventory: {"reviewed_at": "2026-10-09T10:59:56+01:00", "review_note": "Reviewed helper tests covering available-device playback, one automatic wake for an opted-in unavailable phone, selected disc preservation, disabled and non-phone fallback, cancellation and delayed handoff cancellation. Existing browser and backend cases retained.", "source_sha256": "087d4af126a780c894cdafc47afb4d096966de1b4d8d46e924d0556f0f338ca6"} -->
+<!-- inventory: {"reviewed_at":"2026-10-09T12:34:03+01:00","review_note":"Reviewed integrated AudioShelf 0.6.13 cache tests alongside the authenticated Spotify helper playback handshake. Browser tests verify measured cache size, offline thumbnail retrieval, preload completion and clearing, account isolation, cache persistence through app updates, Android handoff, and catalogue navigation. Source fingerprint covers the current workflow and helper tests.","source_sha256":"684bb855bd1af6fd4a134f715eebaf7271712da3dd077df25c001692967a6965"} -->
 
 ## Backend cases (293)
 
