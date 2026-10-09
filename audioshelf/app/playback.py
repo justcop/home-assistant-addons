@@ -34,7 +34,9 @@ class PlaybackHandoff:
 
     @staticmethod
     def snapshot(job):
-        return {key: job[key] for key in ('id', 'state', 'result', 'error')}
+        # The authenticated PWA can show wake/dispatch progress without polling
+        # Spotify's player API or mistaking a submitted command for confirmed play.
+        return {key: job[key] for key in ('id', 'state', 'result', 'error', 'phase', 'play_accepted')}
 
     def start(self, album, disc, preferred, owner, authorized):
         token = secrets.token_urlsafe(32)
@@ -151,6 +153,11 @@ class PlaybackHandoff:
             self.progress(job, phase)
             job['stop'].wait(min(self.interval, max(0, job['deadline'] - time.monotonic())))
 
+    def device_poll_interval(self, elapsed):
+        """Favor low-latency discovery early, without busy-looping slow phones."""
+        target = 0.5 if elapsed < 5 else 1.0 if elapsed < 15 else self.interval
+        return min(self.interval, target)
+
     def run(self, job, album, disc, preferred, authorized):
         command_sent = False
 
@@ -209,8 +216,8 @@ class PlaybackHandoff:
                                 error='Spotify may have received Play, but confirmation failed. Check your phone.' if command_sent
                                 else 'Spotify playback could not be started. Please retry.')
                 return
-            # Faster discovery for the first 15 seconds of a cold Spotify wake.
-            # A configured shorter interval (e.g. tests) is preserved.
-            interval = (min(self.interval, 1.0) if time.monotonic() - job['created_monotonic'] < 15
-                        else self.interval)
-            job['stop'].wait(min(interval, max(0, job['deadline'] - time.monotonic())))
+            # 0-5 seconds: 500 ms; 5-15 seconds: 1 second; then normal interval.
+            # Respect configured shorter intervals, cancellation and job expiry.
+            now = time.monotonic()
+            interval = self.device_poll_interval(now - job['created_monotonic'])
+            job['stop'].wait(min(interval, max(0, job['deadline'] - now)))
