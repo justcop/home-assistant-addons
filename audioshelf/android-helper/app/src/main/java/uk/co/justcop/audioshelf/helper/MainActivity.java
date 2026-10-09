@@ -17,6 +17,7 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
 import android.view.Gravity;
+import android.view.View;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.ScrollView;
@@ -34,7 +35,7 @@ public final class MainActivity extends Activity {
     private SpotifyAppRemote remote;
     private HelperUpdater updater;
     private SpotifyPlaybackMonitor playbackMonitor;
-    private Button playbackAccess;
+    private Button playbackAccess, spotifyRecovery;
     private boolean localMonitorError;
     private String lastLocalStatus;
     private boolean checkUpdatesWhenVisible;
@@ -44,6 +45,8 @@ public final class MainActivity extends Activity {
     private boolean wakeRequest, keepOpen;
     private String lastPlayerStatus;
     private boolean completed, connecting, resumed, sdkFailed;
+    private boolean foregroundRecoveryOpened;
+    private String wakeClientId;
     private final WakeReturnState wakeReturn = new WakeReturnState();
     private String lastStatusError, lastServerProgress;
     private String transportStage = "not started";
@@ -86,6 +89,11 @@ public final class MainActivity extends Activity {
             else finishHelper();
         });
         layout.addView(back);
+        spotifyRecovery = new Button(this);
+        spotifyRecovery.setText("Open Spotify to restore connection");
+        spotifyRecovery.setVisibility(View.GONE);
+        spotifyRecovery.setOnClickListener(v -> openSpotifyRecovery());
+        layout.addView(spotifyRecovery);
         playbackAccess = new Button(this);
         playbackAccess.setText("Enable Spotify playback detection");
         playbackAccess.setOnClickListener(v -> new AlertDialog.Builder(this)
@@ -153,6 +161,7 @@ public final class MainActivity extends Activity {
             fail("Invalid AudioShelf helper request.");
             return;
         }
+        wakeClientId = clientId;
         returnUri = Uri.parse(returnUrl == null ? origin : returnUrl);
         record("Request and HTTPS return address validated. No playback commands are sent by this helper.");
         String trusted = getPreferences(MODE_PRIVATE).getString("trusted_origin", "");
@@ -341,6 +350,31 @@ public final class MainActivity extends Activity {
         });
     }
 
+    private void openSpotifyRecovery() {
+        // A failed App Remote authorisation is not evidence that playback
+        // commands were sent or that Spotify has even started. Opening the
+        // foreground Spotify UI is ONLY ever a deliberate user gesture.
+        if (!wakeRequest || completed || returnUri == null || !wakeReturn.shouldPoll(keepOpen)) return;
+        Intent launch = getPackageManager().getLaunchIntentForPackage("com.spotify.music");
+        if (launch == null) {
+            record("Cannot open Spotify: launcher activity unavailable.");
+            message.setText("Spotify cannot be opened. Start it manually, then return to AudioShelf.");
+            return;
+        }
+        try {
+            foregroundRecoveryOpened = true;
+            record("User requested Spotify foreground recovery; no playback commands or device switching were sent.");
+            message.setText("Open Spotify and, if asked, approve access. Then press Back to return here; AudioShelf continues waiting for your selected phone.");
+            spotifyRecovery.setVisibility(View.GONE);
+            startActivity(launch);
+        } catch (ActivityNotFoundException | SecurityException error) {
+            foregroundRecoveryOpened = false;
+            spotifyRecovery.setVisibility(View.VISIBLE);
+            record("Unable to open Spotify: " + WakeDiagnostics.failure(error));
+            message.setText("Open Spotify manually and return here to continue the original playback request.");
+        }
+    }
+
     private void connect(String clientId) {
         if (completed || connecting) return;
         if (!SpotifyAppRemote.isSpotifyInstalled(this)) {
@@ -392,10 +426,23 @@ public final class MainActivity extends Activity {
                 Log.w("AudioShelfHelper", "Spotify SDK connection failed: " + WakeDiagnostics.failure(error));
                 handler.post(() -> {
                     if (completed || isFinishing() || isDestroyed()) return;
+                    connecting = false;
                     sdkFailed = true;
+                    boolean authorization = WakeDiagnostics.isAuthorizationFailure(error);
                     record("Spotify SDK failed: " + WakeDiagnostics.failure(error));
-                    record("SDK session failure does not confirm wake failure. Keeping Spotify in the background.");
-                    message.setText("Spotify SDK session failed. Background waking may still work; waiting for AudioShelf or the return deadline.");
+                    record(authorization
+                        ? "Spotify App Remote authorisation rejected. This is distinct from Web API rate limits."
+                        : "Spotify SDK session failure does not confirm wake failure.");
+                    record("Continuing background wake; no automatic foreground Spotify launch.");
+                    message.setText(authorization
+                        ? "Spotify did not authorise the helper. Waiting for Spotify Connect; you can open Spotify manually below if it stays unavailable."
+                        : "Spotify SDK connection failed. Waiting for AudioShelf; you can open Spotify manually if needed.");
+                    // Show a user-triggered escape hatch, but leave Spotify in
+                    // the background if this wake succeeded despite SDK failure.
+                    handler.postDelayed(() -> {
+                        if (!completed && wakeRequest && wakeReturn.shouldPoll(keepOpen)
+                                && spotifyRecovery != null) spotifyRecovery.setVisibility(View.VISIBLE);
+                    }, 1200);
                 });
             }
         });
@@ -449,6 +496,16 @@ public final class MainActivity extends Activity {
             "Spotify playback detection enabled" : "Enable Spotify playback detection");
         if (wakeRequest) record("Helper visible.");
         returnWhenVisible();
+        if (foregroundRecoveryOpened && !completed && wakeClientId != null
+                && wakeReturn.shouldPoll(keepOpen)) {
+            foregroundRecoveryOpened = false;
+            // A foreground Spotify visit can complete the Spotify App Remote
+            // authorisation that Android prevented from opening in background.
+            // Retry once on returning to the visible helper; no Play command.
+            sdkFailed = false;
+            record("Returned from manually opening Spotify; retrying SDK authorisation while AudioShelf checks the selected phone.");
+            connect(wakeClientId);
+        }
     }
     @Override protected void onPause() { resumed = false; if (wakeRequest) record("Helper left foreground."); super.onPause(); }
     @Override public void onWindowFocusChanged(boolean focused) {
