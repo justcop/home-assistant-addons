@@ -12,6 +12,14 @@ public class SpotifyWakeRecoveryTest {
         assertEquals(20000, WakeReturnState.WAKE_WINDOW_MS);
     }
 
+    @Test public void sdkConnectionOnlyBeginsWithVisibleActivityOnce() {
+        assertFalse(SpotifyWakeRecovery.shouldStartInitialSdk(false,true,false,true));
+        assertFalse(SpotifyWakeRecovery.shouldStartInitialSdk(true,false,false,true));
+        assertFalse(SpotifyWakeRecovery.shouldStartInitialSdk(true,true,true,true));
+        assertFalse(SpotifyWakeRecovery.shouldStartInitialSdk(true,true,false,false));
+        assertTrue(SpotifyWakeRecovery.shouldStartInitialSdk(true,true,false,true));
+    }
+
     @Test public void hungSdkConnectionOffersManualFallbackAfterThreeSeconds() {
         assertFalse(SpotifyWakeRecovery.shouldOfferManualRecovery(false,false,true,0));
         assertFalse(SpotifyWakeRecovery.shouldOfferManualRecovery(false,false,true,2999));
