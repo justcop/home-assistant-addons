@@ -45,7 +45,7 @@ public final class MainActivity extends Activity {
     private boolean wakeRequest, keepOpen;
     private String lastPlayerStatus;
     private boolean completed, connecting, resumed, sdkFailed;
-    private boolean foregroundRecoveryOpened;
+    private boolean foregroundRecoveryOpened, sdkCallbackReceived;
     private String wakeClientId;
     private final WakeReturnState wakeReturn = new WakeReturnState();
     private String lastStatusError, lastServerProgress;
@@ -57,6 +57,21 @@ public final class MainActivity extends Activity {
     private String origin, accountId, jobId, helperToken, lastServerState;
     private Uri returnUri;
     private final Runnable pollStatus = this::readPlaybackStatus;
+    private final Runnable silentSdkRecovery = () -> {
+        if (!wakeRequest || completed || isFinishing() || isDestroyed()) return;
+        boolean active = wakeReturn.shouldPoll(keepOpen);
+        if (SpotifyWakeRecovery.shouldOfferManualRecovery(
+                sdkCallbackReceived, deviceReadinessLogged || playAcceptanceLogged,
+                active, SystemClock.elapsedRealtime() - diagnosticStartedAt)) {
+            // Android/Spotify can fail to deliver either SDK callback. The old
+            // button only appeared after onFailure and was invisible in this case.
+            if (spotifyRecovery != null && spotifyRecovery.getVisibility() != View.VISIBLE) {
+                record("Spotify SDK has returned neither success nor failure after three seconds. Manual recovery is available.");
+                spotifyRecovery.setVisibility(View.VISIBLE);
+                message.setText("Spotify has not responded to its background connection. You can open Spotify to restore it, or continue waiting for AudioShelf to find the selected phone.");
+            }
+        }
+    };
     private final Runnable pollLocalPlayback = this::readLocalPlayback;
     private final Runnable returnDeadline = () -> {
         if (completed || isFinishing() || isDestroyed()) return;
@@ -218,6 +233,7 @@ public final class MainActivity extends Activity {
         // Establish a baseline before waking Spotify so existing playback is ignored.
         readLocalPlayback();
         connect(clientId);
+        handler.postDelayed(silentSdkRecovery, SpotifyWakeRecovery.NO_CALLBACK_GRACE_MS);
         if (completed) return;
         record("AudioShelf job status monitoring started.");
         readPlaybackStatus();
@@ -402,6 +418,7 @@ public final class MainActivity extends Activity {
         SpotifyAppRemote.connect(this, params, new Connector.ConnectionListener() {
             @Override public void onConnected(SpotifyAppRemote appRemote) {
                 handler.post(() -> {
+                    sdkCallbackReceived = true;
                     if (completed || isFinishing() || isDestroyed()) {
                         SpotifyAppRemote.disconnect(appRemote);
                         return;
@@ -425,6 +442,7 @@ public final class MainActivity extends Activity {
             @Override public void onFailure(Throwable error) {
                 Log.w("AudioShelfHelper", "Spotify SDK connection failed: " + WakeDiagnostics.failure(error));
                 handler.post(() -> {
+                    sdkCallbackReceived = true;
                     if (completed || isFinishing() || isDestroyed()) return;
                     connecting = false;
                     sdkFailed = true;
@@ -499,12 +517,18 @@ public final class MainActivity extends Activity {
         if (foregroundRecoveryOpened && !completed && wakeClientId != null
                 && wakeReturn.shouldPoll(keepOpen)) {
             foregroundRecoveryOpened = false;
-            // A foreground Spotify visit can complete the Spotify App Remote
-            // authorisation that Android prevented from opening in background.
-            // Retry once on returning to the visible helper; no Play command.
-            sdkFailed = false;
-            record("Returned from manually opening Spotify; retrying SDK authorisation while AudioShelf checks the selected phone.");
-            connect(wakeClientId);
+            // A foreground Spotify visit can complete App Remote authorisation.
+            // Never start a duplicate SDK connection if the original call is
+            // still awaiting a callback. Server device discovery remains live.
+            if (connecting) {
+                record("Returned from Spotify; original SDK connection is still pending. AudioShelf continues checking the phone.");
+            } else {
+                sdkFailed = false;
+                sdkCallbackReceived = false;
+                record("Returned from Spotify; retrying App Remote while AudioShelf checks the selected phone.");
+                connect(wakeClientId);
+                handler.postDelayed(silentSdkRecovery, SpotifyWakeRecovery.NO_CALLBACK_GRACE_MS);
+            }
         }
     }
     @Override protected void onPause() { resumed = false; if (wakeRequest) record("Helper left foreground."); super.onPause(); }
