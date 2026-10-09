@@ -328,7 +328,7 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
       return {name,urls:keys.map(key=>key.url),...stats};
     });
     assert(cacheBefore.albums>=1&&cacheBefore.files>=1&&cacheBefore.bytes>0,'Artwork preloading must persist WebP thumbnails in Cache Storage');
-    assert(cacheBefore.urls.every(url=>url.includes('account=owner')&&url.includes('/artwork?size=320')),'Only private shelf thumbnails are cached');
+    assert(cacheBefore.urls.every(source=>{const url=new URL(source);return url.searchParams.get('account')==='owner'&&['128','320','640'].includes(url.searchParams.get('size'))&&/\/api\/albums\/[a-f0-9-]{36}\/artwork$/i.test(url.pathname);}), 'Only private shelf thumbnails are cached');
     assert((await page.locator('#artwork-cache-stats').textContent()).includes('thumbnail'));
     // A stored thumbnail can be served by the service worker without network.
     await page.context().setOffline(true);
