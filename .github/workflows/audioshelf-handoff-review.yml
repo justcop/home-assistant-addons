@@ -1,4 +1,5 @@
 name: AudioShelf playback handoff review
+# Final handshake verification with updated multi-account tests
 on:
   push:
     paths: ['.github/workflows/audioshelf-handoff-review.yml']
