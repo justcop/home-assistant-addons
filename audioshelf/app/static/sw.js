@@ -28,7 +28,7 @@ function shelfArtwork(url) {
   const match=url.pathname.match(/\/api\/albums\/([0-9a-f-]{36})\/artwork$/i);
   if(!match || !['128','320','640'].includes(url.searchParams.get('size')))return null;
   const account=url.searchParams.get('account');
-  if(!account || !/^(?:owner|[0-9a-f-]{36})$/i.test(account))return null;
+  if(!account || !/^(?:owner|[0-9a-f]{32})$/i.test(account))return null;
   return {album:match[1],account};
 }
 function eligibleArtwork(response){
