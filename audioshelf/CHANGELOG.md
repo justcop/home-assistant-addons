@@ -1,3 +1,11 @@
+# 0.6.16
+
+- Check Spotify Connect for the selected phone every 500 ms during the first five seconds of a cold wake, every second until 15 seconds, then at the existing slower interval; respect shorter test/configuration intervals and the existing job cancellation and one-minute expiry.
+- Expose only the authenticated job phase and Play-accepted indicator to the PWA so it can show real, accurate startup progress without exposing helper credentials or issuing an extra Spotify API call.
+- While the PWA is visible, check its background playback job every 500 ms for 15 seconds, every second until 30 seconds, and every two seconds thereafter. Poll immediately when returning from the Android helper.
+- Show device discovery, Play dispatch and verification in a live waiting dialog. Keep the album's turntable at STARTING until the server verifies the exact phone and first track; then update Now Playing automatically and dismiss the dialog.
+- Preserve helper 0.1.14's return-on-discovery behaviour, the chosen device, canonical album/disc tracklist and cancellation semantics.
+
 # 0.6.15
 
 - Expose a persistent, authenticated Play-accepted flag as soon as Spotify successfully responds to the canonical album/disc playback request. Confirmation of the selected device and exact track continues independently.
