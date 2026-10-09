@@ -1,3 +1,11 @@
+# 0.1.20
+
+- Fix **Authorise Spotify App Remote** from the standalone helper launcher appearing to do nothing: the earlier `record()` function intentionally ignored all diagnostics outside playback wake requests, and the launcher displayed the previous wake log instead of pairing output. Pairing now has its own timestamped, visible, copyable, locally saved diagnostic log which starts clean on each tap.
+- Give immediate feedback even if no trusted Spotify client ID has been saved. Log configuration readiness, installed package, signing SHA-1 fingerprint, expected redirect URI and the SDK start attempt (without exposing the client ID or tokens). Native SDK success/failure callbacks report directly in the pairing log.
+- Detect a silent SDK connection at 3 and 10 seconds, and report an explicit unconfirmed timeout at 45 seconds rather than leaving the pairing button disabled forever. Do not let delayed callbacks from timed-out attempts overwrite a newer result.
+- Keep the earlier playback-wake log separately under **Show previous playback wake log**. Copy log copies exactly the displayed diagnostic log; new wake attempts still start fresh.
+- Add JVM tests for pairing state transitions, stale callbacks and resetting the bounded log. No server, Spotify Web API, device targeting, album queue or notification permission changes.
+
 # 0.1.19
 
 - Separate explicit Spotify App Remote authorisation from background playback. Open the helper from the app drawer and use **Authorise Spotify App Remote** to approve the native SDK scope in a deliberate foreground setup session. The existing trusted Spotify client ID is reused and never displayed or stored as a new secret; no playback commands are issued.
