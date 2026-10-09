@@ -1,0 +1,30 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'uk.co.justcop.audioshelf.helper'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'uk.co.justcop.audioshelf.helper'
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName '0.1.0'
+    }
+    signingConfigs {
+        prototype {
+            // Key supplied by GitHub Secrets, or generated locally for a test build.
+            storeFile file('../prototype.keystore')
+            storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD') ?: 'audioshelf-prototype'
+            keyAlias 'prototype'
+            keyPassword System.getenv('ANDROID_KEYSTORE_PASSWORD') ?: 'audioshelf-prototype'
+        }
+    }
+    buildTypes { debug { signingConfig signingConfigs.prototype } }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+dependencies {
+    implementation files('libs/spotify-app-remote-release-0.8.0.aar')
+    implementation 'com.google.code.gson:gson:2.11.0'
+}

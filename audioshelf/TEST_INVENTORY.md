@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-08T23:27:00+01:00 (Europe/London).
+Reviewed: 2026-10-09T08:24:35+01:00 (Europe/London).
 
-Reviewed AudioShelf 0.6.7 browser regression coverage of visible platter rotation, an asymmetric label and marker, pause/resume state, reduced-motion preferences, and recovery from an erroneous HTTP response after Spotify has already applied a command. Existing canonical album navigation, skip preference, responsiveness and backend tests remain unchanged.
+Reviewed Android helper intent generation, HTTPS and Android eligibility, browser/account opt-in, non-phone exclusion, fallback links and unchanged successful-device playback. Existing canonical album/disc handoff and cancellation cases remain. Android cold-start connection and return to the installed PWA require real-device verification.
 
-<!-- inventory: {"reviewed_at":"2026-10-08T23:27:00+01:00","review_note":"Reviewed AudioShelf 0.6.7 browser regression coverage of visible platter rotation, an asymmetric label and marker, pause/resume state, reduced-motion preferences, and recovery from an erroneous HTTP response after Spotify has already applied a command. Existing canonical album navigation, skip preference, responsiveness and backend tests remain unchanged.","source_sha256":"f5588509415b2e1f37832733bc6920358ebb93bd8950e677e5b57824680f5a68"} -->
+<!-- inventory: {"reviewed_at": "2026-10-09T08:24:35+01:00", "review_note": "Reviewed Android helper intent generation, HTTPS and Android eligibility, browser/account opt-in, non-phone exclusion, fallback links and unchanged successful-device playback. Existing canonical album/disc handoff and cancellation cases remain. Android cold-start connection and return to the installed PWA require real-device verification.", "source_sha256": "8593593107bdecaf8a4023faabf8f0d030a6de35d4d8b86e0af1375031f97a05"} -->
 
 ## Backend cases (293)
 

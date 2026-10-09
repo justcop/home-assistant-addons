@@ -1,0 +1,63 @@
+name: AudioShelf Android helper APK
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'audioshelf/android-helper/**'
+      - '.github/workflows/audioshelf-android-helper.yml'
+permissions:
+  contents: read
+concurrency:
+  group: audioshelf-helper-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
+      - name: Fetch pinned Spotify App Remote SDK
+        working-directory: audioshelf/android-helper
+        run: ./prepare-sdk.sh
+      - name: Prepare signing key
+        working-directory: audioshelf/android-helper
+        env:
+          KEYSTORE_BASE64: ${{ secrets.AUDIOSHELF_ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.AUDIOSHELF_ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            test -n "$KEYSTORE_PASSWORD"
+            printf '%s' "$KEYSTORE_BASE64" | base64 --decode > prototype.keystore
+            echo "ANDROID_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+          else
+            keytool -genkeypair -keystore prototype.keystore -storepass audioshelf-prototype -keypass audioshelf-prototype -alias prototype -keyalg RSA -keysize 2048 -validity 3650 -dname 'CN=AudioShelf Test, O=justcop, C=GB'
+            echo 'Test key generated. Without signing secrets, each build has a different fingerprint and requires a fresh install.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          keytool -list -v -keystore prototype.keystore -storepass "${KEYSTORE_PASSWORD:-audioshelf-prototype}" | sed -n '/SHA1:/p' | tee signing-fingerprint.txt
+          cat signing-fingerprint.txt >> "$GITHUB_STEP_SUMMARY"
+      - name: Build and lint sideloaded prototype
+        working-directory: audioshelf/android-helper
+        run: ./gradlew --no-daemon :app:assembleDebug :app:lintDebug
+      - name: Upload installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: audioshelf-spotify-helper-0.1.0
+          path: |
+            audioshelf/android-helper/app/build/outputs/apk/debug/app-debug.apk
+            audioshelf/android-helper/signing-fingerprint.txt
+          retention-days: 7
+      - name: Write installation notes
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'NOTES'
+          Download and unzip the APK artifact, then install app-debug.apk on your Android phone.
+          Configure your Spotify developer app using the helper README before enabling the helper in AudioShelf Settings.
+          Use the fingerprint from this build when configuring Spotify. Set signing secrets for consistent fingerprints and installable updates.
+          NOTES
