@@ -227,3 +227,65 @@ def test_helper_feedback_remains_readable_while_spotify_play_is_blocked():
     confirmed=manager.helper_status(job['id'],job['helper_token'],wait=0)
     assert confirmed['phase']=='confirmed'
     assert confirmed['confirmation_checks']==1
+
+
+def test_play_acceptance_is_published_before_device_and_track_confirmation():
+    spotify=Mock()
+    def devices():
+        time.sleep(.02)
+        return [PHONE]
+    spotify.devices.side_effect=devices
+    in_flight=threading.Event(); release=threading.Event()
+    def play(album,disc,preferred_device,guard,dispatch):
+        def send():
+            in_flight.set()
+            assert release.wait(2)
+            return {}  # The Spotify PUT /me/player/play succeeded.
+        dispatch(send)
+        return {'device_id':'phone','first_track':{'id':'expected'}}
+    spotify.play.side_effect=play
+    spotify.api.return_value={'device':PHONE,'item':{'id':'old'},
+                             'is_playing':False}
+    manager=PlaybackHandoff(spotify,interval=.01)
+    job=manager.start({},None,PHONE,'owner',lambda:True)
+    try:
+        assert in_flight.wait(1)
+        pending=manager.helper_status(job['id'],job['helper_token'],wait=0)
+        assert pending['state']=='waiting'
+        assert pending['phase']=='sending_play'
+        assert pending['play_accepted'] is False
+        assert pending['device_seen_ms'] is not None
+        assert pending['last_device_probe_ms'] >= 15
+    finally:
+        release.set()
+    deadline=time.monotonic()+1
+    while time.monotonic()<deadline:
+        accepted=manager.helper_status(job['id'],job['helper_token'],wait=0)
+        if accepted['play_accepted']:
+            break
+        time.sleep(.005)
+    assert accepted['play_accepted'] is True
+    assert accepted['state']=='waiting', 'Play acceptance is not playback confirmation'
+    assert accepted['play_accepted_ms'] >= accepted['device_seen_ms']
+    assert manager.status(job['id'],'owner')['state']=='waiting'
+    manager.cancel_all()
+
+
+def test_ambiguous_play_transport_failure_never_claims_accepted_or_requeues():
+    spotify=Mock()
+    spotify.devices.return_value=[PHONE]
+    commands=[]
+    def play(album,disc,preferred_device,guard,dispatch):
+        def send():
+            commands.append('sent')
+            raise AppError('Spotify transport failure',502)
+        dispatch(send)
+    spotify.play.side_effect=play
+    manager=PlaybackHandoff(spotify,interval=.01)
+    job=manager.start({},None,PHONE,'owner',lambda:True)
+    result=finished(manager,job)
+    helper=manager.helper_status(job['id'],job['helper_token'],wait=0)
+    assert result['state']=='unconfirmed'
+    assert helper['play_accepted'] is False
+    assert len(commands)==1
+    assert spotify.play.call_count==1
