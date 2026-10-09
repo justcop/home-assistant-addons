@@ -34,11 +34,11 @@ public final class MainActivity extends Activity {
     private long diagnosticStartedAt;
     private boolean wakeRequest, keepOpen;
     private String lastPlayerStatus;
-    private boolean completed, connecting, resumed, returnRequested;
+    private boolean completed, connecting, resumed, returnRequested, returnScheduled;
     private long wakeStartedAt;
     private Uri returnUri;
     private final Runnable timeout = () -> {
-        record("Spotify SDK timed out after 45 seconds. Playback readiness is unknown.");
+        record("No Spotify SDK callback after 8 seconds. Returning to AudioShelf; playback may already be running.");
         scheduleReturn(false);
     };
 
@@ -176,7 +176,9 @@ public final class MainActivity extends Activity {
         // Restore the original SDK service wake, with no Spotify launcher intent.
         // Keep the helper alive while the service/device settles, including when
         // the SDK session fails after successfully waking the Spotify process.
-        handler.postDelayed(timeout, 45000);
+        // A pending SDK callback is not a reason to trap the user here for 45 seconds.
+        // Spotify can wake and play without ever establishing an App Remote session.
+        handler.postDelayed(timeout, WakeTiming.MAX_PENDING_MS);
         ConnectionParams params = new ConnectionParams.Builder(clientId)
             .setRedirectUri("audioshelf-helper://spotify-callback")
             .showAuthView(true).build();
@@ -218,12 +220,13 @@ public final class MainActivity extends Activity {
     }
 
     private void scheduleReturn(boolean connected) {
-        if (completed || isFinishing() || isDestroyed()) return;
+        if (completed || returnScheduled || isFinishing() || isDestroyed()) return;
+        returnScheduled = true;
         handler.removeCallbacks(timeout);
         // SDK connection is not confirmation that the Spotify Connect device is ready.
         // Keep the working settling window before disconnecting the remote session.
-        long remaining = Math.max(0, 5000 - (SystemClock.elapsedRealtime() - wakeStartedAt));
-        record((connected ? "Connected" : "Connection unsuccessful") + "; settling for " + remaining + " ms before return.");
+        long remaining = WakeTiming.remainingSettleMs(SystemClock.elapsedRealtime() - wakeStartedAt);
+        record((connected ? "Connected" : "No connected SDK session") + "; settling for " + remaining + " ms before return.");
         handler.postDelayed(() -> {
             if (completed || isFinishing() || isDestroyed()) return;
             returnRequested = true;

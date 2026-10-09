@@ -1,3 +1,9 @@
+# 0.1.8
+
+- Return automatically after eight seconds if Spotify's App Remote SDK never calls back, even if background playback has already begun; the previous 45-second wait left the helper visible unnecessarily.
+- Preserve at least five seconds for Spotify to wake, the longer authorisation flow when its screen is in front, and diagnostic hold when enabled.
+- Add unit tests for the settling and pending-callback deadlines.
+
 # 0.1.7
 
 - Restore the five-second settling window before disconnecting a successful Spotify SDK session. SDK connection alone does not confirm Spotify Connect readiness.
