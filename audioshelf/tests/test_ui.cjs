@@ -84,7 +84,7 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.locator('#toast').filter({hasText:'Edition cover saved.'}).waitFor();
     await page.getByRole('button',{name:'This tracklist is correct'}).click();
     await page.getByRole('button',{name:'This tracklist is correct'}).waitFor({state:'hidden'});
-    await page.getByRole('button',{name:'Match Spotify tracks'}).click();
+    await page.getByRole('button',{name:'Find another edition'}).click();
     await page.getByRole('heading',{name:'Spotify editions'}).waitFor();
     await page.getByRole('button',{name:'Close',exact:true}).click();
     await page.getByRole('button',{name:'Play album'}).click();
