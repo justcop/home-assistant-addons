@@ -702,7 +702,9 @@ def create_app(options=None):
         context = accounts.context(account_id)
         header = request.headers.get('Authorization', '')
         token = header[7:] if header.startswith('Bearer ') else ''
-        return jsonify(context.handoff.helper_status(job_id, token))
+        # New helpers request an immediate, bounded snapshot; old long-poll clients still work.
+        wait = 0 if request.args.get('wait') == '0' else 20
+        return jsonify(context.handoff.helper_status(job_id, token, wait=wait))
 
     @app.route('/api/spotify/playback-handoff/<job_id>', methods=['GET', 'DELETE'])
     def playback_job(job_id):

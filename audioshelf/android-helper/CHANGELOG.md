@@ -1,3 +1,9 @@
+# 0.1.12
+
+- Request immediate AudioShelf job snapshots every second instead of starting with a 20-second long poll. Use shorter connection/read timeouts so failures are visible inside the wake window.
+- Log HTTPS request/HTTP response, accepted job access, server playback phase and check counts. Distinguish DNS, TLS, HTTP and timeout failures, and summarize the last known status at timed return.
+- Clarify that notification access is optional; AudioShelf server feedback is the normal permission-free path. Requires AudioShelf 0.6.14 for immediate snapshots and progress diagnostics.
+
 # 0.1.11
 
 - Remove foreground Spotify recovery and its saved opt-in. SDK failure no longer launches Spotify or implies the background wake failed.
