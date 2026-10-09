@@ -48,6 +48,7 @@ public final class MainActivity extends Activity {
     private String lastStatusError, lastServerProgress;
     private String transportStage = "not started";
     private boolean serverContacted;
+    private boolean playAcceptanceLogged;
     private int statusAttempts;
     private String origin, accountId, jobId, helperToken, lastServerState;
     private Uri returnUri;
@@ -286,10 +287,17 @@ public final class MainActivity extends Activity {
                     if (result.playAccepted) {
                         wakeReturn.onPlayAccepted();
                         handler.removeCallbacks(returnDeadline);
-                        record("Spotify accepted Play. Returning now; AudioShelf will verify the requested phone and track independently.");
-                        message.setText("Play command accepted. Returning to AudioShelf while it confirms playback…");
-                        if (keepOpen) record("Diagnostic hold enabled; waiting for manual return.");
-                        returnWhenVisible();
+                        if (!playAcceptanceLogged) {
+                            playAcceptanceLogged = true;
+                            record("Spotify accepted Play. AudioShelf will verify the requested phone and track independently.");
+                        }
+                        message.setText(keepOpen ? "Play accepted. Watching final confirmation (diagnostics)…" :
+                            "Play command accepted. Returning to AudioShelf while it confirms playback…");
+                        if (keepOpen) {
+                            handler.postDelayed(pollStatus, 350);
+                        } else {
+                            returnWhenVisible();
+                        }
                         return;
                     }
                     message.setText(sdkFailed ? "Spotify SDK session failed, but background waking may still work. Waiting for AudioShelf…" :
