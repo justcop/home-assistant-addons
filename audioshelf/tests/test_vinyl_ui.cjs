@@ -182,8 +182,11 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert.equal(await page.locator('.turntable-toggle.is-spinning').count(),1);
     // A rotating symmetrical circle looks stationary: the asymmetric label
     // and groove marker must visibly change orientation while playing.
-    assert.equal(await page.locator('.turntable-platter').evaluate(el=>getComputedStyle(el,'::before').content),'"A"');
-    assert.equal(await page.locator('.turntable-platter').evaluate(el=>getComputedStyle(el,'::after').width),'4px');
+    assert.equal(await page.locator('.turntable-platter').evaluate(el=>getComputedStyle(el,'::before').content),'"AS"');
+    assert(await page.locator('.turntable-platter').evaluate(el=>getComputedStyle(el,'::before').backgroundImage.includes('conic-gradient')),'The label uses the AudioShelf cream/green palette');
+    assert(await page.locator('.turntable-platter').evaluate(el=>getComputedStyle(el).backgroundImage.includes('repeating-radial-gradient')),'Fine matte grooves replace the reflective face');
+    assert(!await page.locator('.turntable-platter').evaluate(el=>getComputedStyle(el).backgroundImage.includes('linear-gradient')),'No moving glossy reflection on the disc');
+    assert.equal(await page.locator('.turntable-platter').evaluate(el=>getComputedStyle(el,'::after').width),'4px','A small spindle sits at the centre');
     await page.emulateMedia({reducedMotion:'no-preference'});
     await page.waitForFunction(()=>{const el=document.querySelector('.turntable-platter');return el&&getComputedStyle(el).animationName==='audioshelf-spin';});
     assert.equal(await page.locator('.turntable-platter').evaluate(el=>getComputedStyle(el).animationName),'audioshelf-spin');

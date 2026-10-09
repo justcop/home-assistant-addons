@@ -1,3 +1,8 @@
+# 0.6.9
+
+- Redesign the Now Playing record as a matte black disc with clear concentric grooves, inspired by the supplied vinyl animation. Remove the reflective streak and oversized decorative mark.
+- Add a simple AudioShelf cream-and-green centre label with a small spindle. Keep the stationary tonearm, play/pause behaviour, authentic 33⅓ rpm rotation, reduced-motion accessibility and existing bar dimensions.
+
 # 0.6.8
 
 - Add an optional Android companion helper to wake Spotify and return to the existing AudioShelf page when the selected phone is unavailable. Available-device playback and tracklist handling are unchanged.
