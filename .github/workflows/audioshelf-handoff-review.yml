@@ -1,0 +1,26 @@
+name: AudioShelf playback handoff review
+on:
+  push:
+    paths: ['.github/workflows/audioshelf-handoff-review.yml']
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: pip install -r audioshelf/requirements.txt pytest==8.4.2 PyYAML==6.0.2
+      - name: Generate reviewed inventory locally and report fingerprint
+        run: |
+          python audioshelf/scripts/test_inventory.py --update --review-note "Reviewed new playback handshake tests for job bearer isolation, cancellation, correct phone and first-track confirmation, and Android link composition; account isolation preserved."
+          head -n 10 audioshelf/TEST_INVENTORY.md
+          grep -n 'test_helper_token_revoked\|test_wrong_track_or_wrong_device' audioshelf/TEST_INVENTORY.md
+          python audioshelf/scripts/test_inventory.py
+      - run: python -m pytest audioshelf/tests -q
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check audioshelf/app/static/app.js && node audioshelf/tests/test_android_helper.cjs
