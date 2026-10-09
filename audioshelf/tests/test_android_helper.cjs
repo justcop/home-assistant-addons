@@ -56,9 +56,11 @@ context.statusInfo.spotify_client_id='c'.repeat(32);
 context.statusInfo.preferred_device.name='My phone';
 let pageUrl='https://audioshelf.example/#album/saved';
 Object.defineProperty(context.location,'href',{get:()=>pageUrl,set:value=>launches.push(value)});
+const progressIndicator={textContent:''};
 Object.assign(context,{
   routeGeneration:1, playbackCommand:0, checkingPlayback:false,
-  id:encodeURIComponent, modal:{open:true,close(){}}, document:{hidden:false},
+  id:encodeURIComponent, modal:{open:true,close(){}},
+  document:{hidden:false,querySelector:selector=>selector==='#playback-handoff-status'?progressIndicator:null},
   beginPlayback(){}, failPlaybackStart(){}, toast(){},
   showModal(){context.modal.open=true;},
   api:async (url,method,body)=>{
@@ -71,6 +73,16 @@ Object.assign(context,{
 vm.runInContext(source.slice(source.indexOf('let pendingPlayback='),source.indexOf("window.addEventListener('focus',retryPendingPlayback)")),context);
 const request=()=>({album:{id:'album',tracks:[{spotify_id:'track',title:'Track',duration_ms:1000,disc_number:2}]},disc:2,generation:1});
 (async()=>{
+  const baseline=Date.now();
+  assert.equal(context.pendingPollInterval({handoffStartedAt:baseline}),500,'Fast polling during first 15 seconds');
+  assert.equal(context.pendingPollInterval({handoffStartedAt:baseline-16000}),1000,'Reduce background status work after 15 seconds');
+  assert.equal(context.pendingPollInterval({handoffStartedAt:baseline-31000}),2000,'Conserve requests on slow starts');
+  context.showHandoffProgress({state:'waiting',phase:'preparing_playback',play_accepted:false});
+  assert(progressIndicator.textContent.includes('Phone found'),'Show server device discovery as Starting, not Playing');
+  context.showHandoffProgress({state:'waiting',phase:'sending_play',play_accepted:false});
+  assert(progressIndicator.textContent.includes('Sending'),'Show Play dispatch progress');
+  context.showHandoffProgress({state:'waiting',phase:'confirming_playback',play_accepted:true});
+  assert(progressIndicator.textContent.includes('Confirming'),'Accepted Play is not mistaken for confirmed playback');
   await context.startPlayback(request());
   assert.equal(launches.length,0,'Available phone plays without waking helper');
   assert.equal(calls[0].body.disc_number,2);
