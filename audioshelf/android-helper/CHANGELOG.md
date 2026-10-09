@@ -1,3 +1,9 @@
+# 0.1.7
+
+- Restore the five-second settling window before disconnecting a successful Spotify SDK session. SDK connection alone does not confirm Spotify Connect readiness.
+- Show a timestamped wake log, safe SDK error and cause types, Spotify/Android/helper versions, read-only player status, and return/disconnection events. Save the last wake log for viewing and copying after return.
+- Add an optional Keep open for diagnostics setting to pause automatic return while inspecting a wake attempt.
+
 # 0.1.6
 
 - Return immediately after Spotify App Remote connects successfully. Keep the five-second settling window after connection failure and the 45-second pending connection timeout.
