@@ -1,5 +1,12 @@
 # AudioShelf
 
+### Session and shelf presentation
+
+Standalone owner and personal-account sessions now persist for up to **one year**, and the optional **Trust this browser for one year** checkbox skips repeat 2FA challenges when signing back in with a password. The 2FA trust is not a password-free login. Explicit logout, credential changes and revocation still invalidate sessions, and temporary support grants retain their own limited expiration.
+
+In the Vinyl interface, a collapsed artist rail displays only its continuous covers and shelf. Expand an artist to reveal **More from ↗** inside its artist-name header, linking to that artist's catalogue in the Record Store.
+
+
 An album-first collection for your phone. MusicBrainz supplies artists, studio albums and original tracklists. Spotify supplies playback.
 
 ## Separate accounts (0.6.0)
@@ -189,11 +196,11 @@ Keep tests that protect an observable requirement or a meaningful past failure. 
 
 ## Security
 
-Version 0.4.0 locks standalone access when no web password is set. Existing installations using an empty password must configure a long, unique password in Home Assistant, then restart. Home Assistant ingress remains available through its own authentication. Put the standalone site behind HTTPS; login sessions expire after 12 hours.
+Version 0.4.0 locks standalone access when no web password is set. Existing installations using an empty password must configure a long, unique password in Home Assistant, then restart. Home Assistant ingress remains available through its own authentication. Put the standalone site behind HTTPS; ordinary standalone login sessions expire after one year.
 
 In **Settings → Security → Set up authenticator**, confirm your owner password, scan the locally generated QR code (or enter its manual setup key), then enter a six-digit authenticator code. Setup expires in ten minutes and two-factor authentication stays off until confirmed. Save the ten recovery codes when shown. Each code works once alongside your owner password. Codes are never shown again. A freshly used authenticator code cannot be reused; wait for the next code for another sensitive action.
 
-At login, **Trust this browser for 30 days** remembers the second factor. The password is still required after the 12-hour session expires. **Revoke other sessions and trusted browsers** invalidates existing sessions and trusted-browser credentials; logout also forgets the current trusted browser. Changing the configured owner password invalidates existing sessions and trusts on restart. Disabling two-factor authentication requires a fresh owner factor; owner-authenticated Home Assistant ingress can recover access if you lose your authenticator and recovery codes. Protect your Home Assistant login accordingly.
+At login, **Trust this browser for one year** remembers the second factor. If you sign out or the one-year session expires, your password is required again; the trusted browser only skips the second factor. **Revoke other sessions and trusted browsers** invalidates existing sessions and trusted-browser credentials; logout also forgets the current trusted browser. Changing the configured owner password invalidates existing sessions and trusts on restart. Disabling two-factor authentication requires a fresh owner factor; owner-authenticated Home Assistant ingress can recover access if you lose your authenticator and recovery codes. Protect your Home Assistant login accordingly.
 
 For temporary testing, enable **Allow temporary support access (advanced)** in Home Assistant add-on configuration and restart. It is off by default. In AudioShelf **Settings → Security**, create a login with **View only** (default) or **Allow changes and playback**, lasting one to eight hours (default one hour). Share only the generated temporary password, shown once. Use the normal login screen over HTTPS. Temporary logins cannot change security settings, create more credentials, connect/disconnect Spotify, or export backups/diagnostics. View-only access cannot invoke modifying endpoints or playback. Revocation and expiry terminate already logged-in sessions too. Turning the Home Assistant toggle off and restarting revokes all support credentials, even if later re-enabled.
 

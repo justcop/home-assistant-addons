@@ -40,17 +40,20 @@
 /* White shelving: cover-only horizontal rails by default, detailed grids on expansion. */
 .shelf-layout{display:flex;justify-content:flex-end;margin:-20px 0 18px}
 .shelf-layout button{font-size:12px;min-height:44px;padding:8px 12px}
-.shelf-artist-link{display:none}
+.collection-shelves .shelf-artist-bar{display:flex;align-items:stretch;min-width:0;background:#fff;border-radius:3px 3px 0 0}
+.collection-shelves .shelf-artist-link{display:none;align-items:center;justify-content:center;flex:0 0 auto;align-self:center;margin:0 13px 0 0;padding:8px 10px;white-space:nowrap;font-size:11px;color:var(--wine);text-decoration:none;border:1px solid var(--line);border-radius:3px;min-height:36px}
+.collection-shelves .artist-shelf[data-view=expanded] .shelf-artist-link{display:inline-flex}
+.collection-shelves .shelf-artist-link:hover,.collection-shelves .shelf-artist-link:focus-visible{background:var(--soft);text-decoration:underline}
 .collection-shelves .artist-divider{display:none}
 .collection-shelves .artist-shelf{margin:0 0 22px;min-width:0}
-.shelf-artist-toggle{display:flex;align-items:center;gap:14px;width:100%;min-height:58px;padding:12px 18px;text-align:left;background:#fff;color:#282b27;border:1px solid #dedfdd;border-bottom:2px solid #e3e4e2;border-radius:3px 3px 0 0;box-shadow:0 3px 7px #00000008}
+.shelf-artist-toggle{display:flex;align-items:center;gap:14px;flex:1;min-width:0;min-height:58px;padding:12px 18px;text-align:left;background:#fff;color:#282b27;border:1px solid #dedfdd;border-bottom:2px solid #e3e4e2;border-radius:3px 3px 0 0;box-shadow:0 3px 7px #00000008}
 .shelf-artist-toggle strong{flex:1;min-width:0;overflow-wrap:anywhere;font:600 19px Georgia,serif}
 .shelf-artist-toggle>span{font-size:11px;color:#606257;white-space:nowrap}
 .shelf-artist-toggle .shelf-chevron{font-size:19px;line-height:1;transition:transform .15s}
 .shelf-artist-toggle[aria-expanded=true] .shelf-chevron{transform:rotate(180deg)}
-.shelf-artist-toggle[aria-expanded=true]{position:sticky;top:0;z-index:5}
+.artist-shelf[data-view=expanded] .shelf-artist-bar{position:sticky;top:0;z-index:5}
 .collection-shelves .shelf-records{position:relative;min-width:0;padding:0 0 10px;--rail-cover:clamp(150px,17vw,220px);--rail-top:18px}
-.collection-shelves .shelf-artist-link{display:inline-block;margin-top:12px}
+
 .shelf-records[hidden]{display:none}
 [data-interface=vinyl] .shelf-rack{display:block;color:#282b27;background:#f0f1ef;padding:22px 18px 8px;border-radius:2px;--ink:#282b27;--muted:#606257;--soft:#e4e6e2;--cream:#fff;--line:#d9dcd6}
 .shelf-row{--columns:4;--shelf-gap:30px;--label-height:88px;display:grid;grid-template-columns:repeat(var(--columns),minmax(0,1fr));gap:var(--shelf-gap);position:relative;container-type:inline-size;margin-bottom:30px;isolation:isolate}
@@ -81,6 +84,7 @@
 @media(max-width:700px){
   .shelf-layout{margin-top:-14px}
   .shelf-artist-toggle{padding:12px;gap:10px}
+  .collection-shelves .shelf-artist-link{margin-right:8px;padding:7px;font-size:10px;min-height:36px}
   .shelf-artist-toggle strong{font-size:17px}
   .collection-shelves .shelf-records{--rail-cover:clamp(105px,34vw,164px)}
   [data-interface=vinyl] .shelf-rack{padding:20px 14px 6px}

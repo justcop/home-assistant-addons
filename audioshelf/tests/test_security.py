@@ -1,10 +1,11 @@
 import json
 import time
+from email.utils import parsedate_to_datetime
 
 import pytest
 
 from app.server import create_app
-from app.security import totp
+from app.security import AUTH_LIFETIME_SECONDS, digest, totp
 from conftest import post, ALBUM
 
 PASSWORD = 'test-owner-password-with-enough-length'
@@ -53,7 +54,14 @@ def test_standard_sessions_are_secure_expire_and_logout_revokes(secured):
     response = login(client)
     cookie = response.headers.get('Set-Cookie')
     assert 'Secure' in cookie and 'HttpOnly' in cookie and 'SameSite=Lax' in cookie
+    # Flask signs its permanent session cookie with Expires (not Max-Age).
+    expiry_cookie = parsedate_to_datetime(cookie.split('Expires=', 1)[1].split(';', 1)[0]).timestamp()
+    assert AUTH_LIFETIME_SECONDS - 10 < expiry_cookie - time.time() <= AUTH_LIFETIME_SECONDS + 10
     with client.session_transaction() as session: token = session['sid']
+    with app.extensions['security'].connect() as db:
+        expiry = db.execute('SELECT expires FROM sessions WHERE token=?',
+                            (digest(token),)).fetchone()['expires']
+    assert AUTH_LIFETIME_SECONDS - 10 < expiry - time.time() <= AUTH_LIFETIME_SECONDS + 10
     assert app.extensions['security'].identity(token)
     assert post(client, '/api/logout').status_code == 200
     assert app.extensions['security'].identity(token) is None
@@ -99,8 +107,16 @@ def test_totp_matches_rfc_vector():
 def test_trusted_browser_still_needs_password_and_is_revocable(secured):
     app, client, _ = secured
     _, codes = provision(app, client)
-    assert login(client, code=codes[0], remember=True).status_code == 200
-    assert client.get_cookie('audioshelf_trusted').secure
+    response = login(client, code=codes[0], remember=True)
+    assert response.status_code == 200
+    assert f'Max-Age={AUTH_LIFETIME_SECONDS}' in response.headers['Set-Cookie']
+    trust_cookie = client.get_cookie('audioshelf_trusted')
+    assert trust_cookie.secure and trust_cookie.http_only
+    token = trust_cookie.value
+    with app.extensions['security'].connect() as db:
+        expiry = db.execute('SELECT expires FROM trusted WHERE token=?',
+                            (digest(token),)).fetchone()['expires']
+    assert AUTH_LIFETIME_SECONDS - 10 < expiry - time.time() <= AUTH_LIFETIME_SECONDS + 10
     assert login(client, password='bad').status_code == 401
     assert login(client).status_code == 200
     assert post(client,'/api/security/revoke-sessions',{'password':PASSWORD,'code':codes[1]}).status_code == 200
@@ -132,6 +148,11 @@ def test_support_permissions_expiry_and_revocation_are_server_enforced(secured,r
     support=app.test_client()
     assert login(support,access['password']).status_code == 200
     assert support.get('/api/shelf').status_code == 200
+    with support.session_transaction() as session: token = session['sid']
+    with app.extensions['security'].connect() as db:
+        granted_session = db.execute('SELECT expires FROM sessions WHERE token=?',
+                                     (digest(token),)).fetchone()['expires']
+    assert granted_session <= access['expires'], 'Temporary support sessions must not last a year'
     assert support.get('/api/security').status_code == 403
     assert support.get('/api/export').status_code == 403
     assert support.get(f'/api/albums/{ALBUM}/diagnostics').status_code == 403

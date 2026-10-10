@@ -20,6 +20,11 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from .errors import AppError
 
 
+# Consistent duration for server-side login sessions and optional 2FA browser trust.
+# Temporary support sessions are still capped by each grant's own expiry.
+AUTH_LIFETIME_SECONDS = 365 * 86400
+
+
 def digest(value):
     return hashlib.sha256(value.encode()).hexdigest()
 
@@ -140,12 +145,12 @@ class Security:
     def trust(self):
         token = secrets.token_urlsafe(32)
         with self.connect() as db:
-            db.execute('INSERT INTO trusted VALUES (?,?,?)', (digest(token), time.time()+30*86400, self.version()))
+            db.execute('INSERT INTO trusted VALUES (?,?,?)', (digest(token), time.time()+AUTH_LIFETIME_SECONDS, self.version()))
         return token
 
     def create_session(self, role='owner', grant_id=None, expires=None):
         token = secrets.token_urlsafe(32)
-        expiry = min(expires or float('inf'), time.time()+12*3600)
+        expiry = min(expires or float('inf'), time.time()+AUTH_LIFETIME_SECONDS)
         with self.connect() as db:
             db.execute('DELETE FROM sessions WHERE expires<?', (time.time(),))
             db.execute('DELETE FROM trusted WHERE expires<?', (time.time(),))

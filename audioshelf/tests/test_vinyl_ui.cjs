@@ -79,10 +79,17 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert(await firstRail.evaluate(el=>el.scrollWidth>el.clientWidth),'A long artist collection scrolls sideways');
     assert.equal(await firstRail.locator('.shelf-row').count(),0,'Compact mode has no fragmented grid rows');
     assert.equal(await page.locator('.rail-ledge:visible').count(),2);
+    assert.equal(await page.locator('.collection-shelves .shelf-artist-link:visible').count(),0,
+      'Collapsed artists must not interrupt shelves with More from links');
+    assert.equal(await page.locator('.collection-shelves .shelf-records .shelf-artist-link').count(),0,
+      'More from belongs to the artist name bar, never beneath the records');
     await firstRail.evaluate(el=>{el.scrollLeft=el.scrollWidth;});
     assert(await firstRail.evaluate(el=>el.scrollLeft>0),'Horizontal shelf can be scrolled');
     await dividers.first().click();
     assert.equal(await page.locator('.shelf-artist-toggle[aria-expanded="true"]').count(),1);
+    assert.equal(await page.locator('.collection-shelves .shelf-artist-link:visible').count(),1,
+      'Exactly the expanded artist exposes its More from store action');
+    assert.equal(await page.locator('.artist-shelf[data-view="expanded"] .shelf-artist-bar .shelf-artist-link').count(),1);
     assert((await page.locator('.artist-shelf[data-view="expanded"] .shelf-row').count())>0);
     const captionGeometry=await page.locator('.artist-shelf[data-view="expanded"] .shelf-row .sleeve').first().evaluate(el=>({
       caption:el.querySelector('.sleeve-caption').getBoundingClientRect().bottom,
@@ -92,7 +99,10 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await dividers.last().click();
     assert.equal(await dividers.first().getAttribute('aria-expanded'),'false');
     assert.equal(await dividers.last().getAttribute('aria-expanded'),'true');
+    assert.equal(await page.locator('.collection-shelves .shelf-artist-link:visible').count(),1);
     const openId=await dividers.last().evaluate(el=>el.closest('[data-shelf-id]').dataset.shelfId);
+    assert.equal(await page.locator('.artist-shelf[data-view="expanded"] .shelf-artist-link').getAttribute('href'),
+      '#artist/'+openId+'/store', 'More from leads to the artist record-store catalogue');
     const compactAlbum=page.locator('.artist-shelf[data-view="expanded"] .album-title').first();
     const compactTitle=await compactAlbum.textContent();
     await compactAlbum.click();
@@ -108,6 +118,7 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.getByRole('searchbox',{name:'Find a record'}).fill('');
     await dividers.last().click();
     assert.equal(await page.locator('.artist-shelf[data-view="rail"]').count(),2);
+    assert.equal(await page.locator('.collection-shelves .shelf-artist-link:visible').count(),0);
     await noOverflow();await shot('rail-desktop');
     await page.reload();
     await page.locator('.collection-shelves[data-layout="rail"]').waitFor();
@@ -123,6 +134,8 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.setViewportSize({width:320,height:740});await noOverflow();
     await page.getByRole('button',{name:'Expand all',exact:true}).click();
     assert.equal(await page.locator('.sleeve:visible').count(),14);
+    assert.equal(await page.locator('.collection-shelves .shelf-artist-link:visible').count(),2,
+      'Expand all exposes the header action for each artist');
     await page.setViewportSize({width:1440,height:1000});
     await page.locator('[data-nav="store"]').click();
     await page.getByRole('button',{name:'Albums',exact:true}).click();
