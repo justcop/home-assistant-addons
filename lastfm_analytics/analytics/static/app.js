@@ -780,8 +780,16 @@ document.addEventListener("click", (event) => {
     document.querySelectorAll("[data-album-sort]").forEach(button => {
       button.setAttribute("aria-pressed", String(button.dataset.albumSort === state.albumSort));
     });
-    const progress = $("#album-progress");
-    if (progress) progress.textContent = "Checking album tracklists and updating the ranking…";
+    let progress = $("#album-progress");
+    if (state.albumSort === "estimated" && !progress) {
+      progress = document.createElement("p");
+      progress.id = "album-progress";
+      progress.className = "method-note";
+      progress.setAttribute("role", "status");
+      progress.setAttribute("aria-live", "polite");
+      b.closest(".segment").insertAdjacentElement("afterend", progress);
+    }
+    if (progress) progress.textContent = "Checking whether album estimates have been processed…";
     load();
     return;
   }
