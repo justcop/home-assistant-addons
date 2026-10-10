@@ -6,7 +6,7 @@ import time
 from collections import Counter
 from pathlib import Path
 
-from .grouping import auto_key, canonical_title, normalise, review_title
+from .grouping import artist_suggestion_key, auto_key, canonical_title, normalise, review_title
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS artwork_urls (
@@ -139,6 +139,10 @@ class Database:
                 # Preserve usable URLs but retry those misses on first access.
                 db.execute("DELETE FROM artwork_urls WHERE url IS NULL")
                 self.put(db, "artwork_pipeline", 2)
+        if self.meta("artist_auto_merge_rule_version", 0) < 1:
+            self.auto_merge_artists()
+            self.set_meta("artist_auto_merge_rule_version", 1)
+
     @contextlib.contextmanager
     def connect(self):
         db = sqlite3.connect(self.path, timeout=30)
@@ -308,6 +312,8 @@ class Database:
                 self.put(db, "analysis_revision", self.get(db, "analysis_revision", 0) + 1)
             for key, value in (checkpoint or {}).items():
                 self.put(db, key, value)
+        if changed and artist_keys:
+            self.auto_merge_artists(artist_keys)
 
     def record_source(self, username, report):
         # Keep attribution independent of imported rows: notifications can precede
@@ -341,7 +347,90 @@ class Database:
             if db.total_changes > before_changes:
                 self.put(db, "analysis_revision", self.get(db, "analysis_revision", 0) + 1)
 
-    def change_artists(self, keys, name=None):
+    @staticmethod
+    def _artist_auto_evidence(db, left, right):
+        """A name similarity alone is insufficient: check shared recordings."""
+        generic_tracks = {"intro", "outro", "interlude", "untitled", "instrumental",
+                          "bonus track", "hidden track", "track 1", "track 2"}
+        generic_albums = {"greatest hits", "the greatest hits", "best of",
+                          "the best of", "live", "singles", "collection"}
+
+        def catalogue(root):
+            tracks, pairs, mbids = set(), set(), set()
+            for row in db.execute(
+                "SELECT DISTINCT title,album FROM scrobbles "
+                "WHERE artist_group_key=? AND active=1", (root,)
+            ):
+                track = normalise(canonical_title(row["title"], "song"))
+                album = normalise(canonical_title(row["album"], "album"))
+                if track and track not in generic_tracks:
+                    tracks.add(track)
+                    if album and album not in generic_albums:
+                        pairs.add((track, album))
+            for row in db.execute(
+                """SELECT raw_json FROM scrobbles
+                   WHERE artist_group_key=? AND active=1
+                   AND raw_json LIKE '%"artist"%' LIMIT 50""", (root,)
+            ):
+                try:
+                    artist = json.loads(row[0]).get("artist", {})
+                    mbid = artist.get("mbid", "") if isinstance(artist, dict) else ""
+                    if isinstance(mbid, str) and mbid.strip():
+                        mbids.add(mbid.strip().casefold())
+                except (ValueError, TypeError):
+                    pass
+            return tracks, pairs, mbids
+
+        ltracks, lpairs, lids = catalogue(left)
+        rtracks, rpairs, rids = catalogue(right)
+        if lids and rids:
+            if lids.isdisjoint(rids):
+                return False
+            if len(lids) == len(rids) == 1:
+                return True
+        return bool(lpairs & rpairs) or len(ltracks & rtracks) >= 2
+
+    def auto_merge_artists(self, names=None):
+        """Merge proven article/accent/punctuation variants, including old data."""
+        candidates = ({artist_suggestion_key(n) for n in names}
+                      if names is not None else None)
+        while True:
+            chosen = None
+            with self.connect() as db:
+                buckets = {}
+                for a in db.execute("SELECT artist_key,canonical_key FROM artist_aliases"):
+                    key = artist_suggestion_key(a["artist_key"])
+                    if len(key) < 3 or (candidates is not None and key not in candidates):
+                        continue
+                    buckets.setdefault(key, set()).add(a["canonical_key"])
+                blocked = {tuple(sorted(p)) for p in
+                           self.get(db, "artist_auto_merge_blocks", [])
+                           if isinstance(p, list) and len(p) == 2}
+                for roots in buckets.values():
+                    roots = sorted(roots)
+                    for i, left in enumerate(roots):
+                        for right in roots[i+1:]:
+                            if (left, right) in blocked or not self._artist_auto_evidence(db, left, right):
+                                continue
+                            counts = {
+                                k: db.execute(
+                                    "SELECT COUNT(*) FROM scrobbles "
+                                    "WHERE artist_group_key=? AND active=1", (k,)
+                                ).fetchone()[0]
+                                for k in (left, right)
+                            }
+                            # Retain the most-used artist label, not necessarily "The".
+                            chosen = sorted((left, right), key=lambda k: (-counts[k], k))
+                            break
+                        if chosen:
+                            break
+                    if chosen:
+                        break
+            if not chosen:
+                return
+            self.change_artists(chosen, automatic=True)
+
+    def change_artists(self, keys, name=None, automatic=False):
         """Merge artist identities and exact song/album titles; undo is atomic."""
         if (not isinstance(keys, list) or not 2 <= len(keys) <= 100
                 or any(not isinstance(k, str) or not k or len(k) > 512 for k in keys)):
@@ -361,6 +450,8 @@ class Database:
                 raise ValueError("Unknown artist or already merged")
             before = {"aliases": [], "variants": [], "groups": [],
                       "artist_aliases": [dict(a) for a in artists]}
+            if automatic:
+                before["auto_artist_pair"] = keys
             target = keys[0]
             db.execute(
                 f"UPDATE artist_aliases SET canonical_key=? WHERE canonical_key IN ({marks})",
@@ -409,7 +500,8 @@ class Database:
             self.put(db, "analysis_revision", self.get(db, "analysis_revision", 0) + 1)
             db.execute(
                 "INSERT INTO grouping_events(ts,description,before_json) VALUES (?,?,?)",
-                (int(time.time()), f"Merged {len(keys)} artist identities",
+                (int(time.time()),
+                 f'{"Automatically merged" if automatic else "Merged"} {len(keys)} artist identities',
                  json.dumps(before, ensure_ascii=False)),
             )
 
@@ -606,6 +698,13 @@ class Database:
                     "UPDATE variants SET override_group=? WHERE id=?",
                     (v["override_group"], v["id"]),
                 )
+            if before.get("auto_artist_pair"):
+                # An undo must survive subsequent imports and app restarts.
+                blocked = self.get(db, "artist_auto_merge_blocks", [])
+                pair = sorted(before["auto_artist_pair"])
+                if pair not in blocked:
+                    blocked.append(pair)
+                    self.put(db, "artist_auto_merge_blocks", blocked)
             if before.get("artist_aliases"):
                 # Titles created while the artists were merged must separate on
                 # undo, too. Existing aliases were restored above.
