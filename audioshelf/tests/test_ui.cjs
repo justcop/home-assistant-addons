@@ -42,7 +42,11 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.locator('.search-result').filter({hasText:'The Artist'}).click();
     await page.getByRole('heading',{name:'The Artist',exact:true}).waitFor();
     await page.getByRole('button',{name:'Add to shelf'}).click();
-    await page.getByRole('heading',{name:'Add a playable edition'}).waitFor();
+    await page.getByRole('heading',{name:'Choose the album tracklist'}).waitFor();
+    await page.locator('[data-action="select-variant"]').first().click();
+    await page.getByRole('heading',{name:'Disc and side layout'}).waitFor();
+    await page.getByRole('button',{name:'Find this tracklist on Spotify'}).click();
+    await page.getByRole('heading',{name:'Choose Spotify recordings'}).waitFor();
     await page.locator('[data-action="choose-release"][data-spotify-id]').first().click();
     await page.locator('.album-card .badge').filter({hasText:'On your shelf'}).waitFor();
     await page.locator('.album-title').click();
@@ -65,13 +69,17 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.locator('#toast').filter({hasText:'Automatic artwork restored.'}).waitFor();
     await page.getByRole('button',{name:'Album settings'}).click();
     let failEditionRequest=true;
-    await page.route('**/api/albums/*/releases?offset=*',async route=>{
+    await page.route('**/api/albums/*/tracklist-variants?offset=*',async route=>{
       if(failEditionRequest){failEditionRequest=false;await route.fulfill({status:502,contentType:'application/json',body:JSON.stringify({error:'Fixture MusicBrainz failure'})});}
       else await route.continue();
     });
     await page.getByRole('button',{name:'Change original tracklist'}).click();
-    await page.getByRole('button',{name:'Retry checks'}).click();
-    await page.locator('[data-action="choose-release"]').first().waitFor();
+    await page.getByRole('button',{name:'Retry',exact:false}).click();
+    await page.locator('[data-action="select-variant"]').first().waitFor();
+    assert.equal(await page.locator('.variant-option').count(),1,
+      'One MusicBrainz release produces one musical tracklist, before Spotify matching');
+    assert((await page.locator('.variant-difference').first().textContent()).includes('Preferred standard'),
+      'Major tracklist differences are visible before selecting Spotify');
     await page.getByRole('button',{name:'Close',exact:true}).click();
     await page.getByRole('button',{name:'Album settings'}).click();
     await page.getByRole('button',{name:'Choose cover from another edition'}).click();

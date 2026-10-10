@@ -8,10 +8,12 @@ from .errors import AppError
 from .matching import candidate
 from .musicbrainz import mbid, release_tracks
 from .release_filters import matches_filters
+from .tracklist_variants import group_releases, vinyl_sides
 
 
 class PlayableReleases:
     PAGE_SIZE = 4
+    VARIANT_PAGE_SIZE = 8
 
     def __init__(self, store, musicbrainz, spotify):
         self.store = store
@@ -89,15 +91,71 @@ class PlayableReleases:
         return {'releases': playable, 'next_offset': next_offset if next_offset < len(releases) else None,
                 'checked': len(selected)}
 
-    def select(self, album_id, release_id, spotify_album_id, reviewed=True, add_to_shelf=False):
+    def variants(self, album_id, offset=0):
+        """Explore MusicBrainz pressings without doing any Spotify lookup.
+
+        Page through the release list in preferred-country/format order.
+        Only inspect up to eight tracklists at a time, reusing the persistent
+        MusicBrainz HTTP cache. The client combines matching fingerprints across
+        pages. A release is not committed merely by opening this picker.
+        """
+        album_id = mbid(album_id)
+        releases = self.musicbrainz.releases(album_id)
+        if type(offset) is not int or offset < 0 or offset > len(releases):
+            raise AppError('Invalid tracklist cursor.')
+        selected = releases[offset:offset + self.VARIANT_PAGE_SIZE]
+        previews = []
+        for item in selected:
+            try:
+                probe = self.inspect(album_id, item['id'])
+                # inspect() has already validated the release group, filters,
+                # track count and playable audio media.
+                release = self.musicbrainz.get(
+                    'release/' + item['id'],
+                    {'inc': 'recordings+release-groups+isrcs+artist-credits'})
+                previews.append((release, probe['tracks']))
+            except AppError as error:
+                if error.status >= 500 or error.status == 429:
+                    raise
+        next_offset = offset + len(selected)
+        return {'variants': group_releases(previews),
+                'checked': len(selected), 'total': len(releases),
+                'next_offset': next_offset if next_offset < len(releases) else None}
+
+    def matches(self, album_id, release_id):
+        """Spotify verification begins only after a user chose a tracklist."""
+        if not self.spotify.connected:
+            raise AppError('Connect Spotify in Settings to match the chosen tracklist.', 409)
+        album = self.inspect(mbid(album_id), release_id)
+        candidates = [candidate(album, source) for source in self.sources(album)]
+        matches = [match for match in candidates
+                   if self.fully_verified(match, len(album['tracks']))]
+        matches.sort(key=lambda match: match['score'], reverse=True)
+        return {'matches': [{'spotify_album_id': match['id'],
+                             'name': match['name'],
+                             'matched_tracks': len(album['tracks']),
+                             'score': match['score']} for match in matches[:12]]}
+
+    def select(self, album_id, release_id, spotify_album_id, reviewed=True, add_to_shelf=False, split_sides=False):
         if not self.spotify.connected:
             raise AppError('Connect Spotify before choosing a playable edition.', 409)
+        if type(split_sides) is not bool:
+            raise AppError('Choose whether to split vinyl sides using true or false.')
         # Prove full match against both remote sources BEFORE mutating canonical
         # tracks, verified Spotify IDs, review status or shelf membership.
         probe = self.inspect(album_id, release_id)
         choice = self.assess(probe, spotify_album_id)
+        sides = []
+        if split_sides:
+            release = self.musicbrainz.get(
+                'release/' + mbid(release_id),
+                {'inc': 'recordings+release-groups+isrcs+artist-credits'})
+            sides = vinyl_sides(release)
+            if not sides:
+                raise AppError('This MusicBrainz edition has no reliably numbered vinyl sides.')
         self.musicbrainz.use_release(album_id, release_id, reviewed)
         self.store.mapping(album_id, choice)
+        self.store.set_setting('playback_sides:'+album_id, sides)
         if add_to_shelf:
             self.store.shelf(album_id, True)
         return self.store.album(album_id)

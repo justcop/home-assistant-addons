@@ -229,11 +229,22 @@ class Spotify:
             raise AppError('Review the MusicBrainz tracklist and choose “This tracklist is correct” before first playback. This prevents a regional bonus edition becoming your original album.')
         tracks = album['tracks']
         if disc_number is not None:
-            if type(disc_number) is not int or disc_number < 1:
-                raise AppError('Choose a valid disc number.')
-            tracks = [t for t in tracks if (t.get('disc_number') or 1) == disc_number]
-            if not tracks:
-                raise AppError('That disc does not exist on this edition.')
+            if type(disc_number) is int and disc_number > 0:
+                tracks = [t for t in tracks if (t.get('disc_number') or 1) == disc_number]
+                if not tracks:
+                    raise AppError('That disc does not exist on this edition.')
+            elif isinstance(disc_number, str) and re.fullmatch(r'[1-9]\d*:[A-Z]', disc_number):
+                number, side = disc_number.split(':')
+                matching = next((part for part in album.get('playback_sides', [])
+                                 if part['disc_number'] == int(number) and part['side'] == side), None)
+                if not matching:
+                    raise AppError('That vinyl side is not available on this edition.')
+                positions = set(matching['positions'])
+                tracks = [t for t in tracks if t['position'] in positions]
+                if not tracks:
+                    raise AppError('That vinyl side has no tracks.')
+            else:
+                raise AppError('Choose a valid disc number or numbered vinyl side.')
         if (disc_number is None and not album['playable']) or not all(t.get('verified') and t.get('spotify_id') for t in tracks):
             raise AppError('Every canonical track needs a verified Spotify mapping before this album can play.')
         uris = ['spotify:track:'+spotify_id(t['spotify_id'],'track') for t in tracks]

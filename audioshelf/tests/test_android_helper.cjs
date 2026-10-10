@@ -71,6 +71,8 @@ Object.assign(context,{
     return {state:'waiting'};
   }
 });
+// This focused VM harness evaluates playback separately from the page renderer.
+vm.runInContext(source.slice(source.indexOf('function playbackSelectionTracks('),source.indexOf('function trackRows(')),context);
 vm.runInContext(source.slice(source.indexOf('let pendingPlayback='),source.indexOf("window.addEventListener('focus',retryPendingPlayback)")),context);
 const request=()=>({album:{id:'album',tracks:[{spotify_id:'track',title:'Track',duration_ms:1000,disc_number:2}]},disc:2,generation:1});
 (async()=>{
@@ -84,6 +86,12 @@ const request=()=>({album:{id:'album',tracks:[{spotify_id:'track',title:'Track',
   assert(progressIndicator.textContent.includes('Sending'),'Show Play dispatch progress');
   context.showHandoffProgress({state:'waiting',phase:'confirming_playback',play_accepted:true});
   assert(progressIndicator.textContent.includes('Confirming'),'Accepted Play is not mistaken for confirmed playback');
+  const split={id:'split',tracks:[
+    {position:1,title:'Side A',disc_number:1},
+    {position:2,title:'Side B',disc_number:1}],
+    playback_sides:[{disc_number:1,side:'A',positions:[1]},{disc_number:1,side:'B',positions:[2]}]};
+  assert.deepEqual(Array.from(context.playbackSelectionTracks(split,'1:B')).map(t=>t.title),['Side B'],
+    'The front end must derive the same selected vinyl-side tracks as the server');
   await context.startPlayback(request());
   assert.equal(launches.length,0,'Available phone plays without waking helper');
   assert.equal(calls[0].body.disc_number,2);

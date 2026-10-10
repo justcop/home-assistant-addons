@@ -136,11 +136,22 @@ function cards(albums){if(isVinyl())return vinylCards(albums);return `<div class
 function empty(title,message){return `<div class="empty"><div class="vinyl" aria-hidden="true"></div><h2>${title}</h2><p>${message}</p><a class="primary" href="#store">Visit the record store ↗</a></div>`;}
 function loginView(){return `<div class="eyebrow">Welcome back</div><h1>Open your shelf.</h1>${!statusInfo.password_configured?'<div class="note">Set the owner web password in Home Assistant configuration, or open AudioShelf through Home Assistant to create accounts.</div>':`<p class="intro">Sign in to your own library and Spotify connection.</p><form id="login-form"><label for="login-username">Username</label><input id="login-username" name="username" autocomplete="username" value="owner" maxlength="32" required><label for="login-password">Password</label><input id="login-password" type="password" name="password" autocomplete="current-password" required><label for="login-code">Authenticator or recovery code (if enabled)</label><input id="login-code" name="code" autocomplete="one-time-code" placeholder="Leave blank if not required"><label class="check-option"><input type="checkbox" name="remember"> Trust this browser for one year</label><p class="muted">Each account has its own shelf and Spotify connection. Trusted browsers still require your password if you sign out or your session expires.</p><button class="primary">Open AudioShelf</button></form>`}${statusInfo.ingress_available?'<p><button class="secondary" data-action="ingress-login">Use Home Assistant owner account</button></p>':''}`;}
 function albumDiscs(album){return [...new Set(album.tracks.map(t=>t.disc_number||1))];}
+function playbackSelectionTracks(album,disc){
+  if(disc===null)return album.tracks;
+  if(typeof disc==='string'&&disc.includes(':')){
+    const [number,side]=disc.split(':');
+    const matched=(album.playback_sides||[]).find(s=>s.disc_number===Number(number)&&s.side===side);
+    const positions=new Set(matched?.positions||[]);
+    return album.tracks.filter(t=>positions.has(t.position));
+  }
+  return album.tracks.filter(t=>(t.disc_number||1)===disc);
+}
 function trackRows(album){
   const discs=albumDiscs(album);
   return `<div class="tracklist">${discs.map(disc=>{
     const tracks=album.tracks.filter(t=>(t.disc_number||1)===disc);
-    const heading=discs.length>1?`<div class="actions"><h2>Disc ${disc}</h2><span class="muted">${tracks.length} tracks · ${duration(tracks.reduce((sum,t)=>sum+(t.duration_ms||0),0))}</span>${album.on_shelf?`<button class="secondary" data-action="play" data-disc="${disc}">▶ Play disc ${disc}</button>`:''}</div>`:'';
+    const sideControls=album.on_shelf?(album.playback_sides||[]).filter(side=>side.disc_number===disc).map(side=>`<button class="secondary" data-action="play" data-disc="${disc}:${side.side}">▶ Side ${side.side}</button>`).join(''):'';
+    const heading=discs.length>1?`<div class="actions"><h2>Disc ${disc}</h2><span class="muted">${tracks.length} tracks · ${duration(tracks.reduce((sum,t)=>sum+(t.duration_ms||0),0))}</span>${album.on_shelf?`<button class="secondary" data-action="play" data-disc="${disc}">▶ Play disc ${disc}</button>`:''}${sideControls}</div>`:sideControls?`<div class="actions"><strong>Vinyl sides</strong>${sideControls}</div>`:'';
     return heading+tracks.map(t=>`<div class="track-row"><span class="track-number">${t.position}</span><span>${escapeHtml(t.title)}<br><small class="${t.verified?'mapped':'unmapped'}">${t.verified?(t.method==='manual'?'Manually mapped':'Mapped to Spotify'):(t.spotify_id?'Check this recording':'Not mapped yet')}</small></span><span class="duration">${duration(t.duration_ms)}</span><button class="quiet" data-action="track" data-position="${t.position}" aria-label="Correct Spotify mapping for ${escapeHtml(t.title)}">Edit</button></div>`).join('');
   }).join('')}</div>`;
 }
@@ -255,7 +266,7 @@ async function playbackHandoff(request,message){
 async function startPlayback(request,openApp=true){
   cancelPendingPlayback();
   const playbackRequest=++playbackCommand;
-  const first=request.album.tracks.find(t=>request.disc===null||(t.disc_number||1)===request.disc);
+  const first=playbackSelectionTracks(request.album,request.disc)[0];
   beginPlayback(request.album,{first_track:{id:first.spotify_id,title:first.title,duration_ms:first.duration_ms},device:statusInfo.preferred_device?.name},true);
   let result;
   try{result=await api(`albums/${id(request.album.id)}/play`,'POST',request.disc===null?{}:{disc_number:request.disc});}
@@ -432,10 +443,74 @@ function releasePickerHtml(state,error=''){
   return `<h2>${coverMode?'Choose album cover':adding?'Add a playable edition':'Choose a Spotify-playable tracklist'}</h2><p>${description}</p><p class="muted">Using the preferred MusicBrainz countries and formats. Each batch checks up to four editions against Spotify in your market; more may be available on later pages. <a href="#settings">Settings ↗</a></p>${state.items.map(r=>`<button class="choice ${coverMode?'cover-choice':''}" data-action="${coverMode?'choose-cover':'choose-release'}" data-id="${escapeHtml(r.id)}" ${coverMode?'':`data-spotify-id="${escapeHtml(r.spotify_album_id)}"`}>${coverMode?`<img src="api/albums/${id(state.album)}/artwork-preview/${id(r.id)}" alt="Front cover preview" loading="lazy">`:''}<span>${escapeHtml(r.title)}<small>${escapeHtml([r.country,r.date,...(r.media||[]).map(m=>`${m.format||'Audio'}: ${m['track-count']||'?'} tracks`),r.disambiguation].filter(Boolean).join(' · '))}${!coverMode?` · ✓ ${r.matched_tracks} verified Spotify tracks · ${escapeHtml(r.spotify_album_name)}`:''}</small></span></button>`).join('')}${!state.items.length&&!error?`<div class="note">${state.next!==null?'No fully matched editions in this batch. Check more MusicBrainz editions.':coverMode?'No editions match your release filters. Change the filters in Settings.':'No fully Spotify-matched editions found under your current release preferences. Try changing country/format preferences or choose a different album.'}</div>`:''}${error?`<div class="note">${escapeHtml(error)}</div>`:''}${state.next!==null||error?`<button class="secondary" data-action="load-releases">${error?'Retry checks':'Check more editions'}</button>`:''}`;
 }
 async function openPlayableReleasePicker(albumId,mode){
-  releasePicker={album:albumId,mode,items:[],offset:0,next:0};
-  showModal('<h2>Checking Spotify compatibility</h2>'+loading('Finding MusicBrainz editions with fully matched Spotify tracks…'));
-  await loadReleasePage();
+  if(mode==='cover'){
+    releasePicker={album:albumId,mode,items:[],offset:0,next:0};
+    showModal('<h2>Choose a front cover</h2>'+loading('Finding MusicBrainz editions…'));
+    await loadReleasePage();
+    return;
+  }
+  releasePicker={album:albumId,mode,variants:[],next:0,checked:0,total:0,stage:'variants'};
+  showModal('<h2>Choose a tracklist</h2>'+loading('Grouping MusicBrainz releases by their actual songs…'));
+  await loadVariantPage();
 }
+
+// Find the major musical changes, ignoring remaster suffixes, not alternate takes.
+function variantTitle(title){return String(title||'').normalize('NFKC').toLocaleLowerCase().replace(/\s*[\[(]\s*(?:\d{4}\s+)?re-?master(?:ed)?(?:\s+(?:version|edition))?(?:\s+\d{4})?\s*[\])]\s*$/i,'').replace(/[^\p{L}\p{N}]+/gu,' ').trim();}
+function variantDifference(a,b){
+  const count=arr=>arr.reduce((m,t)=>(m.set(variantTitle(t.title),(m.get(variantTitle(t.title))||0)+1),m),new Map());
+  const before=count(a),after=count(b),added=[],removed=[];
+  for(const t of b){const key=variantTitle(t.title);if((after.get(key)||0)>(before.get(key)||0)){added.push(t.title);after.set(key,after.get(key)-1);}}
+  for(const t of a){const key=variantTitle(t.title);if((before.get(key)||0)>(count(b).get(key)||0)){removed.push(t.title);before.set(key,before.get(key)-1);}}
+  const reordered=!added.length&&!removed.length&&a.map(t=>variantTitle(t.title)).join('|')!==b.map(t=>variantTitle(t.title)).join('|');
+  return {added,removed,reordered};
+}
+function variantSummary(reference,variant){
+  if(reference===variant)return 'Preferred standard tracklist';
+  const diff=variantDifference(reference.tracks,variant.tracks);
+  const brief=(array,symbol)=>array.length?symbol+array.length+' '+(array.length===1?'track':'tracks')+': '+array.slice(0,4).map(escapeHtml).join(', ')+(array.length>4?'…':''):'';
+  return [brief(diff.added,'+'),brief(diff.removed,'−'),diff.reordered?'Same songs, different running order':''].filter(Boolean).join(' · ')||'Same musical content';
+}
+function variantTrackPreview(variant){
+  let previous=null;
+  return '<ol class="variant-track-list">'+variant.tracks.map(track=>{
+    const heading=previous!==track.disc_number?'<li class="variant-disc-heading">Disc '+escapeHtml(track.disc_number)+'</li>':'';
+    previous=track.disc_number;
+    return heading+'<li>'+escapeHtml(track.title)+'</li>';
+  }).join('')+'</ol>';
+}
+function variantPickerHtml(state,error=''){
+  const reference=state.variants[0];
+  return `<h2>Choose the album tracklist</h2><p>MusicBrainz pressings with the same songs in the same order are combined. See bonus tracks, omissions and changed running orders before choosing. Spotify is checked only after your choice.</p><p class="muted">${state.checked} of ${state.total||'?'} preferred releases inspected; ${state.variants.length} distinct tracklists so far. More choices may appear as you inspect additional pressings.</p>${state.variants.map((variant,index)=>`<section class="variant-option"><h3>${index===0?'Original / preferred': 'Tracklist '+(index+1)} · ${variant.track_count} tracks</h3><p class="variant-difference">${variantSummary(reference,variant)}</p><p class="muted">${variant.pressings} MusicBrainz ${variant.pressings===1?'release':'releases'} · ${variant.layouts.length} ${variant.layouts.length===1?'disc/side layout':'disc/side layouts'}</p><button class="secondary" data-action="select-variant" data-signature="${variant.signature}">Choose this tracklist</button><details><summary>Show the complete tracklist</summary>${variantTrackPreview(variant)}</details></section>`).join('')}${!state.variants.length&&!error?'<div class="note">No usable tracklists found in these pressings.</div>':''}${error?`<div class="note">${escapeHtml(error)}</div>`:''}${state.next!==null?`<button class="secondary" data-action="load-releases">${error?'Retry':'Inspect more MusicBrainz pressings'} ↘</button>`:''}`;
+}
+async function loadVariantPage(){
+  const state=releasePicker,generation=routeGeneration;
+  if(!state||state.mode==='cover'||state.next===null)return;
+  modalContent.innerHTML=variantPickerHtml(state)+loading('Inspecting tracklists; no Spotify queries yet…');
+  try{
+    const result=await api(`albums/${id(state.album)}/tracklist-variants?offset=${state.next}`);
+    if(generation!==routeGeneration||releasePicker!==state||!modal.open)return;
+    state.next=result.next_offset;state.total=result.total;state.checked+=result.checked;
+    for(const variant of result.variants){
+      const found=state.variants.find(v=>v.signature===variant.signature);
+      if(!found){state.variants.push(variant);continue;}
+      found.pressings+=variant.pressings;
+      for(const layout of variant.layouts){
+        const existing=found.layouts.find(l=>l.key===layout.key);
+        if(existing)existing.pressings+=layout.pressings;
+        else found.layouts.push(layout);
+      }
+    }
+    modalContent.innerHTML=variantPickerHtml(state);
+  }catch(error){if(generation===routeGeneration&&releasePicker===state&&modal.open)modalContent.innerHTML=variantPickerHtml(state,error.message);}
+}
+function variantLayoutHtml(state){
+  const v=state.variants.find(item=>item.signature===state.selectedSignature);
+  return `<h2>Disc and side layout</h2><p><strong>${v.track_count} tracks</strong>. Discs always remain separate. Vinyl sides are optional, and only offered when MusicBrainz has their actual A/B/C/D track numbering.</p>${v.layouts.map((layout,index)=>`<label class="variant-layout"><input type="radio" name="variant-layout" value="${index}" ${index===0?'checked':''}><span><strong>${layout.discs.length} ${layout.discs.length===1?'disc':'discs'} · ${layout.discs.map(d=>d[1]).join(' + ')} tracks</strong><small>${escapeHtml(layout.formats.join(', '))} · ${escapeHtml(layout.country||'Unknown country')}${layout.sides.length?' · Vinyl sides '+escapeHtml(layout.sides.map(s=>s.side).join('/')):''} · ${layout.pressings} ${layout.pressings===1?'pressing':'pressings'}</small></span></label>`).join('')}<label class="check-option"><input type="checkbox" id="variant-split-sides" ${v.layouts[0].sides.length?'':'disabled'}> Also allow playback by individual vinyl side</label><p class="muted" id="variant-side-note">${v.layouts[0].sides.length?'Each disc can still be played as a whole.':'Side numbers unavailable for this layout. Separate discs remain individually playable.'}</p><div class="actions"><button class="primary" data-action="match-variant">Find this tracklist on Spotify</button><button class="quiet" data-action="variant-back">Back to tracklists</button></div>`;
+}
+function variantMatchesHtml(state){
+  return `<h2>Choose Spotify recordings</h2><p>The MusicBrainz tracklist is now fixed. Only Spotify editions matching <strong>every one of its ${state.matches[0]?.matched_tracks||''} songs</strong> are shown. Extra Spotify bonus tracks will not be queued.</p>${state.matches.map(m=>`<button class="choice" data-action="choose-release" data-id="${escapeHtml(state.selectedRelease)}" data-spotify-id="${escapeHtml(m.spotify_album_id)}"><span>${escapeHtml(m.name)}<small>✓ ${m.matched_tracks} songs verified</small></span></button>`).join('')}${!state.matches.length?'<div class="note">No complete Spotify match for this tracklist. Choose another version, or adjust release preferences in Settings.</div>':''}<button class="quiet" data-action="variant-back-layout">Change disc/side layout</button>`;
+}
+
 async function loadReleasePage(){
   const state=releasePicker,generation=routeGeneration;
   try{
@@ -455,6 +530,20 @@ document.addEventListener('change',async event=>{
 });
 window.addEventListener('hashchange',event=>{saveBrowsing(new URL(event.oldURL).hash);modal.close();route();});
 window.addEventListener('focus',async()=>{if(statusInfo.authenticated){try{const previousInterface=statusInfo.interface;const latest=await api('status');if(accountChanged(latest)){await clearArtworkCaches();window.location.reload();return;}statusInfo=latest;applyTheme(statusInfo.theme);applyInterface(statusInfo.interface);renderTurntable();refreshPlayback(true);if(previousInterface!==statusInfo.interface&&!unsavedChanges()){await route();return;}if(location.hash==='#settings'&&!settingsDirty){content.innerHTML=settingsPage();applyPermissions(content);refreshArtworkCacheSettings();}}catch{}}});
+document.addEventListener('change',event=>{
+  if(!event.target.matches('input[name="variant-layout"]'))return;
+  const state=releasePicker;
+  const variant=state?.variants?.find(v=>v.signature===state.selectedSignature);
+  const layout=variant?.layouts[Number(event.target.value)];
+  const checkbox=document.querySelector('#variant-split-sides');
+  const note=document.querySelector('#variant-side-note');
+  if(!layout||!checkbox||!note)return;
+  checkbox.checked=false;checkbox.disabled=!layout.sides.length;
+  note.textContent=layout.sides.length
+    ?'Split using MusicBrainz’s printed sides '+layout.sides.map(s=>s.side).join('/')+
+      '. Playing full discs remains available.'
+    :'No reliable A/B side numbering for this release. Discs remain individually playable.';
+});
 document.addEventListener('input',event=>{if(event.target.closest('#release-filters-form'))settingsDirty=true;});
 document.addEventListener('input',event=>{if(event.target.id==='artist-filter')document.querySelectorAll('.artist-row').forEach(el=>el.hidden=!el.dataset.filter.includes(event.target.value.toLowerCase()));});
 document.addEventListener('submit',async event=>{
@@ -604,8 +693,9 @@ document.addEventListener('click',async event=>{
       if(checkingPlayback){toast('Waiting for Spotify to finish starting playback.');return;}
       if(!statusInfo.spotify_connected)throw new Error('Connect Spotify in Settings first.');
       if(!currentAlbum.canonical_reviewed)throw new Error('Check the displayed original tracklist, then choose “This tracklist is correct” before first playback.');
-      const disc=button.dataset.disc?Number(button.dataset.disc):null;
-      const selectedTracks=currentAlbum.tracks.filter(t=>disc===null||(t.disc_number||1)===disc);
+      const disc=button.dataset.disc?(button.dataset.disc.includes(':')?button.dataset.disc:Number(button.dataset.disc)):null;
+      const selectedTracks=playbackSelectionTracks(currentAlbum,disc);
+      if(!selectedTracks.length)throw new Error('That disc or side has no playable tracks.');
       if(!selectedTracks.every(t=>t.verified&&t.spotify_id)){toast('Matching Spotify tracks first…');const result=await api(`albums/${id(currentAlbum.id)}/resolve`,'POST');if(generation!==routeGeneration)return;currentAlbum=result.album;content.innerHTML=albumPage(currentAlbum);}
       const request={album:currentAlbum,disc,generation};
       cancelPendingPlayback();
@@ -648,7 +738,38 @@ document.addEventListener('click',async event=>{
     if(action==='releases'||action==='cover-editions'||action==='find-playable-edition'){
       await openPlayableReleasePicker(currentAlbum.id,action==='cover-editions'?'cover':'tracks');
     }
-    if(action==='load-releases')await loadReleasePage();
+    if(action==='load-releases'){if(releasePicker?.mode==='cover')await loadReleasePage();else await loadVariantPage();}
+    if(action==='select-variant'){
+      if(!releasePicker)return;
+      releasePicker.selectedSignature=button.dataset.signature;
+      releasePicker.stage='layout';modalContent.innerHTML=variantLayoutHtml(releasePicker);
+    }
+    if(action==='variant-back'){
+      if(releasePicker){releasePicker.stage='variants';modalContent.innerHTML=variantPickerHtml(releasePicker);}
+    }
+    if(action==='variant-back-layout'){
+      if(releasePicker){releasePicker.stage='layout';modalContent.innerHTML=variantLayoutHtml(releasePicker);}
+    }
+    if(action==='match-variant'){
+      const state=releasePicker;
+      if(!state)throw new Error('Choose a tracklist first.');
+      const variant=state.variants.find(v=>v.signature===state.selectedSignature);
+      const selected=document.querySelector('input[name="variant-layout"]:checked');
+      const layout=variant?.layouts[Number(selected?.value)];
+      if(!layout)throw new Error('Choose a disc layout.');
+      state.selectedRelease=layout.release_id;
+      state.splitSides=layout.sides.length>0&&!!document.querySelector('#variant-split-sides')?.checked;
+      modalContent.innerHTML='<h2>Checking Spotify</h2>'+loading('Verifying your selected tracklist against Spotify…');
+      try{
+        const result=await api(`albums/${id(state.album)}/tracklist-matches`,'POST',{release_id:layout.release_id});
+        if(generation!==routeGeneration||releasePicker!==state||!modal.open)return;
+        state.matches=result.matches;state.stage='matches';modalContent.innerHTML=variantMatchesHtml(state);
+      }catch(error){
+        if(generation===routeGeneration&&releasePicker===state&&modal.open){
+          modalContent.innerHTML=variantLayoutHtml(state)+`<div class="note">${escapeHtml(error.message)}</div>`;
+        }
+      }
+    }
     if(action==='choose-cover'){
       await api(`albums/${id(currentAlbum.id)}/artwork-release`,'POST',{release_id:button.dataset.id});
       if(generation!==routeGeneration)return;
@@ -659,7 +780,8 @@ document.addEventListener('click',async event=>{
       if(!state||!button.dataset.spotifyId)return;
       if(state.mode==='tracks'&&!confirm('Replace the original tracklist and its Spotify mappings with this fully matched edition?'))return;
       const album=await api(`albums/${id(state.album)}/${state.mode==='add'?'shelf':'release'}`,'POST',
-        {release_id:button.dataset.id,spotify_album_id:button.dataset.spotifyId,confirmed:true});
+        {release_id:button.dataset.id,spotify_album_id:button.dataset.spotifyId,confirmed:true,
+          split_sides:!!state.splitSides});
       if(generation!==routeGeneration)return;
       modal.close();markCollected(album.id);
       if(state.mode==='add'){

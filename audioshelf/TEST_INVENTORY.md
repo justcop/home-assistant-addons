@@ -1,12 +1,12 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-10T17:27:22+01:00 (Europe/London).
+Reviewed: 2026-10-10T18:00:00+01:00 (Europe/London).
 
-Reviewed Vinyl shelf visual regression tests after restoring full-width artist expand/collapse toggles while separating More from onto a header subrow. Tests confirm neighbouring artist sections meet without a vertical gap, expanded and mobile name buttons occupy the complete bar, the More from action appears only for expanded artists, and the same artist can be collapsed again. Existing playback, multi-disc logic and 314 backend cases remain unchanged. Real-device visual verification remains appropriate after the release.
+Reviewed seven new non-overlapping tests for MusicBrainz song-sequence grouping, bonus/reordered differences, remaster identifiers, distinct multi-disc layouts, recorded vinyl-side numbering, Spotify lookup deferred until after tracklist selection, invalid side requests and safe canonical mapping replacement. Existing 314 backend tests and Playwright journeys remain in place, including a focused playback-handoff VM harness and an account-isolation browser test, now explicitly verifying that disconnected Spotify users can inspect MusicBrainz tracklists but cannot perform Spotify verification or collect unverified albums. Updated journeys exercise the new tracklist-first flow, Spotify verification, disc playback, and album cover picker. Manual live MusicBrainz and Spotify market coverage is still required.
 
-<!-- inventory: {"reviewed_at":"2026-10-10T17:27:22+01:00","review_note":"Reviewed Vinyl shelf visual regression tests after restoring full-width artist expand/collapse toggles while separating More from onto a header subrow. Tests confirm neighbouring artist sections meet without a vertical gap, expanded and mobile name buttons occupy the complete bar, the More from action appears only for expanded artists, and the same artist can be collapsed again. Existing playback, multi-disc logic and 314 backend cases remain unchanged. Real-device visual verification remains appropriate after the release.","source_sha256":"e91a6b49d3ad608563e527da1b5a4535d65a3f5be61a9a9ef68b049ff4553fca"} -->
+<!-- inventory: {"reviewed_at":"2026-10-10T18:00:00+01:00","review_note":"Reviewed seven new non-overlapping tests for MusicBrainz song-sequence grouping, bonus/reordered differences, remaster identifiers, distinct multi-disc layouts, recorded vinyl-side numbering, Spotify lookup deferred until after tracklist selection, invalid side requests and safe canonical mapping replacement. Existing 314 backend tests and Playwright journeys remain in place, updated to exercise the new tracklist-first flow, Spotify verification, disc playback, and album cover picker. Manual live MusicBrainz and Spotify market coverage is still required.","source_sha256":"04a0497a99ccb70a31527d2367fc5020221e6f8bd18007a5d017f76474e788a9"} -->
 
-## Backend cases (314)
+## Backend cases (321)
 
 1. `audioshelf/tests/test_accounts.py::test_account_creation_and_management_require_admin_and_fresh_password`
 2. `audioshelf/tests/test_accounts.py::test_background_playback_is_account_and_session_scoped`
@@ -318,10 +318,17 @@ Reviewed Vinyl shelf visual regression tests after restoring full-width artist e
 308. `audioshelf/tests/test_track_artist_credits.py::test_performer_credits_are_general_for_any_collaborative_album`
 309. `audioshelf/tests/test_track_artist_credits.py::test_selecting_soundtrack_maps_every_track_and_keeps_review`
 310. `audioshelf/tests/test_track_artist_credits.py::test_store_migration_keeps_shelf_and_hand_mappings`
-311. `audioshelf/tests/test_vinyl.py::test_interface_persists_and_invalid_choice_is_atomic`
-312. `audioshelf/tests/test_vinyl.py::test_playback_does_not_misidentify_shared_or_uncollected_tracks`
-313. `audioshelf/tests/test_vinyl.py::test_playback_tracks_spotify_pause_and_relinked_library_track`
-314. `audioshelf/tests/test_vinyl.py::test_shelf_furniture_persists_and_rejects_invalid_choices`
+311. `audioshelf/tests/test_tracklist_variants.py::test_browse_without_spotify_then_compare_and_match_only_chosen_release`
+312. `audioshelf/tests/test_tracklist_variants.py::test_equivalent_pressings_collapse_despite_remaster_and_recording_ids`
+313. `audioshelf/tests/test_tracklist_variants.py::test_invalid_tracklist_page_is_rejected`
+314. `audioshelf/tests/test_tracklist_variants.py::test_multidisc_layout_kept_independent_of_same_song_sequence`
+315. `audioshelf/tests/test_tracklist_variants.py::test_select_vinyl_sides_preserves_disc_and_canonical_mapping`
+316. `audioshelf/tests/test_tracklist_variants.py::test_side_choice_validation_and_stored_album_intact_on_failure`
+317. `audioshelf/tests/test_tracklist_variants.py::test_unknown_or_inconsistent_vinyl_numbers_do_not_create_fictitious_sides`
+318. `audioshelf/tests/test_vinyl.py::test_interface_persists_and_invalid_choice_is_atomic`
+319. `audioshelf/tests/test_vinyl.py::test_playback_does_not_misidentify_shared_or_uncollected_tracks`
+320. `audioshelf/tests/test_vinyl.py::test_playback_tracks_spotify_pause_and_relinked_library_track`
+321. `audioshelf/tests/test_vinyl.py::test_shelf_furniture_persists_and_rejects_invalid_choices`
 
 ## Other release checks
 

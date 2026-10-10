@@ -569,7 +569,8 @@ def create_app(options=None):
                 if not payload.get('release_id') or not payload.get('spotify_album_id'):
                     raise AppError('Select a fully Spotify-matched MusicBrainz edition.')
                 album = playable_releases.select(album_id, payload['release_id'],
-                    payload['spotify_album_id'], reviewed=False, add_to_shelf=True)
+                    payload['spotify_album_id'], reviewed=False, add_to_shelf=True,
+                    split_sides=payload.get('split_sides', False))
                 return jsonify(album)
             # Backward compatibility for existing integrations. The interactive
             # Record Store always sends a Spotify-verified edition choice.
@@ -584,6 +585,19 @@ def create_app(options=None):
             store.shelf(album_id,False)
             artwork.evict(album_id)
         return jsonify(ok=True)
+
+    @app.get('/api/albums/<album_id>/tracklist-variants')
+    def tracklist_variants(album_id):
+        try:
+            offset = int(request.args.get('offset', '0'))
+        except ValueError:
+            raise AppError('Invalid tracklist cursor.') from None
+        return jsonify(playable_releases.variants(mbid(album_id), offset))
+
+    @app.post('/api/albums/<album_id>/tracklist-matches')
+    def tracklist_matches(album_id):
+        payload = request.get_json(silent=True) or {}
+        return jsonify(playable_releases.matches(mbid(album_id), payload.get('release_id')))
 
     @app.get('/api/albums/<album_id>/releases')
     def releases(album_id):
@@ -611,7 +625,8 @@ def create_app(options=None):
             payload = request.json
             if payload.get('spotify_album_id'):
                 return jsonify(playable_releases.select(mbid(album_id), payload.get('release_id'),
-                                                       payload['spotify_album_id'], reviewed=True))
+                                                       payload['spotify_album_id'], reviewed=True,
+                                                        split_sides=payload.get('split_sides', False)))
             return jsonify(musicbrainz.use_release(mbid(album_id),payload.get('release_id'),True))
 
     @app.get('/api/albums/<album_id>/diagnostics')

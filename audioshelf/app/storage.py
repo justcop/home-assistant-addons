@@ -208,12 +208,15 @@ class Store:
                 track['recording_aliases'] = json.loads(track['recording_aliases'])
                 track['artist_names'] = json.loads(track['artist_names'])
         result['playable'] = bool(result['tracks']) and all(t['spotify_id'] and t['verified'] for t in result['tracks'])
+        result['playback_sides'] = self.setting('playback_sides:'+album_id, [])
         result['release_countries'] = self.release_countries(album_id)
         result['release_filters'] = self.release_filters(album_id)
         return result
 
     def set_tracks(self, album_id, release, tracks, reviewed=False):
         with self.connect() as db:
+            # Each printed edition has its own side boundaries.
+            db.execute('DELETE FROM settings WHERE key=?', ('playback_sides:'+album_id,))
             db.execute('DELETE FROM tracks WHERE album_id=?', (album_id,))
             for position, track in enumerate(tracks, 1):
                 db.execute('INSERT INTO tracks(album_id,position,title,disc_number,track_number,duration_ms,recording_id,isrcs,recording_title,recording_aliases,artist_names) '
