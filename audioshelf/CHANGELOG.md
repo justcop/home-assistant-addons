@@ -1,3 +1,9 @@
+# 0.6.21 — Continuous vinyl shelving
+
+- Restore the artist name bar as a full-width, independently clickable expand/collapse toggle at all times. When expanded, show the “More from” link on its own slim action line within the white header, without replacing any part of the toggle.
+- Remove gutters between adjacent artist sections and trailing blank rack padding so the artist bars and white ledges form a continuous wall of shelves across floating and cabinet views.
+- Add browser regression checks for seamless adjoining shelves, full-width toggles, independent expanded actions, repeat expand/collapse behaviour and mobile widths.
+
 # 0.6.20 — One-year login persistence and artist-header store links
 
 - Keep standalone AudioShelf login sessions, their signed cookies and optionally trusted 2FA browsers valid for one year (365 days), rather than 12 hours and 30 days. Temporary support accounts remain bounded by their shorter grants. Signing out, password/2FA resets and session revocation continue to invalidate access.

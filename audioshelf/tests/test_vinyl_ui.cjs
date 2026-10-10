@@ -79,6 +79,17 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert(await firstRail.evaluate(el=>el.scrollWidth>el.clientWidth),'A long artist collection scrolls sideways');
     assert.equal(await firstRail.locator('.shelf-row').count(),0,'Compact mode has no fragmented grid rows');
     assert.equal(await page.locator('.rail-ledge:visible').count(),2);
+    const shelfGeometry = await page.locator('.collection-shelves .artist-shelf').evaluateAll(sections =>
+      sections.map((section,index) => ({
+        bottom: section.getBoundingClientRect().bottom,
+        next: sections[index+1]?.getBoundingClientRect().top ?? null,
+        toggleWidth:section.querySelector('.shelf-artist-toggle').getBoundingClientRect().width,
+        barWidth:section.querySelector('.shelf-artist-bar').getBoundingClientRect().width
+      })));
+    assert(Math.abs(shelfGeometry[0].bottom-shelfGeometry[0].next)<1,
+      'Artist shelves must touch without vertical gaps');
+    assert(shelfGeometry.every(geo=>Math.abs(geo.toggleWidth-geo.barWidth)<1),
+      'Each complete artist name bar must remain a clickable toggle');
     assert.equal(await page.locator('.collection-shelves .shelf-artist-link:visible').count(),0,
       'Collapsed artists must not interrupt shelves with More from links');
     assert.equal(await page.locator('.collection-shelves .shelf-records .shelf-artist-link').count(),0,
@@ -90,6 +101,15 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert.equal(await page.locator('.collection-shelves .shelf-artist-link:visible').count(),1,
       'Exactly the expanded artist exposes its More from store action');
     assert.equal(await page.locator('.artist-shelf[data-view="expanded"] .shelf-artist-bar .shelf-artist-link').count(),1);
+    const expandedHeader = await page.locator('.artist-shelf[data-view="expanded"] .shelf-artist-bar').evaluate(bar=>({
+      toggleWidth:bar.querySelector('.shelf-artist-toggle').getBoundingClientRect().width,
+      barWidth:bar.getBoundingClientRect().width,
+      actionBelow:bar.querySelector('.shelf-artist-actions').getBoundingClientRect().top>=
+        bar.querySelector('.shelf-artist-toggle').getBoundingClientRect().bottom-1
+    }));
+    assert(Math.abs(expandedHeader.toggleWidth-expandedHeader.barWidth)<1,
+      'Expanding an artist must not shorten or replace the collapse toggle');
+    assert(expandedHeader.actionBelow,'More from belongs beneath the full-width toggle in the artist bar');
     assert((await page.locator('.artist-shelf[data-view="expanded"] .shelf-row').count())>0);
     const captionGeometry=await page.locator('.artist-shelf[data-view="expanded"] .shelf-row .sleeve').first().evaluate(el=>({
       caption:el.querySelector('.sleeve-caption').getBoundingClientRect().bottom,
@@ -103,6 +123,11 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     const openId=await dividers.last().evaluate(el=>el.closest('[data-shelf-id]').dataset.shelfId);
     assert.equal(await page.locator('.artist-shelf[data-view="expanded"] .shelf-artist-link').getAttribute('href'),
       '#artist/'+openId+'/store', 'More from leads to the artist record-store catalogue');
+    await dividers.last().click();
+    assert.equal(await dividers.last().getAttribute('aria-expanded'),'false',
+      'Tapping the artist name bar again collapses it despite the More from action');
+    await dividers.last().click();
+    assert.equal(await dividers.last().getAttribute('aria-expanded'),'true');
     const compactAlbum=page.locator('.artist-shelf[data-view="expanded"] .album-title').first();
     const compactTitle=await compactAlbum.textContent();
     await compactAlbum.click();
@@ -127,7 +152,11 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.locator('.shelf-artist-toggle[aria-expanded="true"]').waitFor();
     assert.equal(await page.locator('.shelf-artist-toggle[aria-expanded="true"]').evaluate(el=>el.closest('[data-shelf-id]').dataset.shelfId),openId);
     await page.setViewportSize({width:390,height:844});
-    await noOverflow();await shot('rail-mobile');
+    await noOverflow();
+    const mobileWidths=await page.locator('.artist-shelf[data-view="expanded"] .shelf-artist-bar')
+      .evaluate(bar=>[bar.getBoundingClientRect().width,bar.querySelector('.shelf-artist-toggle').getBoundingClientRect().width]);
+    assert(Math.abs(mobileWidths[0]-mobileWidths[1])<1,'Full-width toggle survives mobile layout');
+    await shot('rail-mobile');
     await dividers.last().click();
     await dividers.last().focus();await page.keyboard.press('Enter');
     assert.equal(await dividers.last().getAttribute('aria-expanded'),'true','Keyboard expands the artist');
