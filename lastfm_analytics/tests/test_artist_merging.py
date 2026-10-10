@@ -277,3 +277,13 @@ def test_article_only_variants_merge_even_if_albums_do_not_overlap(tmp_path):
         # Distinct recordings should NOT be collapsed together.
         assert len({r[0] for r in conn.execute(
             "SELECT group_id FROM resolved_variants WHERE kind='song'")}) == 2
+
+
+def test_the_the_is_not_the_same_artist_as_the(tmp_path):
+    db = Database(tmp_path / "listening.sqlite3")
+    db.apply_window(0, 1000, [
+        play(100, "The The", "This Is the Day", "Soul Mining"),
+        play(200, "The", "Unrelated Song", "Different Album"),
+    ])
+    with db.connect() as conn:
+        assert len(rankings(conn, p(), "artist")) == 2
