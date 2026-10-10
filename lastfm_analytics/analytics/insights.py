@@ -2,6 +2,7 @@
 
 import json
 from .artwork import image_url
+from .album_listens import estimate as album_listen_estimate, track_key, track_breakdown
 
 from collections import Counter
 from datetime import datetime, timedelta, timezone
@@ -131,7 +132,8 @@ def summaries(conn, p, extra, params, raw):
 
 
 def rankings(
-    conn, p, kind, raw=False, search="", limit=50, offset=0, extra="", params=()
+    conn, p, kind, raw=False, search="", limit=50, offset=0, extra="", params=(),
+    sort="scrobbles", include_breakdown=False
 ):
     if kind == "artist":
         key, name, artist = "s.artist_group_key", "COALESCE((SELECT display_name FROM artist_aliases WHERE artist_key=s.artist_group_key),MIN(s.artist))", "''"
@@ -158,7 +160,8 @@ def rankings(
       SELECT {key} AS id, {name} AS name, {artist} AS artist,
        SUM(CASE WHEN s.ts>=? THEN 1 ELSE 0 END) AS plays,
        SUM(CASE WHEN s.ts<? THEN 1 ELSE 0 END) AS previous,
-       {variants} AS versions, MAX(s.ts) AS last_play
+       {variants} AS versions, MAX(s.ts) AS last_play,
+       {"MIN(av.group_id)" if kind == "album" else "NULL"} AS album_group_id
        {joins} WHERE s.active=1 AND s.ts>=? AND s.ts<? {condition} {extra}
        GROUP BY {key}) SELECT *, COUNT(*) OVER() AS total_rows FROM ranked
        WHERE plays>0 AND (instr(lower(name),lower(?))>0 OR instr(lower(artist),lower(?))>0)
@@ -175,15 +178,62 @@ def rankings(
                 *params,
                 search,
                 search,
-                limit,
-                offset,
+                -1 if kind == "album" else limit,
+                0 if kind == "album" else offset,
             ],
         )
     ]
+    if kind == "album":
+        album_listen_scores(conn, p, rows, raw, extra, params, include_breakdown)
+        if sort == "estimated":
+            rows.sort(key=lambda r: (r["estimated_listens"] is None,
+                                     -(r["estimated_listens"] or 0),
+                                     -r["plays"], r["name"].casefold()))
+        # Score before pagination so a short record is not disadvantaged.
+        rows = rows[offset:offset + limit]
     for r in rows:
         if not p["compare"]:
             r["previous"] = None
     return rows
+
+
+
+def album_listen_scores(conn, p, rows, raw, extra="", params=(), breakdown=False):
+    """Score complete tracklists, including songs with zero scrobbles.
+
+    Metadata is stored separately. Never infer album length from the user's
+    observed song titles.
+    """
+    if not rows:
+        return
+    available = {
+        r["album_id"]: (json.loads(r["tracks_json"]) if r["tracks_json"] else None,
+                         r["source"])
+        for r in conn.execute("SELECT album_id,tracks_json,source FROM album_tracklists")
+    }
+    keys = {str(r["id"]) for r in rows}
+    counts = {}
+    identifier = "av.id" if raw else "av.group_id"
+    for album_id, title, plays in conn.execute(
+        f"""SELECT {identifier},s.title,COUNT(*) {JOINS}
+            WHERE s.active=1 AND s.album_id IS NOT NULL
+                  AND s.ts>=? AND s.ts<? {extra}
+            GROUP BY {identifier},s.title""",
+        [p["start"], p["end"], *params],
+    ):
+        if str(album_id) in keys:
+            counter = counts.setdefault(str(album_id), Counter())
+            counter[track_key(title)] += plays
+    for row in rows:
+        tracklist, source = available.get(row["album_group_id"], (None, None))
+        plays = counts.get(str(row["id"]), {})
+        row["estimated_listens"] = album_listen_estimate(tracklist, plays)
+        row["track_count"] = len(tracklist) if tracklist else None
+        row["tracklist_source"] = source
+        row["estimate_status"] = ("ready" if row["estimated_listens"] is not None
+                                  else "ineligible" if tracklist else "pending")
+        if breakdown:
+            row["track_breakdown"] = track_breakdown(tracklist, plays)
 
 
 def timeline(conn, p, tz, extra="", params=()):
@@ -297,6 +347,16 @@ def overview(database, args, tz_name, now=None):
             "top_artists": artists,
             "top_albums": rankings(
                 conn, p, "album", raw, limit=5, extra=extra, params=params
+            ),
+            "top_albums_estimated": [
+                r for r in rankings(conn, p, "album", raw, limit=12, extra=extra,
+                                    params=params, sort="estimated")
+                if r["estimated_listens"] is not None
+            ][:5],
+            "album_estimate": (
+                rankings(conn, p, "album", raw, limit=1, extra=extra, params=params,
+                         include_breakdown=True)[0]
+                if args.get("entity") == "album" and current["albums"] else None
             ),
             "top_songs": rankings(
                 conn, p, "song", raw, limit=5, extra=extra, params=params
