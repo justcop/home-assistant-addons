@@ -1,5 +1,12 @@
 # AudioShelf
 
+### MusicBrainz tracklist variants (v0.6.22)
+
+When adding or changing a record's tracklist, AudioShelf first inspects MusicBrainz releases **without contacting Spotify**. It groups releases with the same ordered songs and performers into one musical choice, ignoring reissue/remaster metadata. The picker identifies bonus songs, omissions or different running orders compared with the preferred standard tracklist and lets you expand each full list. Select a tracklist, choose the physical disc arrangement, optionally use **real** vinyl side breaks where MusicBrainz supplies A1/B1-style numbering, then press **Find this tracklist on Spotify**. Only completely verified matches are offered and the Spotify edition's extra tracks stay out of the queue.
+
+Different pressings can have different disc layouts even when their songs are identical; these are alternatives within the same tracklist. A multi-disc release always retains separate discs. If side numbering is incomplete, AudioShelf leaves side splitting unavailable rather than inventing it. AudioShelf examines eight MusicBrainz releases per page, preserving the regional/format preferences; click **Inspect more MusicBrainz pressings** to discover variants appearing later. Old albums and album/disc playback continue working unchanged, and changing a canonical edition clears obsolete saved sides.
+
+
 ### Session and shelf presentation
 
 Standalone owner and personal-account sessions now persist for up to **one year**, and the optional **Trust this browser for one year** checkbox skips repeat 2FA challenges when signing back in with a password. The 2FA trust is not a password-free login. Explicit logout, credential changes and revocation still invalidate sessions, and temporary support grants retain their own limited expiration.

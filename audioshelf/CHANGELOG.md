@@ -1,3 +1,12 @@
+# 0.6.22 — Choose musical tracklist first, then Spotify
+
+- Group equivalent MusicBrainz pressings by the actual ordered song/performer sequence; ignore recording identifiers, remaster label suffixes and tiny duration changes but retain bonus tracks, missing songs, alternate takes and reordered tracks as distinct options.
+- Show a plainly worded tracklist comparison against the preferred original, naming added or removed songs and highlighting reordered sequences. Expand full tracklists when desired.
+- Offer separate real disc layouts for matching musical tracklists. Optionally split playback into vinyl sides only when the selected MusicBrainz release has trustworthy A1/B1-style printed track numbers; never infer a midpoint. Preserve entire-disc playback separately.
+- Query Spotify only after the listener has chosen the tracklist and disc/side structure. Verify every selected canonical track before updating the shelf; never queue Spotify bonus tracks or change the selected device.
+- Continue paginated MusicBrainz discovery eight pressings at a time and combine equivalent options across pages. Respect existing preferred countries and formats and MusicBrainz rate limiting and caching.
+- Clear saved vinyl-side boundaries whenever the underlying MusicBrainz edition changes; keep existing album/disc playback backward compatible.
+
 # 0.6.21 — Continuous vinyl shelving
 
 - Restore the artist name bar as a full-width, independently clickable expand/collapse toggle at all times. When expanded, show the “More from” link on its own slim action line within the white header, without replacing any part of the toggle.
