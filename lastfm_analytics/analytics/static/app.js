@@ -237,8 +237,8 @@ function chart(data, filter = null, mode = state.mode) {
 function detailAttrs(kind, row) {
   return `data-detail="${kind}" data-id="${esc(row.id)}"`;
 }
-function topList(title, kind, rows, view, metric = "scrobbles") {
-  return `<section class="panel">${panelHead(title, "", `<button class="button quiet" data-view="${view}">View all ↗</button>`)}<div>${
+function topList(title, kind, rows, view, metric = "scrobbles", scope = null) {
+  return `<section class="panel">${panelHead(title, "", `<button class="button quiet" data-view="${view}" ${scope ? `data-scope-kind="${esc(scope.kind)}" data-scope-id="${esc(scope.id)}" data-scope-name="${esc(scope.name)}"` : ""}>View all ↗</button>`)}<div>${
     rows.length
       ? rows
           .map(
@@ -252,7 +252,7 @@ function topList(title, kind, rows, view, metric = "scrobbles") {
               )}</span><span class="list-name"><strong>${esc(r.name)}</strong><small>${esc(r.artist || "Artist")}${r.versions > 1 ? ` · ${r.versions} versions` : ""}</small></span><span class="list-count" title="${metric === "estimated" ? "Estimated album listens" : "Track scrobbles"}">${metric === "estimated" ? (r.estimated_listens === null ? "—" : number(r.estimated_listens)) : number(r.plays)}</span></button>`,
           )
           .join("")
-      : '<div class="empty">No listening in this period.</div>'
+      : `<div class="empty">${metric === "estimated" ? "No album estimates yet. Tracklists are being identified in the background." : "No listening in this period."}</div>`
   }</div></section>`;
 }
 function discovery(data) {
@@ -694,7 +694,7 @@ async function showDetail(kind, id, groupMode = false, restoring = false) {
     const data = result.data;
     const renderDetail = next => {
       replaceCachedView("#detail-analytics",
-        `${metrics(next, mode, {kind,id,name:detail.name}, groupMode)}<section class="panel">${panelHead("Listening history", "Select a bar to inspect individual scrobbles.")}${chart(next, {kind,id,name:detail.name}, mode)}</section>${kind === "album" ? albumEstimateHTML(next.album_estimate) : ""}${kind === "artist" ? artistAlbumsHTML(next) : ""}${detail.versions.length ? `<div class="panel-head" style="margin-top:23px"><div><h2>Versions</h2><p>All-time plays for the selected source, including versions outside the selected period.</p></div></div><div class="table-wrap"><table><thead><tr><th>Scrobbled name</th><th class="num">Plays</th><th>First / latest play</th><th></th></tr></thead><tbody>${detail.versions.map(v => `<tr><td class="name-cell"><strong>${esc(v.name)}</strong><small>${v.manual ? "Manual decision" : "Automatic grouping"}</small></td><td class="num">${number(v.plays)}</td><td><small>${formatDate(v.first_play)}<br>${formatDate(v.last_play)}</small></td><td>${detail.versions.length > 1 ? `<button class="button" data-separate="${v.id}" data-name="${esc(v.name)}">Separate</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : ""}<div class="dialog-actions" style="margin-top:18px"><button class="button primary" data-show-history="${kind}" data-id="${esc(id)}" data-name="${esc(detail.name)}" data-mode="${mode}" data-all="${groupMode}">View scrobbles →</button></div>`);
+        `${metrics(next, mode, {kind,id,name:detail.name}, groupMode)}<section class="panel">${panelHead("Listening history", "Select a bar to inspect individual scrobbles.")}${chart(next, {kind,id,name:detail.name}, mode)}</section>${kind === "album" ? albumEstimateHTML(next.album_estimate) : ""}${kind === "artist" ? artistAlbumsHTML(next, id, detail.name) : ""}${detail.versions.length ? `<div class="panel-head" style="margin-top:23px"><div><h2>Versions</h2><p>All-time plays for the selected source, including versions outside the selected period.</p></div></div><div class="table-wrap"><table><thead><tr><th>Scrobbled name</th><th class="num">Plays</th><th>First / latest play</th><th></th></tr></thead><tbody>${detail.versions.map(v => `<tr><td class="name-cell"><strong>${esc(v.name)}</strong><small>${v.manual ? "Manual decision" : "Automatic grouping"}</small></td><td class="num">${number(v.plays)}</td><td><small>${formatDate(v.first_play)}<br>${formatDate(v.last_play)}</small></td><td>${detail.versions.length > 1 ? `<button class="button" data-separate="${v.id}" data-name="${esc(v.name)}">Separate</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : ""}<div class="dialog-actions" style="margin-top:18px"><button class="button primary" data-show-history="${kind}" data-id="${esc(id)}" data-name="${esc(detail.name)}" data-mode="${mode}" data-all="${groupMode}">View scrobbles →</button></div>`);
     };
     renderDetail(data);
     watchCachedView("detail", "overview", extra, data, renderDetail, () => serial === detailSerial && dialog.open, "#detail-cache-status");
@@ -717,8 +717,8 @@ function albumEstimateHTML(album) {
   const tracks = album.track_breakdown || [];
   return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>Estimated album listens</h2><p>How often you listen through most of the album, rather than a count that favours longer records.</p></div><strong class="insight-number">${count}</strong></div><p class="method-note">${explanation}</p>${tracks.length ? `<div class="table-wrap"><table><thead><tr><th>Canonical track</th><th class="num">Scrobbles</th></tr></thead><tbody>${tracks.map(t => `<tr><td>${esc(t.title)}</td><td class="num">${number(t.plays)}</td></tr>`).join("")}</tbody></table></div>` : ""}</section>`;
 }
-function artistAlbumsHTML(data) {
-  return `<div class="grid-two" style="margin-top:18px">${topList("Albums by scrobbles", "album", data.top_albums || [], "albums")}${topList("Albums by estimated listens", "album", data.top_albums_estimated || [], "albums", "estimated")}</div>`;
+function artistAlbumsHTML(data, id, name) {
+  return `<div class="grid-two" style="margin-top:18px">${topList("Albums by scrobbles", "album", data.top_albums || [], "albums", "scrobbles", {kind:"artist", id, name})}${topList("Albums by estimated listens", "album", data.top_albums_estimated || [], "albums", "estimated", {kind:"artist", id, name})}</div>`;
 }
 function confirmAction(title, description, fn) {
   $("#confirm-title").textContent = title;
@@ -785,7 +785,16 @@ document.addEventListener("click", (event) => {
     groupAction(b.dataset.candidateAction, [], b.dataset.candidateKey).catch(report); return;
   }
   if (b.dataset.view) {
-    changeView(b.dataset.view);
+    if (b.dataset.scopeKind) {
+      state.view = b.dataset.view;
+      state.filter = {kind:b.dataset.scopeKind, id:b.dataset.scopeId, name:b.dataset.scopeName};
+      state.q = "";
+      state.offset = 0;
+      $("#detail-dialog").close();
+      load();
+    } else {
+      changeView(b.dataset.view);
+    }
     return;
   }
   if (b.dataset.browse) {
