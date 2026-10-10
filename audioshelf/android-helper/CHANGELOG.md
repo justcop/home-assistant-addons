@@ -1,3 +1,11 @@
+# 0.1.25
+
+- Replace the accumulated troubleshooting screen with a unified AudioShelf-branded companion splash, displaying just the logo, connection progress and concise status while the normal Spotify wake runs.
+- Make Connect Spotify and Reconnect Spotify easy to find when opening the app directly; successful pairing and wake persist a simple authorised state, and SDK authorisation rejection clears it.
+- Move copyable wake/pairing logs, the opt-in diagnostic hold and manual update checking behind a discreet overflow menu; long-pressing the logo also opens diagnostics. Normal wake launches no longer display debug buttons.
+- Remove the retired isolated SDK diagnostic activity, unused optional notification playback detection, obsolete manual recovery prompt and extra SDK player-state subscription. Keep the proven Android 14+ interactive pairing grant, noninteractive Spotify wake, server-controlled canonical queue/device selection, 20-second return bound and signed updater unchanged.
+- Rewrite the Android companion README around normal setup, use, reauthorisation, maintenance and recovery rather than incremental experiments.
+
 # 0.1.24
 
 - Promote the successful Android 14+ BIND_ALLOW_ACTIVITY_STARTS experiment to the normal, user-initiated Authorise Spotify App Remote action. Bind only Spotify's unprotected exported protocol service, wait for an actual binder connection, hold the grant through the SDK callback and release it on completion, failure or Activity destruction. Older Android versions use the original pairing call.
