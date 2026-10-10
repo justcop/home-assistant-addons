@@ -184,17 +184,17 @@ def test_manual_song_merge_across_approved_artist_aliases(tmp_path):
 def test_similar_names_without_shared_music_stay_separate(tmp_path):
     from analytics.grouping import artist_suggestion_key
     db = Database(tmp_path / "listening.sqlite3")
-    assert artist_suggestion_key("The National") == artist_suggestion_key("National")
+    assert artist_suggestion_key("P!nk") == artist_suggestion_key("Pink")
     db.apply_window(0, 1000, [
-        play(100, "The National", "Bloodbuzz Ohio", "High Violet"),
-        play(200, "National", "Different Song", "Different Record"),
+        play(100, "P!nk", "Raise Your Glass", "Greatest Hits So Far"),
+        play(200, "Pink", "Different Song", "Different Record"),
     ])
     with db.connect() as conn:
         assert len(rankings(conn, p(), "artist")) == 2
     # A generic "Intro" on "Greatest Hits" cannot establish identity.
     db.apply_window(1000, 2000, [
-        play(1100, "The National", "Intro", "Greatest Hits"),
-        play(1200, "National", "Intro", "Greatest Hits"),
+        play(1100, "P!nk", "Intro", "Greatest Hits"),
+        play(1200, "Pink", "Intro", "Greatest Hits"),
     ])
     with db.connect() as conn:
         assert len(rankings(conn, p(), "artist")) == 2
@@ -204,14 +204,14 @@ def test_artist_merges_after_new_evidence_and_remembers_undo(tmp_path):
     path = tmp_path / "listening.sqlite3"
     db = Database(path)
     db.apply_window(0, 1000, [
-        play(100, "The Courteeners", "Song A", "Album A"),
-        play(200, "Courteeners", "Song B", "Album B"),
+        play(100, "Sigur Rós", "Song A", "Album A"),
+        play(200, "Sigur Ros", "Song B", "Album B"),
     ])
     with db.connect() as conn:
         assert len(rankings(conn, p(), "artist")) == 2
     # Later data supplies the missing corroboration.
     db.apply_window(1000, 2000, [
-        play(1100, "Courteeners", "Song A", "Album A"),
+        play(1100, "Sigur Ros", "Song A", "Album A"),
     ])
     with db.connect() as conn:
         assert len(rankings(conn, p(), "artist")) == 1
@@ -219,7 +219,7 @@ def test_artist_merges_after_new_evidence_and_remembers_undo(tmp_path):
     with db.connect() as conn:
         assert len(rankings(conn, p(), "artist")) == 2
     # Neither another import nor a restart should undo the user's decision.
-    db.apply_window(2000, 3000, [play(2100, "Courteeners", "Song A", "Album A")])
+    db.apply_window(2000, 3000, [play(2100, "Sigur Ros", "Song A", "Album A")])
     db = Database(path)
     with db.connect() as conn:
         assert len(rankings(conn, p(), "artist")) == 2
@@ -261,5 +261,19 @@ def test_multiple_shared_track_names_can_merge_without_albums(tmp_path):
     ])
     with db.connect() as conn:
         assert len(rankings(conn, p(), "artist")) == 1
+        assert len({r[0] for r in conn.execute(
+            "SELECT group_id FROM resolved_variants WHERE kind='song'")}) == 2
+
+
+def test_article_only_variants_merge_even_if_albums_do_not_overlap(tmp_path):
+    db = Database(tmp_path / "listening.sqlite3")
+    db.apply_window(0, 1000, [
+        play(100, "The Courteeners", "Not Nineteen Forever", "St Jude"),
+        play(200, "Courteeners", "Are You in Love with a Notion?", "Anna"),
+    ])
+    with db.connect() as conn:
+        artists = rankings(conn, p(), "artist")
+        assert len(artists) == 1 and artists[0]["plays"] == 2
+        # Distinct recordings should NOT be collapsed together.
         assert len({r[0] for r in conn.execute(
             "SELECT group_id FROM resolved_variants WHERE kind='song'")}) == 2
