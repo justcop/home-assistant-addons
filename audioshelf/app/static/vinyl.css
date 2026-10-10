@@ -40,22 +40,25 @@
 /* White shelving: cover-only horizontal rails by default, detailed grids on expansion. */
 .shelf-layout{display:flex;justify-content:flex-end;margin:-20px 0 18px}
 .shelf-layout button{font-size:12px;min-height:44px;padding:8px 12px}
-.collection-shelves .shelf-artist-bar{display:flex;align-items:stretch;min-width:0;background:#fff;border-radius:3px 3px 0 0}
-.collection-shelves .shelf-artist-link{display:none;align-items:center;justify-content:center;flex:0 0 auto;align-self:center;margin:0 13px 0 0;padding:8px 10px;white-space:nowrap;font-size:11px;color:var(--wine);text-decoration:none;border:1px solid var(--line);border-radius:3px;min-height:36px}
-.collection-shelves .artist-shelf[data-view=expanded] .shelf-artist-link{display:inline-flex}
+.collection-shelves .shelf-artist-bar{display:flex;flex-direction:column;align-items:stretch;min-width:0;background:#fff}
+.collection-shelves .shelf-artist-actions{display:none;align-items:center;justify-content:flex-end;min-height:40px;padding:0 12px 7px;background:#fff;border:1px solid #dedfdd;border-top:0;border-bottom:3px solid #e3e4e2}
+.collection-shelves .artist-shelf[data-view=expanded] .shelf-artist-actions{display:flex}
+.collection-shelves .shelf-artist-link{display:inline-flex;align-items:center;justify-content:center;padding:6px 11px;white-space:nowrap;font-size:11px;color:var(--wine);text-decoration:none;border:1px solid var(--line);border-radius:3px;min-height:32px}
 .collection-shelves .shelf-artist-link:hover,.collection-shelves .shelf-artist-link:focus-visible{background:var(--soft);text-decoration:underline}
 .collection-shelves .artist-divider{display:none}
-.collection-shelves .artist-shelf{margin:0 0 22px;min-width:0}
-.shelf-artist-toggle{display:flex;align-items:center;gap:14px;flex:1;min-width:0;min-height:58px;padding:12px 18px;text-align:left;background:#fff;color:#282b27;border:1px solid #dedfdd;border-bottom:2px solid #e3e4e2;border-radius:3px 3px 0 0;box-shadow:0 3px 7px #00000008}
+.collection-shelves .artist-shelf{margin:0;min-width:0}
+.collection-shelves .artist-shelf + .artist-shelf .shelf-artist-toggle{border-top:0}
+.collection-shelves .artist-shelf[data-view=expanded] .shelf-row:last-child{margin-bottom:0}
+.shelf-artist-toggle{display:flex;align-items:center;gap:14px;width:100%;flex:none;min-width:0;min-height:58px;padding:12px 18px;text-align:left;background:#fff;color:#282b27;border:1px solid #dedfdd;border-bottom:2px solid #e3e4e2;border-radius:0;box-shadow:none}
 .shelf-artist-toggle strong{flex:1;min-width:0;overflow-wrap:anywhere;font:600 19px Georgia,serif}
 .shelf-artist-toggle>span{font-size:11px;color:#606257;white-space:nowrap}
 .shelf-artist-toggle .shelf-chevron{font-size:19px;line-height:1;transition:transform .15s}
 .shelf-artist-toggle[aria-expanded=true] .shelf-chevron{transform:rotate(180deg)}
 .artist-shelf[data-view=expanded] .shelf-artist-bar{position:sticky;top:0;z-index:5}
-.collection-shelves .shelf-records{position:relative;min-width:0;padding:0 0 10px;--rail-cover:clamp(150px,17vw,220px);--rail-top:18px}
+.collection-shelves .shelf-records{position:relative;min-width:0;padding:0;--rail-cover:clamp(150px,17vw,220px);--rail-top:18px}
 
 .shelf-records[hidden]{display:none}
-[data-interface=vinyl] .shelf-rack{display:block;color:#282b27;background:#f0f1ef;padding:22px 18px 8px;border-radius:2px;--ink:#282b27;--muted:#606257;--soft:#e4e6e2;--cream:#fff;--line:#d9dcd6}
+[data-interface=vinyl] .shelf-rack{display:block;color:#282b27;background:#f0f1ef;padding:22px 18px 0;border-radius:0;--ink:#282b27;--muted:#606257;--soft:#e4e6e2;--cream:#fff;--line:#d9dcd6}
 .shelf-row{--columns:4;--shelf-gap:30px;--label-height:88px;display:grid;grid-template-columns:repeat(var(--columns),minmax(0,1fr));gap:var(--shelf-gap);position:relative;container-type:inline-size;margin-bottom:30px;isolation:isolate}
 [data-interface=vinyl] .shelf-row .sleeve{padding:0;min-width:0;display:flex;flex-direction:column}
 [data-interface=vinyl] .shelf-row .sleeve:after,[data-interface=vinyl] .shelf-row .cover-wrap:after{display:none}
@@ -64,7 +67,7 @@
 .shelf-row .sleeve-caption .album-meta{font-size:11px;margin-top:5px}
 .shelf-ledge{position:absolute;left:-18px;right:-18px;top:calc(var(--label-height) + (100cqw - (var(--columns) - 1)*var(--shelf-gap))/var(--columns));height:14px;background:linear-gradient(#fff 0 3px,#fdfdfd 3px 11px,#ddd 11px);box-shadow:0 9px 12px #00000018;z-index:2;pointer-events:none}
 /* A single uninterrupted ledge stays in place as the records scroll past it. */
-.collection-shelves .artist-shelf[data-view=rail] .shelf-rack{display:flex;align-items:flex-start;gap:14px;max-width:100%;min-width:0;overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;scroll-snap-type:x proximity;scroll-padding-inline:14px;scrollbar-width:thin;-webkit-overflow-scrolling:touch;padding:var(--rail-top) 14px 26px;background:#f0f1ef}
+.collection-shelves .artist-shelf[data-view=rail] .shelf-rack{display:flex;align-items:flex-start;gap:14px;max-width:100%;min-width:0;overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;scroll-snap-type:x proximity;scroll-padding-inline:14px;scrollbar-width:thin;-webkit-overflow-scrolling:touch;padding:var(--rail-top) 14px 15px;background:#f0f1ef}
 .collection-shelves .artist-shelf[data-view=rail] .sleeve{display:block;position:relative;flex:0 0 var(--rail-cover);width:var(--rail-cover);min-width:0;padding:0;scroll-snap-align:start}
 .collection-shelves .artist-shelf[data-view=rail] .sleeve-caption{display:none}
 .collection-shelves .artist-shelf[data-view=rail] .sleeve:after,.collection-shelves .artist-shelf[data-view=rail] .cover-wrap:after{display:none}
@@ -84,10 +87,11 @@
 @media(max-width:700px){
   .shelf-layout{margin-top:-14px}
   .shelf-artist-toggle{padding:12px;gap:10px}
-  .collection-shelves .shelf-artist-link{margin-right:8px;padding:7px;font-size:10px;min-height:36px}
+  .collection-shelves .shelf-artist-actions{padding:0 8px 6px;min-height:38px}
+  .collection-shelves .shelf-artist-link{padding:6px 9px;font-size:10px;min-height:30px}
   .shelf-artist-toggle strong{font-size:17px}
   .collection-shelves .shelf-records{--rail-cover:clamp(105px,34vw,164px)}
-  [data-interface=vinyl] .shelf-rack{padding:20px 14px 6px}
+  [data-interface=vinyl] .shelf-rack{padding:20px 14px 0}
   .shelf-row{--columns:2;--shelf-gap:22px;--label-height:90px}
   .shelf-ledge{left:-14px;right:-14px}
   [data-shelf-style=cabinet] .shelf-rack{border-width:7px}
