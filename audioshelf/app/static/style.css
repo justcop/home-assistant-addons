@@ -55,3 +55,12 @@ input[type="checkbox"],dialog input[type="checkbox"]{width:18px;height:18px;padd
 #login-form input[type="checkbox"]{width:18px;height:18px;min-height:0;margin-top:2px}
 #login-form .muted{font-size:13px;line-height:1.6;margin:0 0 8px}
 #login-form>.primary{width:100%;min-height:48px;margin-top:4px}
+
+/* Green additions and red removals are meaningful even in all dark themes. */
+:root{--variant-added:#176a3d;--variant-removed:#ad1f32}
+:root[data-theme="midnight"],:root[data-theme="forest"],:root[data-theme="ocean"],
+:root[data-theme="plum"],:root[data-theme="amber"],:root[data-theme="high-contrast"]{
+  --variant-added:#96edb4;--variant-removed:#ff9da8
+}
+.variant-difference .variant-added{color:var(--variant-added);font-weight:750}
+.variant-difference .variant-removed{color:var(--variant-removed);font-weight:750}

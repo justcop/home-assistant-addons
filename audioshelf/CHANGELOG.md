@@ -1,3 +1,9 @@
+# 0.6.23 — Coloured tracklist differences
+
+- Highlight added MusicBrainz tracks (+1, +2, etc.) in prominent green and missing tracks (−1, −2, etc.) in red, including the song names. Neutral ordering messages remain unchanged.
+- Preserve escaped track titles and provide distinct, readable green/red colours across light, dark and high-contrast themes.
+- Add browser regression assertions for the +/− labels, escaped titles and computed light/dark colours.
+
 # 0.6.22 — Choose musical tracklist first, then Spotify
 
 - Group equivalent MusicBrainz pressings by the actual ordered song/performer sequence; ignore recording identifiers, remaster label suffixes and tiny duration changes but retain bonus tracks, missing songs, alternate takes and reordered tracks as distinct options.

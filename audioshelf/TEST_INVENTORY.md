@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-10T18:00:00+01:00 (Europe/London).
+Reviewed: 2026-10-10T18:27:00+01:00 (Europe/London).
 
-Reviewed seven new non-overlapping tests for MusicBrainz song-sequence grouping, bonus/reordered differences, remaster identifiers, distinct multi-disc layouts, recorded vinyl-side numbering, Spotify lookup deferred until after tracklist selection, invalid side requests and safe canonical mapping replacement. Existing 314 backend tests and Playwright journeys remain in place, including a focused playback-handoff VM harness and an account-isolation browser test, now explicitly verifying that disconnected Spotify users can inspect MusicBrainz tracklists but cannot perform Spotify verification or collect unverified albums. Updated journeys exercise the new tracklist-first flow, Spotify verification, disc playback, and album cover picker. Manual live MusicBrainz and Spotify market coverage is still required.
+Reviewed the browser regression for MusicBrainz variant added (+) and removed (−) track summaries. It verifies +1 and −2 labels, complete green/red text, escaping of untrusted MusicBrainz track titles, bold display, and computed contrasting colours in both light and dark themes. No Python test cases were added or removed; the existing 321 backend cases and other browser journeys remain unchanged.
 
-<!-- inventory: {"reviewed_at":"2026-10-10T18:00:00+01:00","review_note":"Reviewed seven new non-overlapping tests for MusicBrainz song-sequence grouping, bonus/reordered differences, remaster identifiers, distinct multi-disc layouts, recorded vinyl-side numbering, Spotify lookup deferred until after tracklist selection, invalid side requests and safe canonical mapping replacement. Existing 314 backend tests and Playwright journeys remain in place, updated to exercise the new tracklist-first flow, Spotify verification, disc playback, and album cover picker. Manual live MusicBrainz and Spotify market coverage is still required.","source_sha256":"04a0497a99ccb70a31527d2367fc5020221e6f8bd18007a5d017f76474e788a9"} -->
+<!-- inventory: {"reviewed_at":"2026-10-10T18:27:00+01:00","review_note":"Reviewed the browser regression for MusicBrainz variant added (+) and removed (−) track summaries. It verifies +1 and −2 labels, complete green/red text, escaping of untrusted MusicBrainz track titles, bold display, and computed contrasting colours in both light and dark themes. No Python test cases were added or removed; the existing 321 backend cases and other browser journeys remain unchanged.","source_sha256":"ca3609c404a1973d44d0d980e33fe702f4f5d9e8118b1595799f8e10808b64d4"} -->
 
 ## Backend cases (321)
 
