@@ -282,10 +282,25 @@ function trendsHTML(data) {
 function pager(total) {
   return `<div class="pager"><span>${total ? `${number(state.offset + 1)}–${number(Math.min(state.offset + 50, total))} of ${number(total)}` : "No results"}</span><div><button class="button" data-page="prev" ${state.offset === 0 ? "disabled" : ""}>Previous</button><button class="button" data-page="next" ${state.offset + 50 >= total ? "disabled" : ""}>Next</button></div></div>`;
 }
+function albumProgressHTML(progress) {
+  if (!progress) return '<p class="method-note" id="album-progress" role="status" aria-live="polite">Checking album tracklist processing status…</p>';
+  const done = progress.ready + progress.ineligible + progress.unresolved;
+  let message;
+  if (!progress.total) {
+    message = "No albums have been imported yet.";
+  } else if (!progress.enabled) {
+    message = `Tracklist processing isn't running. ${number(progress.ready)} of ${number(progress.total)} albums have usable tracklists.`;
+  } else if (!progress.ready && (progress.pending || progress.queued || progress.processing)) {
+    message = `Album estimates haven't been processed yet. ${number(done)} of ${number(progress.total)} albums checked; ${number(progress.queued)} queued${progress.processing ? ", one being checked now" : ""}.`;
+  } else {
+    message = `${number(progress.ready)} of ${number(progress.total)} albums have complete tracklists. ${number(progress.pending)} not checked, ${number(progress.queued)} queued, ${number(progress.unresolved)} could not be identified, ${number(progress.ineligible)} have fewer than six tracks.`;
+  }
+  return `<p class="method-note" id="album-progress" role="status" aria-live="polite">${message}</p>`;
+}
 function rankTable(data, kind, settings = false) {
   const max = Math.max(1, ...data.rows.map(row => row.plays));
   const albumControls = kind === "album" && !settings
-    ? `<div class="segment" role="group" aria-label="Album ranking measure"><button data-album-sort="scrobbles" aria-pressed="${state.albumSort === "scrobbles"}">Rank by scrobbles</button><button data-album-sort="estimated" aria-pressed="${state.albumSort === "estimated"}">Rank by estimated listens</button></div><p class="method-note">Estimated album listens use the third least played track of a complete tracklist with at least six songs. Unknown tracklists show a dash until identified.</p>`
+    ? `<div class="segment" role="group" aria-label="Album ranking measure"><button data-album-sort="scrobbles" aria-pressed="${state.albumSort === "scrobbles"}">Rank by scrobbles</button><button data-album-sort="estimated" aria-pressed="${state.albumSort === "estimated"}">Rank by estimated listens</button></div>${state.albumSort === "estimated" ? albumProgressHTML(data.album_progress) : ""}<p class="method-note">Estimated listens use the third least played track from a complete tracklist of six or more songs. A dash means the album has no verified estimate yet.</p>`
     : "";
   return `${settings ? "" : filterChip()}${albumControls}<section class="panel table-panel"><div class="table-head"><div><h2>${settings ? "Canonical groups" : `Ranked ${state.view}`}</h2><small>${settings ? "All time. Select groups by the same artist to combine." : `${number(data.total)} results · ${state.mode === "raw" ? "Original Last.fm names" : "Combined versions"}`}</small></div><input id="search" aria-label="Search ${settings ? "groups" : state.view}" type="search" placeholder="Search ${settings ? "groups" : state.view}…" value="${esc(state.q)}"></div>${settings ? `<div class="selection-bar"><select id="group-kind" aria-label="Grouping type"><option value="song" ${kind === "song" ? "selected" : ""}>Songs</option><option value="album" ${kind === "album" ? "selected" : ""}>Albums</option></select><span id="selected-count">${state.selected.size} selected</span><button class="button primary" id="merge" ${state.selected.size < 2 ? "disabled" : ""}>Merge selected</button></div>` : ""}<div class="table-wrap"><table><thead><tr><th>${settings ? "Select" : "#"}</th><th>${kind === "artist" ? "Artist" : kind === "song" ? "Song / artist" : "Album / artist"}</th><th class="num">Scrobbles</th>${kind === "album" && !settings ? '<th class="num">Est. listens</th>' : ""}<th class="num">${settings ? "Versions" : kind === "album" ? "Prev. scrobbles" : "Previous"}</th><th class="num">${settings ? "" : kind === "album" ? "Scrobble change" : "Change"}</th></tr></thead><tbody>${data.rows.map((r, i) => `<tr><td>${settings ? `<input type="checkbox" class="group-select" data-id="${r.id}" data-name="${esc(r.name)}" ${state.selected.has(String(r.id)) ? "checked" : ""} aria-label="Select ${esc(r.name)} by ${esc(r.artist)}">` : state.offset + i + 1}</td><td class="name-cell"><button class="text-button" ${detailAttrs(kind, r)} ${settings ? 'data-group-detail="true"' : ""}><strong>${esc(r.name)}</strong></button><small>${esc(r.artist)}${kind !== "artist" && r.versions > 1 ? ` · ${number(r.versions)} versions` : ""}</small></td><td class="num"><strong>${number(r.plays)}</strong><div class="row-progress"><i style="width:${(r.plays / max) * 100}%"></i></div></td>${kind === "album" && !settings ? `<td class="num"><strong title="${r.estimate_status === "ready" ? `${r.track_count} tracks · ${r.tracklist_source}` : "Complete tracklist not yet identified"}">${r.estimated_listens === null ? "—" : number(r.estimated_listens)}</strong></td>` : ""}<td class="num">${settings ? number(r.versions) : r.previous === null ? "—" : number(r.previous)}</td><td class="num">${settings ? "" : r.previous === null ? "—" : !r.previous ? '<span class="change">New</span>' : `<span class="change">${r.plays >= r.previous ? "+" : ""}${(((r.plays - r.previous) / r.previous) * 100).toFixed(1)}%</span>`}</td></tr>`).join("") || '<tr><td colspan="${kind === "album" && !settings ? 6 : 5}" class="empty">No results for this search or date range.</td></tr>'}</tbody></table></div>${pager(data.total)}</section>`;
 }
@@ -457,9 +472,13 @@ function watchCachedView(slot, path, extra, data, render, valid, target) {
       if (!valid()) return;
       $(target).textContent = "Update delayed; showing saved results";
     }
-    cacheTimers[slot] = setTimeout(tick, data?._cache?.error ? 60000 : data?._cache?.stale || data?._cache?.refreshing ? 2000 : 60000);
+    const processingAlbums = path === "rankings" && extra.kind === "album" && data?.album_progress?.enabled && (data.album_progress.pending > 0 || data.album_progress.queued > 0 || data.album_progress.processing > 0);
+    cacheTimers[slot] = setTimeout(tick, data?._cache?.error ? 60000 : data?._cache?.stale || data?._cache?.refreshing ? 2000 : processingAlbums ? 10000 : 60000);
   }
-  if (data?._cache) cacheTimers[slot] = setTimeout(tick, data._cache.error ? 60000 : data._cache.stale || data._cache.refreshing ? 2000 : 60000);
+  if (data?._cache) {
+    const processingAlbums = path === "rankings" && extra.kind === "album" && data?.album_progress?.enabled && (data.album_progress.pending > 0 || data.album_progress.queued > 0 || data.album_progress.processing > 0);
+    cacheTimers[slot] = setTimeout(tick, data._cache.error ? 60000 : data._cache.stale || data._cache.refreshing ? 2000 : processingAlbums ? 10000 : 60000);
+  }
 }
 async function load({historyMode = "push"} = {}) {
   const serial = ++loadSerial;
@@ -756,6 +775,13 @@ document.addEventListener("click", (event) => {
   if (b.dataset.albumSort) {
     state.albumSort = b.dataset.albumSort;
     state.offset = 0;
+    // Give immediate feedback even when the requested ranking has no
+    // calculated estimates or its first uncached request takes a few seconds.
+    document.querySelectorAll("[data-album-sort]").forEach(button => {
+      button.setAttribute("aria-pressed", String(button.dataset.albumSort === state.albumSort));
+    });
+    const progress = $("#album-progress");
+    if (progress) progress.textContent = "Checking album tracklists and updating the ranking…";
     load();
     return;
   }
