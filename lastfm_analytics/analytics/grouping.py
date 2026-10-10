@@ -63,10 +63,11 @@ def review_key(title):
     return re.sub(r"[^\w]", "", normalise(base))
 
 def artist_suggestion_key(name):
-    """Loose candidate key, NEVER an automatic artist identity.
+    """Find potential artist aliases, not proof of identity.
 
-    Ignore typographic differences, accents, common punctuation and a leading
-    English article solely to propose human-reviewed pairs.
+    Ignore typography, accents, common punctuation and a leading English
+    article. The caller decides whether to merge automatically using the
+    stricter article/recording/MusicBrainz checks, or suggest manual review.
     """
     name = unicodedata.normalize("NFKD", normalise(name))
     name = "".join(ch for ch in name if not unicodedata.combining(ch))
