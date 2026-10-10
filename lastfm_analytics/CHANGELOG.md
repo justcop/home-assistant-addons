@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.19
+
+- When choosing estimated album listens, immediately show that the view is updating instead of appearing unresponsive.
+- Display live album-tracklist processing progress, including completed, queued, unprocessed, unresolved and short albums. Refresh the progress automatically while metadata is being imported.
+- Differentiate genuinely short albums (fewer than six tracks) from albums whose metadata could not be identified, without inventing an estimated listen count.
+- Add API and browser regression checks for estimated-listens controls and processing status.
+
+
 ## 0.2.18
 
 - Add estimated album listens using the play count of the third least played track from an identified complete tracklist (at least six songs). Unplayed tracks count as zero; albums with unknown tracklists do not receive guessed estimates.
