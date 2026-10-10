@@ -35,6 +35,7 @@ public final class MainActivity extends Activity {
     private SpotifyAppRemote remote;
     private SpotifyAuthGrant pairingGrant;
     private HelperUpdater updater;
+    private HelperScreen screen;
     private SpotifyPlaybackMonitor playbackMonitor;
     private Button playbackAccess, spotifyRecovery, spotifyPair;
     private TextView pairingStatus, pairingDiagnostics;
@@ -97,129 +98,31 @@ public final class MainActivity extends Activity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         diagnosticStartedAt = SystemClock.elapsedRealtime();
-        LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setGravity(Gravity.CENTER);
-        int padding = (int) (24 * getResources().getDisplayMetrics().density);
-        layout.setPadding(padding, padding, padding, padding);
-        message = new TextView(this);
-        message.setTextSize(20);
-        message.setGravity(Gravity.CENTER);
-        layout.addView(message);
-        Button back = new Button(this);
-        back.setText("Return to AudioShelf");
-        back.setOnClickListener(v -> {
-            if (returnUri != null) { completed = false; returnToAudioShelf(); }
-            else finishHelper();
-        });
-        layout.addView(back);
-        spotifyRecovery = new Button(this);
-        spotifyRecovery.setText("Open Spotify to restore connection");
-        spotifyRecovery.setVisibility(View.GONE);
-        spotifyRecovery.setOnClickListener(v -> openSpotifyRecovery());
-        layout.addView(spotifyRecovery);
-        playbackAccess = new Button(this);
-        playbackAccess.setText("Enable Spotify playback detection");
-        playbackAccess.setOnClickListener(v -> new AlertDialog.Builder(this)
-            .setTitle("Detect Spotify playing on this phone")
-            .setMessage("Enable notification access for AudioShelf Spotify Helper in Android settings. The helper uses it only to read Spotify's media-session playback state while waking Spotify. It does not read or save notification text.")
-            .setPositiveButton("Open Android settings", (dialog, which) -> startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)))
-            .setNegativeButton("Cancel", null).show());
-        layout.addView(playbackAccess);
-        spotifyPair = new Button(this);
-        spotifyPair.setText("Authorise Spotify App Remote");
-        spotifyPair.setVisibility(View.GONE);
-        spotifyPair.setOnClickListener(v -> pairSpotifyRemote());
-
-        layout.addView(spotifyPair);
-        Button sdkDiagnostic = new Button(this);
-        sdkDiagnostic.setText("Isolated Spotify SDK diagnostics");
-        sdkDiagnostic.setVisibility(getIntent().getData() == null ? View.VISIBLE : View.GONE);
-        sdkDiagnostic.setOnClickListener(v -> startActivity(new Intent(this, SpotifyDiagnosticActivity.class)));
-        layout.addView(sdkDiagnostic);
-        pairingStatus = new TextView(this);
-        pairingStatus.setTextSize(15);
-        pairingStatus.setText("Spotify App Remote pairing has not been attempted.");
-        layout.addView(pairingStatus);
-        pairingDiagnostics = new TextView(this);
-        pairingDiagnostics.setTextSize(12);
-        pairingDiagnostics.setTextIsSelectable(true);
-        pairingDiagnostics.setTypeface(android.graphics.Typeface.MONOSPACE);
-        layout.addView(pairingDiagnostics);
-        Button copyPairing = new Button(this);
-        copyPairing.setText("Copy pairing log");
-        copyPairing.setOnClickListener(v -> {
-            ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-            clipboard.setPrimaryClip(ClipData.newPlainText("AudioShelf App Remote pairing diagnostics", pairingDiagnostics.getText()));
-            Toast.makeText(this, "Pairing log copied", Toast.LENGTH_SHORT).show();
-        });
-        layout.addView(copyPairing);
-        copyPairing.setVisibility(getIntent().getData() == null ? View.VISIBLE : View.GONE);
-        pairingStatus.setVisibility(getIntent().getData() == null ? View.VISIBLE : View.GONE);
-        pairingDiagnostics.setVisibility(getIntent().getData() == null ? View.VISIBLE : View.GONE);
-        keepOpen = getPreferences(MODE_PRIVATE).getBoolean("keep_open_diagnostics", false);
-        CheckBox hold = new CheckBox(this);
-        hold.setText("Keep open for diagnostics (return manually)");
-        hold.setChecked(keepOpen);
-        hold.setOnCheckedChangeListener((button, checked) -> {
-            keepOpen = checked;
-            getPreferences(MODE_PRIVATE).edit().putBoolean("keep_open_diagnostics", checked).apply();
-            if (wakeRequest) record(checked ? "Diagnostic hold enabled. Automatic return paused." : "Diagnostic hold disabled.");
-            if (!checked) returnWhenVisible();
-        });
-        layout.addView(hold);
-        Button copy = new Button(this);
-        copy.setText("Copy wake log");
-        copy.setOnClickListener(v -> {
-            ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-            clipboard.setPrimaryClip(ClipData.newPlainText("AudioShelf helper diagnostics", diagnostics.getText()));
-            Toast.makeText(this, "Log copied", Toast.LENGTH_SHORT).show();
-        });
-        layout.addView(copy);
-        Button clearWakeLog = new Button(this);
-        clearWakeLog.setText("Clear previous wake log");
-        clearWakeLog.setVisibility(getIntent().getData() == null ? View.VISIBLE : View.GONE);
-        clearWakeLog.setOnClickListener(v -> {
-            getPreferences(MODE_PRIVATE).edit().remove("last_wake_log").apply();
-            diagnostics.setText("No wake attempt recorded yet.");
-            Toast.makeText(this, "Previous wake log cleared", Toast.LENGTH_SHORT).show();
-        });
-        layout.addView(clearWakeLog);
-        diagnostics = new TextView(this);
-        diagnostics.setTextSize(13);
-        diagnostics.setTextIsSelectable(true);
-        diagnostics.setTypeface(android.graphics.Typeface.MONOSPACE);
-        ScrollView scroll = new ScrollView(this);
-        scroll.addView(diagnostics);
-        layout.addView(scroll, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
-        setContentView(layout);
         Uri data = getIntent().getData();
+        screen = new HelperScreen(this, data != null, this::pairSpotifyRemote,
+            () -> { if (updater != null) updater.check(); },
+            () -> { if (returnUri != null) returnToAudioShelf(); else screen.showHome(); },
+            checked -> {
+                keepOpen = checked;
+                if (wakeRequest) record(checked
+                    ? "Diagnostic hold enabled for this wake." : "Diagnostic hold disabled.");
+                if (!checked) returnWhenVisible();
+            });
+        message = screen.message;
+        diagnostics = screen.wakeLog;
+        pairingDiagnostics = screen.pairingLog;
+        spotifyPair = screen.pairButton;
+        updater = new HelperUpdater(this, screen.updateStatus);
         if (data == null) {
-            spotifyPair.setVisibility(View.VISIBLE);
-            boolean hasTrustedClient = SpotifyRemoteAuthPolicy.validClientId(
-                getPreferences(MODE_PRIVATE).getString("trusted_client", ""));
-            spotifyPair.setEnabled(hasTrustedClient);
-            pairingStatus.setText(hasTrustedClient
-                ? "Ready to request Spotify App Remote authorisation."
-                : "First initiate a Play request from AudioShelf to establish a trusted Spotify client ID.");
-            pairingDiagnostics.setText(getPreferences(MODE_PRIVATE).getString(
-                "last_pairing_log", "No pairing attempt recorded yet."));
             diagnostics.setText(getPreferences(MODE_PRIVATE).getString(
                 "last_wake_log", "No wake attempt recorded yet."));
-            TextView updateStatus = new TextView(this);
-            updateStatus.setGravity(Gravity.CENTER);
-            updateStatus.setPadding(0, padding, 0, padding);
-            layout.addView(updateStatus);
-            updater = new HelperUpdater(this, updateStatus);
-            Button update = new Button(this);
-            update.setText("Check for updates");
-            update.setOnClickListener(v -> updater.check());
-            layout.addView(update);
-            checkUpdatesWhenVisible = true;
-            message.setText("AudioShelf helper " + BuildConfig.VERSION_NAME
-                + "\nAuthorise Spotify App Remote here once, while the phone is in front of you. "
-                + (hasTrustedClient ? "Then press Play in AudioShelf." : "First launch one playback request from AudioShelf to trust its Spotify client ID.")
-                + "\nLast wake log below.");
+            pairingDiagnostics.setText(getPreferences(MODE_PRIVATE).getString(
+                "last_pairing_log", "No pairing attempt recorded yet."));
+            boolean trusted = SpotifyRemoteAuthPolicy.validClientId(
+                getPreferences(MODE_PRIVATE).getString("trusted_client", ""));
+            boolean authorised = getPreferences(MODE_PRIVATE).getBoolean(
+                "spotify_authorized", false);
+            screen.setSetupState(trusted, authorised, false);
             return;
         }
         wakeRequest = true;
