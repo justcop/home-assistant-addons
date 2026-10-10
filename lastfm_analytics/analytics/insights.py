@@ -211,21 +211,30 @@ def album_listen_scores(conn, p, rows, raw, extra="", params=(), breakdown=False
                          r["source"])
         for r in conn.execute("SELECT album_id,tracks_json,source FROM album_tracklists")
     }
-    keys = {str(r["id"]) for r in rows if r["album_group_id"] in available
-            and available[r["album_group_id"]][0]}
+    expected = {
+        str(r["id"]): {track_key(title)
+                       for title in available[r["album_group_id"]][0]}
+        for r in rows
+        if r["album_group_id"] in available and available[r["album_group_id"]][0]
+    }
     counts = {}
     identifier = "av.id" if raw else "av.group_id"
-    if keys:
-        for album_id, title, plays in conn.execute(
-            f"""SELECT {identifier},s.title,COUNT(*) {JOINS}
+    if expected:
+        for album_id, title, grouped_title, plays in conn.execute(
+            f"""SELECT {identifier},s.title,sg.name,COUNT(*) {JOINS}
                 WHERE s.active=1 AND s.album_id IS NOT NULL
                       AND s.ts>=? AND s.ts<? {extra}
-                GROUP BY {identifier},s.title""",
+                GROUP BY {identifier},s.title,sg.name""",
             [p["start"], p["end"], *params],
         ):
-            if str(album_id) in keys:
+            if str(album_id) in expected:
                 counter = counts.setdefault(str(album_id), Counter())
-                counter[track_key(title)] += plays
+                raw_key = track_key(title)
+                # Respect explicit song merges and display-name edits without
+                # counting a scrobble twice when raw and grouped names agree.
+                canonical = (raw_key if raw_key in expected[str(album_id)]
+                             else track_key(grouped_title))
+                counter[canonical] += plays
     for row in rows:
         tracklist, source = available.get(row["album_group_id"], (None, None))
         plays = counts.get(str(row["id"]), {})
