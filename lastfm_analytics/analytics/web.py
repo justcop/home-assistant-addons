@@ -479,7 +479,11 @@ self.addEventListener('fetch', event => {
 
     @app.get("/api/rankings")
     def ranking():
-        return jsonify(view_cache.get(db_for_request(), "rankings", dict(request.args)))
+        db = db_for_request()
+        result = view_cache.get(db, "rankings", dict(request.args))
+        if request.args.get("kind") == "album":
+            result["album_progress"] = tracklist_worker.status(db)
+        return jsonify(result)
 
     @app.get("/api/history")
     def history():
