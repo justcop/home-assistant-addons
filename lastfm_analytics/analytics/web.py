@@ -30,6 +30,7 @@ from .db import Database
 from .demo import seed
 from .sync import SyncWorker
 from .artwork import ArtworkWorker
+from .album_listens import TracklistWorker
 
 DEFAULTS = {
     "username": "",
@@ -156,6 +157,9 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
     app.extensions["sync_worker"] = worker
     artwork_worker = ArtworkWorker(config["api_key"], enabled=start_worker and config["artwork_lookups"])
     app.extensions["artwork_worker"] = artwork_worker
+    tracklist_worker = TracklistWorker(enabled=start_worker and not config["demo_mode"],
+                                       api_key=config["api_key"])
+    app.extensions["tracklist_worker"] = tracklist_worker
 
     def calculate_rankings(db, args):
         with db.connect() as conn:
@@ -179,6 +183,7 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
                 offset,
                 extra,
                 params,
+                sort=args.get("album_sort", "scrobbles") if args.get("album_sort") in ("scrobbles", "estimated") else "scrobbles",
             )
             return dict(
                 rows=rows,
@@ -211,6 +216,7 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
                     demo_db = Database(Path(data_dir) / "demo.sqlite3")
                     seed(demo_db)
             return demo_db
+        tracklist_worker.scan(database)
         return database
 
     def dates(conn):
