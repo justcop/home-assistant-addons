@@ -1,5 +1,12 @@
 # AudioShelf
 
+### Session and shelf presentation
+
+Standalone owner and personal-account sessions now persist for up to **one year**, and the optional **Trust this browser for one year** checkbox skips repeat 2FA challenges when signing back in with a password. The 2FA trust is not a password-free login. Explicit logout, credential changes and revocation still invalidate sessions, and temporary support grants retain their own limited expiration.
+
+In the Vinyl interface, a collapsed artist rail displays only its continuous covers and shelf. Expand an artist to reveal **More from ↗** inside its artist-name header, linking to that artist's catalogue in the Record Store.
+
+
 An album-first collection for your phone. MusicBrainz supplies artists, studio albums and original tracklists. Spotify supplies playback.
 
 ## Separate accounts (0.6.0)

@@ -27,7 +27,7 @@ from .release_filters import matches_filters, validate_filters
 from .spotify import Spotify, atomic_private_json, spotify_id
 from .storage import Store
 from .themes import THEMES, THEME_IDS
-from .security import Security
+from .security import Security, AUTH_LIFETIME_SECONDS
 from .playback import PlaybackHandoff
 from .playable_releases import PlayableReleases
 from .now_playing import resolve_album, spotify_artwork
@@ -64,7 +64,7 @@ def create_app(options=None):
     app = Flask(__name__)
     app.config.update(SECRET_KEY=json.loads(secret_path.read_text())['key'], MAX_CONTENT_LENGTH=7*1024*1024,
                       SESSION_COOKIE_NAME='audioshelf_session', SESSION_COOKIE_HTTPONLY=True,
-                      SESSION_COOKIE_SAMESITE='Lax', SESSION_COOKIE_SECURE=True, PERMANENT_SESSION_LIFETIME=timedelta(hours=12))
+                      SESSION_COOKIE_SAMESITE='Lax', SESSION_COOKIE_SECURE=True, PERMANENT_SESSION_LIFETIME=timedelta(seconds=AUTH_LIFETIME_SECONDS))
     musicbrainz, spotify = MusicBrainz(store), Spotify(store, options, private_dir)
     artwork = Artwork(store,spotify,musicbrainz)
     playable_releases = PlayableReleases(store, musicbrainz, spotify)
@@ -315,7 +315,7 @@ def create_app(options=None):
             response.delete_cookie('audioshelf_trusted', secure=True, httponly=True, samesite='Lax')
         if role == 'owner' and body.get('remember') is True:
             security.forget_trust(request.cookies.get('audioshelf_trusted'))
-            response.set_cookie('audioshelf_trusted', security.trust(), max_age=30*86400,
+            response.set_cookie('audioshelf_trusted', security.trust(), max_age=AUTH_LIFETIME_SECONDS,
                                 secure=True, httponly=True, samesite='Lax')
         return response
 

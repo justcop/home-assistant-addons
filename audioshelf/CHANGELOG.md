@@ -1,3 +1,9 @@
+# One-year login persistence and artist-header store links
+
+- Keep standalone AudioShelf login sessions, their signed cookies and optionally trusted 2FA browsers valid for one year (365 days), rather than 12 hours and 30 days. Temporary support accounts remain bounded by their shorter grants. Signing out, password/2FA resets and session revocation continue to invalidate access.
+- Update login and security-screen descriptions to match the new durations.
+- Move Vinyl shelf's “More from” link from beneath each artist's albums onto the artist-name bar. Show it only when that artist is expanded (including Expand all), and link directly to the artist's record-store catalogue. Keep shelf ledges uninterrupted.
+
 # 0.6.19
 
 - Fix mixed-performer album matching, including the original 13-track *Yellow Submarine*: an album's MusicBrainz release-group artist does not necessarily perform every track.
