@@ -297,8 +297,15 @@ public final class MainActivity extends Activity {
     }
 
     private void showPairingStatus(String detail) {
-        if (pairingStatus != null) pairingStatus.setText(detail);
-        if (message != null) message.setText("AudioShelf Spotify Helper " + BuildConfig.VERSION_NAME + "\n" + detail);
+        if (message != null) message.setText(detail);
+    }
+
+    private void updateSetupState() {
+        if (wakeRequest || screen == null) return;
+        boolean trusted = SpotifyRemoteAuthPolicy.validClientId(
+            getPreferences(MODE_PRIVATE).getString("trusted_client", ""));
+        boolean authorised = getPreferences(MODE_PRIVATE).getBoolean("spotify_authorized", false);
+        screen.setSetupState(trusted, authorised, pairingSpotify);
     }
 
     /**
@@ -329,6 +336,7 @@ public final class MainActivity extends Activity {
 
         pairingSpotify = true;
         spotifyPair.setEnabled(false);
+        screen.setLoading(true);
         showPairingStatus("Preparing Spotify authorisation…");
         pairingRecord("Spotify installed. Foreground user-initiated pairing; no Play command.");
         pairingGrant = new SpotifyAuthGrant(this, handler, this::pairingRecord);
@@ -346,7 +354,7 @@ public final class MainActivity extends Activity {
 
     private void finishPairing() {
         pairingSpotify = false;
-        SpotifyAppRemote.setDebugMode(false);
+        if (screen != null) screen.setLoading(false);
         if (pairingGrant != null) {
             pairingGrant.close();
             pairingGrant = null;
@@ -357,8 +365,6 @@ public final class MainActivity extends Activity {
     private void beginPairingSdk(String clientId, final int attempt) {
         showPairingStatus("Permission granted. Waiting for Spotify authorisation…");
         pairingRecord("Starting SDK connection with trusted client ID, registered redirect and showAuthView=true.");
-        SpotifyAppRemote.setDebugMode(true);
-        pairingRecord("Verbose SDK diagnostics enabled in Android logcat; no OAuth payload included in copied log.");
         try {
             ConnectionParams params = new ConnectionParams.Builder(clientId)
                 .setRedirectUri(SpotifyRemoteAuthPolicy.REDIRECT_URI)
@@ -370,9 +376,11 @@ public final class MainActivity extends Activity {
                             SpotifyAppRemote.disconnect(appRemote);
                             return;
                         }
-                        pairingRecord("Spotify App Remote onConnected callback received. Authorisation confirmed.");
+                        pairingRecord("Spotify App Remote authorised and connected.");
+                        getPreferences(MODE_PRIVATE).edit().putBoolean("spotify_authorized", true).apply();
                         finishPairing();
-                        showPairingStatus("Spotify App Remote authorised successfully. Try Play from AudioShelf with Spotify closed.");
+                        updateSetupState();
+                        showPairingStatus("Spotify connected. Ready for AudioShelf.");
                         SpotifyAppRemote.disconnect(appRemote);
                     });
                 }
@@ -381,7 +389,9 @@ public final class MainActivity extends Activity {
                         if (isFinishing() || isDestroyed() || attempt != pairingAttemptId || !pairingSpotify) return;
                         String reason = WakeDiagnostics.failure(error);
                         pairingRecord("Spotify App Remote pairing failed: " + reason);
+                        getPreferences(MODE_PRIVATE).edit().putBoolean("spotify_authorized", false).apply();
                         finishPairing();
+                        updateSetupState();
                         showPairingStatus("Pairing failed: " + reason
                             + ". Check your Spotify Android registration if this persists.");
                     });
@@ -405,7 +415,7 @@ public final class MainActivity extends Activity {
             if (pairingSpotify && attempt == pairingAttemptId && !isFinishing() && !isDestroyed()) {
                 pairingRecord("Pairing timed out after 30 seconds without SDK callback. No authorisation confirmed.");
                 finishPairing();
-                showPairingStatus("Pairing timed out without a Spotify SDK callback. Use isolated diagnostics if necessary.");
+                showPairingStatus("Spotify connection timed out. Try Connect Spotify again or open diagnostics.");
             }
         }, 30000);
     }
@@ -440,49 +450,32 @@ public final class MainActivity extends Activity {
         SpotifyAppRemote.connect(this, params, new Connector.ConnectionListener() {
             @Override public void onConnected(SpotifyAppRemote appRemote) {
                 handler.post(() -> {
-                    sdkCallbackReceived = true;
                     if (completed || isFinishing() || isDestroyed()) {
                         SpotifyAppRemote.disconnect(appRemote);
                         return;
                     }
                     remote = appRemote;
-                    record("Spotify SDK connected. This does not confirm Spotify Connect device readiness or playback.");
-                    appRemote.getPlayerApi().subscribeToPlayerState().setEventCallback(state -> handler.post(() -> {
-                        if (completed || isFinishing() || isDestroyed()) return;
-                        String status = state.isPaused ? "paused" : "playing";
-                        status += state.track == null ? "; no track" : "; track present";
-                        if (!status.equals(lastPlayerStatus)) {
-                            lastPlayerStatus = status;
-                            record("Spotify player reports " + status + ".");
-                        }
-                    })).setErrorCallback(error -> handler.post(() -> {
-                        if (!completed) record("Player status unavailable: " + WakeDiagnostics.failure(error));
-                    }));
-                    // SDK connection is diagnostic; server device readiness governs return.
+                    getPreferences(MODE_PRIVATE).edit().putBoolean("spotify_authorized", true).apply();
+                    record("Spotify SDK connected. AudioShelf is checking the preferred phone.");
                 });
             }
             @Override public void onFailure(Throwable error) {
                 Log.w("AudioShelfHelper", "Spotify SDK connection failed: " + WakeDiagnostics.failure(error));
                 handler.post(() -> {
-                    sdkCallbackReceived = true;
                     if (completed || isFinishing() || isDestroyed()) return;
                     connecting = false;
                     sdkFailed = true;
                     boolean authorization = WakeDiagnostics.isAuthorizationFailure(error);
+                    if (authorization) getPreferences(MODE_PRIVATE).edit()
+                        .putBoolean("spotify_authorized", false).apply();
                     record("Spotify SDK failed: " + WakeDiagnostics.failure(error));
                     record(authorization
                         ? "Spotify App Remote authorisation rejected. This is distinct from Web API rate limits."
                         : "Spotify SDK session failure does not confirm wake failure.");
                     record("Continuing background wake; no automatic foreground Spotify launch.");
                     message.setText(authorization
-                        ? "Spotify App Remote is not authorised. Open the helper directly after this attempt and use Authorise Spotify App Remote. AudioShelf is still checking for your phone."
-                        : "Spotify SDK connection failed. Waiting for AudioShelf; you can open Spotify manually if needed.");
-                    // Show a user-triggered escape hatch, but leave Spotify in
-                    // the background if this wake succeeded despite SDK failure.
-                    handler.postDelayed(() -> {
-                        if (!completed && wakeRequest && wakeReturn.shouldPoll(keepOpen)
-                                && spotifyRecovery != null) spotifyRecovery.setVisibility(View.VISIBLE);
-                    }, 1200);
+                        ? "Spotify needs authorisation. Open the helper directly to reconnect."
+                        : "Spotify connection unavailable. AudioShelf is still checking your phone.");
                 });
             }
         });
@@ -519,6 +512,7 @@ public final class MainActivity extends Activity {
         statusExecutor.shutdownNow();
         record(reason);
         message.setText(reason);
+        if (screen != null) screen.setLoading(false);
     }
     private void finishHelper() {
         record(remote != null ? "Disconnecting Spotify SDK session and closing helper." : "Closing helper; no connected Spotify SDK session.");
@@ -540,28 +534,8 @@ public final class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         resumed = true;
-        if (playbackAccess != null) playbackAccess.setText(SpotifyPlaybackMonitor.enabled(this) ?
-            "Spotify playback detection enabled" : "Enable Spotify playback detection");
-        if (wakeRequest) record("Helper visible.");
-        if (pairingSpotify) pairingRecord("Helper resumed while Spotify App Remote pairing is pending.");
         startInitialSdkWake();
         returnWhenVisible();
-        if (foregroundRecoveryOpened && !completed && wakeClientId != null
-                && wakeReturn.shouldPoll(keepOpen)) {
-            foregroundRecoveryOpened = false;
-            // A foreground Spotify visit can complete App Remote authorisation.
-            // Never start a duplicate SDK connection if the original call is
-            // still awaiting a callback. Server device discovery remains live.
-            if (connecting) {
-                record("Returned from Spotify; original SDK connection is still pending. AudioShelf continues checking the phone.");
-            } else {
-                sdkFailed = false;
-                sdkCallbackReceived = false;
-                record("Returned from Spotify; retrying App Remote while AudioShelf checks the selected phone.");
-                connect(wakeClientId);
-                handler.postDelayed(silentSdkRecovery, SpotifyWakeRecovery.NO_CALLBACK_GRACE_MS);
-            }
-        }
     }
     @Override protected void onPause() {
         resumed = false;
@@ -571,17 +545,15 @@ public final class MainActivity extends Activity {
     }
     @Override public void onWindowFocusChanged(boolean focused) {
         super.onWindowFocusChanged(focused);
-        if (pairingSpotify) pairingRecord("Helper window focus=" + focused + " during pairing.");
-        if (focused && updater != null) {
-            if (checkUpdatesWhenVisible) { checkUpdatesWhenVisible = false; updater.check(); }
-            updater.onVisible();
-        }
+        if (focused && updater != null) updater.onVisible();
     }
+
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
         if (updater != null) updater.activityResult(request);
-        if (pairingSpotify) pairingRecord("Helper received Activity result (request code " + request + "); payload not saved.");
+        if (pairingSpotify) pairingRecord("Helper received Activity result; payload not saved.");
     }
+
     @Override protected void onDestroy() {
         if (updater != null) updater.close();
         pairingAttemptId++;
