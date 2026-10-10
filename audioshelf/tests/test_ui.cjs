@@ -30,6 +30,45 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.getByLabel('Password',{exact:true}).fill('fixture-owner-password');
     await page.getByRole('button',{name:'Open AudioShelf',exact:true}).click();
     await page.getByRole('heading',{name:'My shelf.'}).waitFor();
+    // Differences are explicit, escaped and visually distinct in both light and dark modes.
+    const tracklistColors=await page.evaluate(()=>{
+      const baseline={tracks:[{title:'Opening'},{title:'Closing'},{title:'Outro'}]};
+      const alternate={tracks:[{title:'Opening'},{title:'Extra <Demo>'}]};
+      const html=variantSummary(baseline,alternate);
+      const holder=document.createElement('p');
+      holder.className='variant-difference';
+      holder.innerHTML=html;
+      document.body.appendChild(holder);
+      const added=holder.querySelector('.variant-added');
+      const removed=holder.querySelector('.variant-removed');
+      const color=()=>({
+        added:getComputedStyle(added).color,removed:getComputedStyle(removed).color,
+        addedWeight:getComputedStyle(added).fontWeight,removedWeight:getComputedStyle(removed).fontWeight
+      });
+      const prior=document.documentElement.dataset.theme;
+      document.documentElement.dataset.theme='record-store';
+      const light=color();
+      document.documentElement.dataset.theme='midnight';
+      const dark=color();
+      document.documentElement.dataset.theme=prior;
+      const result={html,addedText:added.textContent,removedText:removed.textContent,
+        light,dark,escaped:!holder.querySelector('demo')};
+      holder.remove();
+      return result;
+    });
+    assert.equal(tracklistColors.addedText,'+1 track: Extra <Demo>');
+    assert.equal(tracklistColors.removedText,'−2 tracks: Closing, Outro');
+    assert(tracklistColors.escaped,'Track names remain HTML-escaped in the comparison');
+    assert(tracklistColors.html.includes('class="variant-added"')&&tracklistColors.html.includes('class="variant-removed"'));
+    for(const mode of ['light','dark']){
+      const added=tracklistColors[mode].added.match(/\\d+/g).map(Number);
+      const removed=tracklistColors[mode].removed.match(/\\d+/g).map(Number);
+      assert(added[1]>added[0]&&added[1]>added[2],'Added tracks display as green in '+mode);
+      assert(removed[0]>removed[1]&&removed[0]>removed[2],'Removed tracks display as red in '+mode);
+      assert(Number(tracklistColors[mode].addedWeight)>=700&&Number(tracklistColors[mode].removedWeight)>=700,
+        'Differences use bold type in '+mode);
+    }
+
     fixtureCookie=(await page.context().cookies()).map(c=>`${c.name}=${c.value}`).join('; ');
     await fixtureFetch(base+'/api/settings',{method:'PUT',headers:{'Content-Type':'application/json','X-AudioShelf-Request':'1'},body:JSON.stringify({interface:'classic'})});
     await page.reload();

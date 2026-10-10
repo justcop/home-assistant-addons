@@ -467,8 +467,12 @@ function variantDifference(a,b){
 function variantSummary(reference,variant){
   if(reference===variant)return 'Preferred standard tracklist';
   const diff=variantDifference(reference.tracks,variant.tracks);
-  const brief=(array,symbol)=>array.length?symbol+array.length+' '+(array.length===1?'track':'tracks')+': '+array.slice(0,4).map(escapeHtml).join(', ')+(array.length>4?'…':''):'';
-  return [brief(diff.added,'+'),brief(diff.removed,'−'),diff.reordered?'Same songs, different running order':''].filter(Boolean).join(' · ')||'Same musical content';
+  const brief=(array,symbol,kind)=>array.length
+    ?'<span class="variant-'+kind+'">'+symbol+array.length+' '+(array.length===1?'track':'tracks')+
+      ': '+array.slice(0,4).map(escapeHtml).join(', ')+(array.length>4?'…':'')+'</span>'
+    :'';
+  return [brief(diff.added,'+','added'),brief(diff.removed,'−','removed'),
+    diff.reordered?'Same songs, different running order':''].filter(Boolean).join(' · ')||'Same musical content';
 }
 function variantTrackPreview(variant){
   let previous=null;
