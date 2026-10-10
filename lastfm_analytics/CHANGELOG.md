@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.18
+
+- Add estimated album listens using the play count of the third least played track from an identified complete tracklist (at least six songs). Unplayed tracks count as zero; albums with unknown tracklists do not receive guessed estimates.
+- Find canonical audio tracklists through paced MusicBrainz metadata lookups, with a Last.fm fallback, and persist the metadata locally. Identify existing albums in the background without reimporting scrobbles.
+- Add estimated album listens to global and artist-level album analysis, sortable album rankings, and album details with a track-by-track explanation. Retain total track scrobbles alongside the new measure.
+- Respect time periods, vinyl-only listening and existing grouping rules. Update cached analytical results as metadata becomes available.
+
 ## 0.2.17
 
 - Automatically combine artist names that differ only by a leading “The”, including renamed artists whose old and new recordings do not overlap. Conflicting artist MusicBrainz IDs prevent this merge; accents and punctuation still require matching recording evidence.
