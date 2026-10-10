@@ -283,7 +283,7 @@ function pager(total) {
   return `<div class="pager"><span>${total ? `${number(state.offset + 1)}–${number(Math.min(state.offset + 50, total))} of ${number(total)}` : "No results"}</span><div><button class="button" data-page="prev" ${state.offset === 0 ? "disabled" : ""}>Previous</button><button class="button" data-page="next" ${state.offset + 50 >= total ? "disabled" : ""}>Next</button></div></div>`;
 }
 function rankTable(data, kind, settings = false) {
-  const max = data.rows[0]?.plays || 1;
+  const max = Math.max(1, ...data.rows.map(row => row.plays));
   const albumControls = kind === "album" && !settings
     ? `<div class="segment" role="group" aria-label="Album ranking measure"><button data-album-sort="scrobbles" aria-pressed="${state.albumSort === "scrobbles"}">Rank by scrobbles</button><button data-album-sort="estimated" aria-pressed="${state.albumSort === "estimated"}">Rank by estimated listens</button></div><p class="method-note">Estimated album listens use the third least played track of a complete tracklist with at least six songs. Unknown tracklists show a dash until identified.</p>`
     : "";
