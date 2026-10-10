@@ -392,8 +392,8 @@ class Database:
         # when old and new artist tags cover entirely different albums. This
         # also catches renamed artists like (The) Courteeners without requiring
         # overlapping tracks. A conflicting artist MBID above still vetoes it.
-        if (left.startswith("the ") and left[4:] == right or
-                right.startswith("the ") and right[4:] == left):
+        if (left.startswith("the ") and left[4:] == right and right != "the" or
+                right.startswith("the ") and right[4:] == left and left != "the"):
             return True
         # Other accent or punctuation variants need additional evidence.
         return bool(lpairs & rpairs) or len(ltracks & rtracks) >= 2
