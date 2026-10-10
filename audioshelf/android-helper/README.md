@@ -17,6 +17,12 @@ Before using it, edit the same Spotify developer application whose client ID is 
 5. Install Spotify and log in with the Spotify account connected to AudioShelf.
 6. In AudioShelf Settings on that phone, enable **Use the installed Android Spotify helper on this phone** and select the phone as the preferred playback device.
 
+## Normal foreground pairing now uses the proven Android grant (0.1.24)
+
+The standard **Authorise Spotify App Remote** button now temporarily binds Spotify's verified protocol service with `BIND_ALLOW_ACTIVITY_STARTS` on Android 14 and later, and only calls the App Remote SDK once Android has connected the binder. The grant stays active until the SDK reports success/failure or its 30-second watchdog expires, then is released. A five-second bind timeout and explicit error avoid a silent wait if Spotify changes its internal service. Older Android versions retain the original foreground pairing behaviour.
+
+This promotes the successful 0.1.23 isolated test into the normal **manual pairing** button, but it does *not* change the automatic background wake path or AudioShelf's server-owned device and canonical tracklist handling. Retain the isolated diagnostic until pairing and a cold playback wake have been confirmed on a real phone.
+
 ## Pair Spotify App Remote separately (0.1.19)
 
 Spotify's Android App Remote authorisation is separate from the Web API connection used by AudioShelf. On recent Android versions the Spotify background service can be blocked from opening its own authorisation screen during an automatic wake. Complete authorisation deliberately while setting up the helper:
@@ -72,19 +78,7 @@ The helper displays elapsed timestamps for request validation, background connec
 
 For a failed attempt, open the helper directly and enable **Keep open for diagnostics (return manually)** before pressing Play in AudioShelf. The helper then stays visible after the wake attempt, and any Spotify player status changes can be observed while AudioShelf's server continues its one-minute playback handoff. Copy the log and tap **Return to AudioShelf**. Turn the option off to restore automatic return. The helper reads server-confirmed device discovery, Play acceptance, ongoing verification and final job state and, with notification access, local Spotify playback state. AudioShelf still reports exact-track confirmation, playback failure or expiry.
 
-### Compare wake methods
-
-Helper 0.1.18 can compare initial SDK timing in the same installed app:
-
-1. Open the helper from the app drawer and tap **Diagnostic settings**.
-2. Select **Previous wake method** or **Current wake method**, then **Save for diagnostic test**. This also enables diagnostic hold.
-3. Close Spotify in your usual way, return to AudioShelf and press Play on the same album and preferred phone. Keep the server, Spotify version and other settings unchanged between tests.
-4. Leave the helper open until the job finishes, copy its log and note whether you actually heard the requested album. Return manually. Avoid manual Spotify recovery during the comparison; if used, the log records that intervention.
-5. Alternate the two methods for several attempts. The method cannot change during an active attempt. After testing, choose **Current wake method**, then turn off **Keep open for diagnostics** to restore the default automatic return.
-
-Previous starts the initial background connection immediately after request validation and server approval, as 0.1.14 did. Current waits until the Activity is resumed, as 0.1.17 did. Both use the same SDK version, connection parameters, selected device, playback monitoring and return policy. This isolates initial wake timing rather than reinstalling all of 0.1.14. On a first-use approval prompt both may start after resume, so the log also records the actual resumed state at SDK startup.
-
-Logs retain the beginning and latest events if their size limit is reached, marking any omitted middle entries. Periodic polling summaries prevent the normal one-minute test from burying its startup and SDK result. The screen, copied log and saved last-attempt log contain the same text. Opening settings does not overwrite the previous attempt's log.
+The old 0.1.18 Previous/Current timing comparison has been retired. The helper now always waits until its Activity is visible before starting a background wake. The associated regression checks remain under the simpler foreground-only startup policy.
 
 ## Updating the helper
 
