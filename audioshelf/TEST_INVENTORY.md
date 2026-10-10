@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-10T17:26:undefined+01:00 (Europe/London).
+Reviewed: 2026-10-10T17:27:22+01:00 (Europe/London).
 
 Reviewed Vinyl shelf visual regression tests after restoring full-width artist expand/collapse toggles while separating More from onto a header subrow. Tests confirm neighbouring artist sections meet without a vertical gap, expanded and mobile name buttons occupy the complete bar, the More from action appears only for expanded artists, and the same artist can be collapsed again. Existing playback, multi-disc logic and 314 backend cases remain unchanged. Real-device visual verification remains appropriate after the release.
 
-<!-- inventory: {"reviewed_at":"2026-10-10T17:26:undefined+01:00","review_note":"Reviewed Vinyl shelf visual regression tests after restoring full-width artist expand/collapse toggles while separating More from onto a header subrow. Tests confirm neighbouring artist sections meet without a vertical gap, expanded and mobile name buttons occupy the complete bar, the More from action appears only for expanded artists, and the same artist can be collapsed again. Existing playback, multi-disc logic and 314 backend cases remain unchanged. Real-device visual verification remains appropriate after the release.","source_sha256":"e91a6b49d3ad608563e527da1b5a4535d65a3f5be61a9a9ef68b049ff4553fca"} -->
+<!-- inventory: {"reviewed_at":"2026-10-10T17:27:22+01:00","review_note":"Reviewed Vinyl shelf visual regression tests after restoring full-width artist expand/collapse toggles while separating More from onto a header subrow. Tests confirm neighbouring artist sections meet without a vertical gap, expanded and mobile name buttons occupy the complete bar, the More from action appears only for expanded artists, and the same artist can be collapsed again. Existing playback, multi-disc logic and 314 backend cases remain unchanged. Real-device visual verification remains appropriate after the release.","source_sha256":"e91a6b49d3ad608563e527da1b5a4535d65a3f5be61a9a9ef68b049ff4553fca"} -->
 
 ## Backend cases (314)
 
