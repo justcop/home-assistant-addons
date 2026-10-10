@@ -61,8 +61,8 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert(tracklistColors.escaped,'Track names remain HTML-escaped in the comparison');
     assert(tracklistColors.html.includes('class="variant-added"')&&tracklistColors.html.includes('class="variant-removed"'));
     for(const mode of ['light','dark']){
-      const added=tracklistColors[mode].added.match(/\\d+/g).map(Number);
-      const removed=tracklistColors[mode].removed.match(/\\d+/g).map(Number);
+      const added=tracklistColors[mode].added.match(/\d+/g).map(Number);
+      const removed=tracklistColors[mode].removed.match(/\d+/g).map(Number);
       assert(added[1]>added[0]&&added[1]>added[2],'Added tracks display as green in '+mode);
       assert(removed[0]>removed[1]&&removed[0]>removed[2],'Removed tracks display as red in '+mode);
       assert(Number(tracklistColors[mode].addedWeight)>=700&&Number(tracklistColors[mode].removedWeight)>=700,
