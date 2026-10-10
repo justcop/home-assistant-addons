@@ -66,6 +66,7 @@ class TracklistWorker:
         self.last_request = 0.0
         self.last_scan = {}
         self.databases = {}
+        self.processing = None
 
     def request_json(self, url):
         if self.stop.wait(max(0, 1.15 - (time.monotonic() - self.last_request))):
@@ -143,7 +144,7 @@ class TracklistWorker:
                     title = track.get("title") or (track.get("recording") or {}).get("title")
                     if title:
                         tracks.append(title)
-            if len(tracks) >= MIN_TRACKS:
+            if tracks:
                 return tracks, "MusicBrainz"
         return None
 
@@ -165,7 +166,7 @@ class TracklistWorker:
             entries = [entries]
         tracks = [str(t["name"]) for t in entries
                   if isinstance(t, dict) and isinstance(t.get("name"), str)]
-        return (tracks, "Last.fm") if len(tracks) >= MIN_TRACKS else None
+        return (tracks, "Last.fm") if tracks else None
 
     def fetch(self, artist, album):
         failed = False
@@ -212,12 +213,45 @@ class TracklistWorker:
                                                        daemon=True)
                         self.thread.start()
 
+    def status(self, db):
+        """Live tracklist import progress, independent of cached rankings."""
+        with db.connect() as conn:
+            row = conn.execute(
+                """WITH active_albums AS (
+                       SELECT DISTINCT av.group_id AS id
+                       FROM scrobbles s
+                       JOIN resolved_variants av ON av.id=s.album_id
+                       WHERE s.active=1
+                   )
+                   SELECT COUNT(*) AS total,
+                       COALESCE(SUM(CASE WHEN t.tracks_json IS NOT NULL
+                         AND json_array_length(t.tracks_json)>=6 THEN 1 ELSE 0 END),0) AS ready,
+                       COALESCE(SUM(CASE WHEN t.tracks_json IS NOT NULL
+                         AND json_array_length(t.tracks_json)<6 THEN 1 ELSE 0 END),0) AS ineligible,
+                       COALESCE(SUM(CASE WHEN t.album_id IS NOT NULL
+                         AND t.tracks_json IS NULL THEN 1 ELSE 0 END),0) AS unresolved
+                   FROM active_albums a LEFT JOIN album_tracklists t ON t.album_id=a.id"""
+            ).fetchone()
+        result = dict(row)
+        result["pending"] = max(0, result["total"] - result["ready"]
+                                - result["ineligible"] - result["unresolved"])
+        path = str(db.path)
+        with self.lock:
+            busy = self.processing is not None and self.processing[0] == path
+            outstanding = sum(1 for job in self.pending if job[0] == path)
+        result["processing"] = int(busy)
+        result["queued"] = max(0, outstanding - int(busy))
+        result["enabled"] = self.enabled and not self.stop.is_set()
+        return result
+
     def run(self):
         while not self.stop.is_set():
             try:
                 db, album_id, artist, title = self.jobs.get(timeout=0.5)
             except queue.Empty:
                 continue
+            with self.lock:
+                self.processing = (str(db.path), album_id)
             try:
                 result, failed = self.fetch(artist, title)
                 data, source = result if result else (None, None)
@@ -243,6 +277,7 @@ class TracklistWorker:
             finally:
                 with self.lock:
                     self.pending.discard((str(db.path), album_id))
+                    self.processing = None
                 self.jobs.task_done()
 
     def close(self):
