@@ -6,6 +6,7 @@ inferred from tracks that happened to be scrobbled, which would inflate results.
 import json
 import queue
 import re
+import sqlite3
 import threading
 import time
 import unicodedata
@@ -173,7 +174,7 @@ class TracklistWorker:
                 result = provider(artist, album)
                 if result:
                     return result, False
-            except (ValueError, TypeError, KeyError, OSError, urllib.error.URLError):
+            except (ValueError, TypeError, KeyError, AttributeError, OSError, urllib.error.URLError):
                 failed = True
         return None, failed
 
@@ -195,11 +196,10 @@ class TracklistWorker:
                    WHERE s.active=1 AND s.album_id IS NOT NULL
                    GROUP BY av.group_id ORDER BY plays DESC LIMIT 14000"""
             ).fetchall()
+            cached = {r["album_id"]: r["expires"]
+                      for r in conn.execute("SELECT album_id,expires FROM album_tracklists")}
             for row in rows:
-                cache = conn.execute(
-                    "SELECT expires FROM album_tracklists WHERE album_id=?", (row["id"],)
-                ).fetchone()
-                if cache and cache["expires"] > time.time():
+                if cached.get(row["id"], 0) > time.time():
                     continue
                 job_key = (path, row["id"])
                 with self.lock:
@@ -238,7 +238,7 @@ class TracklistWorker:
                     if data and (not old or old[0] != json.dumps(data, ensure_ascii=False)):
                         db.put(conn, "analysis_revision",
                                db.get(conn, "analysis_revision", 0) + 1)
-            except (ValueError, TypeError, OSError):
+            except (ValueError, TypeError, OSError, sqlite3.Error):
                 pass
             finally:
                 with self.lock:
