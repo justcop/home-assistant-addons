@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.17
+
+- Automatically merge conservative artist-name variants, including a leading “The”, punctuation and accents, only when recording evidence or a matching artist MusicBrainz ID confirms identity.
+- Reconcile existing scrobbles when upgrading and new evidence as it arrives, retaining originals, song and album groups, the normal merge history and the ability to undo automatic merges without immediately reapplying them.
+- Keep uncertain name similarities in artist merge suggestions rather than combining unrelated artists.
+
 ## 0.2.12
 
 - Accept TheAudioDB's R2 image CDN in metadata validation and browser image policy. This fixes photos and logos that were previously rejected as unavailable.
