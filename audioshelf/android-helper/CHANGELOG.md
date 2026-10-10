@@ -1,3 +1,10 @@
+# 0.1.24
+
+- Promote the successful Android 14+ BIND_ALLOW_ACTIVITY_STARTS experiment to the normal, user-initiated Authorise Spotify App Remote action. Bind only Spotify's unprotected exported protocol service, wait for an actual binder connection, hold the grant through the SDK callback and release it on completion, failure or Activity destruction. Older Android versions use the original pairing call.
+- Preserve the independently working 0.1.23 diagnostic and the unchanged automatic Spotify wake, playback device targeting, tracklist and server job.
+- Remove the obsolete Previous/Current wake timing comparison setting. Enforce the existing default foreground-visible start and migrate useful wake-start regression assertions to WakeStartupPolicyTest.
+- Add regression tests for the Android API threshold that requires the explicit grant.
+
 # 0.1.23
 
 - Add a user-initiated isolated App Remote comparison test that temporarily binds Spotify's verified protocol service with Android's BIND_ALLOW_ACTIVITY_STARTS flag before calling the same SDK connection. Android 14+ normally restricts background service activity launches without this foreground-client opt-in.
