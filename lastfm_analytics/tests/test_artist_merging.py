@@ -184,17 +184,17 @@ def test_manual_song_merge_across_approved_artist_aliases(tmp_path):
 def test_similar_names_without_shared_music_stay_separate(tmp_path):
     from analytics.grouping import artist_suggestion_key
     db = Database(tmp_path / "listening.sqlite3")
-    assert artist_suggestion_key("P!nk") == artist_suggestion_key("Pink")
+    assert artist_suggestion_key("AC/DC") == artist_suggestion_key("AC DC")
     db.apply_window(0, 1000, [
-        play(100, "P!nk", "Raise Your Glass", "Greatest Hits So Far"),
-        play(200, "Pink", "Different Song", "Different Record"),
+        play(100, "AC/DC", "Thunderstruck", "The Razors Edge"),
+        play(200, "AC DC", "Different Song", "Different Record"),
     ])
     with db.connect() as conn:
         assert len(rankings(conn, p(), "artist")) == 2
     # A generic "Intro" on "Greatest Hits" cannot establish identity.
     db.apply_window(1000, 2000, [
-        play(1100, "P!nk", "Intro", "Greatest Hits"),
-        play(1200, "Pink", "Intro", "Greatest Hits"),
+        play(1100, "AC/DC", "Intro", "Greatest Hits"),
+        play(1200, "AC DC", "Intro", "Greatest Hits"),
     ])
     with db.connect() as conn:
         assert len(rankings(conn, p(), "artist")) == 2
