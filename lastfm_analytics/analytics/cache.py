@@ -15,7 +15,7 @@ class ViewCache:
     LIMIT = 24
     RETRY_SECONDS = 60
     # This changes only when cached payload semantics change, not every release.
-    CACHE_FORMAT = "analytics-v3"
+    CACHE_FORMAT = "analytics-v4"
     COLD_WAIT_SECONDS = 6
 
     def __init__(self, timezone, compute):
@@ -35,7 +35,7 @@ class ViewCache:
         if args.get("period", "all") == "custom":
             keys += ["start", "end"]
         if name == "rankings":
-            keys += ["kind", "q", "offset"]
+            keys += ["kind", "q", "offset", "album_sort"]
         values = {k: args[k] for k in keys if args.get(k) not in (None, "")}
         values.setdefault("period", "all")
         values.setdefault("source", "all")
