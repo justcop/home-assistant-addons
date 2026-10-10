@@ -455,7 +455,7 @@ async function openPlayableReleasePicker(albumId,mode){
 }
 
 // Find the major musical changes, ignoring remaster suffixes, not alternate takes.
-function variantTitle(title){return String(title||'').normalize('NFKC').toLocaleLowerCase().replace(/\\s*[\\[(]\\s*(?:\\d{4}\\s+)?re-?master(?:ed)?(?:\\s+(?:version|edition))?(?:\\s+\\d{4})?\\s*[\\])]/i,'').replace(/[^\\p{L}\\p{N}]+/gu,' ').trim();}
+function variantTitle(title){return String(title||'').normalize('NFKC').toLocaleLowerCase().replace(/\s*[\[(]\s*(?:\d{4}\s+)?re-?master(?:ed)?(?:\s+(?:version|edition))?(?:\s+\d{4})?\s*[\])]\s*$/i,'').replace(/[^\p{L}\p{N}]+/gu,' ').trim();}
 function variantDifference(a,b){
   const count=arr=>arr.reduce((m,t)=>(m.set(variantTitle(t.title),(m.get(variantTitle(t.title))||0)+1),m),new Map());
   const before=count(a),after=count(b),added=[],removed=[];
@@ -530,6 +530,20 @@ document.addEventListener('change',async event=>{
 });
 window.addEventListener('hashchange',event=>{saveBrowsing(new URL(event.oldURL).hash);modal.close();route();});
 window.addEventListener('focus',async()=>{if(statusInfo.authenticated){try{const previousInterface=statusInfo.interface;const latest=await api('status');if(accountChanged(latest)){await clearArtworkCaches();window.location.reload();return;}statusInfo=latest;applyTheme(statusInfo.theme);applyInterface(statusInfo.interface);renderTurntable();refreshPlayback(true);if(previousInterface!==statusInfo.interface&&!unsavedChanges()){await route();return;}if(location.hash==='#settings'&&!settingsDirty){content.innerHTML=settingsPage();applyPermissions(content);refreshArtworkCacheSettings();}}catch{}}});
+document.addEventListener('change',event=>{
+  if(!event.target.matches('input[name="variant-layout"]'))return;
+  const state=releasePicker;
+  const variant=state?.variants?.find(v=>v.signature===state.selectedSignature);
+  const layout=variant?.layouts[Number(event.target.value)];
+  const checkbox=document.querySelector('#variant-split-sides');
+  const note=document.querySelector('#variant-side-note');
+  if(!layout||!checkbox||!note)return;
+  checkbox.checked=false;checkbox.disabled=!layout.sides.length;
+  note.textContent=layout.sides.length
+    ?'Split using MusicBrainz’s printed sides '+layout.sides.map(s=>s.side).join('/')+
+      '. Playing full discs remains available.'
+    :'No reliable A/B side numbering for this release. Discs remain individually playable.';
+});
 document.addEventListener('input',event=>{if(event.target.closest('#release-filters-form'))settingsDirty=true;});
 document.addEventListener('input',event=>{if(event.target.id==='artist-filter')document.querySelectorAll('.artist-row').forEach(el=>el.hidden=!el.dataset.filter.includes(event.target.value.toLowerCase()));});
 document.addEventListener('submit',async event=>{

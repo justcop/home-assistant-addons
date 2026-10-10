@@ -184,3 +184,17 @@
 @media(prefers-reduced-motion:reduce){
   #turntable .is-spinning .turntable-platter{animation:none}
 }
+
+/* Compact tracklist variants: important changes first, release metadata second. */
+.variant-option{padding:15px 0;border-bottom:1px solid var(--line)}
+.variant-option h3{margin:0 0 6px;font-size:17px}
+.variant-option .variant-difference{font-weight:600;margin:6px 0;line-height:1.5}
+.variant-option .muted{font-size:12px;margin:4px 0 12px}
+.variant-option details{margin:12px 0 4px}
+.variant-option details summary{cursor:pointer;color:var(--wine)}
+.variant-track-list{padding-left:24px;margin:10px 0 4px}
+.variant-track-list li{padding:3px 0}
+.variant-track-list .variant-disc-heading{list-style:none;font-weight:700;margin:10px 0 3px -20px}
+.variant-layout{display:flex;gap:12px;align-items:flex-start;border:1px solid var(--line);padding:12px;margin:10px 0;border-radius:4px;cursor:pointer}
+.variant-layout input{margin-top:5px}
+.variant-layout small{display:block;color:var(--muted);margin-top:6px;line-height:1.45}

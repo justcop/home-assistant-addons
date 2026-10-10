@@ -233,7 +233,7 @@ class Spotify:
                 tracks = [t for t in tracks if (t.get('disc_number') or 1) == disc_number]
                 if not tracks:
                     raise AppError('That disc does not exist on this edition.')
-            elif isinstance(disc_number, str) and re.fullmatch(r'[1-9]\\d*:[A-Z]', disc_number):
+            elif isinstance(disc_number, str) and re.fullmatch(r'[1-9]\d*:[A-Z]', disc_number):
                 number, side = disc_number.split(':')
                 matching = next((part for part in album.get('playback_sides', [])
                                  if part['disc_number'] == int(number) and part['side'] == side), None)
