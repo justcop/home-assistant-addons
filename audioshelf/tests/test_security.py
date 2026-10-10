@@ -1,5 +1,6 @@
 import json
 import time
+from email.utils import parsedate_to_datetime
 
 import pytest
 
@@ -53,7 +54,9 @@ def test_standard_sessions_are_secure_expire_and_logout_revokes(secured):
     response = login(client)
     cookie = response.headers.get('Set-Cookie')
     assert 'Secure' in cookie and 'HttpOnly' in cookie and 'SameSite=Lax' in cookie
-    assert f'Max-Age={AUTH_LIFETIME_SECONDS}' in cookie
+    # Flask signs its permanent session cookie with Expires (not Max-Age).
+    expiry_cookie = parsedate_to_datetime(cookie.split('Expires=', 1)[1].split(';', 1)[0]).timestamp()
+    assert AUTH_LIFETIME_SECONDS - 10 < expiry_cookie - time.time() <= AUTH_LIFETIME_SECONDS + 10
     with client.session_transaction() as session: token = session['sid']
     with app.extensions['security'].connect() as db:
         expiry = db.execute('SELECT expires FROM sessions WHERE token=?',
