@@ -133,7 +133,7 @@ def summaries(conn, p, extra, params, raw):
 
 def rankings(
     conn, p, kind, raw=False, search="", limit=50, offset=0, extra="", params=(),
-    sort="scrobbles", include_breakdown=False
+    sort="scrobbles", include_breakdown=False, include_estimate=True
 ):
     if kind == "artist":
         key, name, artist = "s.artist_group_key", "COALESCE((SELECT display_name FROM artist_aliases WHERE artist_key=s.artist_group_key),MIN(s.artist))", "''"
@@ -178,12 +178,12 @@ def rankings(
                 *params,
                 search,
                 search,
-                -1 if kind == "album" else limit,
-                0 if kind == "album" else offset,
+                -1 if kind == "album" and include_estimate else limit,
+                0 if kind == "album" and include_estimate else offset,
             ],
         )
     ]
-    if kind == "album":
+    if kind == "album" and include_estimate:
         album_listen_scores(conn, p, rows, raw, extra, params, include_breakdown)
         if sort == "estimated":
             rows.sort(key=lambda r: (r["estimated_listens"] is None,
@@ -211,19 +211,21 @@ def album_listen_scores(conn, p, rows, raw, extra="", params=(), breakdown=False
                          r["source"])
         for r in conn.execute("SELECT album_id,tracks_json,source FROM album_tracklists")
     }
-    keys = {str(r["id"]) for r in rows}
+    keys = {str(r["id"]) for r in rows if r["album_group_id"] in available
+            and available[r["album_group_id"]][0]}
     counts = {}
     identifier = "av.id" if raw else "av.group_id"
-    for album_id, title, plays in conn.execute(
-        f"""SELECT {identifier},s.title,COUNT(*) {JOINS}
-            WHERE s.active=1 AND s.album_id IS NOT NULL
-                  AND s.ts>=? AND s.ts<? {extra}
-            GROUP BY {identifier},s.title""",
-        [p["start"], p["end"], *params],
-    ):
-        if str(album_id) in keys:
-            counter = counts.setdefault(str(album_id), Counter())
-            counter[track_key(title)] += plays
+    if keys:
+        for album_id, title, plays in conn.execute(
+            f"""SELECT {identifier},s.title,COUNT(*) {JOINS}
+                WHERE s.active=1 AND s.album_id IS NOT NULL
+                      AND s.ts>=? AND s.ts<? {extra}
+                GROUP BY {identifier},s.title""",
+            [p["start"], p["end"], *params],
+        ):
+            if str(album_id) in keys:
+                counter = counts.setdefault(str(album_id), Counter())
+                counter[track_key(title)] += plays
     for row in rows:
         tracklist, source = available.get(row["album_group_id"], (None, None))
         plays = counts.get(str(row["id"]), {})
@@ -346,7 +348,8 @@ def overview(database, args, tz_name, now=None):
             "hours": hours,
             "top_artists": artists,
             "top_albums": rankings(
-                conn, p, "album", raw, limit=5, extra=extra, params=params
+                conn, p, "album", raw, limit=5, extra=extra, params=params,
+                include_estimate=False
             ),
             "top_albums_estimated": [
                 r for r in rankings(conn, p, "album", raw, limit=12, extra=extra,
