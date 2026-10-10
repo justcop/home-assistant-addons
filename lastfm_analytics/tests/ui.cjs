@@ -29,6 +29,35 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
     path: path.join(output, "overview-light.png"),
     fullPage: true,
   });
+  // Switching album rankings must explain missing metadata, not appear inert.
+  await page.route("**/api/rankings?*", async route => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("kind") !== "album") return route.continue();
+    const response = await route.fetch();
+    const data = await response.json();
+    data.album_progress = {
+      total: 24, ready: 0, ineligible: 1, unresolved: 2,
+      pending: 21, queued: 20, processing: 1, enabled: true,
+    };
+    return route.fulfill({response, json: data});
+  });
+  await page.locator('#nav [data-view="albums"]').click();
+  await page.locator('#content [data-album-sort="estimated"]').waitFor();
+  await page.locator('#content [data-album-sort="estimated"]').click();
+  await page.waitForFunction(() =>
+    document.querySelector('#content').getAttribute('aria-busy') === 'false');
+  assert.equal(await page.locator('[data-album-sort="estimated"]').getAttribute('aria-pressed'), 'true');
+  assert.equal(await page.locator('[data-album-sort="scrobbles"]').getAttribute('aria-pressed'), 'false');
+  assert.match(await page.locator('#album-progress').innerText(), /haven't been processed yet/);
+  assert.match(await page.locator('#album-progress').innerText(), /24 albums checked|24 albums|queued/);
+  await page.locator('#content [data-album-sort="scrobbles"]').click();
+  await page.waitForFunction(() =>
+    document.querySelector('#content').getAttribute('aria-busy') === 'false');
+  assert.equal(await page.locator('[data-album-sort="scrobbles"]').getAttribute('aria-pressed'), 'true');
+  await page.unroute("**/api/rankings?*");
+  await page.locator('#nav [data-view="overview"]').click();
+  await page.locator("#content .metrics").waitFor();
+
   // The artist name fills the *same* top slot until an actual logo is ready.
   const demoArtistLogo = "https://lastfm.freetls.fastly.net/i/u/174s/artist-fixture.png";
   const demoArtistPhoto = "https://lastfm.freetls.fastly.net/i/u/174s/artist-photo-fixture.png";
