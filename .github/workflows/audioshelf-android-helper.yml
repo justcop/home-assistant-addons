@@ -85,7 +85,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
         with:
-          name: audioshelf-spotify-helper-0.1.24
+          name: audioshelf-spotify-helper-0.1.25
           path: helper-release
       - name: Prepare verified update metadata
         run: python audioshelf/android-helper/prepare-release.py helper-release
