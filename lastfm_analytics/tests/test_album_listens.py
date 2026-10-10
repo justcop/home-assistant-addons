@@ -190,3 +190,72 @@ def test_lastfm_metadata_needs_exact_artist_album_and_six_tracks():
     assert track_breakdown(["A", "B"], {track_key("A"): 8}) == [
         {"title": "A", "plays": 8}, {"title": "B", "plays": 0}
     ]
+
+
+def test_album_tracklist_status_counts_pending_ready_short_and_unresolved(tmp_path):
+    db = Database(tmp_path / "listening.sqlite3")
+    db.apply_window(0, 5000, [
+        play(100, "Example", "Waiting", "A"),
+        play(200, "Example", "Complete", "B"),
+        play(300, "Example", "Too Short", "C"),
+        play(400, "Example", "Not Found", "D"),
+    ])
+    add_tracks(db, "Complete", list("ABCDEF"))
+    add_tracks(db, "Too Short", list("ABCDE"))
+    with db.connect() as conn:
+        album_id = conn.execute(
+            "SELECT av.group_id FROM resolved_variants av "
+            "JOIN scrobbles s ON s.album_id=av.id WHERE s.album='Not Found'"
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO album_tracklists(album_id,tracks_json,source,expires) VALUES (?,?,?,?)",
+            (album_id, None, None, 9999999999),
+        )
+    worker = TracklistWorker(enabled=True)
+    initial = worker.status(db)
+    assert {key: initial[key] for key in ("total", "ready", "ineligible",
+                                          "unresolved", "pending")} == {
+        "total": 4, "ready": 1, "ineligible": 1,
+        "unresolved": 1, "pending": 1,
+    }
+    assert initial["enabled"] and initial["queued"] == 0
+    waiting_key = (str(db.path), 12345)
+    with worker.lock:
+        worker.pending.add(waiting_key)
+    queued = worker.status(db)
+    assert queued["queued"] == 1 and queued["processing"] == 0
+    with worker.lock:
+        worker.processing = waiting_key
+    working = worker.status(db)
+    assert working["queued"] == 0 and working["processing"] == 1
+    worker.close()
+
+
+def test_album_ranking_endpoint_exposes_real_progress_even_when_cache_is_static(tmp_path):
+    from analytics.web import create_app
+
+    app = create_app(tmp_path, config={"username": "example", "api_key": "fixture"},
+                     development=True, start_worker=False)
+    db = app.extensions["database"]
+    try:
+        db.apply_window(0, 5000, [play(100, "Example", "Unprocessed", "A")])
+        client = app.test_client()
+        response = client.get("/api/rankings?kind=album&period=all&album_sort=estimated")
+        assert response.status_code == 200
+        body = response.get_json()
+        assert len(body["rows"]) == 1
+        assert body["rows"][0]["estimated_listens"] is None
+        assert body["album_progress"]["total"] == 1
+        assert body["album_progress"]["pending"] == 1
+        assert body["album_progress"]["ready"] == 0
+        assert body["album_progress"]["enabled"] is False
+
+        # The progress is live even if rankings are already stored in cache.
+        add_tracks(db, "Unprocessed", list("ABCDEF"))
+        response = client.get("/api/rankings?kind=album&period=all&album_sort=estimated")
+        assert response.status_code == 200
+        assert response.get_json()["album_progress"]["ready"] == 1
+    finally:
+        app.extensions["tracklist_worker"].close()
+        app.extensions["artwork_worker"].close()
+        app.extensions["view_cache"].close()
