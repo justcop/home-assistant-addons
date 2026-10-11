@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-11T14:15:00+01:00 (Europe/London).
+Reviewed: 2026-10-11T14:23:00+01:00 (Europe/London).
 
-Reviewed the new MusicBrainz regional picker scan cases, including GB/Worldwide/US selection, pagination through all eligible releases, automatic browser continuation, and full-catalogue progress. Also reviewed medley subtitle evidence, corroborated album-context timing, wrong-artist/live safeguards and the existing strict partial-mapping tests. Real Spotify market catalogue availability remains an integration smoke test.
+Reviewed the new MusicBrainz regional picker scan cases, including GB/Worldwide/US selection, pagination through all eligible releases, and a corrected eight-release browser fixture verifying automatic continuation and full-catalogue progress. Also reviewed medley subtitle evidence, corroborated album-context timing, wrong-artist/live safeguards and the existing strict partial-mapping tests. Real Spotify market catalogue availability remains an integration smoke test.
 
-<!-- inventory: {"reviewed_at":"2026-10-11T14:15:00+01:00","review_note":"Reviewed the new MusicBrainz regional picker scan cases, including GB/Worldwide/US selection, pagination through all eligible releases, automatic browser continuation, and full-catalogue progress. Also reviewed medley subtitle evidence, corroborated album-context timing, wrong-artist/live safeguards and the existing strict partial-mapping tests. Real Spotify market catalogue availability remains an integration smoke test.","source_sha256":"2622d2b22a4e1d9b22ae3cca302daf61921748b2612566231258520e99bda79c"} -->
+<!-- inventory: {"reviewed_at":"2026-10-11T14:15:00+01:00","review_note":"Reviewed the new MusicBrainz regional picker scan cases, including GB/Worldwide/US selection, pagination through all eligible releases, automatic browser continuation, and full-catalogue progress. Also reviewed medley subtitle evidence, corroborated album-context timing, wrong-artist/live safeguards and the existing strict partial-mapping tests. Real Spotify market catalogue availability remains an integration smoke test.","source_sha256":"ab3e2e94b0d85615b25da735c110facafb119c99ba8d1ddd1cf8ee511d1fc4ae"} -->
 
 ## Backend cases (330)
 
