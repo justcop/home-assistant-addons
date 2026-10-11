@@ -276,7 +276,7 @@ function releaseYearsHTML(data) {
       '<div class="release-year-grid"><span></span>' + headings + cells + '</div></div>'
     : '<p class="empty">No identified release years yet. This heatmap fills in as music metadata is found.</p>';
   const rankedRows = (rows, kind) => (rows || []).map((entry,i) =>
-    '<button class="list-row" data-detail="' + kind + '" data-id="' + esc(entry.id) + '">' +
+    '<button class="list-row" data-detail="' + kind + '" data-id="' + esc(entry.id) + '" data-group-detail="true">' +
     '<span class="rank">' + (i+1) + '</span><span class="list-name"><strong>' +
     esc(entry.name) + '</strong><small>' + esc(entry.artist) + '</small></span>' +
     '<span class="list-count">' + number(entry.plays) + '</span></button>').join("") ||
@@ -754,7 +754,10 @@ async function showDetail(kind, id, groupMode = false, restoring = false) {
   const dialog = $("#detail-dialog");
   dialog.classList.toggle("artist-detail-open", kind === "artist");
   const mode = groupMode ? "merged" : state.mode;
-  const extra = {entity:kind,id,mode,period:groupMode?"all":state.period};
+  // Release-year lists always provide canonical group IDs, but drill-down
+  // should retain the user's selected listening period.
+  const allTime = groupMode && state.view !== "release-years";
+  const extra = {entity:kind,id,mode,period:allTime?"all":state.period};
   $("#detail-kind").textContent = kind.toUpperCase();
   $("#detail-content").innerHTML = '<div class="loading">Loading details…</div>';
   if (!dialog.open) dialog.showModal();
@@ -798,7 +801,7 @@ async function showDetail(kind, id, groupMode = false, restoring = false) {
     const data = result.data;
     const renderDetail = next => {
       replaceCachedView("#detail-analytics",
-        `${metrics(next, mode, {kind,id,name:detail.name}, groupMode)}<section class="panel">${panelHead("Listening history", "Select a bar to inspect individual scrobbles.")}${chart(next, {kind,id,name:detail.name}, mode)}</section>${kind === "album" ? albumEstimateHTML(next.album_estimate) : ""}${kind === "artist" ? artistAlbumsHTML(next, id, detail.name) : ""}${detail.versions.length ? `<div class="panel-head" style="margin-top:23px"><div><h2>Versions</h2><p>All-time plays for the selected source, including versions outside the selected period.</p></div></div><div class="table-wrap"><table><thead><tr><th>Scrobbled name</th><th class="num">Plays</th><th>First / latest play</th><th></th></tr></thead><tbody>${detail.versions.map(v => `<tr><td class="name-cell"><strong>${esc(v.name)}</strong><small>${v.manual ? "Manual decision" : "Automatic grouping"}</small></td><td class="num">${number(v.plays)}</td><td><small>${formatDate(v.first_play)}<br>${formatDate(v.last_play)}</small></td><td>${detail.versions.length > 1 ? `<button class="button" data-separate="${v.id}" data-name="${esc(v.name)}">Separate</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : ""}<div class="dialog-actions" style="margin-top:18px"><button class="button primary" data-show-history="${kind}" data-id="${esc(id)}" data-name="${esc(detail.name)}" data-mode="${mode}" data-all="${groupMode}">View scrobbles →</button></div>`);
+        `${metrics(next, mode, {kind,id,name:detail.name}, allTime)}<section class="panel">${panelHead("Listening history", "Select a bar to inspect individual scrobbles.")}${chart(next, {kind,id,name:detail.name}, mode)}</section>${kind === "album" ? albumEstimateHTML(next.album_estimate) : ""}${kind === "artist" ? artistAlbumsHTML(next, id, detail.name) : ""}${detail.versions.length ? `<div class="panel-head" style="margin-top:23px"><div><h2>Versions</h2><p>All-time plays for the selected source, including versions outside the selected period.</p></div></div><div class="table-wrap"><table><thead><tr><th>Scrobbled name</th><th class="num">Plays</th><th>First / latest play</th><th></th></tr></thead><tbody>${detail.versions.map(v => `<tr><td class="name-cell"><strong>${esc(v.name)}</strong><small>${v.manual ? "Manual decision" : "Automatic grouping"}</small></td><td class="num">${number(v.plays)}</td><td><small>${formatDate(v.first_play)}<br>${formatDate(v.last_play)}</small></td><td>${detail.versions.length > 1 ? `<button class="button" data-separate="${v.id}" data-name="${esc(v.name)}">Separate</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : ""}<div class="dialog-actions" style="margin-top:18px"><button class="button primary" data-show-history="${kind}" data-id="${esc(id)}" data-name="${esc(detail.name)}" data-mode="${mode}" data-all="${allTime}">View scrobbles →</button></div>`);
     };
     renderDetail(data);
     watchCachedView("detail", "overview", extra, data, renderDetail, () => serial === detailSerial && dialog.open, "#detail-cache-status");
