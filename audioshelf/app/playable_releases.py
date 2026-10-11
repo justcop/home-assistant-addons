@@ -14,6 +14,7 @@ from .tracklist_variants import group_releases, vinyl_sides
 class PlayableReleases:
     PAGE_SIZE = 4
     VARIANT_PAGE_SIZE = 8
+    PICKER_COUNTRIES = frozenset({'GB', 'US', 'XW'})
 
     def __init__(self, store, musicbrainz, spotify):
         self.store = store
@@ -185,7 +186,16 @@ class PlayableReleases:
             raise AppError('Connect Spotify in Settings to find playable tracklists.', 409)
         album_id = mbid(album_id)
         album = self.store.album(album_id)
-        releases = self.musicbrainz.releases(album_id)
+        all_releases = self.musicbrainz.releases(album_id)
+        # The tracklist picker scans all eligible editions, not just the first
+        # page. These are standard regional catalogue choices; do not change
+        # the user's stored global/album-specific MusicBrainz preferences.
+        def eligible(release):
+            countries = {release.get('country')}
+            for event in release.get('release-events', []):
+                countries.update((event.get('area') or {}).get('iso-3166-1-codes', []))
+            return bool(countries.intersection(self.PICKER_COUNTRIES))
+        releases = [release for release in all_releases if eligible(release)]
         if type(offset) is not int or offset < 0 or offset > len(releases):
             raise AppError('Invalid tracklist cursor.')
         selected = releases[offset:offset + self.VARIANT_PAGE_SIZE]
@@ -230,7 +240,8 @@ class PlayableReleases:
                                                'reason': 'No verified Spotify recording found.'})})
         next_offset = offset + len(selected)
         return {'variants': playable, 'rejected': rejected, 'checked': len(selected),
-                'total': len(releases),
+                'total': len(releases), 'all_total': len(all_releases),
+                'countries': ['GB', 'XW', 'US'],
                 'next_offset': next_offset if next_offset < len(releases) else None}
 
     def matches(self, album_id, release_id):
