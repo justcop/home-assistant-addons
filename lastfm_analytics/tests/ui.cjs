@@ -29,6 +29,52 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
     path: path.join(output, "overview-light.png"),
     fullPage: true,
   });
+  // Seven navigation tabs stay on one bottom row on narrow phones, and
+  // the year grid scales to the actual available width without sideways scroll.
+  await page.route("**/api/release-years?*", async route => {
+    const selected = Number(new URL(route.request().url()).searchParams.get("release_year")) || null;
+    await route.fulfill({ status:200, contentType:"application/json", body:JSON.stringify({
+      years:[{year:1968,plays:45},{year:1969,plays:17},{year:1994,plays:2}],
+      total:70, identified:64, unidentified:6,
+      lookup:{queued:0,processing:0,enabled:false},
+      selected_year:selected, top_songs:selected ? [{id:1,name:"Blackbird",artist:"The Beatles",plays:45}] : [],
+      period:{start:0,end:1}
+    })});
+  });
+  for (const width of [320, 360, 390, 428]) {
+    await page.setViewportSize({width, height:844});
+    await page.locator('#nav [data-view="release-years"]').click();
+    await page.locator('.release-year-cell').first().waitFor();
+    const layout = await page.evaluate(() => {
+      const bounds = [...document.querySelectorAll("#nav button")].map(b => b.getBoundingClientRect());
+      const grid = document.querySelector(".release-year-grid");
+      const viewport = document.documentElement.clientWidth;
+      const area = grid.parentElement;
+      return {
+        navCount:bounds.length,
+        navTops:bounds.map(r => Math.round(r.top)),
+        navRight:Math.max(...bounds.map(r => r.right)),
+        gridWidth:grid.getBoundingClientRect().width,
+        parentWidth:area.getBoundingClientRect().width,
+        pageWidth:document.documentElement.scrollWidth,
+        viewport
+      };
+    });
+    assert.equal(layout.navCount, 7);
+    assert.equal(new Set(layout.navTops).size, 1, "Bottom nav must not wrap");
+    assert.ok(layout.navRight <= layout.viewport + 1, "Bottom nav may not overflow viewport");
+    assert.ok(layout.gridWidth <= layout.parentWidth + 1, "Year grid must fit parent on " + width + "px");
+    assert.ok(layout.pageWidth <= layout.viewport + 1, "Page must not overflow on " + width + "px");
+  }
+  assert.equal(await page.locator('[data-release-year="1968"] .release-year-short').innerText(), "68");
+  await page.locator('[data-release-year="1968"]').click();
+  await page.locator('.release-year-details .list-row').waitFor();
+  assert.equal(await page.locator('[data-release-year="1968"]').getAttribute("aria-pressed"), "true");
+  await page.unroute("**/api/release-years?*");
+  await page.setViewportSize({width:1440,height:1050});
+  await page.locator('#nav [data-view="overview"]').click();
+  await page.locator("#content .metrics").waitFor();
+
   // Switching album rankings must explain missing metadata, not appear inert.
   await page.route("**/api/rankings?*", async route => {
     const url = new URL(route.request().url());

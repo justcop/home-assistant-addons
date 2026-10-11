@@ -114,3 +114,101 @@ def test_http_endpoint_can_return_cached_unidentified_counts(tmp_path):
     assert data["identified"] == 0
     assert data["unidentified"] == 2
     assert data["lookup"]["enabled"] is False
+
+
+def test_blackbird_uses_1968_recording_before_1994_album(tmp_path):
+    """A later album must never make the original Blackbird a 1994 song."""
+    db = Database(tmp_path / "original.sqlite3")
+    db.apply_window(0, 5000, [
+        play(100, "Blackbird", "Later Collection", "The Beatles"),
+        play(101, "Blackbird", "Later Collection", "The Beatles"),
+    ])
+    with db.connect() as conn:
+        album_id = conn.execute(
+            "SELECT av.group_id FROM scrobbles s "
+            "JOIN resolved_variants av ON av.id=s.album_id LIMIT 1"
+        ).fetchone()[0]
+        song_id = conn.execute(
+            "SELECT sv.group_id FROM scrobbles s "
+            "JOIN resolved_variants sv ON sv.id=s.song_id LIMIT 1"
+        ).fetchone()[0]
+        conn.execute("INSERT INTO release_years VALUES (?,?,?,?,?)",
+                     ("album", album_id, 1994, "MusicBrainz", 9999999999))
+    assert release_year_analysis(db, {"period": "all"}, "UTC")["years"] == [
+        {"year": 1994, "plays": 2}
+    ]
+    with db.connect() as conn:
+        conn.execute("INSERT INTO release_years VALUES (?,?,?,?,?)",
+                     ("song", song_id, 1968, "MusicBrainz", 9999999999))
+    result = release_year_analysis(db, {"period": "all"}, "UTC")
+    assert result["years"] == [{"year": 1968, "plays": 2}]
+    assert result["unidentified"] == 0
+
+
+def test_earliest_album_year_shared_by_song_across_scrobbles_and_filters(tmp_path):
+    db = Database(tmp_path / "multi-album.sqlite3")
+    db.apply_window(0, 5000, [
+        play(100, "Blackbird", "White Album", "The Beatles"),
+        play(101, "Blackbird", "1994 Collection", "The Beatles"),
+        play(102, "Blackbird", "1994 Collection", "The Beatles"),
+        play(103, "Unrelated", "1994 Collection", "The Beatles"),
+    ])
+    with db.connect() as conn:
+        albums = dict(conn.execute(
+            "SELECT DISTINCT s.album,av.group_id FROM scrobbles s "
+            "JOIN resolved_variants av ON av.id=s.album_id"
+        ).fetchall())
+        conn.executemany("INSERT INTO release_years VALUES (?,?,?,?,?)", [
+            ("album", albums["White Album"], 1968, "MusicBrainz", 9999999999),
+            ("album", albums["1994 Collection"], 1994, "MusicBrainz", 9999999999),
+        ])
+    all_years = release_year_analysis(db, {"period": "all"}, "UTC")
+    assert all_years["years"] == [
+        {"year": 1968, "plays": 3}, {"year": 1994, "plays": 1},
+    ]
+    db.record_source("Tester", {
+        "username": "Tester", "source": "vinyl",
+        "artist": "The Beatles", "title": "Blackbird", "timestamp": 102,
+    })
+    vinyl = release_year_analysis(db, {"period": "all", "source": "vinyl"}, "UTC")
+    assert vinyl["years"] == [{"year": 1968, "plays": 1}]
+
+
+def test_song_lookup_runs_for_albums_with_existing_release_dates(tmp_path):
+    import threading
+    db = Database(tmp_path / "queue.sqlite3")
+    db.apply_window(0, 5000, [
+        play(100, "Blackbird", "Later Collection", "The Beatles"),
+    ])
+    with db.connect() as conn:
+        album_id = conn.execute(
+            "SELECT av.group_id FROM scrobbles s "
+            "JOIN resolved_variants av ON av.id=s.album_id LIMIT 1"
+        ).fetchone()[0]
+        conn.execute("INSERT INTO release_years VALUES (?,?,?,?,?)",
+                     ("album", album_id, 1994, "MusicBrainz", 9999999999))
+    worker = ReleaseYearWorker()
+    # Prevent the queue's background consumer starting during this unit test.
+    worker.thread = threading.Thread(target=lambda: None)
+    worker.scan(db, force=True)
+    jobs = []
+    while not worker.jobs.empty():
+        jobs.append(worker.jobs.get_nowait())
+    assert [(row[1], row[3], row[4]) for row in jobs] == [
+        ("song", "The Beatles", "Blackbird")
+    ]
+
+
+def test_musicbrainz_recording_finds_original_blackbird_1968():
+    worker = ReleaseYearWorker(enabled=False)
+    worker.mb = lambda entity, **kwargs: {
+        "recordings": [
+            {"title": "Blackbird", "artist-credit": [{"name": "The Beatles"}],
+             "first-release-date": "1994-01-01"},
+            {"title": "Blackbird", "artist-credit": [{"name": "The Beatles"}],
+             "first-release-date": "1968-11-22"},
+            {"title": "Blackbird", "artist-credit": [{"name": "Different Band"}],
+             "first-release-date": "1950-01-01"},
+        ]
+    }
+    assert worker.song_year("The Beatles", "Blackbird") == 1968
