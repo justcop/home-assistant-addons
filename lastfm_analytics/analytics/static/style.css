@@ -1355,7 +1355,7 @@ input[type="checkbox"] {
     inset: auto 0 0;
     width: 100%;
     display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(7, minmax(0, 1fr));
     gap: 0;
     padding: 6px max(4px, env(safe-area-inset-right))
       calc(6px + env(safe-area-inset-bottom)) max(4px, env(safe-area-inset-left));
@@ -1368,11 +1368,21 @@ input[type="checkbox"] {
     flex-direction: column;
     gap: 2px;
     padding: 5px 0;
+    min-width: 0;
+    width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
     min-height: 52px;
-    font-size: 10px;
+    font-size: clamp(8px, 2.3vw, 10px);
     border-radius: 8px;
   }
   #nav button span { display: block; font-size: 20px; line-height: 1.2; }
+  #nav button[data-view="release-years"] { font-size: 0; }
+  #nav button[data-view="release-years"]::after {
+    content: "Years";
+    font-size: clamp(8px, 2.3vw, 10px);
+    line-height: 1.2;
+  }
   button, .button, select, input:not([type="checkbox"]) { min-height: 44px; }
   input, select, .date-controls select { font-size: 16px; }
   .segment { display: flex; width: 100%; }
@@ -1598,7 +1608,23 @@ dialog { overscroll-behavior: contain; }
 .release-year-cell[aria-pressed="true"] { outline:2px solid var(--ink); outline-offset:1px; font-weight:700; }
 .release-year-gap { min-height:38px; }
 .release-year-details { margin-top:18px; }
+.release-year-short { display:none !important; }
 @media(max-width:620px) {
- .release-year-grid { grid-template-columns:42px repeat(10,minmax(31px,1fr)); min-width:400px; gap:3px; }
- .release-year-cell { min-height:34px; font-size:9px; }
+  .release-year-scroll {
+    width:100%;
+    max-width:100%;
+    overflow-x:visible;
+  }
+  .release-year-grid {
+    grid-template-columns:minmax(27px, 38px) repeat(10,minmax(0,1fr));
+    width:100%;
+    min-width:0;
+    column-gap:clamp(1px,0.5vw,3px);
+    row-gap:3px;
+  }
+  .release-year-decade { font-size:9px; }
+  .release-year-column { font-size:9px; }
+  #content .release-year-cell { min-width:0; min-height:34px; padding:0; font-size:clamp(8px,2.2vw,10px); }
+  .release-year-full { display:none !important; }
+  .release-year-short { display:block !important; }
 }

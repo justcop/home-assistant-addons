@@ -390,11 +390,30 @@ def overview(database, args, tz_name, now=None):
 
 
 
+# A song has one canonical original year even when Last.fm associates its
+# plays with different album editions or compilations. The earliest eligible
+# album date in the *whole* library is a fallback, never restricted by the
+# selected listening period/source. Verified recording dates can correct late
+# album dates (for example a 1968 song scrobbled on a 1994 release).
 RELEASE_YEAR_JOINS = """
  LEFT JOIN release_years ay ON ay.kind='album' AND ay.group_id=av.group_id
  LEFT JOIN release_years sy ON sy.kind='song' AND sy.group_id=sv.group_id
+ LEFT JOIN (
+   SELECT sv2.group_id song_group_id, MIN(ay2.year) album_year
+   FROM scrobbles s2
+   JOIN resolved_variants sv2 ON sv2.id=s2.song_id
+   JOIN resolved_variants av2 ON av2.id=s2.album_id
+   JOIN release_years ay2 ON ay2.kind='album'
+      AND ay2.group_id=av2.group_id AND ay2.year IS NOT NULL
+   WHERE s2.active=1
+   GROUP BY sv2.group_id
+ ) first_album ON first_album.song_group_id=sv.group_id
 """
-RELEASE_YEAR_VALUE = "COALESCE(ay.year,sy.year)"
+RELEASE_YEAR_VALUE = """CASE
+ WHEN sy.year IS NULL THEN COALESCE(first_album.album_year,ay.year)
+ WHEN first_album.album_year IS NULL THEN sy.year
+ WHEN sy.year < first_album.album_year THEN sy.year
+ ELSE first_album.album_year END"""
 
 
 def release_year_analysis(database, args, tz_name):

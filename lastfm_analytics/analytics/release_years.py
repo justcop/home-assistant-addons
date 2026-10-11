@@ -1,8 +1,9 @@
 """Asynchronous original release-year enrichment, independent of scrobble dates.
 
 MusicBrainz release-group first-release-date is preferred over pressing dates.
-Albums are looked up once per canonical group. Tracks without an identified
-album year can fall back to a MusicBrainz recording's first-release-date.
+Albums are looked up once per canonical group. Song-level recording dates
+are also looked up, because a song on a newer album or reissue can predate it.
+Album dates are provisional until recording metadata is available.
 Unverified years are left unknown, not guessed from composition or play dates.
 """
 import json
@@ -124,25 +125,25 @@ class ReleaseYearWorker:
                    WHERE s.active=1 GROUP BY av.group_id
                    ORDER BY plays DESC LIMIT 20000"""
             ).fetchall()
-            # Only try recording lookups if there is no album or a completed
-            # album lookup found no verified release year. Album metadata is
-            # vastly cheaper to resolve than every distinct song.
+            # A recording's first release may be decades earlier than the
+            # album listed by Last.fm (especially on reissues/compilations).
+            # Enrich every canonical song rather than only missing album years.
             songs = conn.execute(
                 """SELECT sv.group_id AS id,g.artist,g.name,COUNT(*) plays
                    FROM scrobbles s JOIN resolved_variants sv ON sv.id=s.song_id
                    JOIN groups g ON g.id=sv.group_id
-                   LEFT JOIN resolved_variants av ON av.id=s.album_id
-                   LEFT JOIN release_years ry ON ry.kind='album'
-                     AND ry.group_id=av.group_id
-                   WHERE s.active=1 AND (s.album_id IS NULL OR
-                     (ry.expires>? AND ry.year IS NULL))
-                   GROUP BY sv.group_id ORDER BY plays DESC LIMIT 15000""",
-                (now,),
+                   WHERE s.active=1
+                   GROUP BY sv.group_id ORDER BY plays DESC LIMIT 25000"""
             ).fetchall()
-        # One queue per service, shared between requests; no duplicate jobs.
+        # Interleave popularity-ranked albums and songs, so the queue
+        # progressively corrects old release dates as well as filling in
+        # unknown ones. Never make songs wait behind thousands of albums.
         with self.lock:
-            for kind, rows in (("album", albums), ("song", songs)):
-                for row in rows:
+            for index in range(max(len(albums), len(songs))):
+                for kind, rows in (("album", albums), ("song", songs)):
+                    if index >= len(rows):
+                        continue
+                    row = rows[index]
                     if cached.get((kind, row["id"]), 0) > now:
                         continue
                     key = (path, kind, row["id"])

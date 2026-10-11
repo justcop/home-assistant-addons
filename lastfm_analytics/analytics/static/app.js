@@ -242,7 +242,10 @@ function releaseYearsHTML(data) {
       return '<button class="release-year-cell" type="button" data-release-year="' + year +
         '" aria-pressed="' + (data.selected_year === year) + '" title="' + year + ': ' +
         number(plays) + ' scrobbles" aria-label="' + year + ', ' + number(plays) +
-        ' scrobbles" style="--intensity:' + intensity + '"><span>' + year + '</span></button>';
+        ' scrobbles" style="--intensity:' + intensity + '">' +
+        '<span class="release-year-full">' + year + '</span>' +
+        '<span class="release-year-short" aria-hidden="true">' + String(year % 100).padStart(2, '0') +
+        '</span></button>';
     }).join("")).join("");
   const progress = busy
     ? 'Identifying more releases in the background: ' + number(lookup.queued) +
@@ -268,7 +271,7 @@ function releaseYearsHTML(data) {
     '</strong> dated scrobbles <span>of ' + number(data.total) + ' (' + pct + '%)</span></div>' +
     '<p class="method-note" role="status" aria-live="polite">' + progress + number(data.unidentified) +
     ' plays have no verified release year and are excluded rather than assigned an arbitrary year.</p>' +
-    grid + '<p class="method-note">MusicBrainz first release dates for albums and singles are preferred; otherwise an identifiable recording date is used. Reissues and remasters do not automatically become new years. The date and vinyl filters above apply to plays, not release years.</p>' +
+    grid + '<p class="method-note">The earliest known release year for a song is preferred across albums and reissues, using MusicBrainz recording dates and eligible album dates. Album dates are provisional until song matching finishes. The date and vinyl filters above apply to plays, not release years.</p>' +
     '</section>' + detail;
 }
 
