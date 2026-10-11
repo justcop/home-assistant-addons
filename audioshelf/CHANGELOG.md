@@ -1,3 +1,11 @@
+# 0.6.26 — Resumable tracklist scans and true recording equivalence
+
+- Fetch only two eligible MusicBrainz pressings per response, preventing a slow rate-limited batch from holding a single proxy request open for too long.
+- Cache successfully verified batches per account, album, market and release preferences for 30 minutes. Retry temporary request failures automatically at the same cursor, preserving already counted releases without duplicating progress.
+- Save browsing progress for 30 minutes in the current browser tab so closing and reopening the tracklist picker or reloading the page does not restart a partially completed scan.
+- Merge tracklist variants with different printed song titles only when their Spotify verification proves the same exact ordered recording identifiers. Preserve separate variants for genuinely different audio, disc arrangements, and unreliable matches.
+- Improve scan progress feedback and test interruption recovery, cached retries, multi-page scans and safe equivalence grouping.
+
 # 0.6.25 — Full regional tracklist scan and safer album matching
 
 - Automatically inspect all available GB, Worldwide (XW) and US MusicBrainz pressings in successive eight-release batches, with live progress, pause/resume, and retry. Other countries are excluded from this tracklist picker without modifying saved MusicBrainz settings or cover selection.
