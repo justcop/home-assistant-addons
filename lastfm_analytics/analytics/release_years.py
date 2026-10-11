@@ -213,6 +213,7 @@ class ReleaseYearWorker:
             path = str(db.path)
             with self.lock:
                 self.processing = (path, kind, group_id)
+            saved = False
             try:
                 year, failed = self.lookup(kind, artist, name)
                 now = int(time.time())
@@ -232,6 +233,7 @@ class ReleaseYearWorker:
                     if old is None or old["year"] != year:
                         db.put(conn, "analysis_revision",
                                db.get(conn, "analysis_revision", 0) + 1)
+                saved = True
             except (ValueError, TypeError, sqlite3.Error, OSError):
                 pass
             finally:
@@ -239,6 +241,11 @@ class ReleaseYearWorker:
                     self.pending.discard((path, kind, group_id))
                     self.processing = None
                 self.jobs.task_done()
+            if saved and self.jobs.empty() and not self.stop.is_set():
+                # A very large catalogue can exceed MAX_JOBS. Continue
+                # scanning automatically when each queue batch finishes,
+                # even if the user has closed the release-year page.
+                self.scan(db, force=True)
 
     def close(self):
         self.stop.set()
