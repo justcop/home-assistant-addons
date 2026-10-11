@@ -63,3 +63,11 @@ If casting fails with `does not support action media_player.volume_mute`, update
 3. If neither works, prevent autoplay with a clear error. Under **Mute audio using**, choose a separate media player representing your Samsung TV or Q800C soundbar (if that entity supports muting or volume adjustment).
 
 The Chromecast entity is still the target for video playback; the optional audio entity is only for silencing sound. Never choose the KEFs playing Spotify as the mute target. The add-on restores audio after its video stops unless the user adjusted the volume manually or an unrelated app took over the Cast receiver. A physical/HDMI volume control not exposed through Home Assistant cannot be controlled by this integration.
+
+## Manual TV muting (v0.2.3)
+
+In the web interface, **TV sound control** defaults to **Manual — I will mute the TV myself** on both new and upgraded installations. Music Video Companion then sends no volume or mute commands and does not attempt to restore volume; you control your TV/soundbar manually. This bypasses unsupported `volume_mute` and `volume_set` actions, including on `media_player.living_room_tv_4`.
+
+**Mute the TV before casting:** YouTube audio may play at the TV/soundbar's current volume. Playback still uses the approved official video, current-song detection, initial seek, and Spotify pause/resume handling as before.
+
+If you later want app-controlled muting, choose **Automatic — Home Assistant controls volume**. That mode retains the safe mute/volume-zero logic and optional separate `Mute audio using` entity.

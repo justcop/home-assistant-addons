@@ -49,6 +49,8 @@ async function initSettings(settings) {
   fillSelect("cast-entity", entities, settings.cast_entity);
   fillSelect("mute-entity", entities, settings.mute_entity || "");
   $("source").value = settings.source;
+  $("audio-control").value = settings.audio_control || "manual";
+  updateAudioControl();
   $("auto").checked = !!settings.auto;
   initialized = true;
 }
@@ -133,12 +135,19 @@ $("refresh-devices").onclick = () => task(async () => {
   initialized = false;
   notify("Refreshing Home Assistant media players…");
 });
+function updateAudioControl() {
+  const manual = $("audio-control").value === "manual";
+  $("manual-audio-note").hidden = !manual;
+  $("automatic-audio-controls").hidden = manual;
+}
+$("audio-control").onchange = updateAudioControl;
 $("save").onclick = () => task(async () => {
   await api("config", {
     source: $("source").value,
     spotify_entity: $("spotify").value,
     cast_entity: $("cast-entity").value,
     mute_entity: $("mute-entity").value,
+    audio_control: $("audio-control").value,
     auto: $("auto").checked
   });
   notify("Settings saved.");

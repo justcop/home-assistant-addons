@@ -32,30 +32,33 @@ def play_current(self, allow_lookup=False):
         if self.active:
             self.stop()
         entity = settings["cast_entity"]
-        audio_entity = settings.get("mute_entity") or entity
-        if audio_entity == settings.get("spotify_entity"):
-            raise ValueError("Refusing to silence the Spotify audio device. Choose your TV or soundbar instead.")
-        audio = silence(self.ha, audio_entity)
+        manual_audio = settings.get("audio_control", "manual") == "manual"
+        audio = None
+        if not manual_audio:
+            audio_entity = settings.get("mute_entity") or entity
+            if audio_entity == settings.get("spotify_entity"):
+                raise ValueError("Refusing to silence the Spotify audio device. Choose your TV or soundbar instead.")
+            audio = silence(self.ha, audio_entity)
         try:
             cast_video(self.ha, entity, match["video_id"])
-            try:
-                # YouTube may change the receiver's audio controls while loading.
-                reassert(self.ha, audio)
-            except Exception as exc:
-                # Stop the video instead of leaving unmuted YouTube audio playing.
+            if audio:
                 try:
-                    self.ha.service("media_stop", {"entity_id": entity})
-                finally:
-                    raise ValueError("YouTube launched, but audio muting failed: " + str(exc))
+                    reassert(self.ha, audio)
+                except Exception as exc:
+                    try:
+                        self.ha.service("media_stop", {"entity_id": entity})
+                    finally:
+                        raise ValueError("YouTube launched, but audio muting failed: " + str(exc))
         except Exception:
-            try:
-                restore(self.ha, audio)
-            except Exception:
-                pass
+            if audio:
+                try:
+                    restore(self.ha, audio)
+                except Exception:
+                    pass
             raise
         self.active = {
             "entity": entity, "video_id": match["video_id"],
-            "audio_restore": audio, "song_key": key,
+            "audio_restore": audio, "manual_audio": manual_audio, "song_key": key,
             "offset": match.get("offset_seconds", 0),
             "launched_at": time.monotonic(),
             "initial_pending": True, "resume_pending": False,
@@ -63,7 +66,8 @@ def play_current(self, allow_lookup=False):
             "sync_state": "Waiting for YouTube receiver", "seek_count": 0,
         }
         self.searched.add(key)
-        self.info = "Official video launched. Initial position alignment pending."
+        self.info = ("Official video launched. Mute TV sound manually; initial alignment pending." if manual_audio
+                     else "Official video launched. Initial alignment pending.")
         return match
 
 def stop(self):

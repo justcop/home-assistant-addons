@@ -45,7 +45,7 @@ class Library:
     def __init__(self, path):
         self.path = Path(path)
         self.lock = threading.RLock()
-        self.data = {"settings": {"spotify_entity": "", "cast_entity": "", "mute_entity": "", "auto": False, "source": "spotify"},
+        self.data = {"settings": {"spotify_entity": "", "cast_entity": "", "mute_entity": "", "audio_control": "manual", "auto": False, "source": "spotify"},
                      "matches": {}, "trusted_channels": {}}
         if self.path.is_file():
             loaded = json.loads(self.path.read_text(encoding="utf8"))
@@ -70,9 +70,11 @@ class Library:
                     raise ValueError("Invalid media_player entity")
             if "source" in changes and changes["source"] not in ("spotify", "external"):
                 raise ValueError("Invalid input source")
+            if "audio_control" in changes and changes["audio_control"] not in ("manual", "automatic"):
+                raise ValueError("Invalid audio control mode")
             if "auto" in changes and not isinstance(changes["auto"], bool):
                 raise ValueError("Auto must be true or false")
-            for key in ("spotify_entity", "cast_entity", "mute_entity", "auto", "source"):
+            for key in ("spotify_entity", "cast_entity", "mute_entity", "audio_control", "auto", "source"):
                 if key in changes:
                     self.data["settings"][key] = changes[key]
             self.save()

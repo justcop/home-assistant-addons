@@ -18,8 +18,12 @@
 <button id="refresh-devices" class="secondary" type="button">Refresh devices</button>
 <label for="spotify">Spotify media player</label><select id="spotify"><option value="">Select Spotify entity…</option></select>
 <label for="cast-entity">Chromecast media player</label><select id="cast-entity"><option value="">Select Chromecast entity…</option></select>
+<label for="audio-control">TV sound control</label>
+<select id="audio-control"><option value="manual">Manual — I will mute the TV myself</option><option value="automatic">Automatic — Home Assistant controls volume</option></select>
+<p id="manual-audio-note" class="small">YouTube may play with sound. Mute your TV or soundbar yourself before casting. This add-on will not adjust or restore its volume.</p>
+<div id="automatic-audio-controls">
 <label for="mute-entity">Mute audio using (optional)</label><select id="mute-entity"><option value="">Same as Chromecast (automatic)</option></select>
-<p class="small">If your Chromecast doesn't support mute or volume adjustment, choose a separate Home Assistant media player that controls your TV or soundbar volume. Never choose the KEFs playing Spotify.</p>
+<p class="small">If your Chromecast doesn't support mute or volume adjustment, choose a separate Home Assistant media player that controls your TV or soundbar volume. Never choose the KEFs playing Spotify.</p></div>
 <label class="check"><input type="checkbox" id="auto"><span>Automatically cast approved songs and strict matches from trusted artist channels</span></label>
 <button class="primary" id="save">Save settings</button>
 <p class="small">Requires the Spotify and Google Cast integrations configured in Home Assistant. YouTube search additionally requires a YouTube Data API key in the add-on Configuration.</p></section>
@@ -30,6 +34,6 @@
 <div class="manual"><h3>Add a video manually</h3><label for="manual-id">YouTube video ID (11 characters)</label><input id="manual-id" placeholder="e.g. dQw4w9WgXcQ" maxlength="11">
 <label class="check"><input type="checkbox" id="manual-verified"><span>I verified this is an official artist, label or VEVO upload</span></label><button id="manual-save" class="secondary">Save this video</button></div>
 </section>
-<section class="card"><h2>Compatibility notes</h2><p>The add-on seeks once at launch and once after Spotify resumes from a pause, but does not correct drift during a continuously playing song. Initial alignment requires the Chromecast to expose a seekable YouTube session. The app mutes the selected Chromecast, which may mute the television's shared audio output. Do not use it when you need TV sound.</p><p>Spotify and YouTube prohibit certain cross-service synchronisation and audio/video separation uses. This experimental add-on does not extract or modify any YouTube media.</p><p class="small">If the YouTube receiver cannot be launched on your Chromecast, the error appears below and in Home Assistant logs.</p></section>
-<div class="message" id="message" role="status"></div><footer>Music Video Companion v0.2.2 · Local approvals retained between updates</footer>
+<section class="card"><h2>Compatibility notes</h2><p>The add-on seeks once at launch and once after Spotify resumes from a pause, but does not correct drift during a continuously playing song. Initial alignment requires the Chromecast to expose a seekable YouTube session. Manual audio control leaves your TV and soundbar volume untouched. Automatic audio control mutes a selected audio device when supported.</p><p>Spotify and YouTube prohibit certain cross-service synchronisation and audio/video separation uses. This experimental add-on does not extract or modify any YouTube media.</p><p class="small">If the YouTube receiver cannot be launched on your Chromecast, the error appears below and in Home Assistant logs.</p></section>
+<div class="message" id="message" role="status"></div><footer>Music Video Companion v0.2.3 · Local approvals retained between updates</footer>
 </main><script src="app.js" defer></script></body></html>

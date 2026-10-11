@@ -59,7 +59,8 @@ class CompanionTests(unittest.TestCase):
         self.ha = FakeHA()
         self.app = Companion(path=Path(self.temp.name) / "library.json", ha=self.ha, options={})
         self.app.library.configure({"spotify_entity": "media_player.spotify",
-                                    "cast_entity": "media_player.chromecast"})
+                                    "cast_entity": "media_player.chromecast",
+                                    "audio_control": "automatic"})
 
     def test_remaster_identity(self):
         self.assertEqual(song_key("The Beatles", "Something (2009 Remastered)"),
@@ -303,6 +304,47 @@ class CompanionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "cannot be safely silenced"):
             app.play_current()
         self.assertFalse(any(action == "play_media" for action, _ in ha.calls))
+
+    def test_manual_volume_casts_without_any_mute_or_volume_command(self):
+        self.ha.cast["attributes"] = {"supported_features": 512}
+        self.app.library.configure({"audio_control": "manual"})
+        self.app.library.approve("The Beatles", "Something", CANDIDATE)
+        self.app.poll()
+        self.app.play_current()
+        self.assertIsNotNone(self.app.active)
+        self.assertTrue(self.app.active["manual_audio"])
+        self.assertIsNone(self.app.active["audio_restore"])
+        self.assertIn("play_media", [action for action, _ in self.ha.calls])
+        self.assertFalse(any(action.startswith("volume") for action, _ in self.ha.calls))
+        self.app.sync_playback()
+        self.app.stop()
+        self.assertFalse(any(action.startswith("volume") for action, _ in self.ha.calls))
+
+    def test_manual_mode_skips_audio_entity_even_if_it_is_unavailable(self):
+        self.app.library.configure({"audio_control": "manual", "mute_entity": "media_player.missing"})
+        self.app.library.approve("The Beatles", "Something", CANDIDATE)
+        self.app.poll()
+        self.app.play_current()
+        self.assertEqual(self.app.active["entity"], "media_player.chromecast")
+
+    def test_fresh_install_defaults_to_manual_volume(self):
+        from model import Library
+        library = Library(Path(self.temp.name) / "new-library.json")
+        self.assertEqual(library.settings()["audio_control"], "manual")
+
+    def test_settings_upgrade_adds_manual_audio_default(self):
+        import json
+        target = Path(self.temp.name) / "old-library.json"
+        target.write_text(json.dumps({"settings": {"auto": True, "cast_entity": "media_player.chromecast"},
+                                      "matches": {}, "trusted_channels": {}}))
+        from model import Library
+        upgraded = Library(target)
+        self.assertEqual(upgraded.settings()["audio_control"], "manual")
+        self.assertTrue(upgraded.settings()["auto"])
+
+    def test_invalid_audio_mode_rejected(self):
+        with self.assertRaisesRegex(ValueError, "audio control"):
+            self.app.library.configure({"audio_control": "always_mute"})
 
 
 if __name__ == "__main__":
