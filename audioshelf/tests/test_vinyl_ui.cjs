@@ -177,7 +177,7 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.getByRole('heading',{name:'Choose the album tracklist'}).waitFor();
     await page.locator('[data-action="select-variant"]').first().click();
     await page.getByRole('heading',{name:'Disc and side layout'}).waitFor();
-    await page.getByRole('button',{name:'Find this tracklist on Spotify'}).click();
+    await page.getByRole('button',{name:'Choose verified Spotify edition'}).click();
     await page.getByRole('heading',{name:'Choose Spotify recordings'}).waitFor();
     await page.locator('[data-action="choose-release"][data-spotify-id]').first().click();
     await page.locator('#toast').filter({hasText:'Open Windows added'}).waitFor();
