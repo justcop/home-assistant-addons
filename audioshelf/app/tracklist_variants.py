@@ -95,7 +95,8 @@ def layout_from_release(release, tracks):
                                      for s in sides]], separators=(',', ':'))
     formats = list(dict.fromkeys(m.get('format') or 'Audio' for m in release.get('media', [])
                                  if m.get('format') not in VIDEO_FORMATS))
-    return {'key': layout_key, 'release_id': release['id'], 'country': release.get('country'),
+    return {'key': layout_key, 'release_id': release['id'], 'release_ids': [release['id']],
+            'country': release.get('country'),
             'date': release.get('date'), 'formats': formats, 'discs': discs,
             'sides': sides, 'pressings': 1}
 
@@ -118,6 +119,7 @@ def group_releases(previews):
                          if entry['key'] == layout['key']), None)
         if previous:
             previous['pressings'] += 1
+            previous['release_ids'].append(layout['release_id'])
         else:
             variant['layouts'].append(layout)
     return variants
