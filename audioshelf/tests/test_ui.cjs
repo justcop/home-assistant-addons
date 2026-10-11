@@ -84,7 +84,7 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.getByRole('heading',{name:'Choose the album tracklist'}).waitFor();
     await page.locator('[data-action="select-variant"]').first().click();
     await page.getByRole('heading',{name:'Disc and side layout'}).waitFor();
-    await page.getByRole('button',{name:'Find this tracklist on Spotify'}).click();
+    await page.getByRole('button',{name:'Choose verified Spotify edition'}).click();
     await page.getByRole('heading',{name:'Choose Spotify recordings'}).waitFor();
     await page.locator('[data-action="choose-release"][data-spotify-id]').first().click();
     await page.locator('.album-card .badge').filter({hasText:'On your shelf'}).waitFor();
@@ -116,7 +116,7 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.getByRole('button',{name:'Retry',exact:false}).click();
     await page.locator('[data-action="select-variant"]').first().waitFor();
     assert.equal(await page.locator('.variant-option').count(),1,
-      'One MusicBrainz release produces one musical tracklist, before Spotify matching');
+      'One MusicBrainz release produces one Spotify-verified musical tracklist');
     assert((await page.locator('.variant-difference').first().textContent()).includes('Preferred standard'),
       'Major tracklist differences are visible before selecting Spotify');
     await page.getByRole('button',{name:'Close',exact:true}).click();
