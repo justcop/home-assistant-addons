@@ -1,3 +1,8 @@
+## 0.2.22
+- Show the 20 most played albums for a selected year, using the original album release year independently of the song release year, alongside the top 20 songs.
+- Report precise background recording and album lookup progress across the full library, with completed matches, unmatched results and pending work distinguished.
+- Remove hard catalogue scan caps to allow completion with large listening libraries.
+
 ## 0.2.21
 - Fit all seven bottom navigation items on one mobile row and make release-year heatmap fluid, with abbreviated year labels on narrow phones.
 - Correct release-year attribution by preferring a song’s earliest verified release year across its albums and its MusicBrainz recording date, rather than relying on a newer album release date. Enrich songs even when album dates already exist.

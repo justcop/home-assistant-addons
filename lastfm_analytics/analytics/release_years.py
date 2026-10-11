@@ -123,7 +123,7 @@ class ReleaseYearWorker:
                    FROM scrobbles s JOIN resolved_variants av ON av.id=s.album_id
                    JOIN groups g ON g.id=av.group_id
                    WHERE s.active=1 GROUP BY av.group_id
-                   ORDER BY plays DESC LIMIT 20000"""
+                   ORDER BY plays DESC"""
             ).fetchall()
             # A recording's first release may be decades earlier than the
             # album listed by Last.fm (especially on reissues/compilations).
@@ -133,7 +133,7 @@ class ReleaseYearWorker:
                    FROM scrobbles s JOIN resolved_variants sv ON sv.id=s.song_id
                    JOIN groups g ON g.id=sv.group_id
                    WHERE s.active=1
-                   GROUP BY sv.group_id ORDER BY plays DESC LIMIT 25000"""
+                   GROUP BY sv.group_id ORDER BY plays DESC"""
             ).fetchall()
         # Interleave popularity-ranked albums and songs, so the queue
         # progressively corrects old release dates as well as filling in
@@ -156,14 +156,52 @@ class ReleaseYearWorker:
                 self.thread.start()
 
     def status(self, db):
+        """Whole-library counts, including jobs not yet added to the queue.
+
+        'Checked' includes a lookup that found no matching release year.
+        It does not imply that every returned MusicBrainz date is correct.
+        Expired entries count as pending until rechecked.
+        """
+        now = int(time.time())
+        with db.connect() as conn:
+            progress = {}
+            for kind, field in (("song", "song_id"), ("album", "album_id")):
+                row = conn.execute(
+                    f"""WITH active_groups AS (
+                          SELECT DISTINCT v.group_id id
+                          FROM scrobbles s
+                          JOIN resolved_variants v ON v.id=s.{field}
+                          WHERE s.active=1 AND s.{field} IS NOT NULL
+                       )
+                       SELECT COUNT(*) AS total,
+                         COUNT(CASE WHEN r.expires>? THEN 1 END) AS checked,
+                         COUNT(CASE WHEN r.expires>? AND r.year IS NOT NULL
+                           THEN 1 END) AS matched,
+                         COUNT(CASE WHEN r.expires>? AND r.year IS NULL
+                           THEN 1 END) AS unresolved
+                       FROM active_groups a
+                       LEFT JOIN release_years r ON r.kind=? AND r.group_id=a.id""",
+                    (now, now, now, kind),
+                ).fetchone()
+                progress[kind + "s"] = dict(row)
+
         path = str(db.path)
         with self.lock:
-            busy = self.processing is not None and self.processing[0] == path
-            outstanding = sum(key[0] == path for key in self.pending)
+            current = self.processing if self.processing and self.processing[0] == path else None
+            for kind in ("song", "album"):
+                group = progress[kind + "s"]
+                processing = int(bool(current and current[1] == kind))
+                queued = sum(key[0] == path and key[1] == kind for key in self.pending) - processing
+                group["pending"] = max(0, group["total"] - group["checked"])
+                group["queued"] = max(0, queued)
+                group["processing"] = processing
+                group["complete"] = group["pending"] == 0 and group["queued"] == 0 and not processing
         return {
             "enabled": self.enabled and not self.stop.is_set(),
-            "queued": max(0, outstanding - int(busy)),
-            "processing": int(busy),
+            "songs": progress["songs"],
+            "albums": progress["albums"],
+            "queued": progress["songs"]["queued"] + progress["albums"]["queued"],
+            "processing": progress["songs"]["processing"] + progress["albums"]["processing"],
         }
 
     def run(self):

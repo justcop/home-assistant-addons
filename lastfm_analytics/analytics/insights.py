@@ -442,6 +442,7 @@ def release_year_analysis(database, args, tz_name):
         year = args.get("release_year")
         selected = None
         songs = []
+        albums = []
         if year is not None and year != "":
             try:
                 selected = int(year)
@@ -458,6 +459,21 @@ def release_year_analysis(database, args, tz_name):
                     [*values, selected],
                 )
             ]
+            # Rank an album by its *own* earliest MusicBrainz release year,
+            # not the year of an older song included in a later compilation.
+            albums = [
+                dict(r) for r in conn.execute(
+                    f"""SELECT av.group_id AS id,ag.name,ag.artist,
+                        COUNT(*) AS plays
+                        {JOINS}
+                        JOIN release_years ry ON ry.kind='album'
+                            AND ry.group_id=av.group_id
+                        {where} AND s.album_id IS NOT NULL AND ry.year=?
+                        GROUP BY av.group_id
+                        ORDER BY plays DESC,ag.name COLLATE NOCASE LIMIT 20""",
+                    [*values, selected],
+                )
+            ]
         return {
             "years": published,
             "total": sum(r["plays"] for r in years),
@@ -466,6 +482,7 @@ def release_year_analysis(database, args, tz_name):
             "period": p,
             "selected_year": selected,
             "top_songs": songs,
+            "top_albums": albums,
         }
 
 
