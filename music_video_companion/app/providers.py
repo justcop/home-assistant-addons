@@ -9,6 +9,11 @@ from urllib.request import Request, urlopen
 
 LOG = logging.getLogger(__name__)
 
+class ApiHTTPError(RuntimeError):
+    def __init__(self, status, detail):
+        self.status = status
+        super().__init__(f"Request failed ({status}): {detail}")
+
 def json_request(url, token="", method="GET", data=None):
     headers = {"Accept": "application/json"}
     if token:
@@ -23,26 +28,64 @@ def json_request(url, token="", method="GET", data=None):
             return json.loads(body) if body else {}
     except HTTPError as exc:
         detail = exc.read(200).decode("utf8", "replace")
-        raise RuntimeError(f"Request failed ({exc.code}): {detail}") from exc
+        raise ApiHTTPError(exc.code, detail) from exc
     except URLError as exc:
         raise RuntimeError("Connection failed: " + str(exc.reason)) from exc
 
 class HomeAssistant:
-    def __init__(self, token=None, endpoint=None):
+    """Prefer Supervisor's injected token; allow explicit direct-Core fallback.
+
+    Never send a user long-lived token to the Supervisor proxy, and never send
+    the Supervisor token directly to Home Assistant Core.
+    """
+    def __init__(self, token=None, endpoint=None, alternate_token="", direct_endpoint=None):
         self.token = token if token is not None else os.environ.get("SUPERVISOR_TOKEN", "")
         self.endpoint = (endpoint or os.environ.get("HA_API_URL", "http://supervisor/core/api")).rstrip("/")
+        self.alternate_token = str(alternate_token or "")
+        self.direct_endpoint = (direct_endpoint or "http://homeassistant:8123/api").rstrip("/")
         if not self.token:
-            LOG.warning("SUPERVISOR_TOKEN absent: HA API unavailable")
+            LOG.warning("Supervisor API token is absent; use a Home Assistant access token fallback if needed")
+
+    def _request(self, suffix, method="GET", data=None):
+        if self.token:
+            try:
+                return json_request(self.endpoint + suffix, self.token, method=method, data=data)
+            except ApiHTTPError as exc:
+                if exc.status not in (401, 403):
+                    raise
+                if not self.alternate_token:
+                    raise RuntimeError(
+                        "Home Assistant refused the add-on's internal API credentials "
+                        f"({exc.status}). This is not the YouTube key. Check the add-on's "
+                        "homeassistant_api permission and restart it after updating. "
+                        "Alternatively, add an optional Home Assistant Access Token "
+                        "under add-on Configuration."
+                    ) from exc
+                LOG.warning("Internal Home Assistant API authentication rejected (%s); trying configured Core token", exc.status)
+        if not self.alternate_token:
+            raise RuntimeError(
+                "Home Assistant API authentication unavailable: Supervisor token missing. "
+                "Reinstall or restart the updated add-on, or configure the optional Home Assistant Access Token."
+            )
+        try:
+            return json_request(self.direct_endpoint + suffix, self.alternate_token, method=method, data=data)
+        except ApiHTTPError as exc:
+            if exc.status in (401, 403):
+                raise RuntimeError(
+                    "Direct Home Assistant API rejected the configured Access Token "
+                    f"({exc.status}). Create a new long-lived token under Profile → Security, "
+                    "paste it in the add-on Configuration, then restart."
+                ) from exc
+            raise
 
     def states(self):
-        return json_request(self.endpoint + "/states", self.token)
+        return self._request("/states")
 
     def state(self, entity):
-        return json_request(self.endpoint + "/states/" + quote(entity), self.token) if entity else None
+        return self._request("/states/" + quote(entity)) if entity else None
 
     def service(self, action, data):
-        return json_request(self.endpoint + "/services/media_player/" + action,
-                            self.token, method="POST", data=data)
+        return self._request("/services/media_player/" + action, method="POST", data=data)
 
 def spotify_track(payload):
     """Normalize metadata from an HA Spotify entity, not Spotify's Web API."""
@@ -76,7 +119,15 @@ def youtube_search(api_key, artist, title, channel_id=None):
               "q": f"{artist} {title} official music video", "key": api_key}
     if channel_id:
         params["channelId"] = channel_id
-    result = json_request("https://www.googleapis.com/youtube/v3/search?" + urlencode(params))
+    try:
+        result = json_request("https://www.googleapis.com/youtube/v3/search?" + urlencode(params))
+    except ApiHTTPError as exc:
+        if exc.status in (400, 401, 403):
+            raise RuntimeError(
+                f"YouTube Data API rejected the search ({exc.status}). Check the "
+                "YouTube API key, API restrictions, and that YouTube Data API v3 is enabled."
+            ) from exc
+        raise
     candidates = []
     for item in result.get("items", []):
         snippet = item.get("snippet") or {}

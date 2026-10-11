@@ -38,7 +38,13 @@ function fillSelect(id, entities, selected) {
   el.value = selected || "";
 }
 async function initSettings(settings) {
-  const entities = await api("entities");
+  let entities = [];
+  try {
+    entities = await api("entities");
+    $("device-error").textContent = "";
+  } catch (e) {
+    $("device-error").textContent = "Home Assistant device lookup failed: " + e.message;
+  }
   fillSelect("spotify", entities, settings.spotify_entity);
   fillSelect("cast-entity", entities, settings.cast_entity);
   $("source").value = settings.source;
@@ -122,6 +128,10 @@ async function refresh() {
   if (!initialized) await initSettings(data.settings);
   render(data);
 }
+$("refresh-devices").onclick = () => task(async () => {
+  initialized = false;
+  notify("Refreshing Home Assistant media players…");
+});
 $("save").onclick = () => task(async () => {
   await api("config", {
     source: $("source").value,

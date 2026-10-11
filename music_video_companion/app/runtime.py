@@ -22,7 +22,7 @@ class Companion:
     def __init__(self, path=None, ha=None, options=None):
         self.options = options if options is not None else self.load_options()
         self.library = Library(path or os.environ.get("VIDEO_LIBRARY", "/data/library.json"))
-        self.ha = ha or HomeAssistant()
+        self.ha = ha or HomeAssistant(alternate_token=self.options.get('ha_access_token', ''))
         self.lock = threading.RLock()
         self.current = {"artist": "", "title": "", "state": "idle", "position": 0}
         self.last_key = ""

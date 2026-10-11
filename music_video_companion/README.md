@@ -45,3 +45,11 @@ python3 -m unittest discover -s music_video_companion/tests -v
 ```
 
 The tests use mock Home Assistant responses and do not need network or hardware.
+
+## Home Assistant API authentication
+
+The add-on uses the Home Assistant Supervisor proxy, enabled by `homeassistant_api: true`. If `SUPERVISOR_TOKEN` is missing, the current installation may have been created with stale permissions. Refresh the add-on repository, upgrade to v0.2.1, and restart the add-on first. If permissions still do not appear, reinstalling the add-on after saving its persistent library may refresh the Supervisor container permissions.
+
+If the add-on still displays a Home Assistant authentication error, create a **Long-Lived Access Token** from Home Assistant user Profile > Security > Long-Lived Access Tokens. Paste the token into the add-on Configuration field `ha_access_token`, save, and restart. This is an optional fallback for Home Assistant API access only. It is not the YouTube Data API key and not the source API token. The fallback is only sent to Home Assistant Core on the internal `http://homeassistant:8123/api` address; it is never sent to Google, YouTube or the Supervisor proxy.
+
+To populate the dropdowns, configure the standard **Spotify** and **Google Cast** integrations under Home Assistant Settings > Devices & Services. Then use the add-on's Refresh devices button. Both integrations must expose `media_player` entities. The Samsung TV entity by itself is not a substitute for a Cast media player.
