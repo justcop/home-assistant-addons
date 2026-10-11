@@ -228,7 +228,7 @@ function calendarHeatmap(data, filter = null, mode = state.mode) {
 function releaseYearsHTML(data) {
   const years = data.years || [];
   const counts = new Map(years.map(item => [item.year, item.plays]));
-  const decades = [...new Set(years.map(item => Math.floor(item.year / 10) * 10))].sort((a,b) => a-b);
+  const decades = [...new Set(years.map(item => Math.floor(item.year / 10) * 10))].sort((a,b) => b-a);
   const max = Math.max(1, ...years.map(item => item.plays));
   const pct = data.total ? Math.round(100 * data.identified / data.total) : 0;
   const lookup = data.lookup || {};
@@ -264,12 +264,19 @@ function releaseYearsHTML(data) {
       number(group.unresolved) + ' checked with no usable year, ' +
       number(group.pending) + ' not yet checked. ' + esc(description) + '</p></div>';
   };
-  const progress = '<section class="release-lookup-status" aria-label="Release-year matching status">' +
-    '<h3>Metadata matching progress</h3>' +
-    progressDetails(lookup.songs, 'Songs') + progressDetails(lookup.albums, 'Albums') +
-    '<p class="method-note">A completed pass means every imported song or album has been checked, ' +
-    'not that every date is historically correct. Older cached song dates are rechecked by the latest method. ' +
-    'Unmatched recordings may still use provisional album dates; new scrobbles and periodic rechecks can change the figures.</p></section>';
+  // Keep the UI focused on release-year analysis once the initial matching
+  // pass is essentially complete. When fresh imports bring coverage below
+  // 99%, the unfinished progress bar appears again.
+  const showProgress = group => group && group.total > 0 &&
+    group.checked / group.total <= 0.99;
+  const progress = (showProgress(lookup.songs) || showProgress(lookup.albums))
+    ? '<section class="release-lookup-status" aria-label="Release-year matching status">' +
+      '<h3>Metadata matching progress</h3>' +
+      (showProgress(lookup.songs) ? progressDetails(lookup.songs, 'Songs') : '') +
+      (showProgress(lookup.albums) ? progressDetails(lookup.albums, 'Albums') : '') +
+      '<p class="method-note">A completed pass means every imported song or album has been checked, ' +
+      'not that every date is historically correct. Cached dates are rechecked when matching improves. ' +
+      'Unmatched recordings may still use provisional album dates.</p></section>' : '';
   const grid = years.length
     ? '<p class="method-note">Darker squares mean more scrobbles. Replaying the same song adds to its release year. Tap a year to see its most played songs.</p>' +
       '<div class="release-year-scroll" tabindex="0" aria-label="Release year heatmap, decades in rows">' +

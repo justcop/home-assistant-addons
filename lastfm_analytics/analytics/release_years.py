@@ -24,6 +24,8 @@ MAX_JOBS = 35000
 # Recheck recordings resolved by older, less comprehensive MusicBrainz searches.
 # Increment this when the recording-year matching semantics change.
 RECORDING_LOOKUP_VERSION = 2
+# Re-evaluate older album matches found with only 12 search results.
+ALBUM_LOOKUP_VERSION = 2
 
 
 def release_year(value):
@@ -66,25 +68,60 @@ class ReleaseYearWorker:
         return any(artist_suggestion_key(artist) == artist_suggestion_key(name)
                    for name in names if name)
 
+    @staticmethod
+    def same_album(album, group):
+        """Allow title + MusicBrainz disambiguation and common nicknames.
+
+        MusicBrainz's formal release-group title can be shorter than a
+        Last.fm album label (for example a parenthesised nickname). Only
+        accept a nickname if it appears in the matching release group's
+        own disambiguation; never infer release dates from song dates.
+        """
+        title = group.get("title") or ""
+        if album_key(title) == album_key(album):
+            return True
+        alias = group.get("disambiguation") or ""
+        if not alias:
+            return False
+        normal_alias = artist_suggestion_key(alias)
+        named_alias = artist_suggestion_key(album)
+        if normal_alias == named_alias:
+            return True
+        match = re.match(r"^(.*?)\s*\(([^()]*)\)\s*$", album)
+        if match and album_key(match.group(1)) == album_key(title):
+            return artist_suggestion_key(match.group(2)) == normal_alias
+        return False
+
     def album_year(self, artist, album):
-        groups = self.mb("release-group",
-                         query="releasegroup:" + quoted(album) + " AND artist:" + quoted(artist),
-                         limit=12).get("release-groups", [])
+        # MB search ordering is relevance, not chronology. The first dozen
+        # hits can be later editions while the 1960s release group appears
+        # farther down the list. Inspect the full first page before choosing.
+        search_titles = [album]
+        # A nickname in parentheses is often the release-group disambiguation
+        # instead of part of its official title. Search the bare title too.
+        match = re.match(r"^(.*?)\s*\(([^()]*)\)\s*$", album)
+        if match:
+            search_titles.append(match.group(1).strip())
         candidates = []
-        for group in groups:
-            if album_key(group.get("title", "")) != album_key(album):
-                continue
-            if not self.credited(artist, group.get("artist-credit")):
-                continue
-            if any(kind in ("Compilation", "Live", "DJ-mix", "Remix")
-                   for kind in group.get("secondary-types", [])):
-                continue
-            year = release_year(group.get("first-release-date"))
-            if year is not None:
-                priority = {"Album": 0, "EP": 1, "Single": 2}.get(
-                    group.get("primary-type"), 3
-                )
-                candidates.append((priority, year))
+        for search_title in dict.fromkeys(search_titles):
+            groups = self.mb("release-group",
+                             query="releasegroup:" + quoted(search_title) +
+                                   " AND artist:" + quoted(artist),
+                             limit=100).get("release-groups", [])
+            for group in groups:
+                if not self.same_album(album, group):
+                    continue
+                if not self.credited(artist, group.get("artist-credit")):
+                    continue
+                if any(kind in ("Compilation", "Live", "DJ-mix", "Remix")
+                       for kind in group.get("secondary-types", [])):
+                    continue
+                year = release_year(group.get("first-release-date"))
+                if year is not None:
+                    priority = {"Album": 0, "EP": 1, "Single": 2}.get(
+                        group.get("primary-type"), 3
+                    )
+                    candidates.append((priority, year))
         return min(candidates)[1] if candidates else None
 
     def song_year(self, artist, title):
@@ -124,6 +161,13 @@ class ReleaseYearWorker:
                 # the current 100-result method has completed for each song.
                 conn.execute("UPDATE release_years SET expires=0 WHERE kind='song'")
                 db.put(conn, "recording_lookup_version", RECORDING_LOOKUP_VERSION)
+                db.put(conn, "release_year_revision",
+                       db.get(conn, "release_year_revision", 0) + 1)
+            if db.get(conn, "album_lookup_version", 0) < ALBUM_LOOKUP_VERSION:
+                # The earlier 12-result search could cache a later album
+                # release as its supposed original year. Force a fresh check.
+                conn.execute("UPDATE release_years SET expires=0 WHERE kind='album'")
+                db.put(conn, "album_lookup_version", ALBUM_LOOKUP_VERSION)
                 db.put(conn, "release_year_revision",
                        db.get(conn, "release_year_revision", 0) + 1)
             now = int(time.time())
