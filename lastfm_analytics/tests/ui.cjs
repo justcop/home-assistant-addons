@@ -71,7 +71,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   }
   assert.equal(await page.locator('[data-release-year="1968"] .release-year-short').innerText(), "68");
   await page.locator('[data-release-year="1968"]').click();
-  await page.locator('.release-year-details .list-row').waitFor();
+  await page.locator('.release-year-details .list-row').first().waitFor();
   assert.equal(await page.locator('.release-year-details').count(), 2);
   assert.equal(await page.locator('.release-year-details [data-detail="song"]').count(), 1);
   assert.equal(await page.locator('.release-year-details [data-detail="album"]').count(), 1);
