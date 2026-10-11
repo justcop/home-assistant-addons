@@ -1,3 +1,10 @@
+# 0.6.24 — Verify tracklist variants before selection
+
+- Group MusicBrainz pressings into musical tracklists, then verify every canonical song on a single Spotify album before offering that tracklist or its individual disc/side layouts.
+- Preserve the green/red bonus-track comparisons and real multi-disc/vinyl-side choices. Selecting an offered layout presents the already verified Spotify editions; saving still independently rechecks every mapping.
+- When a structured Spotify search lacks a complete match, retry a broader search. Prefer verified recordings during ordered alignment and inspect linked MusicBrainz recording metadata in memory when it may resolve a near match, without changing stored albums.
+- Exclude unusable variants from the chooser while providing expandable track-level rejection reasons. Add regression coverage for incomplete matches, layout-specific failures, search fallback and unchanged collection data.
+
 # 0.6.23 — Coloured tracklist differences
 
 - Highlight added MusicBrainz tracks (+1, +2, etc.) in prominent green and missing tracks (−1, −2, etc.) in red, including the song names. Neutral ordering messages remain unchanged.
