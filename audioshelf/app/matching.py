@@ -73,7 +73,10 @@ def align(canonical, spotify_tracks, artist_names):
             score, verified = track_score(canonical[i-1], spotify_tracks[j-1], artist_names)
             options = [(dp[i][j-1], 'skip_spotify'), (dp[i-1][j], 'skip_canonical')]
             if score:
-                options.append((dp[i-1][j-1]+score+1000, 'match'))
+                # Verification must dominate fuzzy resemblance. Otherwise a
+                # plausible but unverified track can steal the ordered slot
+                # from a fully verified recording later in the Spotify list.
+                options.append((dp[i-1][j-1]+score+1000+(100000 if verified else 0), 'match'))
             dp[i][j], steps[i,j] = max(options, key=lambda x:x[0])
     result = [{'position':t['position'], 'spotify_id':None, 'score':0, 'verified':False} for t in canonical]
     i,j = n,m
