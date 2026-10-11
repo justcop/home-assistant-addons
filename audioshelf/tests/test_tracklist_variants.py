@@ -178,6 +178,20 @@ def test_unverified_disc_layout_not_offered_even_with_same_song_sequence(applica
     assert store.album(ALBUM)['tracks'][1]['duration_ms']==240000
 
 
+def test_equivalent_layout_tries_later_pressing_if_first_cannot_match(application,client,variants):
+    store,vinyl,cd,deluxe,reorder,calls=variants
+    vinyl['media'][0]['format']='CD'
+    vinyl['media'][0]['tracks'][1]['length']=999999
+    response=client.get('/api/albums/'+ALBUM+'/tracklist-variants')
+    assert response.status_code==200,response.json
+    original=next(g for g in response.json['variants'] if g['track_count']==2)
+    assert len(original['layouts'])==1, 'Both CD pressings have the same physical layout'
+    layout=original['layouts'][0]
+    assert layout['pressings']==2
+    assert layout['release_id']==cd['id'], 'The unverified first pressing must not be selected'
+    assert layout['spotify_matches'][0]['matched_tracks']==2
+
+
 def test_unmatched_album_has_reasons_and_no_selectable_tracklists(application,client,variants,monkeypatch):
     store,vinyl,cd,deluxe,reorder,calls=variants
     spotify=application.extensions['spotify']
