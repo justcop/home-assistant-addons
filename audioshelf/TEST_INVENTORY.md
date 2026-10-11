@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-11T14:55:00+01:00 (Europe/London).
+Reviewed: 2026-10-11T15:04:00+01:00 (Europe/London).
 
-Reviewed the regression suite for two-release page requests, cached retry/resume, automatic browser retry and complete multi-page scans; verified that both different printed titles and different Spotify recordings are handled independently, and that clearly incompatible 36-track editions skip costly MusicBrainz recording lookups. Updated tests account for country-priority sorting across page boundaries. Existing full-track verification and account separation remain covered.
+Reviewed the regression suite for two-release page requests, cached retry/resume, automatic browser retry and complete multi-page scans; verified that both different printed titles and different Spotify recordings are handled independently, and that clearly incompatible 36-track editions skip costly MusicBrainz recording lookups. Updated tests account for country-priority sorting across page boundaries. The retry browser check clears a previously completed tab scan so it actually exercises the first-request proxy failure. Existing full-track verification and account separation remain covered.
 
-<!-- inventory: {"reviewed_at":"2026-10-11T14:55:00+01:00","review_note":"Reviewed the regression suite for two-release page requests, cached retry/resume, automatic browser retry and complete multi-page scans; verified that both different printed titles and different Spotify recordings are handled independently, and that clearly incompatible 36-track editions skip costly MusicBrainz recording lookups. Updated tests account for country-priority sorting across page boundaries. Existing full-track verification and account separation remain covered.","source_sha256":"9a74598965b34b83bf33c67e199a55c91e9ed834bd0f9e1b391acd46f02f46a4"} -->
+<!-- inventory: {"reviewed_at":"2026-10-11T15:04:00+01:00","review_note":"Reviewed the regression suite for two-release page requests, cached retry/resume, automatic browser retry and complete multi-page scans; verified that both different printed titles and different Spotify recordings are handled independently, and that clearly incompatible 36-track editions skip costly MusicBrainz recording lookups. Updated tests account for country-priority sorting across page boundaries. The retry browser check clears a previously completed tab scan so it actually exercises the first-request proxy failure. Existing full-track verification and account separation remain covered.","source_sha256":"98e44e53e78c6bb46115d289fe5615efc6286d94a88c710d6ca0611ebd7e3568"} -->
 
 ## Backend cases (332)
 
