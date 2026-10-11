@@ -21,6 +21,9 @@ from .album_listens import album_key, metadata_request, track_key
 from .grouping import artist_suggestion_key
 
 MAX_JOBS = 35000
+# Recheck recordings resolved by older, less comprehensive MusicBrainz searches.
+# Increment this when the recording-year matching semantics change.
+RECORDING_LOOKUP_VERSION = 2
 
 
 def release_year(value):
@@ -115,6 +118,14 @@ class ReleaseYearWorker:
                 return
             self.last_scan[path] = time.monotonic()
         with db.connect() as conn:
+            if db.get(conn, "recording_lookup_version", 0) < RECORDING_LOOKUP_VERSION:
+                # Existing song dates may have come from an earlier 12-result
+                # search. Keep historical rows but mark them unchecked until
+                # the current 100-result method has completed for each song.
+                conn.execute("UPDATE release_years SET expires=0 WHERE kind='song'")
+                db.put(conn, "recording_lookup_version", RECORDING_LOOKUP_VERSION)
+                db.put(conn, "release_year_revision",
+                       db.get(conn, "release_year_revision", 0) + 1)
             now = int(time.time())
             cached = {(r["kind"], r["group_id"]): r["expires"]
                       for r in conn.execute("SELECT kind,group_id,expires FROM release_years")}

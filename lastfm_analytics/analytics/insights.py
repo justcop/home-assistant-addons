@@ -398,6 +398,7 @@ def overview(database, args, tz_name, now=None):
 RELEASE_YEAR_JOINS = """
  LEFT JOIN release_years ay ON ay.kind='album' AND ay.group_id=av.group_id
  LEFT JOIN release_years sy ON sy.kind='song' AND sy.group_id=sv.group_id
+   AND sy.expires > CAST(strftime('%s','now') AS INTEGER)
  LEFT JOIN (
    SELECT sv2.group_id song_group_id, MIN(ay2.year) album_year
    FROM scrobbles s2

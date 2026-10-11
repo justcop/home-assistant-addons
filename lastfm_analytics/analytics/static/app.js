@@ -268,8 +268,8 @@ function releaseYearsHTML(data) {
     '<h3>Metadata matching progress</h3>' +
     progressDetails(lookup.songs, 'Songs') + progressDetails(lookup.albums, 'Albums') +
     '<p class="method-note">A completed pass means every imported song or album has been checked, ' +
-    'not that every date is historically correct. Unmatched recordings may still use provisional ' +
-    'album dates, and new scrobbles or scheduled metadata rechecks can change these figures.</p></section>';
+    'not that every date is historically correct. Older cached song dates are rechecked by the latest method. ' +
+    'Unmatched recordings may still use provisional album dates; new scrobbles and periodic rechecks can change the figures.</p></section>';
   const grid = years.length
     ? '<p class="method-note">Darker squares mean more scrobbles. Replaying the same song adds to its release year. Tap a year to see its most played songs.</p>' +
       '<div class="release-year-scroll" tabindex="0" aria-label="Release year heatmap, decades in rows">' +
