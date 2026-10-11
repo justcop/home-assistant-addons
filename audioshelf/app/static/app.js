@@ -449,8 +449,8 @@ async function openPlayableReleasePicker(albumId,mode){
     await loadReleasePage();
     return;
   }
-  releasePicker={album:albumId,mode,variants:[],next:0,checked:0,total:0,stage:'variants'};
-  showModal('<h2>Choose a tracklist</h2>'+loading('Grouping MusicBrainz releases by their actual songs…'));
+  releasePicker={album:albumId,mode,variants:[],rejected:[],next:0,checked:0,total:0,stage:'variants'};
+  showModal('<h2>Choose a tracklist</h2>'+loading('Grouping MusicBrainz releases and verifying complete Spotify matches…'));
   await loadVariantPage();
 }
 
@@ -484,16 +484,21 @@ function variantTrackPreview(variant){
 }
 function variantPickerHtml(state,error=''){
   const reference=state.variants[0];
-  return `<h2>Choose the album tracklist</h2><p>MusicBrainz pressings with the same songs in the same order are combined. See bonus tracks, omissions and changed running orders before choosing. Spotify is checked only after your choice.</p><p class="muted">${state.checked} of ${state.total||'?'} preferred releases inspected; ${state.variants.length} distinct tracklists so far. More choices may appear as you inspect additional pressings.</p>${state.variants.map((variant,index)=>`<section class="variant-option"><h3>${index===0?'Original / preferred': 'Tracklist '+(index+1)} · ${variant.track_count} tracks</h3><p class="variant-difference">${variantSummary(reference,variant)}</p><p class="muted">${variant.pressings} MusicBrainz ${variant.pressings===1?'release':'releases'} · ${variant.layouts.length} ${variant.layouts.length===1?'disc/side layout':'disc/side layouts'}</p><button class="secondary" data-action="select-variant" data-signature="${variant.signature}">Choose this tracklist</button><details><summary>Show the complete tracklist</summary>${variantTrackPreview(variant)}</details></section>`).join('')}${!state.variants.length&&!error?'<div class="note">No usable tracklists found in these pressings.</div>':''}${error?`<div class="note">${escapeHtml(error)}</div>`:''}${state.next!==null?`<button class="secondary" data-action="load-releases">${error?'Retry':'Inspect more MusicBrainz pressings'} ↘</button>`:''}`;
+  const rejected=state.rejected||[];
+  const unavailable=rejected.length?'<details class="variant-unavailable"><summary>'+rejected.length+' unplayable tracklist '+(rejected.length===1?'variation':'variations')+' excluded</summary>'+rejected.map(v=>
+    '<p><strong>'+v.track_count+' tracks, '+v.missing+' unverified</strong>. '+escapeHtml(v.reason||'No complete Spotify match')+
+    (v.tracks?.length?'<ul>'+v.tracks.map(t=>'<li>'+escapeHtml(t.title)+' ('+escapeHtml(String(t.reason||'unknown').replaceAll('_',' '))+')</li>').join('')+'</ul>':'')+'</p>').join('')+'</details>':'';
+  return `<h2>Choose the album tracklist</h2><p>MusicBrainz pressings with the same songs in the same order are combined. <strong>Only tracklists with a complete Spotify match are selectable.</strong> See bonus tracks, omissions and changed running orders before choosing.</p><p class="muted">${state.checked} of ${state.total||'?'} preferred releases inspected; ${state.variants.length} verified tracklists. More choices may appear as you inspect additional pressings.</p>${state.variants.map((variant,index)=>`<section class="variant-option"><h3>${index===0?'Preferred verified': 'Tracklist '+(index+1)} · ${variant.track_count} tracks</h3><p class="variant-difference">${variantSummary(reference,variant)}</p><p class="muted">${variant.pressings} verified MusicBrainz ${variant.pressings===1?'release':'releases'} · ${variant.layouts.length} ${variant.layouts.length===1?'disc/side layout':'disc/side layouts'}</p><button class="secondary" data-action="select-variant" data-signature="${variant.signature}">Choose this tracklist</button><details><summary>Show the complete tracklist</summary>${variantTrackPreview(variant)}</details></section>`).join('')}${!state.variants.length&&!error?'<div class="note">No fully verified Spotify tracklists in the releases checked so far. Inspect more pressings, or review the excluded versions below.</div>':''}${unavailable}${error?`<div class="note">${escapeHtml(error)}</div>`:''}${state.next!==null?`<button class="secondary" data-action="load-releases">${error?'Retry':'Inspect more MusicBrainz pressings'} ↘</button>`:''}`;
 }
 async function loadVariantPage(){
   const state=releasePicker,generation=routeGeneration;
   if(!state||state.mode==='cover'||state.next===null)return;
-  modalContent.innerHTML=variantPickerHtml(state)+loading('Inspecting tracklists; no Spotify queries yet…');
+  modalContent.innerHTML=variantPickerHtml(state)+loading('Grouping songs and verifying complete Spotify matches…');
   try{
     const result=await api(`albums/${id(state.album)}/tracklist-variants?offset=${state.next}`);
     if(generation!==routeGeneration||releasePicker!==state||!modal.open)return;
     state.next=result.next_offset;state.total=result.total;state.checked+=result.checked;
+    state.rejected.push(...(result.rejected||[]));
     for(const variant of result.variants){
       const found=state.variants.find(v=>v.signature===variant.signature);
       if(!found){state.variants.push(variant);continue;}
@@ -509,7 +514,7 @@ async function loadVariantPage(){
 }
 function variantLayoutHtml(state){
   const v=state.variants.find(item=>item.signature===state.selectedSignature);
-  return `<h2>Disc and side layout</h2><p><strong>${v.track_count} tracks</strong>. Discs always remain separate. Vinyl sides are optional, and only offered when MusicBrainz has their actual A/B/C/D track numbering.</p>${v.layouts.map((layout,index)=>`<label class="variant-layout"><input type="radio" name="variant-layout" value="${index}" ${index===0?'checked':''}><span><strong>${layout.discs.length} ${layout.discs.length===1?'disc':'discs'} · ${layout.discs.map(d=>d[1]).join(' + ')} tracks</strong><small>${escapeHtml(layout.formats.join(', '))} · ${escapeHtml(layout.country||'Unknown country')}${layout.sides.length?' · Vinyl sides '+escapeHtml(layout.sides.map(s=>s.side).join('/')):''} · ${layout.pressings} ${layout.pressings===1?'pressing':'pressings'}</small></span></label>`).join('')}<label class="check-option"><input type="checkbox" id="variant-split-sides" ${v.layouts[0].sides.length?'':'disabled'}> Also allow playback by individual vinyl side</label><p class="muted" id="variant-side-note">${v.layouts[0].sides.length?'Each disc can still be played as a whole.':'Side numbers unavailable for this layout. Separate discs remain individually playable.'}</p><div class="actions"><button class="primary" data-action="match-variant">Find this tracklist on Spotify</button><button class="quiet" data-action="variant-back">Back to tracklists</button></div>`;
+  return `<h2>Disc and side layout</h2><p><strong>${v.track_count} tracks</strong>. Discs always remain separate. Vinyl sides are optional, and only offered when MusicBrainz has their actual A/B/C/D track numbering.</p>${v.layouts.map((layout,index)=>`<label class="variant-layout"><input type="radio" name="variant-layout" value="${index}" ${index===0?'checked':''}><span><strong>${layout.discs.length} ${layout.discs.length===1?'disc':'discs'} · ${layout.discs.map(d=>d[1]).join(' + ')} tracks</strong><small>${escapeHtml(layout.formats.join(', '))} · ${escapeHtml(layout.country||'Unknown country')}${layout.sides.length?' · Vinyl sides '+escapeHtml(layout.sides.map(s=>s.side).join('/')):''} · ${layout.pressings} ${layout.pressings===1?'pressing':'pressings'}</small></span></label>`).join('')}<label class="check-option"><input type="checkbox" id="variant-split-sides" ${v.layouts[0].sides.length?'':'disabled'}> Also allow playback by individual vinyl side</label><p class="muted" id="variant-side-note">${v.layouts[0].sides.length?'Each disc can still be played as a whole.':'Side numbers unavailable for this layout. Separate discs remain individually playable.'}</p><div class="actions"><button class="primary" data-action="match-variant">Choose verified Spotify edition</button><button class="quiet" data-action="variant-back">Back to tracklists</button></div>`;
 }
 function variantMatchesHtml(state){
   return `<h2>Choose Spotify recordings</h2><p>The MusicBrainz tracklist is now fixed. Only Spotify editions matching <strong>every one of its ${state.matches[0]?.matched_tracks||''} songs</strong> are shown. Extra Spotify bonus tracks will not be queued.</p>${state.matches.map(m=>`<button class="choice" data-action="choose-release" data-id="${escapeHtml(state.selectedRelease)}" data-spotify-id="${escapeHtml(m.spotify_album_id)}"><span>${escapeHtml(m.name)}<small>✓ ${m.matched_tracks} songs verified</small></span></button>`).join('')}${!state.matches.length?'<div class="note">No complete Spotify match for this tracklist. Choose another version, or adjust release preferences in Settings.</div>':''}<button class="quiet" data-action="variant-back-layout">Change disc/side layout</button>`;
@@ -763,16 +768,10 @@ document.addEventListener('click',async event=>{
       if(!layout)throw new Error('Choose a disc layout.');
       state.selectedRelease=layout.release_id;
       state.splitSides=layout.sides.length>0&&!!document.querySelector('#variant-split-sides')?.checked;
-      modalContent.innerHTML='<h2>Checking Spotify</h2>'+loading('Verifying your selected tracklist against Spotify…');
-      try{
-        const result=await api(`albums/${id(state.album)}/tracklist-matches`,'POST',{release_id:layout.release_id});
-        if(generation!==routeGeneration||releasePicker!==state||!modal.open)return;
-        state.matches=result.matches;state.stage='matches';modalContent.innerHTML=variantMatchesHtml(state);
-      }catch(error){
-        if(generation===routeGeneration&&releasePicker===state&&modal.open){
-          modalContent.innerHTML=variantLayoutHtml(state)+`<div class="note">${escapeHtml(error.message)}</div>`;
-        }
-      }
+      // Already verified when shown. Final selection also rechecks before saving.
+      state.matches=layout.spotify_matches||[];
+      if(!state.matches.length)throw new Error('This layout has no verified Spotify edition. Inspect more pressings.');
+      state.stage='matches';modalContent.innerHTML=variantMatchesHtml(state);
     }
     if(action==='choose-cover'){
       await api(`albums/${id(currentAlbum.id)}/artwork-release`,'POST',{release_id:button.dataset.id});
