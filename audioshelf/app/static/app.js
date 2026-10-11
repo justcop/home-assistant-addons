@@ -450,7 +450,7 @@ async function openPlayableReleasePicker(albumId,mode){
     return;
   }
   const previous=restoreVariantScan(albumId);
-  releasePicker=previous||{album:albumId,mode,variants:[],rejected:[],next:0,checked:0,total:0,allTotal:0,stage:'variants',running:false,paused:false,error:''};
+  releasePicker=previous?{...previous,mode}:{album:albumId,mode,variants:[],rejected:[],next:0,checked:0,total:0,allTotal:0,stage:'variants',running:false,paused:false,error:''};
   showModal('<h2>Choose a tracklist</h2>'+loading('Grouping MusicBrainz releases and verifying complete Spotify matches…'));
   if(releasePicker.next===null)renderVariantPicker(releasePicker);
   else await loadVariantPage();
@@ -495,6 +495,7 @@ function combineVerifiedVariant(state,variant){
     state.variants.push({...variant,signatures:[variant.signature]});
     return;
   }
+  const sameTitles=(existing.signatures||[existing.signature]).includes(variant.signature);
   existing.signatures=[...new Set([...(existing.signatures||[existing.signature]),variant.signature])];
   existing.pressings+=variant.pressings;
   for(const layout of variant.layouts){
@@ -502,8 +503,8 @@ function combineVerifiedVariant(state,variant){
     // A differently printed title is the same playable recording ONLY when
     // the verified ordered Spotify IDs agree. Keep a separate physical layout
     // when no equivalent representative is available.
-    if(old&&[...(old.spotify_matches||[])].some(a=>
-       (layout.spotify_matches||[]).some(b=>a.recording_signature===b.recording_signature))){
+    if(old&&(sameTitles||(old.spotify_matches||[]).some(a=>
+       (layout.spotify_matches||[]).some(b=>a.recording_signature===b.recording_signature)))){
       old.pressings+=layout.pressings;
     }else existing.layouts.push(layout);
   }
