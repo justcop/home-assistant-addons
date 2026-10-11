@@ -37,6 +37,29 @@ def strict_candidate(candidate, artist, title, trusted_channels=()):
     artist_channel = norm(artist) in norm(candidate.get("channel_title"))
     return official or artist_channel
 
+def vevo_candidate(candidate, artist, title):
+    """Strict artist-named VEVO candidate; display name is not verified identity."""
+    if not isinstance(candidate, dict):
+        return False
+    channel_id = str(candidate.get("channel_id") or "")
+    if not re.fullmatch(r"UC[A-Za-z0-9_-]{22}", channel_id):
+        return False
+    channel = "".join(norm(candidate.get("channel_title")).split())
+    artist_slug = "".join(norm(artist).split())
+    if not artist_slug or channel != artist_slug + "vevo":
+        return False
+    original = norm(candidate.get("title"))
+    if not original or any(word in original for word in EXCLUDED):
+        return False
+    words = original.split()
+    tail_words = {"official", "music", "video", "hd", "4k", "remastered", "remaster"}
+    while words and words[-1] in tail_words:
+        words.pop()
+    core = " ".join(words)
+    return core in (norm(artist) + " " + norm(title),
+                    norm(title) + " " + norm(artist),
+                    norm(title))
+
 def video_id(value):
     v = str(value or "").strip()
     return v if re.fullmatch(r"[a-zA-Z0-9_-]{11}", v) else ""
