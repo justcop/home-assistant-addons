@@ -201,8 +201,11 @@ def test_song_lookup_runs_for_albums_with_existing_release_dates(tmp_path):
 
 def test_musicbrainz_recording_finds_original_blackbird_1968():
     worker = ReleaseYearWorker(enabled=False)
-    worker.mb = lambda entity, **kwargs: {
-        "recordings": [
+    def fixture(entity, **kwargs):
+        assert entity == "recording"
+        assert kwargs["limit"] == 100
+        return {
+            "recordings": [
             {"title": "Blackbird", "artist-credit": [{"name": "The Beatles"}],
              "first-release-date": "1994-01-01"},
             {"title": "Blackbird", "artist-credit": [{"name": "The Beatles"}],
@@ -210,5 +213,6 @@ def test_musicbrainz_recording_finds_original_blackbird_1968():
             {"title": "Blackbird", "artist-credit": [{"name": "Different Band"}],
              "first-release-date": "1950-01-01"},
         ]
-    }
+        }
+    worker.mb = fixture
     assert worker.song_year("The Beatles", "Blackbird") == 1968

@@ -89,7 +89,7 @@ class ReleaseYearWorker:
         # title should never silently inherit another artist's recording year.
         recordings = self.mb("recording",
                              query="recording:" + quoted(title) + " AND artist:" + quoted(artist),
-                             limit=12).get("recordings", [])
+                             limit=100).get("recordings", [])
         years = [
             release_year(recording.get("first-release-date"))
             for recording in recordings
