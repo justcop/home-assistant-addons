@@ -31,6 +31,7 @@ from .demo import seed
 from .sync import SyncWorker
 from .artwork import ArtworkWorker
 from .album_listens import TracklistWorker
+from .release_years import ReleaseYearWorker
 
 DEFAULTS = {
     "username": "",
@@ -160,6 +161,8 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
     tracklist_worker = TracklistWorker(enabled=start_worker and not config["demo_mode"],
                                        api_key=config["api_key"])
     app.extensions["tracklist_worker"] = tracklist_worker
+    release_worker = ReleaseYearWorker(enabled=start_worker and not config["demo_mode"])
+    app.extensions["release_year_worker"] = release_worker
 
     def calculate_rankings(db, args):
         with db.connect() as conn:
@@ -199,6 +202,9 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
                 db, args, config["timezone"]
             ),
             "rankings": calculate_rankings,
+            "release-years": lambda db, args: insights.release_year_analysis(
+                db, args, config["timezone"]
+            ),
         },
     )
     app.extensions["view_cache"] = view_cache
@@ -483,6 +489,15 @@ self.addEventListener('fetch', event => {
         result = view_cache.get(db, "rankings", dict(request.args))
         if request.args.get("kind") == "album":
             result["album_progress"] = tracklist_worker.status(db)
+        return jsonify(result)
+
+    @app.get("/api/release-years")
+    def release_years():
+        db = db_for_request()
+        if not is_demo():
+            release_worker.scan(db)
+        result = view_cache.get(db, "release-years", dict(request.args))
+        result["lookup"] = release_worker.status(db)
         return jsonify(result)
 
     @app.get("/api/history")

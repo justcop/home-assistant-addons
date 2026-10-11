@@ -9,6 +9,10 @@ from pathlib import Path
 from .grouping import artist_suggestion_key, auto_key, canonical_title, normalise, review_title
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS release_years (
+ kind TEXT NOT NULL CHECK(kind IN ('album','song')),
+ group_id INTEGER NOT NULL, year INTEGER, source TEXT, expires INTEGER NOT NULL,
+ PRIMARY KEY(kind,group_id));
 CREATE TABLE IF NOT EXISTS album_tracklists (
  album_id INTEGER PRIMARY KEY, tracks_json TEXT, source TEXT, expires INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS artwork_urls (

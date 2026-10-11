@@ -389,6 +389,67 @@ def overview(database, args, tz_name, now=None):
         }
 
 
+
+RELEASE_YEAR_JOINS = """
+ LEFT JOIN release_years ay ON ay.kind='album' AND ay.group_id=av.group_id
+ LEFT JOIN release_years sy ON sy.kind='song' AND sy.group_id=sv.group_id
+"""
+RELEASE_YEAR_VALUE = "COALESCE(ay.year,sy.year)"
+
+
+def release_year_analysis(database, args, tz_name):
+    """Count actual plays, not unique songs, by verified recording/album year."""
+    tz = ZoneInfo(tz_name)
+    with database.connect() as conn:
+        conn.execute("BEGIN")
+        earliest = conn.execute(
+            "SELECT MIN(ts) FROM scrobbles WHERE active=1"
+        ).fetchone()[0]
+        p = period(args, tz, earliest=earliest)
+        extra, params = scope(args)
+        where = f"WHERE s.active=1 AND s.ts>=? AND s.ts<? {extra}"
+        values = [p["start"], p["end"], *params]
+        joined = JOINS + RELEASE_YEAR_JOINS
+        years = [
+            dict(r) for r in conn.execute(
+                f"""SELECT {RELEASE_YEAR_VALUE} year,COUNT(*) plays
+                    {joined} {where}
+                    GROUP BY {RELEASE_YEAR_VALUE}
+                    ORDER BY year""", values,
+            )
+        ]
+        missing = next((r["plays"] for r in years if r["year"] is None), 0)
+        published = [r for r in years if r["year"] is not None]
+        year = args.get("release_year")
+        selected = None
+        songs = []
+        if year is not None and year != "":
+            try:
+                selected = int(year)
+                if not 1850 <= selected <= datetime.now(timezone.utc).year:
+                    raise ValueError
+            except (ValueError, TypeError):
+                raise ValueError("Invalid release year") from None
+            songs = [
+                dict(r) for r in conn.execute(
+                    f"""SELECT sv.group_id AS id,sg.name,sg.artist,
+                        COUNT(*) AS plays {joined} {where}
+                        AND {RELEASE_YEAR_VALUE}=?
+                        GROUP BY sv.group_id ORDER BY plays DESC,sg.name LIMIT 20""",
+                    [*values, selected],
+                )
+            ]
+        return {
+            "years": published,
+            "total": sum(r["plays"] for r in years),
+            "unidentified": missing,
+            "identified": sum(r["plays"] for r in published),
+            "period": p,
+            "selected_year": selected,
+            "top_songs": songs,
+        }
+
+
 def history(conn, p, args, tz):
     extra, params = scope(args)
     search = args.get("q", "").strip()[:200]

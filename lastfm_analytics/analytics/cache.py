@@ -36,6 +36,8 @@ class ViewCache:
             keys += ["start", "end"]
         if name == "rankings":
             keys += ["kind", "q", "offset", "album_sort"]
+        if name == "release-years":
+            keys += ["release_year"]
         values = {k: args[k] for k in keys if args.get(k) not in (None, "")}
         values.setdefault("period", "all")
         values.setdefault("source", "all")

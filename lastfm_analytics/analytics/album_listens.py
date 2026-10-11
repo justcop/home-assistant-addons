@@ -23,6 +23,27 @@ USER_AGENT = "ListeningAnalytics/0.2.18 (https://github.com/justcop/home-assista
 BAD_EDITION = re.compile(r"\b(deluxe|expanded|anniversary|special|bonus|limited|super deluxe|tour edition|remix)\b", re.I)
 VALID_UUID = re.compile(r"^[0-9a-f-]{36}$", re.I)
 
+# All metadata lookups use the same limiter, including release-year enrichment.
+# MusicBrainz allows one request per second across this add-on.
+_METADATA_LOCK = threading.Lock()
+_METADATA_LAST_REQUEST = [0.0]
+
+
+def metadata_request(url, opener, stop):
+    with _METADATA_LOCK:
+        if stop.wait(max(0, 1.15 - (time.monotonic() - _METADATA_LAST_REQUEST[0]))):
+            raise OSError("Metadata lookup stopped")
+        _METADATA_LAST_REQUEST[0] = time.monotonic()
+    req = urllib.request.Request(
+        url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"}
+    )
+    with opener(req, timeout=18) as response:
+        raw = response.read(1024 * 1024 + 1)
+    if len(raw) > 1024 * 1024:
+        raise ValueError("Music metadata too large")
+    return json.loads(raw)
+
+
 
 def track_key(title):
     """Match typography without treating live, remixes or demos as originals."""
@@ -69,16 +90,7 @@ class TracklistWorker:
         self.processing = None
 
     def request_json(self, url):
-        if self.stop.wait(max(0, 1.15 - (time.monotonic() - self.last_request))):
-            raise OSError("Tracklist worker stopped")
-        self.last_request = time.monotonic()
-        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT,
-                                                    "Accept": "application/json"})
-        with self.opener(req, timeout=18) as response:
-            raw = response.read(1024 * 1024 + 1)
-        if len(raw) > 1024 * 1024:
-            raise ValueError("Music metadata too large")
-        return json.loads(raw)
+        return metadata_request(url, self.opener, self.stop)
 
     def mb(self, entity, **params):
         params["fmt"] = "json"
