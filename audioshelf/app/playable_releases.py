@@ -206,12 +206,18 @@ class PlayableReleases:
             verified_layouts = []
             failed = None
             for layout in variant['layouts']:
-                probe = probes[layout['release_id']]
-                matches, assessments = self.verified_choices(probe, album)
-                if matches:
-                    verified_layouts.append({**layout,
-                        'spotify_matches': self.match_summaries(matches, len(probe['tracks']))})
-                else:
+                # Same physical layout can appear on multiple pressings whose
+                # recording metadata/durations differ. Try the alternate release
+                # IDs before declaring an otherwise playable layout unavailable.
+                for release_id in layout['release_ids']:
+                    probe = probes[release_id]
+                    matches, assessments = self.verified_choices(probe, album)
+                    if matches:
+                        verified_layouts.append({**{k: v for k, v in layout.items()
+                                                    if k != 'release_ids'},
+                            'release_id': release_id,
+                            'spotify_matches': self.match_summaries(matches, len(probe['tracks']))})
+                        break
                     failure = self.failure_summary(probe, assessments)
                     if failed is None or failure['missing'] < failed['missing']:
                         failed = failure
