@@ -313,3 +313,46 @@ def test_release_metadata_progress_counts_all_songs_not_just_queued(tmp_path):
     # A new song makes the previous "complete" status false again.
     db.apply_window(0, 5000, [play(104, "D", "Second")])
     assert not worker.status(db)["songs"]["complete"]
+
+
+
+def test_upgrade_rechecks_legacy_song_dates_before_marking_complete(tmp_path):
+    import threading
+    db = Database(tmp_path / "legacy.sqlite3")
+    db.apply_window(0, 5000, [play(100, "Blackbird", "Later Collection", "The Beatles")])
+    with db.connect() as conn:
+        song_id = conn.execute(
+            "SELECT sv.group_id FROM scrobbles s "
+            "JOIN resolved_variants sv ON sv.id=s.song_id LIMIT 1"
+        ).fetchone()[0]
+        album_id = conn.execute(
+            "SELECT av.group_id FROM scrobbles s "
+            "JOIN resolved_variants av ON av.id=s.album_id LIMIT 1"
+        ).fetchone()[0]
+        conn.executemany("INSERT INTO release_years VALUES (?,?,?,?,?)", [
+            ("song", song_id, 1994, "MusicBrainz", 9999999999),
+            ("album", album_id, 1994, "MusicBrainz", 9999999999),
+        ])
+    worker = ReleaseYearWorker()
+    assert worker.status(db)["songs"]["complete"]
+    worker.thread = threading.Thread(target=lambda: None)
+    worker.scan(db, force=True)
+    with db.connect() as conn:
+        old = conn.execute(
+            "SELECT expires FROM release_years WHERE kind='song'"
+        ).fetchone()[0]
+        album_expiry = conn.execute(
+            "SELECT expires FROM release_years WHERE kind='album'"
+        ).fetchone()[0]
+        assert old == 0
+        assert album_expiry == 9999999999
+        assert db.get(conn, "recording_lookup_version") == 2
+    progress = worker.status(db)
+    assert not progress["songs"]["complete"]
+    assert progress["songs"]["pending"] == 1
+    assert progress["albums"]["complete"]
+    # Expired song metadata is not considered a reliable recording match
+    # while the new lookup runs, but an existing album date may still be shown.
+    assert release_year_analysis(db, {"period": "all"}, "UTC")["years"] == [
+        {"year": 1994, "plays": 1}
+    ]
