@@ -356,3 +356,74 @@ def test_upgrade_rechecks_legacy_song_dates_before_marking_complete(tmp_path):
     assert release_year_analysis(db, {"period": "all"}, "UTC")["years"] == [
         {"year": 1994, "plays": 1}
     ]
+
+
+
+def test_album_year_prefers_original_release_group_beyond_first_twelve():
+    worker = ReleaseYearWorker(enabled=False)
+    # The original release group can be low in MusicBrainz's relevance-ranked
+    # search results, behind more recent same-title editions.
+    seen = []
+    def fixture(entity, **kwargs):
+        seen.append((entity, kwargs["limit"]))
+        newer = [
+            {"title": "The Beatles", "artist-credit": [{"name": "The Beatles"}],
+             "primary-type": "Album", "secondary-types": [],
+             "first-release-date": "1994-01-01"}
+            for _ in range(14)
+        ]
+        older = {
+            "title": "The Beatles", "disambiguation": "The White Album",
+            "artist-credit": [{"name": "The Beatles"}],
+            "primary-type": "Album", "secondary-types": [],
+            "first-release-date": "1968-11-22",
+        }
+        return {"release-groups": newer + [older]}
+    worker.mb = fixture
+    assert worker.album_year("The Beatles", "The Beatles") == 1968
+    assert worker.album_year("The Beatles", "The Beatles (White Album)") == 1968
+    assert all(kind == "release-group" and limit == 100 for kind, limit in seen)
+    group = {"title": "The Beatles", "disambiguation": "The White Album"}
+    assert worker.same_album("The Beatles (White Album)", group)
+    assert worker.same_album("White Album", group)
+    assert not worker.same_album("Different Record (White Album)", group)
+    assert not worker.same_album("White Album", {"title": "The Beatles"})
+
+
+def test_album_lookup_upgrade_rechecks_incorrectly_cached_1994(tmp_path):
+    import threading
+    from analytics.release_years import ALBUM_LOOKUP_VERSION
+    db = Database(tmp_path / "old-album-year.sqlite3")
+    db.apply_window(0, 5000, [
+        play(100, "Blackbird", "The Beatles", "The Beatles"),
+    ])
+    with db.connect() as conn:
+        album_id = conn.execute(
+            "SELECT av.group_id FROM scrobbles s "
+            "JOIN resolved_variants av ON av.id=s.album_id LIMIT 1"
+        ).fetchone()[0]
+        conn.execute("INSERT INTO release_years VALUES (?,?,?,?,?)",
+                     ("album", album_id, 1994, "MusicBrainz", 9999999999))
+        db.put(conn, "recording_lookup_version", 2)
+
+    worker = ReleaseYearWorker()
+    worker.thread = threading.Thread(target=lambda: None)
+    worker.scan(db, force=True)
+    status = worker.status(db)
+    assert not status["albums"]["complete"]
+    assert status["albums"]["pending"] == 1
+    with db.connect() as conn:
+        old_expiry = conn.execute(
+            "SELECT expires FROM release_years WHERE kind='album'"
+        ).fetchone()[0]
+        assert old_expiry == 0
+        assert db.get(conn, "album_lookup_version") == ALBUM_LOOKUP_VERSION
+    # Simulate the corrected MusicBrainz search completing.
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE release_years SET year=1968, expires=9999999999 "
+            "WHERE kind='album' AND group_id=?", (album_id,))
+    result = release_year_analysis(db, {"period": "all", "release_year": "1968"}, "UTC")
+    assert result["top_albums"][0]["name"] == "The Beatles"
+    assert result["top_albums"][0]["plays"] == 1
+    assert worker.status(db)["albums"]["complete"]

@@ -69,14 +69,18 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
     assert.ok(layout.gridWidth <= layout.parentWidth + 1, "Year grid must fit parent on " + width + "px");
     assert.ok(layout.pageWidth <= layout.viewport + 1, "Page must not overflow on " + width + "px");
   }
-  assert.equal(await page.locator('[data-release-year="1968"] .release-year-short').innerText(), "68");
+  const rowLabels = await page.locator('.release-year-decade').allInnerTexts();
+  assert.deepEqual(rowLabels, ["1990s", "1960s"], "Newer decades must display first");
+    assert.equal(await page.locator('[data-release-year="1968"] .release-year-short').innerText(), "68");
   await page.locator('[data-release-year="1968"]').click();
   await page.locator('.release-year-details .list-row').first().waitFor();
   assert.equal(await page.locator('.release-year-details').count(), 2);
   assert.equal(await page.locator('.release-year-details [data-detail="song"]').count(), 1);
   assert.equal(await page.locator('.release-year-details [data-detail="album"]').count(), 1);
   assert.match(await page.locator('.release-lookup-status').innerText(), /70 \/ 100 checked/);
-  assert.match(await page.locator('.release-lookup-status').innerText(), /Lookup pass complete for the current library/);
+  // Finished groups hide their progress bar, while an unfinished group
+  // remains visible. Both hide automatically once coverage exceeds 99%.
+  assert.equal(await page.locator('.release-lookup-group progress').count(), 1);
   assert.equal(await page.locator('.release-lookup-group progress').first().getAttribute('value'), '70');
   assert.equal(await page.locator('[data-release-year="1968"]').getAttribute("aria-pressed"), "true");
   await page.unroute("**/api/release-years?*");
@@ -528,7 +532,12 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   await page.locator('.album-detail-cover img').waitFor();
   await page.waitForFunction(() => document.querySelector('.album-detail-cover img')?.naturalWidth > 0);
   assert.match(await page.locator('.album-detail-cover img').getAttribute('src'), /\/500x500\/album-cover-fixture/);
-  await page.locator('.album-detail-actions a').nth(2).waitFor();
+  // The Shelf button is conditional on an AudioShelf match. Inject an
+  // identified shelf entry to verify all three actions remain in their column.
+  await page.locator('.album-detail-actions a').nth(1).waitFor();
+  await page.locator('#shelf-link-slot').evaluate(el => {
+    el.innerHTML = '<a class="button" href="https://audioshelf.example.test/#album/abbey-road">On your shelf</a>';
+  });
   assert.equal(await page.locator('.album-detail-actions a').count(), 3);
   assert.equal(await page.locator('.album-detail-titles .album-detail-artist').innerText(), 'The Beatles');
   assert.equal(await page.locator('.album-detail-titles h2').innerText(), 'Abbey Road');

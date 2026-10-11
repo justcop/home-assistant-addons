@@ -2,6 +2,9 @@
 - Redesign album detail around a full-width square album cover, edge-to-edge on phones.
 - Put the album artist and title below the cover on the left, with the existing Spotify, record store, and shelf actions stacked on the right.
 - Keep artist/song detail layouts and asynchronous artwork updates unchanged.
+- Sort release-year heatmap decades newest first and hide individual progress bars above 99% completion.
+- Correct original album years by inspecting up to 100 MusicBrainz release groups and accepting verified release-group disambiguations. Recheck legacy album-year results so later editions no longer permanently misdate originals.
+- Prefer higher-resolution album artwork sources, falling back to the original thumbnail if needed.
 
 ## 0.2.22
 - Show the 20 most played albums for a selected year, using the original album release year independently of the song release year, alongside the top 20 songs.
