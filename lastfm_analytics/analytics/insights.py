@@ -552,7 +552,7 @@ def cover_art(conn, kind, value, raw, args, album_info=None):
         )
         for row in rows:
             try:
-                url = image_url(json.loads(row[0]))
+                url = image_url(json.loads(row[0]), high_resolution=(kind == "album"))
                 if url:
                     return dict(url=url, album=album["album"],
                                 artist=album["artist"], source="Last.fm")

@@ -819,7 +819,8 @@ def test_remote_cover_art_for_each_detail_type(db):
         for kind, value in [("artist", artist), ("song", 1), ("album", 2)]:
             for raw in (True, False):
                 result = details(conn, kind, value, raw)
-                assert result["artwork"]["url"] == thumbnail
+                expected = "https://lastfm.freetls.fastly.net/full.jpg" if kind == "album" else thumbnail
+                assert result["artwork"]["url"] == expected
                 assert result["artwork"]["album"] == "Abbey Road"
         assert (
             details(conn, "artist", artist, False, {"source": "vinyl"})["artwork"]

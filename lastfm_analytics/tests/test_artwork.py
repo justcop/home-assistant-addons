@@ -256,9 +256,11 @@ def test_large_album_artwork_sources_are_preferred():
     tiny = 'https://lastfm.freetls.fastly.net/i/u/174s/cover.jpg'
     bigger = 'https://lastfm.freetls.fastly.net/i/u/500x500/cover.jpg'
     assert image_url([{'size': 'large', '#text': tiny},
-                      {'size': 'extralarge', '#text': bigger}]) == bigger
+                      {'size': 'extralarge', '#text': bigger}]) == tiny
+    assert image_url([{'size': 'large', '#text': tiny},
+                      {'size': 'extralarge', '#text': bigger}], high_resolution=True) == bigger
     assert image_url([{'size': 'extralarge', '#text': 'https://evil.example/image.jpg'},
-                      {'size': 'large', '#text': tiny}]) == tiny
+                      {'size': 'large', '#text': tiny}], high_resolution=True) == tiny
 
     worker = ArtworkWorker('', opener=lambda req, timeout: io.BytesIO(
         json.dumps({'data': [{

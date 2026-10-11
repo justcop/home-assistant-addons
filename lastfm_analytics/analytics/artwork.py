@@ -11,10 +11,12 @@ import urllib.request
 from .grouping import normalise, canonical_title
 
 
-def image_url(images):
+def image_url(images, high_resolution=False):
     if not isinstance(images, list):
         return None
-    for size in ("mega", "extralarge", "large", "medium", "small"):
+    sizes = (("mega", "extralarge", "large", "medium", "small") if high_resolution
+             else ("large", "medium", "small"))
+    for size in sizes:
         for image in images:
             if not isinstance(image, dict) or image.get("size") != size:
                 continue
@@ -164,7 +166,7 @@ class ArtworkWorker:
         if (normalise(str(entry.get("artist", ""))) != normalise(artist)
                 or not album_match(str(entry.get("name", "")), album)):
             return None
-        return image_url(entry.get("image"))
+        return image_url(entry.get("image"), high_resolution=True)
 
     def fetch_deezer(self, artist, album):
         query = urllib.parse.urlencode({
