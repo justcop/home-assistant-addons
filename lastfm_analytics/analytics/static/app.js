@@ -15,6 +15,7 @@ try { savedMode = localStorage.getItem("listening-version-mode") || "merged"; } 
 const views = [
   "overview",
   "trends",
+  "release-years",
   "artists",
   "albums",
   "songs",
@@ -33,6 +34,7 @@ const state = {
   offset: Math.max(0, Number(initial.get("offset")) || 0),
   filter: initial.get("entity") && initial.get("id") ? {kind:initial.get("entity"),id:initial.get("id"),name:initial.get("name") || initial.get("entity")} : null,
   albumSort: initial.get("album_sort") === "estimated" ? "estimated" : "scrobbles",
+  releaseYear: /^\d{4}$/.test(initial.get("release_year") || "") ? Number(initial.get("release_year")) : null,
   groupKind: "song",
   groupTab: "suggested",
   selected: new Map(),
@@ -46,6 +48,7 @@ let statusData,
 const titles = {
   overview: ["Overview", "Understand the patterns behind your plays."],
   trends: ["Listening trends", "See how your listening changes over time."],
+  "release-years": ["Release years", "Which years of music do you return to most?"],
   artists: ["Artists", "The artists shaping your listening."],
   albums: ["Albums", "A clearer view across album editions."],
   songs: ["Songs", "Your real favourites, with versions brought together."],
@@ -141,13 +144,13 @@ function report(error) {
   $("#error").hidden = false;
 }
 function navigationState() {
-  const keys = ["view", "period", "source", "mode", "start", "end", "demo", "q", "offset", "filter", "albumSort", "groupKind", "groupTab"];
+  const keys = ["view", "period", "source", "mode", "start", "end", "demo", "q", "offset", "filter", "albumSort", "releaseYear", "groupKind", "groupTab"];
   return Object.fromEntries(keys.map(key => [key, state[key]]));
 }
 function urlState(historyMode = "push") {
   if (historyMode === "none") return;
   const nav = navigationState();
-  const q = query({ view: state.view, q:state.q, offset:state.offset || null, album_sort:state.albumSort === "estimated" ? "estimated" : null, name:state.filter?.name });
+  const q = query({ view: state.view, q:state.q, offset:state.offset || null, album_sort:state.albumSort === "estimated" ? "estimated" : null, release_year:state.view === "release-years" ? state.releaseYear : null, name:state.filter?.name });
   const url = `${location.pathname}?${q}`;
   const current = history.state;
   if (!current?.listening || historyMode === "replace") {
@@ -221,6 +224,54 @@ function calendarHeatmap(data, filter = null, mode = state.mode) {
     return b ? `<button class="calendar-cell" data-chart-start="${b.start}" data-chart-end="${b.end}"${ds} style="--intensity:${b.plays ? .18 + .82 * b.plays / max : 0}" title="${b.label}: ${number(b.plays)} scrobbles" aria-label="${b.label}, ${number(b.plays)} scrobbles"></button>` : '<span class="calendar-cell unavailable" title="Outside selected period"></span>';
   }).join("")}`).join("")}</div></div></section>`;
 }
+
+function releaseYearsHTML(data) {
+  const years = data.years || [];
+  const counts = new Map(years.map(item => [item.year, item.plays]));
+  const decades = [...new Set(years.map(item => Math.floor(item.year / 10) * 10))].sort((a,b) => a-b);
+  const max = Math.max(1, ...years.map(item => item.plays));
+  const pct = data.total ? Math.round(100 * data.identified / data.total) : 0;
+  const lookup = data.lookup || {};
+  const busy = lookup.queued > 0 || lookup.processing > 0;
+  const headings = Array.from({length:10}, (_,i) => '<span class="release-year-column">' + i + '</span>').join("");
+  const cells = decades.map(decade => '<span class="release-year-decade">' + decade + 's</span>' +
+    Array.from({length:10}, (_,i) => {
+      const year = decade+i, plays = counts.get(year);
+      if (!plays) return '<span class="release-year-gap" aria-hidden="true"></span>';
+      const intensity = (0.15+0.85*Math.sqrt(plays/max)).toFixed(3);
+      return '<button class="release-year-cell" type="button" data-release-year="' + year +
+        '" aria-pressed="' + (data.selected_year === year) + '" title="' + year + ': ' +
+        number(plays) + ' scrobbles" aria-label="' + year + ', ' + number(plays) +
+        ' scrobbles" style="--intensity:' + intensity + '"><span>' + year + '</span></button>';
+    }).join("")).join("");
+  const progress = busy
+    ? 'Identifying more releases in the background: ' + number(lookup.queued) +
+      ' queued' + (lookup.processing ? ', one being checked' : '') + '. '
+    : lookup.enabled ? 'Release-year lookup is idle. ' : 'Automatic lookups are disabled. ';
+  const grid = years.length
+    ? '<p class="method-note">Darker squares mean more scrobbles. Replaying the same song adds to its release year. Tap a year to see its most played songs.</p>' +
+      '<div class="release-year-scroll" tabindex="0" aria-label="Release year heatmap, decades in rows">' +
+      '<div class="release-year-grid"><span></span>' + headings + cells + '</div></div>'
+    : '<p class="empty">No identified release years yet. This heatmap fills in as music metadata is found.</p>';
+  const songs = (data.top_songs || []).map((song,i) =>
+    '<button class="list-row" data-detail="song" data-id="' + esc(song.id) + '">' +
+    '<span class="rank">' + (i+1) + '</span><span class="list-name"><strong>' +
+    esc(song.name) + '</strong><small>' + esc(song.artist) + '</small></span>' +
+    '<span class="list-count">' + number(song.plays) + '</span></button>').join("");
+  const detail = data.selected_year == null ? "" :
+    '<section class="panel release-year-details">' +
+    panelHead('Most played from ' + data.selected_year, 'Songs attributed to this release year in the selected listening period.') +
+    (songs || '<p class="method-note">No songs in this year for the selected filters.</p>') + '</section>';
+  return '<section class="panel release-years-panel">' +
+    panelHead('Music by year of release', 'Original release year, not the year you scrobbled it.') +
+    '<div class="release-year-summary"><strong>' + number(data.identified) +
+    '</strong> dated scrobbles <span>of ' + number(data.total) + ' (' + pct + '%)</span></div>' +
+    '<p class="method-note" role="status" aria-live="polite">' + progress + number(data.unidentified) +
+    ' plays have no verified release year and are excluded rather than assigned an arbitrary year.</p>' +
+    grid + '<p class="method-note">MusicBrainz first release dates for albums and singles are preferred; otherwise an identifiable recording date is used. Reissues and remasters do not automatically become new years. The date and vinyl filters above apply to plays, not release years.</p>' +
+    '</section>' + detail;
+}
+
 function chart(data, filter = null, mode = state.mode) {
   const bins = data.timeline,
     max = Math.max(4, ...bins.map((b) => b.plays));
@@ -472,11 +523,13 @@ function watchCachedView(slot, path, extra, data, render, valid, target) {
       if (!valid()) return;
       $(target).textContent = "Update delayed; showing saved results";
     }
-    const processingAlbums = path === "rankings" && extra.kind === "album" && data?.album_progress?.enabled && (data.album_progress.pending > 0 || data.album_progress.queued > 0 || data.album_progress.processing > 0);
+    const processingAlbums = (path === "rankings" && extra.kind === "album" && data?.album_progress?.enabled && (data.album_progress.pending > 0 || data.album_progress.queued > 0 || data.album_progress.processing > 0))
+      || (path === "release-years" && data?.lookup?.enabled && (data.lookup.queued > 0 || data.lookup.processing > 0));
     cacheTimers[slot] = setTimeout(tick, data?._cache?.error ? 60000 : data?._cache?.stale || data?._cache?.refreshing ? 2000 : processingAlbums ? 10000 : 60000);
   }
   if (data?._cache) {
-    const processingAlbums = path === "rankings" && extra.kind === "album" && data?.album_progress?.enabled && (data.album_progress.pending > 0 || data.album_progress.queued > 0 || data.album_progress.processing > 0);
+    const processingAlbums = (path === "rankings" && extra.kind === "album" && data?.album_progress?.enabled && (data.album_progress.pending > 0 || data.album_progress.queued > 0 || data.album_progress.processing > 0))
+      || (path === "release-years" && data?.lookup?.enabled && (data.lookup.queued > 0 || data.lookup.processing > 0));
     cacheTimers[slot] = setTimeout(tick, data._cache.error ? 60000 : data._cache.stale || data._cache.refreshing ? 2000 : processingAlbums ? 10000 : 60000);
   }
 }
@@ -528,6 +581,11 @@ async function load({historyMode = "push"} = {}) {
       const render = next => replaceCachedView("#content", view === "overview" ? overviewHTML(next) : trendsHTML(next));
       cachedView = { path: "overview", extra: {}, data, render };
       html = view === "overview" ? overviewHTML(data) : trendsHTML(data);
+    } else if (state.view === "release-years") {
+      const extra = { release_year: state.releaseYear };
+      const data = await api("release-years", extra, { signal });
+      cachedView = { path: "release-years", extra, data, render: next => replaceCachedView("#content", releaseYearsHTML(next)) };
+      html = releaseYearsHTML(data);
     } else if (state.view === "history") {
       html = historyHTML(
         await api("history", { q: state.q, offset: state.offset }, { signal }),
@@ -772,6 +830,12 @@ async function groupAction(action, ids = [], key = null, name = undefined) {
 document.addEventListener("click", (event) => {
   const b = event.target.closest("button");
   if (!b || b.disabled) return;
+  if (b.dataset.releaseYear) {
+    const year = Number(b.dataset.releaseYear);
+    state.releaseYear = state.releaseYear === year ? null : year;
+    load();
+    return;
+  }
   if (b.dataset.albumSort) {
     state.albumSort = b.dataset.albumSort;
     state.offset = 0;
