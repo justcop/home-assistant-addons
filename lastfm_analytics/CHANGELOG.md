@@ -1,3 +1,6 @@
+## 0.2.20
+- Add release-year heatmap counting every scrobble, with period/source filters, song drill-down and progressive MusicBrainz enrichment. Unidentified years are explicitly excluded.
+
 # Changelog
 
 ## 0.2.19

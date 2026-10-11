@@ -1584,3 +1584,21 @@ dialog { overscroll-behavior: contain; }
   .detail-dialog.artist-detail-open .dialog-head { display: none; }
   .detail-dialog.artist-detail-open .artist-logo-stage { padding-top: 0; }
 }
+
+/* Release-year scrobble heatmap: one square per documented year. */
+.release-year-summary { display:flex; flex-wrap:wrap; gap:8px; align-items:baseline; margin:12px 0 4px; }
+.release-year-summary strong { font-size:25px; font-variant-numeric:tabular-nums; }
+.release-year-summary span { color:var(--muted); font-size:12px; }
+.release-year-scroll { overflow-x:auto; overscroll-behavior-x:contain; margin:20px 0; }
+.release-year-grid { display:grid; grid-template-columns:54px repeat(10,minmax(32px,1fr)); gap:5px; align-items:center; min-width:430px; }
+.release-year-column, .release-year-decade { font-size:11px; color:var(--muted); text-align:center; font-variant-numeric:tabular-nums; }
+.release-year-decade { text-align:left; font-weight:600; }
+.release-year-cell { border:1px solid var(--line); border-radius:5px; min-height:38px; padding:2px; cursor:pointer; color:var(--ink); background:color-mix(in srgb,var(--accent) calc(var(--intensity,0) * 85%),var(--surface2)); font-size:10px; font-variant-numeric:tabular-nums; }
+.release-year-cell:hover, .release-year-cell:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+.release-year-cell[aria-pressed="true"] { outline:2px solid var(--ink); outline-offset:1px; font-weight:700; }
+.release-year-gap { min-height:38px; }
+.release-year-details { margin-top:18px; }
+@media(max-width:620px) {
+ .release-year-grid { grid-template-columns:42px repeat(10,minmax(31px,1fr)); min-width:400px; gap:3px; }
+ .release-year-cell { min-height:34px; font-size:9px; }
+}
