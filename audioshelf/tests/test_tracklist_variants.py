@@ -89,9 +89,11 @@ def variants(application,monkeypatch):
             return {'releases':data,'release-count':len(data)}
         if entity.startswith('release/'):
             return next(r for r in data if r['id']==entity.split('/')[1])
+        if entity.startswith('recording/'):
+            return {'id':entity.split('/')[1], 'title':'', 'aliases':[], 'isrcs':[]}
         raise AssertionError(entity)
     monkeypatch.setattr(mb,'get',get)
-    def candidates(album):
+    def candidates(album, broad=False):
         calls['candidates']+=1
         return [{'id':SPOTIFY_ID}]
     monkeypatch.setattr(spotify,'candidates',candidates)
@@ -105,24 +107,90 @@ def variants(application,monkeypatch):
     return store,vinyl,cd,deluxe,reorder,calls
 
 
-def test_browse_without_spotify_then_compare_and_match_only_chosen_release(application,client,variants):
+def test_browse_only_shows_spotify_verified_grouped_tracklists(application,client,variants):
     store,vinyl,cd,deluxe,reorder,calls=variants
     before=copy.deepcopy(store.album(ALBUM))
     result=client.get('/api/albums/'+ALBUM+'/tracklist-variants')
     assert result.status_code==200,result.json
     groups=result.json['variants']
-    assert len(groups)==3
-    original=next(g for g in groups if g['track_count']==2 and g['pressings']==2)
-    assert len(original['layouts'])==2
+    assert len(groups)==2, 'Standard and bonus versions should match, reordered songs should not'
+    original=next(g for g in groups if g['track_count']==2)
+    assert original['pressings']==2 and len(original['layouts'])==2
+    assert all(layout['spotify_matches'] for g in groups for layout in g['layouts'])
+    assert all(match['matched_tracks']==g['track_count'] for g in groups
+               for layout in g['layouts'] for match in layout['spotify_matches'])
     assert any(layout['sides'] for layout in original['layouts'])
+    assert len(result.json['rejected'])==1
+    assert result.json['rejected'][0]['track_count']==2
+    assert result.json['rejected'][0]['missing']>0
+    assert result.json['rejected'][0]['tracks'], 'Show which recording prevented a match'
     assert result.json['checked']==4 and result.json['next_offset'] is None
-    assert calls=={'candidates':0,'albums':0}
-    assert store.album(ALBUM)==before,'Exploration must not alter canonical tracks'
+    assert calls['candidates']>=1 and calls['albums']>=1
+    assert store.album(ALBUM)==before, 'Spotify probing must not mutate shelf tracks'
     matched=post(client,'/api/albums/'+ALBUM+'/tracklist-matches',{'release_id':vinyl['id']})
     assert matched.status_code==200,matched.json
     assert matched.json['matches'][0]['matched_tracks']==2
-    assert calls['candidates']==1 and calls['albums']>=1
-    assert store.album(ALBUM)==before,'Preview Spotify matches must not mutate canonical tracks'
+    assert matched.json['failure'] is None
+    assert store.album(ALBUM)==before, 'Rechecking must not mutate canonical tracks'
+
+
+def test_unconnected_account_cannot_see_unverified_tracklists(application,client,variants):
+    application.extensions['spotify'].tokens={}
+    result=client.get('/api/albums/'+ALBUM+'/tracklist-variants')
+    assert result.status_code==409
+    assert 'Connect Spotify' in result.json['error']
+
+
+def test_matching_fallback_when_structured_search_has_no_complete_album(application,client,variants,monkeypatch):
+    store,vinyl,cd,deluxe,reorder,calls=variants
+    spotify=application.extensions['spotify']
+    queries=[]
+    def candidates(album,broad=False):
+        queries.append('broad' if broad else 'structured')
+        return [{'id':('s' if not broad else 'z')*22}]
+    def source(identifier):
+        titles=['Not the Song'] if identifier.startswith('s') else ['Opening','Closing']
+        return {'id':identifier,'name':'The Album','release_date':'2007',
+                'all_tracks':[spotify_track(title,('x' if i==0 else 'y')*22,
+                                            180000 if i==0 else 240000)
+                              for i,title in enumerate(titles)]}
+    monkeypatch.setattr(spotify,'candidates',candidates)
+    monkeypatch.setattr(spotify,'album',source)
+    result=client.get('/api/albums/'+ALBUM+'/tracklist-variants')
+    assert result.status_code==200,result.json
+    assert queries==['structured','broad']
+    assert next(g for g in result.json['variants'] if g['track_count']==2)['layouts'][0][
+        'spotify_matches'][0]['spotify_album_id']=='z'*22
+    assert store.album(ALBUM)['tracks'][0]['spotify_id'] is None
+
+
+def test_unverified_disc_layout_not_offered_even_with_same_song_sequence(application,client,variants):
+    store,vinyl,cd,deluxe,reorder,calls=variants
+    # Same musical fingerprint; different timings can make a physical pressing
+    # unmatchable. Never let its layout be selected using another pressing's ID.
+    cd['media'][0]['tracks'][1]['length']=999999
+    result=client.get('/api/albums/'+ALBUM+'/tracklist-variants')
+    assert result.status_code==200,result.json
+    original=next(g for g in result.json['variants'] if g['track_count']==2)
+    assert len(original['layouts'])==1
+    assert original['layouts'][0]['release_id']==vinyl['id']
+    assert original['layouts'][0]['spotify_matches']
+    assert store.album(ALBUM)['tracks'][1]['duration_ms']==240000
+
+
+def test_unmatched_album_has_reasons_and_no_selectable_tracklists(application,client,variants,monkeypatch):
+    store,vinyl,cd,deluxe,reorder,calls=variants
+    spotify=application.extensions['spotify']
+    monkeypatch.setattr(spotify,'album',lambda identifier: {
+        'id': identifier,'name':'Wrong album','release_date':'2007',
+        'all_tracks':[spotify_track('Unrelated Song','x'*22)]})
+    result=client.get('/api/albums/'+ALBUM+'/tracklist-variants')
+    assert result.status_code==200,result.json
+    assert result.json['variants']==[]
+    assert result.json['rejected']
+    assert all(issue['missing']>0 for issue in result.json['rejected'])
+    assert all(issue['reason'] and issue['tracks'] for issue in result.json['rejected'])
+    assert store.album(ALBUM)['tracks'][0]['spotify_id'] is None
 
 
 def test_select_vinyl_sides_preserves_disc_and_canonical_mapping(application,client,variants):
