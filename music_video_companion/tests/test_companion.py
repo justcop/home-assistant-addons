@@ -211,6 +211,7 @@ class CompanionTests(unittest.TestCase):
         ha = VolumeOnlyHA()
         app = Companion(path=Path(self.temp.name) / "volume.json", ha=ha, options={})
         app.library.configure({"spotify_entity": "media_player.spotify", "cast_entity": "media_player.chromecast"})
+        app.library.configure({"audio_control": "automatic"})
         app.library.approve("The Beatles", "Something", CANDIDATE)
         app.poll()
         app.play_current()
@@ -232,6 +233,7 @@ class CompanionTests(unittest.TestCase):
         ha = RejectMuteHA()
         app = Companion(path=Path(self.temp.name) / "reject.json", ha=ha, options={})
         app.library.configure({"spotify_entity": "media_player.spotify", "cast_entity": "media_player.chromecast"})
+        app.library.configure({"audio_control": "automatic"})
         app.library.approve("The Beatles", "Something", CANDIDATE)
         app.poll()
         app.play_current()
@@ -265,6 +267,7 @@ class CompanionTests(unittest.TestCase):
         app.library.configure({"spotify_entity": "media_player.spotify",
                                "cast_entity": "media_player.chromecast",
                                "mute_entity": "media_player.soundbar"})
+        app.library.configure({"audio_control": "automatic"})
         app.library.approve("The Beatles", "Something", CANDIDATE)
         app.poll()
         app.play_current()
@@ -299,6 +302,7 @@ class CompanionTests(unittest.TestCase):
         ha = NoMuteHA()
         app = Companion(path=Path(self.temp.name) / "none.json", ha=ha, options={})
         app.library.configure({"spotify_entity": "media_player.spotify", "cast_entity": "media_player.chromecast"})
+        app.library.configure({"audio_control": "automatic"})
         app.library.approve("The Beatles", "Something", CANDIDATE)
         app.poll()
         with self.assertRaisesRegex(ValueError, "cannot be safely silenced"):
