@@ -200,6 +200,27 @@ def test_successful_page_cached_for_retry_without_refetching(application,client,
     assert calls==previous, 'Retry must use cached verification results'
 
 
+def test_long_unplayable_editions_do_not_trigger_many_recording_requests(application,client,variants,monkeypatch):
+    store,vinyl,cd,deluxe,reorder,calls=variants
+    mb=application.extensions['musicbrainz']
+    extra=make_release(250,('Opening','Closing',*[f'Unrelated Track {i}' for i in range(3,37)]))
+    lookup=mb.get
+    requested=[]
+    monkeypatch.setattr(mb,'releases',lambda album_id:[extra])
+    def get(entity,params=None):
+        if entity=='release/'+extra['id']:
+            return extra
+        if entity.startswith('recording/'):
+            requested.append(entity)
+        return lookup(entity,params)
+    monkeypatch.setattr(mb,'get',get)
+    result=client.get('/api/albums/'+ALBUM+'/tracklist-variants?offset=0')
+    assert result.status_code==200,result.json
+    assert result.json['rejected'][0]['track_count']==36
+    assert result.json['rejected'][0]['missing']>=30
+    assert not requested, 'Clearly incompatible editions must not trigger many costly recording lookups'
+
+
 def test_unconnected_account_cannot_see_unverified_tracklists(application,client,variants):
     application.extensions['spotify'].tokens={}
     result=client.get('/api/albums/'+ALBUM+'/tracklist-variants')
