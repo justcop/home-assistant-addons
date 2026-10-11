@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Music Video Companion</title><link rel="stylesheet" href="style.css"></head>
+<body><main>
+<header><div><div class="eyebrow">HOME ASSISTANT · MUSIC</div><h1>Music Video Companion</h1><p>Official music videos for what you're listening to.</p></div><span class="status" id="connection">Connecting…</span></header>
+<section class="card"><div class="eyebrow">NOW PLAYING</div><h2 id="song">No song detected</h2><p id="artist">Choose your source below.</p>
+<div class="inline"><span id="source-state" class="chip">Idle</span><span id="position" class="subtle"></span></div>
+<p id="approved" class="subtle">No saved video.</p>
+<div class="button-row"><button id="cast" class="primary">Cast approved video</button><button id="stop" class="secondary">Stop video</button></div>
+</section>
+<section class="card"><h2>Source & screen</h2><label for="source">Music source</label><select id="source"><option value="spotify">Spotify via Home Assistant</option><option value="external">External adapter (future integration)</option></select>
+<label for="spotify">Spotify media player</label><select id="spotify"><option value="">Select Spotify entity…</option></select>
+<label for="cast-entity">Chromecast media player</label><select id="cast-entity"><option value="">Select Chromecast entity…</option></select>
+<label class="check"><input type="checkbox" id="auto"><span>Automatically cast approved songs and strict matches from trusted artist channels</span></label>
+<button class="primary" id="save">Save settings</button>
+<p class="small">Requires the Spotify and Google Cast integrations configured in Home Assistant. YouTube search additionally requires a YouTube Data API key in the add-on Configuration.</p></section>
+<section class="card"><h2>Find an official video</h2>
+<p class="subtle">Only videos that you approve, or unambiguous matches from an artist channel you explicitly trust, can play automatically.</p>
+<button class="primary" id="search">Find official candidates</button>
+<div id="candidates" class="candidates"></div>
+<div class="manual"><h3>Add a video manually</h3><label for="manual-id">YouTube video ID (11 characters)</label><input id="manual-id" placeholder="e.g. dQw4w9WgXcQ" maxlength="11">
+<label class="check"><input type="checkbox" id="manual-verified"><span>I verified this is an official artist, label or VEVO upload</span></label><button id="manual-save" class="secondary">Save this video</button></div>
+</section>
+<section class="card"><h2>Compatibility notes</h2><p>Playback is not frame-synchronised. The app mutes the selected Chromecast, which may mute the television's shared audio output. Do not use it when you need TV sound.</p><p>Spotify and YouTube prohibit certain cross-service synchronisation and audio/video separation uses. This experimental add-on does not extract or modify any YouTube media.</p><p class="small">If the YouTube receiver cannot be launched on your Chromecast, the error appears below and in Home Assistant logs.</p></section>
+<div class="message" id="message" role="status"></div><footer>Music Video Companion v0.1.0 · Local approvals retained between updates</footer>
+</main><script src="app.js" defer></script></body></html>
