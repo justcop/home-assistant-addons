@@ -112,7 +112,10 @@ def test_browse_only_shows_spotify_verified_grouped_tracklists(application,clien
     before=copy.deepcopy(store.album(ALBUM))
     result=client.get('/api/albums/'+ALBUM+'/tracklist-variants')
     assert result.status_code==200,result.json
-    groups=result.json['variants']
+    # Each request is intentionally short to stay inside proxy timeouts.
+    following=client.get('/api/albums/'+ALBUM+'/tracklist-variants?offset=2')
+    assert following.status_code==200,following.json
+    groups=result.json['variants']+following.json['variants']
     assert len(groups)==2, 'Standard and bonus versions should match, reordered songs should not'
     original=next(g for g in groups if g['track_count']==2)
     assert original['pressings']==2 and len(original['layouts'])==2
@@ -120,11 +123,14 @@ def test_browse_only_shows_spotify_verified_grouped_tracklists(application,clien
     assert all(match['matched_tracks']==g['track_count'] for g in groups
                for layout in g['layouts'] for match in layout['spotify_matches'])
     assert any(layout['sides'] for layout in original['layouts'])
-    assert len(result.json['rejected'])==1
-    assert result.json['rejected'][0]['track_count']==2
-    assert result.json['rejected'][0]['missing']>0
-    assert result.json['rejected'][0]['tracks'], 'Show which recording prevented a match'
-    assert result.json['checked']==4 and result.json['next_offset'] is None
+    assert len(following.json['rejected'])==1
+    assert following.json['rejected'][0]['track_count']==2
+    assert following.json['rejected'][0]['missing']>0
+    assert following.json['rejected'][0]['tracks'], 'Show which recording prevented a match'
+    assert result.json['checked']==2 and result.json['next_offset']==2
+    assert following.json['checked']==2 and following.json['next_offset'] is None
+    assert all(len(x)==64 for g in groups for layout in g['layouts']
+               for match in layout['spotify_matches'] for x in [match['recording_signature']])
     assert calls['candidates']>=1 and calls['albums']>=1
     assert store.album(ALBUM)==before, 'Spotify probing must not mutate shelf tracks'
     matched=post(client,'/api/albums/'+ALBUM+'/tracklist-matches',{'release_id':vinyl['id']})
@@ -144,8 +150,10 @@ def test_edition_picker_only_counts_gb_worldwide_and_us_releases(application,cli
     assert response.status_code==200,response.json
     assert response.json['all_total']==4
     assert response.json['total']==3
-    assert response.json['checked']==3
-    assert response.json['next_offset'] is None
+    assert response.json['checked']==2
+    assert response.json['next_offset']==2
+    last=client.get('/api/albums/'+ALBUM+'/tracklist-variants?offset=2')
+    assert last.json['checked']==1 and last.json['next_offset'] is None
     assert response.json['countries']==['GB','XW','US']
     assert all(layout['country']!='FR' for group in response.json['variants']
                for layout in group['layouts'])
@@ -169,13 +177,27 @@ def test_scanning_continues_across_all_eligible_pages(application,client,variant
     first_page=client.get('/api/albums/'+ALBUM+'/tracklist-variants?offset=0')
     assert first_page.status_code==200,first_page.json
     assert first_page.json['total']==13
-    assert first_page.json['checked']==8
-    assert first_page.json['next_offset']==8
-    second_page=client.get('/api/albums/'+ALBUM+'/tracklist-variants?offset=8')
-    assert second_page.status_code==200,second_page.json
-    assert second_page.json['checked']==5
-    assert second_page.json['next_offset'] is None
-    assert any(v['layouts'][0]['spotify_matches'] for v in second_page.json['variants'])
+    assert first_page.json['checked']==2
+    assert first_page.json['next_offset']==2
+    pages=[first_page.json]
+    for offset in range(2,13,2):
+        page=client.get('/api/albums/'+ALBUM+'/tracklist-variants?offset='+str(offset))
+        assert page.status_code==200,page.json
+        pages.append(page.json)
+        assert page.json['checked']==min(2,13-offset)
+        assert page.json['next_offset']==(offset+2 if offset+2<13 else None)
+    assert sum(page['checked'] for page in pages)==13
+    assert any(v['layouts'][0]['spotify_matches'] for page in pages for v in page['variants'])
+
+
+def test_successful_page_cached_for_retry_without_refetching(application,client,variants):
+    store,vinyl,cd,deluxe,reorder,calls=variants
+    first=client.get('/api/albums/'+ALBUM+'/tracklist-variants?offset=0')
+    assert first.status_code==200,first.json
+    previous=dict(calls)
+    again=client.get('/api/albums/'+ALBUM+'/tracklist-variants?offset=0')
+    assert again.status_code==200 and again.json==first.json
+    assert calls==previous, 'Retry must use cached verification results'
 
 
 def test_unconnected_account_cannot_see_unverified_tracklists(application,client,variants):
