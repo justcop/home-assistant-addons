@@ -1,5 +1,5 @@
 name: Music Video Companion
-version: "0.1.0"
+version: "0.2.0"
 slug: music_video_companion
 description: Discover approved official music videos for playing tracks and cast them to a TV.
 url: https://github.com/justcop/home-assistant-addons/tree/main/music_video_companion

@@ -39,6 +39,12 @@ class FakeHA:
             self.cast["attributes"]["media_content_id"] = VID
         if action == "media_stop":
             self.cast["state"] = "idle"
+        if action == "media_pause":
+            self.cast["state"] = "paused"
+        if action == "media_play":
+            self.cast["state"] = "playing"
+        if action == "media_seek":
+            self.cast["attributes"]["media_position"] = data["seek_position"]
         return {}
 
 
@@ -77,13 +83,20 @@ class CompanionTests(unittest.TestCase):
         self.assertIn("media_stop", [x[0] for x in self.ha.calls])
         self.assertFalse(self.ha.cast["attributes"]["is_volume_muted"])
 
-    def test_paused_spotify_stops_owned_video(self):
+    def test_paused_spotify_pauses_and_resumes_video(self):
         self.app.library.approve("The Beatles", "Something", CANDIDATE)
         self.app.library.configure({"auto": True})
         self.app.poll()
         self.ha.spotify["state"] = "paused"
         self.app.poll()
-        self.assertIsNone(self.app.active)
+        self.assertIsNotNone(self.app.active)
+        self.assertEqual(self.ha.cast["state"], "paused")
+        self.ha.spotify["state"] = "playing"
+        self.ha.spotify["attributes"]["media_position"] = 42
+        self.app.poll()
+        self.assertEqual(self.ha.cast["state"], "playing")
+        self.assertEqual(self.ha.cast["attributes"]["media_position"], 42)
+        self.assertEqual(self.app.active["seek_count"], 2)
 
     def test_unrelated_tv_playback_not_stopped(self):
         self.app.library.approve("The Beatles", "Something", CANDIDATE)
@@ -111,6 +124,79 @@ class CompanionTests(unittest.TestCase):
 
     def test_spotify_entity_extract(self):
         self.assertEqual(spotify_track(self.ha.spotify)["title"], "Something")
+
+    def test_initial_seek_after_cast_loads(self):
+        self.app.library.approve("The Beatles", "Something", CANDIDATE)
+        self.app.poll()
+        self.ha.spotify["attributes"]["media_position"] = 65
+        self.app.poll()
+        self.app.play_current()
+        self.app.sync_playback()
+        self.assertEqual(self.ha.cast["attributes"]["media_position"], 65)
+        self.assertEqual(self.app.active["sync_state"], "Aligned at launch")
+
+    def test_no_seek_corrections_during_uninterrupted_song(self):
+        self.app.library.approve("The Beatles", "Something", CANDIDATE)
+        self.app.poll()
+        self.app.play_current()
+        self.app.sync_playback()
+        count = sum(action == "media_seek" for action, _ in self.ha.calls)
+        for seconds in (20, 48, 95):
+            self.ha.spotify["attributes"]["media_position"] = seconds
+            self.app.poll()
+        self.assertEqual(sum(action == "media_seek" for action, _ in self.ha.calls), count)
+
+    def test_extra_video_intro_offset(self):
+        self.app.library.approve("The Beatles", "Something", CANDIDATE)
+        self.app.library.set_offset("The Beatles", "Something", 12.5)
+        self.app.poll()
+        self.ha.spotify["attributes"]["media_position"] = 20
+        self.app.play_current()
+        self.app.sync_playback()
+        self.assertEqual(self.ha.cast["attributes"]["media_position"], 32.5)
+        self.assertEqual(Library(self.app.library.path).match("The Beatles", "Something")["offset_seconds"], 12.5)
+
+    def test_different_receiver_content_not_sought(self):
+        self.app.library.approve("The Beatles", "Something", CANDIDATE)
+        self.app.poll()
+        self.app.play_current()
+        self.ha.cast["attributes"]["media_content_id"] = "anotherid01"
+        self.ha.cast["attributes"]["app_name"] = "Netflix"
+        before = len(self.ha.calls)
+        self.app.sync_playback()
+        self.assertEqual(len(self.ha.calls), before)
+
+    def test_unloaded_receiver_not_sought(self):
+        self.app.library.approve("The Beatles", "Something", CANDIDATE)
+        self.app.poll()
+        self.app.play_current()
+        self.ha.cast["attributes"]["media_content_id"] = ""
+        self.ha.cast["state"] = "idle"
+        before = len(self.ha.calls)
+        self.app.sync_playback()
+        self.assertEqual(len(self.ha.calls), before)
+        self.assertTrue(self.app.active["initial_pending"])
+
+    def test_offset_input_validation(self):
+        self.app.library.approve("The Beatles", "Something", CANDIDATE)
+        for invalid in ("nan", 100000, "oops"):
+            with self.assertRaises(ValueError):
+                self.app.library.set_offset("The Beatles", "Something", invalid)
+
+    def test_seek_unsupported_visible_to_user(self):
+        class NoSeekHA(FakeHA):
+            def service(self, action, data):
+                if action == "media_seek":
+                    raise RuntimeError("SEEK not supported")
+                return super().service(action, data)
+        ha = NoSeekHA()
+        app = Companion(path=Path(self.temp.name) / "no_seek.json", ha=ha, options={})
+        app.library.configure({"spotify_entity": "media_player.spotify", "cast_entity": "media_player.chromecast"})
+        app.library.approve("The Beatles", "Something", CANDIDATE)
+        app.poll()
+        app.play_current()
+        app.sync_playback()
+        self.assertIn("seek unavailable", app.active["sync_state"])
 
 
 if __name__ == "__main__":

@@ -97,6 +97,14 @@ function render(data) {
     ? "Approved video: " + data.approved.title + " · " + data.approved.channel_title
     : "No approved official video for this song.";
   $("cast").disabled = !data.approved || track.state !== "playing";
+  $("sync-status").textContent = data.active
+    ? "Video timing: " + (data.active.sync_state || "Starting") +
+      " · One-time seeks: " + (data.active.seek_count || 0)
+    : "Video timing: inactive";
+  $("offset-save").disabled = !data.approved;
+  if (document.activeElement !== $("offset")) {
+    $("offset").value = data.approved ? (data.approved.offset_seconds || 0) : 0;
+  }
   $("stop").disabled = !data.active;
   $("search").disabled = !track.title || !data.has_youtube_key;
   $("search").textContent = data.has_youtube_key ? "Find official candidates" : "Search needs a YouTube Data API key";
@@ -130,6 +138,14 @@ $("search").onclick = () => task(async () => {
 $("cast").onclick = () => task(async () => {
   await api("cast", {});
   notify("YouTube Cast launch requested.");
+});
+$("offset-save").onclick = () => task(async () => {
+  const value = Number($("offset").value);
+  if (!Number.isFinite(value) || $("offset").value.trim() === "") {
+    throw new Error("Enter a valid offset in seconds");
+  }
+  await api("offset", {seconds: value});
+  notify("Offset saved. Applies at next launch or Spotify resume.");
 });
 $("stop").onclick = () => task(async () => {
   await api("stop", {});

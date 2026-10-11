@@ -1,5 +1,6 @@
 """Conservative song matching and persistence."""
 import json
+import math
 import re
 import unicodedata
 import threading
@@ -89,7 +90,10 @@ class Library:
         with self.lock:
             if automatic and not strict_candidate(candidate, artist, title, self.trusted(artist)):
                 raise ValueError("Candidate is not from a trusted artist channel")
-            record = {"video_id": vid, "title": str(candidate.get("title", ""))[:200],
+            previous = self.data["matches"].get(song_key(artist, title), {})
+            retained = previous.get("offset_seconds", 0) if previous.get("video_id") == vid else 0
+            record = {"video_id": vid, "offset_seconds": retained,
+                      "title": str(candidate.get("title", ""))[:200],
                       "channel_id": str(candidate.get("channel_id", ""))[:100],
                       "channel_title": str(candidate.get("channel_title", ""))[:200],
                       "artist": artist, "song": title, "manually_approved": not automatic}
@@ -109,3 +113,18 @@ class Library:
         with self.lock:
             self.data["matches"].pop(song_key(artist, title), None)
             self.save()
+
+    def set_offset(self, artist, title, offset):
+        try:
+            offset = float(offset)
+        except (TypeError, ValueError, OverflowError):
+            raise ValueError("Offset must be a number")
+        if not math.isfinite(offset) or offset < -120 or offset > 120:
+            raise ValueError("Offset must be between -120 and +120 seconds")
+        with self.lock:
+            key = song_key(artist, title)
+            if key not in self.data["matches"]:
+                raise ValueError("No approved video to adjust")
+            self.data["matches"][key]["offset_seconds"] = round(offset, 2)
+            self.save()
+            return dict(self.data["matches"][key])

@@ -76,6 +76,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, {"approved": APP.approve(data)})
             if path == "/api/cast":
                 return self.send(200, {"approved": APP.play_current()})
+            if path == "/api/offset":
+                with APP.lock:
+                    cur = APP.current
+                    record = APP.library.set_offset(cur["artist"], cur["title"], data.get("seconds"))
+                    if APP.active and APP.active["song_key"] == __import__("model").song_key(cur["artist"], cur["title"]):
+                        APP.active["offset"] = record["offset_seconds"]
+                    APP.info = "Offset saved. It applies on the next launch or Spotify resume."
+                return self.send(200, {"approved": record})
             if path == "/api/stop":
                 APP.stop()
                 return self.send(200, {"ok": True})

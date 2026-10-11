@@ -80,10 +80,16 @@ class Companion:
             playing = track["state"] == "playing" and bool(key)
             changed = key != self.last_key
             restarted = key == self.last_key and prev.get("position", 0) > 20 and track.get("position", 0) < 4
+            if track["state"] == "paused":
+                if self.active:
+                    if self.active["song_key"] != key:
+                        self.stop()
+                    else:
+                        self.sync_playback()
+                return
             if not playing:
                 if self.active:
                     self.stop()
-                # Pause and resume of the same song is a fresh video session.
                 self.last_key = ""
                 return
             if changed or restarted:
@@ -97,6 +103,8 @@ class Companion:
             elif (not self.active and settings["auto"] and
                   self.library.match(track["artist"], track["title"]) and key not in self.searched):
                 self.play_current(allow_lookup=False)
+            if self.active:
+                self.sync_playback()
 
     def run(self):
         while self.running:

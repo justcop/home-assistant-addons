@@ -1,6 +1,7 @@
 """Launch an approved YouTube Cast video; never silently pick an untrusted result."""
 from model import song_key, strict_candidate
 from providers import youtube_search, cast_video
+import time
 
 def play_current(self, allow_lookup=False):
     with self.lock:
@@ -41,9 +42,17 @@ def play_current(self, allow_lookup=False):
             if old_mute is False:
                 self.ha.service("volume_mute", {"entity_id": entity, "is_volume_muted": False})
             raise
-        self.active = {"entity": entity, "video_id": match["video_id"], "old_mute": old_mute, "song_key": key}
+        self.active = {
+            "entity": entity, "video_id": match["video_id"],
+            "old_mute": old_mute, "song_key": key,
+            "offset": match.get("offset_seconds", 0),
+            "launched_at": time.monotonic(),
+            "initial_pending": True, "resume_pending": False,
+            "pause_applied": False, "last_source_state": "playing",
+            "sync_state": "Waiting for YouTube receiver", "seek_count": 0,
+        }
         self.searched.add(key)
-        self.info = "Official video launched; frame-level sync is not provided."
+        self.info = "Official video launched. Initial position alignment pending."
         return match
 
 def stop(self):

@@ -6,6 +6,11 @@
 <section class="card"><div class="eyebrow">NOW PLAYING</div><h2 id="song">No song detected</h2><p id="artist">Choose your source below.</p>
 <div class="inline"><span id="source-state" class="chip">Idle</span><span id="position" class="subtle"></span></div>
 <p id="approved" class="subtle">No saved video.</p>
+<p id="sync-status" class="small">Video alignment not started.</p>
+<div class="offset-control"><label for="offset">Video timing offset, in seconds</label>
+<div class="offset-row"><input id="offset" type="number" step="0.5" min="-120" max="120" value="0">
+<button id="offset-save" class="secondary">Save offset</button></div>
+<p class="small">Positive values skip ahead through an extra video introduction. Changes apply when the video starts or after a Spotify pause, never during uninterrupted playback.</p></div>
 <div class="button-row"><button id="cast" class="primary">Cast approved video</button><button id="stop" class="secondary">Stop video</button></div>
 </section>
 <section class="card"><h2>Source & screen</h2><label for="source">Music source</label><select id="source"><option value="spotify">Spotify via Home Assistant</option><option value="external">External adapter (future integration)</option></select>
@@ -21,6 +26,6 @@
 <div class="manual"><h3>Add a video manually</h3><label for="manual-id">YouTube video ID (11 characters)</label><input id="manual-id" placeholder="e.g. dQw4w9WgXcQ" maxlength="11">
 <label class="check"><input type="checkbox" id="manual-verified"><span>I verified this is an official artist, label or VEVO upload</span></label><button id="manual-save" class="secondary">Save this video</button></div>
 </section>
-<section class="card"><h2>Compatibility notes</h2><p>Playback is not frame-synchronised. The app mutes the selected Chromecast, which may mute the television's shared audio output. Do not use it when you need TV sound.</p><p>Spotify and YouTube prohibit certain cross-service synchronisation and audio/video separation uses. This experimental add-on does not extract or modify any YouTube media.</p><p class="small">If the YouTube receiver cannot be launched on your Chromecast, the error appears below and in Home Assistant logs.</p></section>
-<div class="message" id="message" role="status"></div><footer>Music Video Companion v0.1.0 · Local approvals retained between updates</footer>
+<section class="card"><h2>Compatibility notes</h2><p>The add-on seeks once at launch and once after Spotify resumes from a pause, but does not correct drift during a continuously playing song. Initial alignment requires the Chromecast to expose a seekable YouTube session. The app mutes the selected Chromecast, which may mute the television's shared audio output. Do not use it when you need TV sound.</p><p>Spotify and YouTube prohibit certain cross-service synchronisation and audio/video separation uses. This experimental add-on does not extract or modify any YouTube media.</p><p class="small">If the YouTube receiver cannot be launched on your Chromecast, the error appears below and in Home Assistant logs.</p></section>
+<div class="message" id="message" role="status"></div><footer>Music Video Companion v0.2.0 · Local approvals retained between updates</footer>
 </main><script src="app.js" defer></script></body></html>
