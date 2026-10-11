@@ -194,8 +194,11 @@ def test_song_lookup_runs_for_albums_with_existing_release_dates(tmp_path):
     jobs = []
     while not worker.jobs.empty():
         jobs.append(worker.jobs.get_nowait())
+    # A matching-engine upgrade also rechecks already cached album dates;
+    # the song is still queued even though an album date was already present.
     assert [(row[1], row[3], row[4]) for row in jobs] == [
-        ("song", "The Beatles", "Blackbird")
+        ("album", "The Beatles", "Later Collection"),
+        ("song", "The Beatles", "Blackbird"),
     ]
 
 
@@ -333,6 +336,8 @@ def test_upgrade_rechecks_legacy_song_dates_before_marking_complete(tmp_path):
             ("song", song_id, 1994, "MusicBrainz", 9999999999),
             ("album", album_id, 1994, "MusicBrainz", 9999999999),
         ])
+        # Isolate the song migration: this album already uses current lookup.
+        db.put(conn, "album_lookup_version", 2)
     worker = ReleaseYearWorker()
     assert worker.status(db)["songs"]["complete"]
     worker.thread = threading.Thread(target=lambda: None)
