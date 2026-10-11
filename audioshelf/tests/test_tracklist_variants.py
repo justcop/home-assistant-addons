@@ -134,6 +134,50 @@ def test_browse_only_shows_spotify_verified_grouped_tracklists(application,clien
     assert store.album(ALBUM)==before, 'Rechecking must not mutate canonical tracks'
 
 
+def test_edition_picker_only_counts_gb_worldwide_and_us_releases(application,client,variants):
+    store,vinyl,cd,deluxe,reorder,calls=variants
+    vinyl['country']='FR'
+    cd['country']='US'
+    deluxe['country']='XW'
+    reorder['country']='GB'
+    response=client.get('/api/albums/'+ALBUM+'/tracklist-variants')
+    assert response.status_code==200,response.json
+    assert response.json['all_total']==4
+    assert response.json['total']==3
+    assert response.json['checked']==3
+    assert response.json['next_offset'] is None
+    assert response.json['countries']==['GB','XW','US']
+    assert all(layout['country']!='FR' for group in response.json['variants']
+               for layout in group['layouts'])
+
+
+def test_scanning_continues_across_all_eligible_pages(application,client,variants,monkeypatch):
+    store,vinyl,cd,deluxe,reorder,calls=variants
+    mb=application.extensions['musicbrainz']
+    extra=[make_release(100+i,country='XW') for i in range(9)]
+    releases=[vinyl,cd,deluxe,reorder,*extra]
+    real_get=mb.get
+    monkeypatch.setattr(mb,'releases',lambda album_id:releases)
+    def get(entity,params=None):
+        if entity.startswith('release/'):
+            selected=next((r for r in extra if r['id']==entity.split('/')[1]),None)
+            if selected is not None:return selected
+        return real_get(entity,params)
+    monkeypatch.setattr(mb,'get',get)
+    checked=0
+    cursor=0
+    first_page=client.get('/api/albums/'+ALBUM+'/tracklist-variants?offset=0')
+    assert first_page.status_code==200,first_page.json
+    assert first_page.json['total']==13
+    assert first_page.json['checked']==8
+    assert first_page.json['next_offset']==8
+    second_page=client.get('/api/albums/'+ALBUM+'/tracklist-variants?offset=8')
+    assert second_page.status_code==200,second_page.json
+    assert second_page.json['checked']==5
+    assert second_page.json['next_offset'] is None
+    assert any(v['layouts'][0]['spotify_matches'] for v in second_page.json['variants'])
+
+
 def test_unconnected_account_cannot_see_unverified_tracklists(application,client,variants):
     application.extensions['spotify'].tokens={}
     result=client.get('/api/albums/'+ALBUM+'/tracklist-variants')
