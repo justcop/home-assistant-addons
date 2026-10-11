@@ -195,7 +195,7 @@ class Spotify:
         self.store.cache_put(key, result, ttl=3600)
         return result
 
-    def candidates(self, album):
+    def candidates(self, album, broad=False):
         artists = [a['name'] for a in album['artists']]
         if not artists:
             raise AppError('This album has no MusicBrainz artist credit. Choose another catalogue entry.')
@@ -210,8 +210,11 @@ class Spotify:
                 if not result.get('next'):
                     break
             return sources
-        sources = search_pages(f'album:"{title}" artist:"{artist}"')
-        if not sources:
+        # The first, fielded search can return albums without the chosen
+        # tracklist. The caller can explicitly retry with an unfielded query.
+        # Do not mistake "some search results" for "a verified match".
+        sources = search_pages(f'{title} {artist}') if broad else search_pages(f'album:"{title}" artist:"{artist}"')
+        if not sources and not broad:
             sources = search_pages(f'{title} {artist}')
         candidates, seen = [], set()
         for source in sources:
