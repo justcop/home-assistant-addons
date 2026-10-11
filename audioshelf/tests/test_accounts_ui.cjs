@@ -74,12 +74,11 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
     await page.getByRole('link',{name:'The Artist',exact:false}).first().click();
     await page.getByRole('button',{name:'Add The Original Album to shelf',exact:true}).click();
     await page.getByRole('heading',{name:'Choose the album tracklist'}).waitFor();
-    await page.locator('[data-action="select-variant"]').first().click();
-    await page.getByRole('heading',{name:'Disc and side layout'}).waitFor();
-    await page.getByRole('button',{name:'Find this tracklist on Spotify'}).click();
-    await page.getByText('Connect Spotify in Settings to match the chosen tracklist.',{exact:false}).waitFor();
+    await page.getByText('Connect Spotify in Settings to find playable tracklists.',{exact:false}).waitFor();
+    assert.equal(await page.locator('[data-action="select-variant"]').count(),0,
+      'Disconnected Spotify cannot offer apparently playable tracklists');
     assert.equal((await api('shelf')).albums.length,0,
-      'Disconnected Spotify may browse MusicBrainz variants but cannot collect an unverified edition');
+      'Disconnected Spotify cannot collect an unverified edition');
     await page.locator('.close-modal').click();
     const retryUrl=(await api('spotify/connect','POST',{})).url;
     const retryState=new URL(retryUrl).searchParams.get('state');
@@ -90,7 +89,7 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
     await page.getByRole('heading',{name:'Choose the album tracklist'}).waitFor();
     await page.locator('[data-action="select-variant"]').first().click();
     await page.getByRole('heading',{name:'Disc and side layout'}).waitFor();
-    await page.getByRole('button',{name:'Find this tracklist on Spotify'}).click();
+    await page.getByRole('button',{name:'Choose verified Spotify edition'}).click();
     await page.getByRole('heading',{name:'Choose Spotify recordings'}).waitFor();
     await page.locator('[data-action="choose-release"][data-spotify-id]').first().click();
     await page.locator('#toast').filter({hasText:'The Original Album added'}).waitFor();
