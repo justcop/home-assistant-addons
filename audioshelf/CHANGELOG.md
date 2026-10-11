@@ -1,3 +1,11 @@
+# 0.6.25 — Full regional tracklist scan and safer album matching
+
+- Automatically inspect all available GB, Worldwide (XW) and US MusicBrainz pressings in successive eight-release batches, with live progress, pause/resume, and retry. Other countries are excluded from this tracklist picker without modifying saved MusicBrainz settings or cover selection.
+- Consolidate equivalent verified musical tracklists and rejected variations across every page, and keep expanded tracklist details and scrolling intact while results update. The progress counter distinguishes eligible from total published releases.
+- Confirm trailing title details in combined medley titles when performer, version and timing independently corroborate them. For albums of at least five songs, one moderately different recording duration may be verified only when every other canonical song is independently matched and the titles and artist are identical.
+- Preserve strict checks against wrong performers, live or alternate versions, large timing discrepancies, partial albums and Spotify bonus-track additions. Final selection still independently revalidates every Spotify mapping before saving.
+- Add backend and browser regression tests for regional filtering, multi-page automatic discovery, matching safeguards and unchanged library data.
+
 # 0.6.24 — Verify tracklist variants before selection
 
 - Group MusicBrainz pressings into musical tracklists, then verify every canonical song on a single Spotify album before offering that tracklist or its individual disc/side layouts.
