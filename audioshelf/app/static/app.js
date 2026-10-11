@@ -449,11 +449,65 @@ async function openPlayableReleasePicker(albumId,mode){
     await loadReleasePage();
     return;
   }
-  releasePicker={album:albumId,mode,variants:[],rejected:[],next:0,checked:0,total:0,allTotal:0,stage:'variants',running:false,paused:false,error:''};
+  const previous=restoreVariantScan(albumId);
+  releasePicker=previous||{album:albumId,mode,variants:[],rejected:[],next:0,checked:0,total:0,allTotal:0,stage:'variants',running:false,paused:false,error:''};
   showModal('<h2>Choose a tracklist</h2>'+loading('Grouping MusicBrainz releases and verifying complete Spotify matches…'));
-  await loadVariantPage();
+  if(releasePicker.next===null)renderVariantPicker(releasePicker);
+  else await loadVariantPage();
 }
 
+// A page unload or a temporary proxy failure must not discard the albums
+// already checked. The cache is short-lived, private to this browser tab and
+// partitioned by AudioShelf account, market and album.
+function variantScanKey(albumId){
+  return 'audioshelf-tracklist-scan-v2:'+String(statusInfo.account?.id||'owner')+':'+
+    String(statusInfo.spotify_market||'GB')+':'+albumId;
+}
+function restoreVariantScan(albumId){
+  try{
+    const stored=JSON.parse(sessionStorage.getItem(variantScanKey(albumId))||'null');
+    if(!stored||Date.now()-stored.saved>30*60*1000)return null;
+    const state=stored.state;
+    if(state?.album!==albumId||!Array.isArray(state.variants)||!Array.isArray(state.rejected)||
+       !Number.isSafeInteger(state.checked)||state.checked<0||
+       !(state.next===null||(Number.isSafeInteger(state.next)&&state.next>=0)))return null;
+    return {...state,mode:'tracks',stage:'variants',running:false,paused:false,error:''};
+  }catch{return null;}
+}
+function saveVariantScan(state){
+  try{
+    sessionStorage.setItem(variantScanKey(state.album),JSON.stringify({
+      saved:Date.now(),state:{album:state.album,mode:state.mode,variants:state.variants,
+      rejected:state.rejected,next:state.next,checked:state.checked,total:state.total,
+      allTotal:state.allTotal,stage:'variants'}
+    }));
+  }catch{} // Storage may be disabled or full: the live scan still works.
+}
+function variantRecordingKeys(variant){
+  return new Set(variant.layouts.flatMap(layout=>(layout.spotify_matches||[])
+    .map(match=>match.recording_signature).filter(Boolean)));
+}
+function combineVerifiedVariant(state,variant){
+  const nextKeys=variantRecordingKeys(variant);
+  const existing=state.variants.find(item=>(item.signatures||[item.signature]).includes(variant.signature)||
+    [...variantRecordingKeys(item)].some(key=>nextKeys.has(key)));
+  if(!existing){
+    state.variants.push({...variant,signatures:[variant.signature]});
+    return;
+  }
+  existing.signatures=[...new Set([...(existing.signatures||[existing.signature]),variant.signature])];
+  existing.pressings+=variant.pressings;
+  for(const layout of variant.layouts){
+    const old=existing.layouts.find(candidate=>candidate.key===layout.key);
+    // A differently printed title is the same playable recording ONLY when
+    // the verified ordered Spotify IDs agree. Keep a separate physical layout
+    // when no equivalent representative is available.
+    if(old&&[...(old.spotify_matches||[])].some(a=>
+       (layout.spotify_matches||[]).some(b=>a.recording_signature===b.recording_signature))){
+      old.pressings+=layout.pressings;
+    }else existing.layouts.push(layout);
+  }
+}
 // Find the major musical changes, ignoring remaster suffixes, not alternate takes.
 function variantTitle(title){return String(title||'').normalize('NFKC').toLocaleLowerCase().replace(/\s*[\[(]\s*(?:\d{4}\s+)?re-?master(?:ed)?(?:\s+(?:version|edition))?(?:\s+\d{4})?\s*[\])]\s*$/i,'').replace(/[^\p{L}\p{N}]+/gu,' ').trim();}
 function variantDifference(a,b){
@@ -515,37 +569,48 @@ async function loadVariantPage(){
   const state=releasePicker,generation=routeGeneration;
   if(!state||state.mode==='cover'||state.running||state.next===null)return;
   state.running=true;state.paused=false;state.error='';
+  let failures=0;
   try{
     while(state.next!==null&&!state.paused&&state.stage==='variants'&&releasePicker===state&&modal.open&&generation===routeGeneration){
       renderVariantPicker(state);
-      const result=await api(`albums/${id(state.album)}/tracklist-variants?offset=${state.next}`);
+      let result;
+      try{
+        result=await api(`albums/${id(state.album)}/tracklist-variants?offset=${state.next}`);
+        failures=0;
+      }catch(error){
+        // The proxy may drop a slow cold-cache request while MusicBrainz is
+        // rate limiting. Retry the SAME cursor, never recounting earlier pages.
+        const transient=!error.status||error.status===429||error.status>=500;
+        if(transient&&failures<3&&!state.paused){
+          failures++;
+          state.error='Temporary interruption. Retrying the current batch ('+failures+'/3)…';
+          renderVariantPicker(state,state.error);
+          await new Promise(resolve=>setTimeout(resolve,Math.min(4000,600*2**(failures-1))));
+          continue;
+        }
+        throw new Error(transient?
+          'The scan was interrupted at '+state.checked+' releases. Your results are saved. Choose Retry scan to continue. '+error.message:
+          error.message);
+      }
       if(generation!==routeGeneration||releasePicker!==state||!modal.open||state.stage!=='variants')return;
       state.next=result.next_offset;state.total=result.total;state.allTotal=result.all_total||result.total;
       state.checked+=result.checked;
-      for(const variant of result.variants){
-        const found=state.variants.find(v=>v.signature===variant.signature);
-        if(!found){state.variants.push(variant);continue;}
-        found.pressings+=variant.pressings;
-        for(const layout of variant.layouts){
-          const existing=found.layouts.find(l=>l.key===layout.key);
-          if(existing)existing.pressings+=layout.pressings;
-          else found.layouts.push(layout);
-        }
-      }
-      // Reject each musical tracklist only once, not once per page.
-      // Later matching pressings rescue earlier rejected signatures.
+      for(const variant of result.variants)combineVerifiedVariant(state,variant);
       for(const issue of result.rejected||[]){
         const found=state.rejected.find(v=>v.signature===issue.signature);
         if(!found)state.rejected.push(issue);
         else if(issue.missing<found.missing)Object.assign(found,issue);
       }
-      const playableSignatures=new Set(state.variants.map(v=>v.signature));
+      const playableSignatures=new Set(state.variants.flatMap(v=>v.signatures||[v.signature]));
       state.rejected=state.rejected.filter(v=>!playableSignatures.has(v.signature));
+      state.error='';
+      saveVariantScan(state);
       renderVariantPicker(state);
     }
   }catch(error){
     if(generation===routeGeneration&&releasePicker===state&&modal.open&&state.stage==='variants'){
       state.paused=true;state.error=error.message;
+      saveVariantScan(state);
     }
   }finally{
     state.running=false;
