@@ -144,7 +144,13 @@ class PlayableReleases:
             # Recording aliases/ISRCs can rescue an otherwise good, differently
             # printed title. Do this ONLY for near matches, and never mutate the DB.
             best = max(assessments, key=lambda c: (c['verified'], c['matched'], c['score']))
-            if best['verified'] > 0:
+            # Each MusicBrainz recording lookup costs at least one second.
+            # A 36-track special edition missing 27 songs should not spend
+            # half a minute enriching metadata that cannot rescue the album.
+            # Reserve enrichment for near-complete candidates (at most two
+            # failures) to keep HTTP requests comfortably below proxy limits.
+            missing_count = len(probe['tracks']) - best['verified']
+            if best['verified'] > 0 and 0 < missing_count <= 2:
                 enriched = self.enrich_probe(probe, best)
                 if enriched is not probe:
                     sources_by_id = {s['id']: s for s in sources}
