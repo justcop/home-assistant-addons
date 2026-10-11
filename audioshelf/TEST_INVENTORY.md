@@ -1,12 +1,12 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-11T14:29:00+01:00 (Europe/London).
+Reviewed: 2026-10-11T14:40:00+01:00 (Europe/London).
 
-Reviewed the new MusicBrainz regional picker scan cases, including GB/Worldwide/US selection, pagination through all eligible releases, and a corrected eight-release browser fixture verifying automatic continuation and full-catalogue progress, with picker-scoped status assertions that exclude unrelated toast notifications. Also reviewed medley subtitle evidence, corroborated album-context timing, wrong-artist/live safeguards and the existing strict partial-mapping tests. Real Spotify market catalogue availability remains an integration smoke test.
+Reviewed the smaller two-release MusicBrainz scan tests, the full-catalogue cursor checks, caching the successful page on retry, browser automatic retries and page refresh resume, and Spotify recording-fingerprint grouping. These tests preserve the strict complete matching rules and ensure genuine different recordings do not collapse. Live Spotify integration still requires a connected account.
 
-<!-- inventory: {"reviewed_at":"2026-10-11T14:15:00+01:00","review_note":"Reviewed the new MusicBrainz regional picker scan cases, including GB/Worldwide/US selection, pagination through all eligible releases, automatic browser continuation, and full-catalogue progress. Also reviewed medley subtitle evidence, corroborated album-context timing, wrong-artist/live safeguards and the existing strict partial-mapping tests. Real Spotify market catalogue availability remains an integration smoke test.","source_sha256":"606cb9653cb5d17596634a63cdabd1c8b0b885367b1e0010dde7cab64e03508c"} -->
+<!-- inventory: {"reviewed_at":"2026-10-11T14:40:00+01:00","review_note":"Reviewed the smaller two-release MusicBrainz scan tests, the full-catalogue cursor checks, caching the successful page on retry, browser automatic retries and page refresh resume, and Spotify recording-fingerprint grouping. These tests preserve the strict complete matching rules and ensure genuine different recordings do not collapse. Live Spotify integration still requires a connected account.","source_sha256":"9ffe47454dae6247e0a4b03ce3c7fb0defaa871555ff53c499bdbacc12f216fc"} -->
 
-## Backend cases (330)
+## Backend cases (331)
 
 1. `audioshelf/tests/test_accounts.py::test_account_creation_and_management_require_admin_and_fresh_password`
 2. `audioshelf/tests/test_accounts.py::test_background_playback_is_account_and_session_scoped`
@@ -330,14 +330,15 @@ Reviewed the new MusicBrainz regional picker scan cases, including GB/Worldwide/
 320. `audioshelf/tests/test_tracklist_variants.py::test_scanning_continues_across_all_eligible_pages`
 321. `audioshelf/tests/test_tracklist_variants.py::test_select_vinyl_sides_preserves_disc_and_canonical_mapping`
 322. `audioshelf/tests/test_tracklist_variants.py::test_side_choice_validation_and_stored_album_intact_on_failure`
-323. `audioshelf/tests/test_tracklist_variants.py::test_unconnected_account_cannot_see_unverified_tracklists`
-324. `audioshelf/tests/test_tracklist_variants.py::test_unknown_or_inconsistent_vinyl_numbers_do_not_create_fictitious_sides`
-325. `audioshelf/tests/test_tracklist_variants.py::test_unmatched_album_has_reasons_and_no_selectable_tracklists`
-326. `audioshelf/tests/test_tracklist_variants.py::test_unverified_disc_layout_not_offered_even_with_same_song_sequence`
-327. `audioshelf/tests/test_vinyl.py::test_interface_persists_and_invalid_choice_is_atomic`
-328. `audioshelf/tests/test_vinyl.py::test_playback_does_not_misidentify_shared_or_uncollected_tracks`
-329. `audioshelf/tests/test_vinyl.py::test_playback_tracks_spotify_pause_and_relinked_library_track`
-330. `audioshelf/tests/test_vinyl.py::test_shelf_furniture_persists_and_rejects_invalid_choices`
+323. `audioshelf/tests/test_tracklist_variants.py::test_successful_page_cached_for_retry_without_refetching`
+324. `audioshelf/tests/test_tracklist_variants.py::test_unconnected_account_cannot_see_unverified_tracklists`
+325. `audioshelf/tests/test_tracklist_variants.py::test_unknown_or_inconsistent_vinyl_numbers_do_not_create_fictitious_sides`
+326. `audioshelf/tests/test_tracklist_variants.py::test_unmatched_album_has_reasons_and_no_selectable_tracklists`
+327. `audioshelf/tests/test_tracklist_variants.py::test_unverified_disc_layout_not_offered_even_with_same_song_sequence`
+328. `audioshelf/tests/test_vinyl.py::test_interface_persists_and_invalid_choice_is_atomic`
+329. `audioshelf/tests/test_vinyl.py::test_playback_does_not_misidentify_shared_or_uncollected_tracks`
+330. `audioshelf/tests/test_vinyl.py::test_playback_tracks_spotify_pause_and_relinked_library_track`
+331. `audioshelf/tests/test_vinyl.py::test_shelf_furniture_persists_and_rejects_invalid_choices`
 
 ## Other release checks
 
