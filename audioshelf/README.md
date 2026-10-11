@@ -1,10 +1,10 @@
 # AudioShelf
 
-### MusicBrainz tracklist variants (v0.6.24)
+### MusicBrainz tracklist variants (v0.6.25)
 
 When adding or changing a record's tracklist, AudioShelf first groups MusicBrainz releases with the same ordered songs and performers into musical choices. **Before displaying them, it verifies every canonical track against Spotify.** Only entirely matched tracklists and disc/side layouts can be selected. The picker explains bonus songs, omissions and reordered tracks, highlights added tracks in green and removed tracks in red, and can expand each complete tracklist. Choose a tracklist and its physical disc arrangement, optionally enable **real** vinyl-side breaks when MusicBrainz supplies A1/B1 numbering, and select an already verified Spotify edition. Extra Spotify bonus tracks never enter the queue. Saving the choice rechecks every match before changing your collection.
 
-Different pressings can have different disc layouts even when their songs are identical; these are alternatives within the same tracklist. A multi-disc release always retains separate discs. If side numbering is incomplete, AudioShelf leaves side splitting unavailable rather than inventing it. AudioShelf examines eight MusicBrainz releases per page and reports rejected tracklists with reasons, preserving the regional/format preferences; click **Inspect more MusicBrainz pressings** to discover variants appearing later. Old albums and album/disc playback continue working unchanged, and changing a canonical edition clears obsolete saved sides.
+Different pressings can have different disc layouts even when their songs are identical; these are alternatives within the same tracklist. A multi-disc release always retains separate discs. If side numbering is incomplete, AudioShelf leaves side splitting unavailable rather than inventing it. AudioShelf automatically scans every available **GB, Worldwide and US** MusicBrainz pressing in batches of eight, even when the first batch has no matches. The live status distinguishes eligible releases from the full worldwide release count. You may pause and resume the scan, and retry after a temporary error. Equivalent versions are combined across all batches. This tracklist-picker restriction does not alter your stored country preferences or cover picker. Old albums and album/disc playback continue working unchanged, and changing a canonical edition clears obsolete saved sides.
 
 
 ### Session and shelf presentation
