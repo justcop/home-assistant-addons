@@ -247,31 +247,55 @@ function releaseYearsHTML(data) {
         '<span class="release-year-short" aria-hidden="true">' + String(year % 100).padStart(2, '0') +
         '</span></button>';
     }).join("")).join("");
-  const progress = busy
-    ? 'Identifying more releases in the background: ' + number(lookup.queued) +
-      ' queued' + (lookup.processing ? ', one being checked' : '') + '. '
-    : lookup.enabled ? 'Release-year lookup is idle. ' : 'Automatic lookups are disabled. ';
+  const progressDetails = (group, label) => {
+    if (!group) return '';
+    const pct = group.total ? Math.round(100 * group.checked / group.total) : 100;
+    const description = !lookup.enabled ? 'Matching is paused.' :
+      group.complete ? 'Lookup pass complete for the current library.' :
+      group.processing || group.queued ? number(group.queued) + ' queued' +
+      (group.processing ? ', one being checked.' : '.') :
+      number(group.pending) + ' awaiting lookup or retry.';
+    return '<div class="release-lookup-group"><div class="release-lookup-label"><strong>' +
+      esc(label) + '</strong><span>' + number(group.checked) + ' / ' +
+      number(group.total) + ' checked (' + pct + '%)</span></div>' +
+      '<progress max="' + (group.total || 1) + '" value="' + group.checked +
+      '" aria-label="' + esc(label) + ' matching progress"></progress>' +
+      '<p class="method-note">' + number(group.matched) + ' dated, ' +
+      number(group.unresolved) + ' checked with no usable year, ' +
+      number(group.pending) + ' not yet checked. ' + esc(description) + '</p></div>';
+  };
+  const progress = '<section class="release-lookup-status" aria-label="Release-year matching status">' +
+    '<h3>Metadata matching progress</h3>' +
+    progressDetails(lookup.songs, 'Songs') + progressDetails(lookup.albums, 'Albums') +
+    '<p class="method-note">A completed pass means every imported song or album has been checked, ' +
+    'not that every date is historically correct. Unmatched recordings may still use provisional ' +
+    'album dates, and new scrobbles or scheduled metadata rechecks can change these figures.</p></section>';
   const grid = years.length
     ? '<p class="method-note">Darker squares mean more scrobbles. Replaying the same song adds to its release year. Tap a year to see its most played songs.</p>' +
       '<div class="release-year-scroll" tabindex="0" aria-label="Release year heatmap, decades in rows">' +
       '<div class="release-year-grid"><span></span>' + headings + cells + '</div></div>'
     : '<p class="empty">No identified release years yet. This heatmap fills in as music metadata is found.</p>';
-  const songs = (data.top_songs || []).map((song,i) =>
-    '<button class="list-row" data-detail="song" data-id="' + esc(song.id) + '">' +
+  const rankedRows = (rows, kind) => (rows || []).map((entry,i) =>
+    '<button class="list-row" data-detail="' + kind + '" data-id="' + esc(entry.id) + '">' +
     '<span class="rank">' + (i+1) + '</span><span class="list-name"><strong>' +
-    esc(song.name) + '</strong><small>' + esc(song.artist) + '</small></span>' +
-    '<span class="list-count">' + number(song.plays) + '</span></button>').join("");
+    esc(entry.name) + '</strong><small>' + esc(entry.artist) + '</small></span>' +
+    '<span class="list-count">' + number(entry.plays) + '</span></button>').join("") ||
+    '<p class="method-note">No identified ' + kind + ' releases for this year and listening filter yet.</p>';
   const detail = data.selected_year == null ? "" :
+    '<div class="grid-two release-year-rankings">' +
     '<section class="panel release-year-details">' +
-    panelHead('Most played from ' + data.selected_year, 'Songs attributed to this release year in the selected listening period.') +
-    (songs || '<p class="method-note">No songs in this year for the selected filters.</p>') + '</section>';
+    panelHead('Top 20 songs from ' + data.selected_year, 'Songs attributed to this original release year.') +
+    rankedRows(data.top_songs, 'song') + '</section>' +
+    '<section class="panel release-year-details">' +
+    panelHead('Top 20 albums from ' + data.selected_year, 'Albums originally released in this year, ranked by track scrobbles.') +
+    rankedRows(data.top_albums, 'album') + '</section></div>';
   return '<section class="panel release-years-panel">' +
     panelHead('Music by year of release', 'Original release year, not the year you scrobbled it.') +
     '<div class="release-year-summary"><strong>' + number(data.identified) +
     '</strong> dated scrobbles <span>of ' + number(data.total) + ' (' + pct + '%)</span></div>' +
-    '<p class="method-note" role="status" aria-live="polite">' + progress + number(data.unidentified) +
-    ' plays have no verified release year and are excluded rather than assigned an arbitrary year.</p>' +
-    grid + '<p class="method-note">The earliest known release year for a song is preferred across albums and reissues, using MusicBrainz recording dates and eligible album dates. Album dates are provisional until song matching finishes. The date and vinyl filters above apply to plays, not release years.</p>' +
+    '<p class="method-note">' + number(data.unidentified) +
+    ' plays have no identified release year and are excluded rather than assigned an arbitrary year.</p>' +
+    progress + grid + '<p class="method-note">The earliest known release year for a song is preferred across albums and reissues, using MusicBrainz recording dates and eligible album dates. Album dates are provisional until song matching finishes. The date and vinyl filters above apply to plays, not release years.</p>' +
     '</section>' + detail;
 }
 
@@ -527,12 +551,12 @@ function watchCachedView(slot, path, extra, data, render, valid, target) {
       $(target).textContent = "Update delayed; showing saved results";
     }
     const processingAlbums = (path === "rankings" && extra.kind === "album" && data?.album_progress?.enabled && (data.album_progress.pending > 0 || data.album_progress.queued > 0 || data.album_progress.processing > 0))
-      || (path === "release-years" && data?.lookup?.enabled && (data.lookup.queued > 0 || data.lookup.processing > 0));
+      || (path === "release-years" && data?.lookup?.enabled && (data.lookup.songs?.pending > 0 || data.lookup.albums?.pending > 0 || data.lookup.queued > 0 || data.lookup.processing > 0));
     cacheTimers[slot] = setTimeout(tick, data?._cache?.error ? 60000 : data?._cache?.stale || data?._cache?.refreshing ? 2000 : processingAlbums ? 10000 : 60000);
   }
   if (data?._cache) {
     const processingAlbums = (path === "rankings" && extra.kind === "album" && data?.album_progress?.enabled && (data.album_progress.pending > 0 || data.album_progress.queued > 0 || data.album_progress.processing > 0))
-      || (path === "release-years" && data?.lookup?.enabled && (data.lookup.queued > 0 || data.lookup.processing > 0));
+      || (path === "release-years" && data?.lookup?.enabled && (data.lookup.songs?.pending > 0 || data.lookup.albums?.pending > 0 || data.lookup.queued > 0 || data.lookup.processing > 0));
     cacheTimers[slot] = setTimeout(tick, data._cache.error ? 60000 : data._cache.stale || data._cache.refreshing ? 2000 : processingAlbums ? 10000 : 60000);
   }
 }
