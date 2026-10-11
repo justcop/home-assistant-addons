@@ -1,12 +1,12 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-11T14:40:00+01:00 (Europe/London).
+Reviewed: 2026-10-11T14:55:00+01:00 (Europe/London).
 
-Reviewed the smaller two-release MusicBrainz scan tests, the full-catalogue cursor checks, caching the successful page on retry, browser automatic retries and page refresh resume, and Spotify recording-fingerprint grouping. These tests preserve the strict complete matching rules and ensure genuine different recordings do not collapse. Live Spotify integration still requires a connected account.
+Reviewed the regression suite for two-release page requests, cached retry/resume, automatic browser retry and complete multi-page scans; verified that both different printed titles and different Spotify recordings are handled independently, and that clearly incompatible 36-track editions skip costly MusicBrainz recording lookups. Updated tests account for country-priority sorting across page boundaries. Existing full-track verification and account separation remain covered.
 
-<!-- inventory: {"reviewed_at":"2026-10-11T14:40:00+01:00","review_note":"Reviewed the smaller two-release MusicBrainz scan tests, the full-catalogue cursor checks, caching the successful page on retry, browser automatic retries and page refresh resume, and Spotify recording-fingerprint grouping. These tests preserve the strict complete matching rules and ensure genuine different recordings do not collapse. Live Spotify integration still requires a connected account.","source_sha256":"9ffe47454dae6247e0a4b03ce3c7fb0defaa871555ff53c499bdbacc12f216fc"} -->
+<!-- inventory: {"reviewed_at":"2026-10-11T14:55:00+01:00","review_note":"Reviewed the regression suite for two-release page requests, cached retry/resume, automatic browser retry and complete multi-page scans; verified that both different printed titles and different Spotify recordings are handled independently, and that clearly incompatible 36-track editions skip costly MusicBrainz recording lookups. Updated tests account for country-priority sorting across page boundaries. Existing full-track verification and account separation remain covered.","source_sha256":"9a74598965b34b83bf33c67e199a55c91e9ed834bd0f9e1b391acd46f02f46a4"} -->
 
-## Backend cases (331)
+## Backend cases (332)
 
 1. `audioshelf/tests/test_accounts.py::test_account_creation_and_management_require_admin_and_fresh_password`
 2. `audioshelf/tests/test_accounts.py::test_background_playback_is_account_and_session_scoped`
@@ -325,20 +325,21 @@ Reviewed the smaller two-release MusicBrainz scan tests, the full-catalogue curs
 315. `audioshelf/tests/test_tracklist_variants.py::test_equivalent_layout_tries_later_pressing_if_first_cannot_match`
 316. `audioshelf/tests/test_tracklist_variants.py::test_equivalent_pressings_collapse_despite_remaster_and_recording_ids`
 317. `audioshelf/tests/test_tracklist_variants.py::test_invalid_tracklist_page_is_rejected`
-318. `audioshelf/tests/test_tracklist_variants.py::test_matching_fallback_when_structured_search_has_no_complete_album`
-319. `audioshelf/tests/test_tracklist_variants.py::test_multidisc_layout_kept_independent_of_same_song_sequence`
-320. `audioshelf/tests/test_tracklist_variants.py::test_scanning_continues_across_all_eligible_pages`
-321. `audioshelf/tests/test_tracklist_variants.py::test_select_vinyl_sides_preserves_disc_and_canonical_mapping`
-322. `audioshelf/tests/test_tracklist_variants.py::test_side_choice_validation_and_stored_album_intact_on_failure`
-323. `audioshelf/tests/test_tracklist_variants.py::test_successful_page_cached_for_retry_without_refetching`
-324. `audioshelf/tests/test_tracklist_variants.py::test_unconnected_account_cannot_see_unverified_tracklists`
-325. `audioshelf/tests/test_tracklist_variants.py::test_unknown_or_inconsistent_vinyl_numbers_do_not_create_fictitious_sides`
-326. `audioshelf/tests/test_tracklist_variants.py::test_unmatched_album_has_reasons_and_no_selectable_tracklists`
-327. `audioshelf/tests/test_tracklist_variants.py::test_unverified_disc_layout_not_offered_even_with_same_song_sequence`
-328. `audioshelf/tests/test_vinyl.py::test_interface_persists_and_invalid_choice_is_atomic`
-329. `audioshelf/tests/test_vinyl.py::test_playback_does_not_misidentify_shared_or_uncollected_tracks`
-330. `audioshelf/tests/test_vinyl.py::test_playback_tracks_spotify_pause_and_relinked_library_track`
-331. `audioshelf/tests/test_vinyl.py::test_shelf_furniture_persists_and_rejects_invalid_choices`
+318. `audioshelf/tests/test_tracklist_variants.py::test_long_unplayable_editions_do_not_trigger_many_recording_requests`
+319. `audioshelf/tests/test_tracklist_variants.py::test_matching_fallback_when_structured_search_has_no_complete_album`
+320. `audioshelf/tests/test_tracklist_variants.py::test_multidisc_layout_kept_independent_of_same_song_sequence`
+321. `audioshelf/tests/test_tracklist_variants.py::test_scanning_continues_across_all_eligible_pages`
+322. `audioshelf/tests/test_tracklist_variants.py::test_select_vinyl_sides_preserves_disc_and_canonical_mapping`
+323. `audioshelf/tests/test_tracklist_variants.py::test_side_choice_validation_and_stored_album_intact_on_failure`
+324. `audioshelf/tests/test_tracklist_variants.py::test_successful_page_cached_for_retry_without_refetching`
+325. `audioshelf/tests/test_tracklist_variants.py::test_unconnected_account_cannot_see_unverified_tracklists`
+326. `audioshelf/tests/test_tracklist_variants.py::test_unknown_or_inconsistent_vinyl_numbers_do_not_create_fictitious_sides`
+327. `audioshelf/tests/test_tracklist_variants.py::test_unmatched_album_has_reasons_and_no_selectable_tracklists`
+328. `audioshelf/tests/test_tracklist_variants.py::test_unverified_disc_layout_not_offered_even_with_same_song_sequence`
+329. `audioshelf/tests/test_vinyl.py::test_interface_persists_and_invalid_choice_is_atomic`
+330. `audioshelf/tests/test_vinyl.py::test_playback_does_not_misidentify_shared_or_uncollected_tracks`
+331. `audioshelf/tests/test_vinyl.py::test_playback_tracks_spotify_pause_and_relinked_library_track`
+332. `audioshelf/tests/test_vinyl.py::test_shelf_furniture_persists_and_rejects_invalid_choices`
 
 ## Other release checks
 
