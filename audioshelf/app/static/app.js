@@ -509,6 +509,9 @@ async function loadVariantPage(){
         else found.layouts.push(layout);
       }
     }
+    // A later pressing may rescue a tracklist rejected on an earlier page.
+    const playableSignatures=new Set(state.variants.map(v=>v.signature));
+    state.rejected=state.rejected.filter(v=>!playableSignatures.has(v.signature));
     modalContent.innerHTML=variantPickerHtml(state);
   }catch(error){if(generation===routeGeneration&&releasePicker===state&&modal.open)modalContent.innerHTML=variantPickerHtml(state,error.message);}
 }
