@@ -214,3 +214,49 @@ def test_grouping_clear_discards_an_inflight_old_result(tmp_path):
     finally:
         release.set()
         cache.close()
+
+
+
+def test_release_year_metadata_invalidates_years_without_discarding_overview(tmp_path):
+    db = Database(tmp_path / "revision.sqlite3")
+    calls = {"overview": 0, "release-years": 0}
+
+    def compute(name):
+        def fn(db, args):
+            calls[name] += 1
+            return {"count": calls[name]}
+        return fn
+
+    cache = ViewCache("Europe/London", {
+        "overview": compute("overview"),
+        "release-years": compute("release-years"),
+    })
+    try:
+        overview = cache.get(db, "overview", {})
+        years = cache.get(db, "release-years", {})
+        assert overview["count"] == years["count"] == 1
+        assert not overview["_cache"]["stale"]
+        assert not years["_cache"]["stale"]
+
+        db.set_meta("release_year_revision", 1)
+        stable = cache.get(db, "overview", {})
+        assert stable["count"] == 1
+        assert not stable["_cache"]["stale"]
+        assert calls["overview"] == 1
+
+        old_years = cache.get(db, "release-years", {})
+        assert old_years["count"] == 1
+        assert old_years["_cache"]["stale"]
+        with cache.lock:
+            future = cache.jobs[(str(db.path), cache.key("release-years", {}))]
+        future.result(timeout=5)
+        refreshed = cache.get(db, "release-years", {})
+        assert refreshed["count"] == 2
+        assert not refreshed["_cache"]["stale"]
+
+        # Imported data and explicit grouping changes still invalidate both.
+        db.set_meta("import", {"complete": True})
+        assert cache.get(db, "overview", {})["_cache"]["stale"]
+        assert cache.get(db, "release-years", {})["_cache"]["stale"]
+    finally:
+        cache.close()

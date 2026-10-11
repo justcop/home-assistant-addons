@@ -231,8 +231,8 @@ class ReleaseYearWorker:
                          now + (3600 if failed else 90 * 86400)),
                     )
                     if old is None or old["year"] != year:
-                        db.put(conn, "analysis_revision",
-                               db.get(conn, "analysis_revision", 0) + 1)
+                        db.put(conn, "release_year_revision",
+                               db.get(conn, "release_year_revision", 0) + 1)
                 saved = True
             except (ValueError, TypeError, sqlite3.Error, OSError):
                 pass

@@ -48,6 +48,17 @@ class ViewCache:
         values.setdefault("mode", "merged")
         return json.dumps([self.CACHE_FORMAT, name, values], sort_keys=True)
 
+    @staticmethod
+    def _revision(db, conn, name):
+        base = int(db.get(conn, "analysis_revision", 0))
+        if name == "release-years":
+            # Release metadata advances independently of imports/grouping.
+            # Prevent thousands of MusicBrainz lookups from invalidating
+            # unrelated, frequently opened overview and ranking caches.
+            release = int(db.get(conn, "release_year_revision", 0))
+            return base * 1_000_000_000 + release
+        return base
+
     def register(self, db):
         with self.lock:
             if str(db.path) not in self.databases:
@@ -89,7 +100,7 @@ class ViewCache:
         key = self.key(name, args)
         with self.lock:
             with db.connect() as conn:
-                revision = db.get(conn, "analysis_revision", 0)
+                revision = self._revision(db, conn, name)
                 row = conn.execute(
                     "SELECT * FROM view_cache WHERE cache_key=?", (key,)
                 ).fetchone()
@@ -119,7 +130,8 @@ class ViewCache:
             except FutureTimeout:
                 # Never monopolise every web thread during a long first calculation.
                 raise ValueError("Analysis is generating. Please retry shortly.") from None
-            stale = revision != db.meta("analysis_revision", 0)
+            with db.connect() as conn:
+                stale = revision != self._revision(db, conn, name)
         else:
             result, generated = json.loads(row["payload"]), row["generated"]
         with self.lock:
@@ -175,8 +187,9 @@ class ViewCache:
                 db, key, future, epoch = job
                 jobkey = (str(db.path), key)
                 try:
-                    revision = db.meta("analysis_revision", 0)
                     version, name, args = json.loads(key)
+                    with db.connect() as conn:
+                        revision = self._revision(db, conn, name)
                     result = self.compute[name](db, args)
                     generated = time.time()
                     with self.lock:
