@@ -431,4 +431,8 @@ def test_album_lookup_upgrade_rechecks_incorrectly_cached_1994(tmp_path):
     result = release_year_analysis(db, {"period": "all", "release_year": "1968"}, "UTC")
     assert result["top_albums"][0]["name"] == "The Beatles"
     assert result["top_albums"][0]["plays"] == 1
+    # The test disables the background worker; simulate its normally executed
+    # finally block removing the completed album from the pending queue.
+    with worker.lock:
+        worker.pending.discard((str(db.path), "album", album_id))
     assert worker.status(db)["albums"]["complete"]
