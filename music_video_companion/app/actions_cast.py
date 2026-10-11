@@ -35,6 +35,8 @@ def play_current(self, allow_lookup=False):
         self.ha.service("volume_mute", {"entity_id": entity, "is_volume_muted": True})
         try:
             cast_video(self.ha, entity, match["video_id"])
+            # The YouTube receiver may initialise its audio after Cast launch.
+            self.ha.service("volume_mute", {"entity_id": entity, "is_volume_muted": True})
         except Exception:
             if old_mute is False:
                 self.ha.service("volume_mute", {"entity_id": entity, "is_volume_muted": False})

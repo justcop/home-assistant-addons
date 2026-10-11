@@ -83,8 +83,8 @@ class Companion:
             if not playing:
                 if self.active:
                     self.stop()
-                if track["state"] == "idle":
-                    self.last_key = ""
+                # Pause and resume of the same song is a fresh video session.
+                self.last_key = ""
                 return
             if changed or restarted:
                 self.last_key = key

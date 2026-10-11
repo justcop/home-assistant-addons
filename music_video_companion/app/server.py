@@ -64,6 +64,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send(401, {"error": "Bad or missing source token"})
                 return self.send(200, APP.external_update(data))
             if path == "/api/config":
+                if APP.active:
+                    APP.stop()
                 settings = APP.library.configure(data)
                 APP.last_key = ""
                 APP.searched.clear()
