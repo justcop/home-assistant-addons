@@ -4,6 +4,7 @@ import logging
 import os
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from model import Library, song_key
 from providers import HomeAssistant, spotify_track
@@ -35,6 +36,15 @@ class Companion:
         self.external_track = None
         self.external_received = 0
         self.running = True
+        self._wake = threading.Event()
+        self._pending_ha_event = None
+        self.event_feed_state = "starting"
+        self.event_feed_error = ""
+        self.event_feed_events = 0
+        self.event_feed_last = None
+        self.last_detection = {}
+        self.last_detection_monotonic = None
+        self.last_cast_timing = {}
         # The Spotify HA integration normally fetches at ~30 seconds.
         # Refresh its source (not our cached copy) at a measured, bounded rate.
         self.spotify_refresh_next = time.monotonic() + max(10, int(self.options.get("spotify_refresh_seconds", 10) or 10))
@@ -66,6 +76,17 @@ class Companion:
                         "seconds_until_next": round(max(0, self.spotify_refresh_next - time.monotonic()), 1),
                         "last_success_monotonic": self.spotify_refresh_last,
                     },
+                    "event_feed": {
+                        "state": self.event_feed_state,
+                        "last_error": self.event_feed_error,
+                        "meaningful_events": self.event_feed_events,
+                        "last_event_ago_seconds": (
+                            round(max(0, time.monotonic() - self.event_feed_last), 1)
+                            if self.event_feed_last is not None else None
+                        ),
+                    },
+                    "last_detection": dict(self.last_detection),
+                    "last_cast_timing": dict(self.last_cast_timing),
                     "has_youtube_key": bool(self.options.get("youtube_api_key")),
                     "external_enabled": bool(self.options.get("source_api_token")),
                     "message": self.info, "error": self.error,
@@ -102,6 +123,21 @@ class Companion:
             self.spotify_refresh_next = now + min(300, interval * 2 ** min(5, self.spotify_refresh_failures))
             LOG.warning("Spotify fast refresh failed; backing off: %s", exc)
 
+    def set_event_feed(self, state, error):
+        with self.lock:
+            self.event_feed_state = state
+            self.event_feed_error = error
+
+    def ingest_ha_event(self, new_state):
+        """Coalesce push updates; never block the websocket thread on Cast."""
+        if not isinstance(new_state, dict):
+            return
+        with self.lock:
+            self._pending_ha_event = (new_state, time.monotonic())
+            self.event_feed_events += 1
+            self.event_feed_last = time.monotonic()
+            self._wake.set()
+
     def poll(self):
         settings = self.library.settings()
         if settings["source"] == "external":
@@ -111,8 +147,18 @@ class Companion:
         else:
             if not settings["spotify_entity"]:
                 return
-            self.maybe_refresh_spotify(settings["spotify_entity"])
-            track = spotify_track(self.ha.state(settings["spotify_entity"]))
+            with self.lock:
+                pending = self._pending_ha_event
+                self._pending_ha_event = None
+            if pending is not None:
+                track = spotify_track(pending[0])
+                source = "Home Assistant push event"
+                event_latency_ms = round((time.monotonic() - pending[1]) * 1000)
+            else:
+                self.maybe_refresh_spotify(settings["spotify_entity"])
+                track = spotify_track(self.ha.state(settings["spotify_entity"]))
+                source = "polling"
+                event_latency_ms = None
         if track is None:
             return
         with self.lock:
@@ -122,6 +168,14 @@ class Companion:
             playing = track["state"] == "playing" and bool(key)
             changed = key != self.last_key
             restarted = key == self.last_key and prev.get("position", 0) > 20 and track.get("position", 0) < 4
+            if settings["source"] == "spotify" and (changed or restarted) and key:
+                self.last_detection_monotonic = time.monotonic()
+                self.last_detection = {
+                    "artist": track["artist"], "title": track["title"],
+                    "method": source,
+                    "observed_at": datetime.now(timezone.utc).isoformat(),
+                    "event_to_processing_ms": event_latency_ms,
+                }
             if track["state"] == "paused":
                 if self.active:
                     if self.active["song_key"] != key:
@@ -156,7 +210,8 @@ class Companion:
             except Exception as exc:
                 self.error = str(exc)
                 LOG.exception("Polling failed")
-            time.sleep(max(2, min(30, int(self.options.get("poll_seconds") or 3))))
+            self._wake.wait(max(2, min(30, int(self.options.get("poll_seconds") or 3))))
+            self._wake.clear()
 
     def external_update(self, data):
         if data.get("state") not in ("playing", "paused", "idle"):
@@ -170,4 +225,5 @@ class Companion:
                                    "title": str(data.get("title") or "")[:160],
                                    "state": data["state"], "position": position}
             self.external_received = time.monotonic()
+            self._wake.set()
         return {"accepted": True}
