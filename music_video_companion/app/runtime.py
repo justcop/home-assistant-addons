@@ -35,6 +35,13 @@ class Companion:
         self.external_track = None
         self.external_received = 0
         self.running = True
+        # The Spotify HA integration normally fetches at ~30 seconds.
+        # Refresh its source (not our cached copy) at a measured, bounded rate.
+        self.spotify_refresh_next = time.monotonic() + max(10, int(self.options.get("spotify_refresh_seconds", 10) or 10))
+        self.spotify_refresh_attempts = 0
+        self.spotify_refresh_failures = 0
+        self.spotify_refresh_error = ""
+        self.spotify_refresh_last = None
 
     @staticmethod
     def load_options():
@@ -51,6 +58,14 @@ class Companion:
             return {"settings": self.library.settings(), "current": track,
                     "approved": match, "candidates": list(self.candidates) if same_song else [],
                     "active": {k: v for k, v in self.active.items() if k != "old_mute"} if self.active else None,
+                    "spotify_refresh": {
+                        "configured_seconds": int(self.options.get("spotify_refresh_seconds", 10)),
+                        "attempts": self.spotify_refresh_attempts,
+                        "failures": self.spotify_refresh_failures,
+                        "last_error": self.spotify_refresh_error,
+                        "seconds_until_next": round(max(0, self.spotify_refresh_next - time.monotonic()), 1),
+                        "last_success_monotonic": self.spotify_refresh_last,
+                    },
                     "has_youtube_key": bool(self.options.get("youtube_api_key")),
                     "external_enabled": bool(self.options.get("source_api_token")),
                     "message": self.info, "error": self.error,
@@ -64,6 +79,29 @@ class Companion:
                  "supported_features": (e.get("attributes") or {}).get("supported_features", 0)}
                 for e in states if str(e.get("entity_id", "")).startswith("media_player.")]
 
+    def maybe_refresh_spotify(self, entity):
+        """Bounded proactive HA Spotify refresh; log/back off API failures."""
+        configured = int(self.options.get("spotify_refresh_seconds", 10))
+        if configured <= 0:
+            return
+        interval = max(10, min(configured, 60))
+        now = time.monotonic()
+        if now < self.spotify_refresh_next:
+            return
+        self.spotify_refresh_attempts += 1
+        try:
+            self.ha.refresh_entity(entity)
+            self.spotify_refresh_failures = 0
+            self.spotify_refresh_error = ""
+            self.spotify_refresh_last = now
+            self.spotify_refresh_next = now + interval
+        except Exception as exc:
+            self.spotify_refresh_failures += 1
+            self.spotify_refresh_error = str(exc)[:200]
+            # Back off on 429/HA coordinator failures rather than hammer Spotify.
+            self.spotify_refresh_next = now + min(300, interval * 2 ** min(5, self.spotify_refresh_failures))
+            LOG.warning("Spotify fast refresh failed; backing off: %s", exc)
+
     def poll(self):
         settings = self.library.settings()
         if settings["source"] == "external":
@@ -73,6 +111,7 @@ class Companion:
         else:
             if not settings["spotify_entity"]:
                 return
+            self.maybe_refresh_spotify(settings["spotify_entity"])
             track = spotify_track(self.ha.state(settings["spotify_entity"]))
         if track is None:
             return

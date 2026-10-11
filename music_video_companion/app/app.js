@@ -66,7 +66,7 @@ function candidateCard(item) {
   title.textContent = item.title;
   const subtitle = document.createElement("p");
   subtitle.className = "small";
-  subtitle.textContent = item.channel_title + (item.trusted ? " · Trusted artist channel" : " · Unverified channel");
+  subtitle.textContent = item.channel_title + (item.trusted ? " · Trusted artist channel" : item.vevo_match ? " · Exact artist VEVO-style channel" : " · Unverified channel");
   const link = document.createElement("a");
   link.href = "https://www.youtube.com/watch?v=" + encodeURIComponent(item.video_id);
   link.target = "_blank";
@@ -105,6 +105,12 @@ function render(data) {
   $("approved").textContent = data.approved
     ? "Approved video: " + data.approved.title + " · " + data.approved.channel_title
     : "No approved official video for this song.";
+  const refresh = data.spotify_refresh || {};
+  $("spotify-refresh-status").textContent = data.settings.source !== "spotify" ? "Source: external adapter" :
+    (refresh.configured_seconds === 0 ? "Spotify fast refresh disabled" :
+    "Spotify refresh requests: " + (refresh.attempts || 0) +
+      " · Next in " + Math.ceil(refresh.seconds_until_next || 0) + "s" +
+      (refresh.last_error ? " · Error: " + refresh.last_error : ""));
   $("cast").disabled = !data.approved || track.state !== "playing";
   $("sync-status").textContent = data.active
     ? "Video timing: " + (data.active.sync_state || "Starting") +

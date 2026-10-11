@@ -5,7 +5,7 @@ A **separate** Home Assistant add-on for looking up approved official music vide
 ## How it works
 
 - Reads current artist/title and play/pause state from an existing Home Assistant **Spotify media_player** entity, using the internal Home Assistant API. No additional Spotify OAuth login is needed.
-- Searches YouTube Data API v3 for candidates **only when requested**, or for new songs from a previously approved artist channel while automatic mode is enabled.
+- Searches YouTube Data API v3 for candidates when requested or when an unknown song starts in automatic mode (one search per song per session).
 - **Never auto-plays an untrusted channel.** Each individual approved video can be reused automatically. You may also explicitly trust an artist's verified official channel to enable future strict-title automatic matches.
 - Launches the selected YouTube video through Home Assistant's Google Cast integration. Uses `volume_mute` on the target player (which may mute the TV globally; this is not isolated YouTube-audio removal), and restores the previous mute status if it was changed by this add-on when stopped.
 - Stores choices and trusted channels in the add-on's persistent `/data/library.json`, with atomic writes.
@@ -71,3 +71,21 @@ In the web interface, **TV sound control** defaults to **Manual — I will mute 
 **Mute the TV before casting:** YouTube audio may play at the TV/soundbar's current volume. Playback still uses the approved official video, current-song detection, initial seek, and Spotify pause/resume handling as before.
 
 If you later want app-controlled muting, choose **Automatic — Home Assistant controls volume**. That mode retains the safe mute/volume-zero logic and optional separate `Mute audio using` entity.
+
+## Faster Spotify change detection (0.3.0)
+
+Home Assistant's Spotify integration refreshes track data roughly every 30 seconds. Polling its cached entity every 3 seconds cannot make it fresher. Music Video Companion optionally requests a Home Assistant `homeassistant.update_entity` action at a bounded **10-second interval**. The `spotify_refresh_seconds` add-on setting defaults to `10` (use `0` to disable, or `10-60` seconds to tune).
+
+The UI shows how many forced requests have been made, when the next is due, and any errors. Failed requests back off exponentially to a maximum of five minutes, and normal 3-second cached-state polling continues. A successful `update_entity` action does not guarantee Spotify's upstream coordinator supplied new data; the actual improvement must be checked on Home Assistant.
+
+An automation reacting to the Spotify entity's state change is an option, but by itself it is not faster than the entity's source data. An event push from AudioShelf or an external source that knows new tracks immediately can be added later via the existing authenticated `/api/track` endpoint, without another Spotify poll.
+
+## Artist-named VEVO channel approval
+
+With automatic mode enabled and a YouTube API key configured, exactly **one** search candidate can be auto-approved if the YouTube channel's display name normalizes exactly to `<artist>VEVO` and the video headline is an exact artist/title match after common official-video suffixes are removed. Multiple candidates, unrelated VEVO channels, live shows, lyric videos, fan covers and ambiguous matches remain unapproved.
+
+**Important:** YouTube channel display names are not proof of ownership and could be imitated; automatic VEVO recognition is heuristic, not verification of a badge or label rights. Review any surprising choice.
+
+## YouTube adverts
+
+The add-on now waits up to 105 seconds for the approved video's ID to appear on the YouTube Cast receiver, treating other IDs inside the YouTube app as possible pre-roll advertisements. It does not attempt to skip, block, or manipulate adverts. Initial alignment occurs when the real video becomes seekable, with the current Spotify position queried again. YouTube Premium on a signed-in compatible receiver may be required to avoid advertising; the generic Home Assistant Cast launch may not inherit a Premium account session.

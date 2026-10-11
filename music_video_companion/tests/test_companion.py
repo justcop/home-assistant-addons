@@ -3,9 +3,10 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
-from model import Library, song_key, strict_candidate
+from model import Library, song_key, strict_candidate, vevo_candidate
 from runtime import Companion
 from providers import spotify_track, ApiHTTPError
 
@@ -28,6 +29,10 @@ class FakeHA:
         if entity == "media_player.chromecast":
             return self.cast
         raise KeyError(entity)
+
+    def refresh_entity(self, entity):
+        self.calls.append(("update_entity", {"entity_id": entity}))
+        return {}
 
     def service(self, action, data):
         self.calls.append((action, data))
@@ -349,6 +354,89 @@ class CompanionTests(unittest.TestCase):
     def test_invalid_audio_mode_rejected(self):
         with self.assertRaisesRegex(ValueError, "audio control"):
             self.app.library.configure({"audio_control": "always_mute"})
+
+    def test_vevo_exact_artist_channel_and_title(self):
+        vevo = {"video_id": VID, "channel_id": "UC" + "x" * 22,
+                "channel_title": "TheBeatlesVEVO",
+                "title": "The Beatles - Something (Official Music Video)"}
+        self.assertTrue(vevo_candidate(vevo, "The Beatles", "Something"))
+        self.assertFalse(vevo_candidate(dict(vevo, channel_title="BestMusicVEVO"), "The Beatles", "Something"))
+        self.assertFalse(vevo_candidate(dict(vevo, title="The Beatles Something LIVE at Wembley Official Video"), "The Beatles", "Something"))
+        self.assertFalse(vevo_candidate(dict(vevo, title="The Beatles - Something cover official video"), "The Beatles", "Something"))
+        self.assertFalse(vevo_candidate(dict(vevo, channel_title="The Beatles VEVO Fans"), "The Beatles", "Something"))
+
+    def test_auto_approve_one_exact_artist_vevo_result(self):
+        vevo = {"video_id": VID, "channel_id": "UC" + "x" * 22,
+                "channel_title": "TheBeatlesVEVO",
+                "title": "The Beatles - Something (Official Music Video)"}
+        self.app.options["youtube_api_key"] = "test"
+        self.app.library.configure({"auto": True})
+        with patch("actions_cast.youtube_search", return_value=[vevo]) as youtube:
+            self.app.poll()
+        self.assertEqual(youtube.call_count, 1)
+        approved = self.app.library.match("The Beatles", "Something")
+        self.assertEqual(approved["approval_basis"], "vevo_channel_name")
+        self.assertEqual(approved["video_id"], VID)
+
+    def test_ambiguous_vevo_results_not_auto_approved(self):
+        one = {"video_id": VID, "channel_id": "UC" + "x" * 22,
+               "channel_title": "TheBeatlesVEVO", "title": "The Beatles Something Official Video"}
+        two = dict(one, video_id="a" * 11)
+        self.app.options["youtube_api_key"] = "test"
+        self.app.library.configure({"auto": True})
+        with patch("actions_cast.youtube_search", return_value=[one, two]):
+            self.app.poll()
+        self.assertIsNone(self.app.library.match("The Beatles", "Something"))
+        self.assertIsNone(self.app.active)
+
+    def test_spotify_fast_refresh_bounded(self):
+        self.app.spotify_refresh_next = 0
+        self.app.poll()
+        self.assertEqual(sum(action == "update_entity" for action, _ in self.ha.calls), 1)
+        self.app.poll()
+        self.assertEqual(sum(action == "update_entity" for action, _ in self.ha.calls), 1)
+        self.assertEqual(self.app.status()["spotify_refresh"]["attempts"], 1)
+
+    def test_refresh_errors_back_off_without_stopping_poll(self):
+        class BrokenRefreshHA(FakeHA):
+            def refresh_entity(self, entity):
+                raise RuntimeError("429 Too Many Requests")
+        ha = BrokenRefreshHA()
+        app = Companion(path=Path(self.temp.name) / "broken_refresh.json",
+                        ha=ha, options={"spotify_refresh_seconds": 10})
+        app.library.configure({"spotify_entity": "media_player.spotify", "cast_entity": "media_player.chromecast"})
+        app.spotify_refresh_next = 0
+        app.poll()
+        status = app.status()["spotify_refresh"]
+        self.assertEqual(status["failures"], 1)
+        self.assertIn("429", status["last_error"])
+        self.assertGreater(status["seconds_until_next"], 10)
+        self.assertEqual(app.current["title"], "Something")
+
+    def test_refresh_disabled_means_no_update_entity(self):
+        app = Companion(path=Path(self.temp.name) / "disabled.json", ha=self.ha,
+                        options={"spotify_refresh_seconds": 0})
+        app.library.configure({"spotify_entity": "media_player.spotify", "cast_entity": "media_player.chromecast"})
+        app.spotify_refresh_next = 0
+        app.poll()
+        self.assertFalse(any(action == "update_entity" for action, _ in self.ha.calls))
+
+    def test_youtube_preroll_waits_for_selected_video_before_initial_seek(self):
+        self.app.library.approve("The Beatles", "Something", CANDIDATE)
+        self.app.poll()
+        self.app.play_current()
+        self.ha.cast["attributes"]["media_content_id"] = "a" * 11
+        self.ha.cast["attributes"]["app_name"] = "YouTube"
+        self.app.active["launched_at"] -= 15
+        self.app.sync_playback()
+        self.assertIsNotNone(self.app.active)
+        self.assertIn("advert", self.app.active["sync_state"])
+        self.assertEqual(self.app.active["seek_count"], 0)
+        self.ha.cast["attributes"]["media_content_id"] = VID
+        self.ha.spotify["attributes"]["media_position"] = 34
+        self.app.sync_playback()
+        self.assertEqual(self.app.active["seek_count"], 1)
+        self.assertEqual(self.ha.cast["attributes"]["media_position"], 34)
 
 
 if __name__ == "__main__":

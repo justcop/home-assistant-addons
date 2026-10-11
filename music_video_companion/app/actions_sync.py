@@ -1,7 +1,7 @@
 """Launch alignment plus pause/resume. No periodic drift-correction seeks."""
 import time
 from model import song_key
-from sync import align_once, owned_video
+from sync import align_once, owned_video, LOAD_TIMEOUT
 from providers import spotify_track
 
 def sync_playback(self):
@@ -21,8 +21,17 @@ def sync_playback(self):
             return
         now = time.monotonic()
         owned = owned_video(receiver, active["video_id"])
-        if owned is False and now - active["launched_at"] >= 12:
-            # Never touch a device that has been taken over by another app.
+        receiver_app = str(((receiver or {}).get("attributes") or {}).get("app_name") or "").lower()
+        pending_youtube = (owned is False and active.get("initial_pending") and
+                           "youtube" in receiver_app and
+                           now - active["launched_at"] < LOAD_TIMEOUT)
+        if owned is False and now - active["launched_at"] >= 12 and not pending_youtube:
+            if active.get("initial_pending") and "youtube" in receiver_app:
+                active["sync_state"] = "Timed out waiting for approved video after YouTube startup"
+                active["initial_pending"] = False
+                active["resume_pending"] = False
+                return
+            # Never seek when the receiver switches to another application.
             self.active = None
             self.info = "Chromecast switched away from this video."
             return
@@ -64,14 +73,15 @@ def sync_playback(self):
             self.current = dict(refreshed)
         result = align_once(self.ha, active, track, receiver, phase, clock=now)
         if result == "waiting":
-            active["sync_state"] = "Waiting for YouTube playback to become seekable"
+            active["sync_state"] = ("Waiting for approved video (YouTube advert or loading)" if pending_youtube
+                                   else "Waiting for YouTube playback to become seekable")
             return
         if result == "taken_over":
             self.active = None
             self.info = "Another Cast application took over; not seeking."
             return
         if result == "unavailable":
-            if phase == "initial" and now - active["launched_at"] < 40:
+            if phase == "initial" and now - active["launched_at"] < LOAD_TIMEOUT:
                 # A device may report playback without supporting seeking.
                 # Mark unsupported immediately if a seek was explicitly rejected.
                 if not active.get("sync_error"):

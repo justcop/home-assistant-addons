@@ -7,7 +7,7 @@ import math
 import re
 import time
 
-LOAD_TIMEOUT = 40.0
+LOAD_TIMEOUT = 105.0
 SEEK_TOLERANCE = 0.8
 
 
@@ -75,8 +75,15 @@ def align_once(ha, active, track, state, phase, clock=None):
     """
     now = time.monotonic() if clock is None else clock
     identity = owned_video(state, active["video_id"])
-    if identity is False and now - active["launched_at"] >= 12:
-        return "taken_over"
+    elapsed = now - active["launched_at"]
+    youtube_receiver = "youtube" in str(((state or {}).get("attributes") or {}).get("app_name") or "").lower()
+    if identity is False:
+        # YouTube pre-roll advertisements may expose a different 11-character
+        # media ID. Never seek the advert. Wait for the approved video.
+        if phase == "initial" and active.get("initial_pending") and youtube_receiver:
+            return "waiting" if elapsed < LOAD_TIMEOUT else "unavailable"
+        if elapsed >= 12:
+            return "taken_over"
     if identity is not True or (state or {}).get("state") not in ("playing", "paused"):
         if now - active["launched_at"] >= LOAD_TIMEOUT and phase == "initial":
             return "unavailable"

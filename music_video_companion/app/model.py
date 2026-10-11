@@ -90,15 +90,20 @@ class Library:
         if not vid:
             raise ValueError("Invalid YouTube ID")
         with self.lock:
-            if automatic and not strict_candidate(candidate, artist, title, self.trusted(artist)):
-                raise ValueError("Candidate is not from a trusted artist channel")
+            basis = "manual"
+            if automatic:
+                trusted = strict_candidate(candidate, artist, title, self.trusted(artist))
+                branded_vevo = vevo_candidate(candidate, artist, title)
+                if not (trusted or branded_vevo):
+                    raise ValueError("Candidate is neither a trusted-channel match nor an exact artist VEVO match")
+                basis = "trusted_channel" if trusted else "vevo_channel_name"
             previous = self.data["matches"].get(song_key(artist, title), {})
             retained = previous.get("offset_seconds", 0) if previous.get("video_id") == vid else 0
             record = {"video_id": vid, "offset_seconds": retained,
                       "title": str(candidate.get("title", ""))[:200],
                       "channel_id": str(candidate.get("channel_id", ""))[:100],
                       "channel_title": str(candidate.get("channel_title", ""))[:200],
-                      "artist": artist, "song": title, "manually_approved": not automatic}
+                      "artist": artist, "song": title, "manually_approved": not automatic, "approval_basis": basis}
             self.data["matches"][song_key(artist, title)] = record
             if trust and record["channel_id"].startswith("UC"):
                 channels = self.data["trusted_channels"].setdefault(norm(artist), [])

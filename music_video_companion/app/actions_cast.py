@@ -1,5 +1,5 @@
 """Launch an approved YouTube Cast video; never silently pick an untrusted result."""
-from model import song_key, strict_candidate
+from model import song_key, strict_candidate, vevo_candidate
 from providers import youtube_search, cast_video
 from audio_controls import silence, reassert, restore
 import time
@@ -15,15 +15,25 @@ def play_current(self, allow_lookup=False):
         key = song_key(track["artist"], track["title"])
         match = self.library.match(track["artist"], track["title"])
         if not match and allow_lookup and key not in self.searched:
+            # Search at most once per new song per session. A YouTube search is
+            # expensive in quota, and channel titles are not identity proof.
             self.searched.add(key)
+            api_key = self.options.get("youtube_api_key")
             trusted = self.library.trusted(track["artist"])
-            if trusted and self.options.get("youtube_api_key"):
+            if api_key:
                 found = []
-                for cid in trusted[:3]:
-                    found.extend(youtube_search(self.options["youtube_api_key"], track["artist"], track["title"], cid))
-                exact = [v for v in found if strict_candidate(v, track["artist"], track["title"], trusted)]
-                if len(exact) == 1:
-                    match = self.library.approve(track["artist"], track["title"], exact[0], automatic=True)
+                if trusted:
+                    for channel in trusted[:3]:
+                        found.extend(youtube_search(api_key, track["artist"], track["title"], channel))
+                else:
+                    found = youtube_search(api_key, track["artist"], track["title"])
+                approved = [item for item in found if
+                            strict_candidate(item, track["artist"], track["title"], trusted)
+                            or vevo_candidate(item, track["artist"], track["title"])]
+                unique = {item["video_id"]: item for item in approved}
+                if len(unique) == 1:
+                    match = self.library.approve(track["artist"], track["title"],
+                                                 next(iter(unique.values())), automatic=True)
         if not match:
             self.info = "No verified official video for this track; skipped."
             return None

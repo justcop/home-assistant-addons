@@ -6,6 +6,7 @@
 <section class="card"><div class="eyebrow">NOW PLAYING</div><h2 id="song">No song detected</h2><p id="artist">Choose your source below.</p>
 <div class="inline"><span id="source-state" class="chip">Idle</span><span id="position" class="subtle"></span></div>
 <p id="approved" class="subtle">No saved video.</p>
+<p id="spotify-refresh-status" class="small">Spotify refresh monitoring…</p>
 <p id="sync-status" class="small">Video alignment not started.</p>
 <div class="offset-control"><label for="offset">Video timing offset, in seconds</label>
 <div class="offset-row"><input id="offset" type="number" step="0.5" min="-120" max="120" value="0">
@@ -24,16 +25,16 @@
 <div id="automatic-audio-controls">
 <label for="mute-entity">Mute audio using (optional)</label><select id="mute-entity"><option value="">Same as Chromecast (automatic)</option></select>
 <p class="small">If your Chromecast doesn't support mute or volume adjustment, choose a separate Home Assistant media player that controls your TV or soundbar volume. Never choose the KEFs playing Spotify.</p></div>
-<label class="check"><input type="checkbox" id="auto"><span>Automatically cast approved songs and strict matches from trusted artist channels</span></label>
+<label class="check"><input type="checkbox" id="auto"><span>Automatically cast saved videos and strict matches from trusted or artist-named VEVO channels</span></label>
 <button class="primary" id="save">Save settings</button>
 <p class="small">Requires the Spotify and Google Cast integrations configured in Home Assistant. YouTube search additionally requires a YouTube Data API key in the add-on Configuration.</p></section>
 <section class="card"><h2>Find an official video</h2>
-<p class="subtle">Only videos that you approve, or unambiguous matches from an artist channel you explicitly trust, can play automatically.</p>
+<p class="subtle">Approved videos and exact artist-named VEVO channel matches can play automatically. VEVO names can be imitated; check any unusual match.</p>
 <button class="primary" id="search">Find official candidates</button>
 <div id="candidates" class="candidates"></div>
 <div class="manual"><h3>Add a video manually</h3><label for="manual-id">YouTube video ID (11 characters)</label><input id="manual-id" placeholder="e.g. dQw4w9WgXcQ" maxlength="11">
 <label class="check"><input type="checkbox" id="manual-verified"><span>I verified this is an official artist, label or VEVO upload</span></label><button id="manual-save" class="secondary">Save this video</button></div>
 </section>
 <section class="card"><h2>Compatibility notes</h2><p>The add-on seeks once at launch and once after Spotify resumes from a pause, but does not correct drift during a continuously playing song. Initial alignment requires the Chromecast to expose a seekable YouTube session. Manual audio control leaves your TV and soundbar volume untouched. Automatic audio control mutes a selected audio device when supported.</p><p>Spotify and YouTube prohibit certain cross-service synchronisation and audio/video separation uses. This experimental add-on does not extract or modify any YouTube media.</p><p class="small">If the YouTube receiver cannot be launched on your Chromecast, the error appears below and in Home Assistant logs.</p></section>
-<div class="message" id="message" role="status"></div><footer>Music Video Companion v0.2.3 · Local approvals retained between updates</footer>
+<div class="message" id="message" role="status"></div><footer>Music Video Companion v0.3.0 · Local approvals retained between updates</footer>
 </main><script src="app.js" defer></script></body></html>

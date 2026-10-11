@@ -87,6 +87,11 @@ class HomeAssistant:
     def service(self, action, data):
         return self._request("/services/media_player/" + action, method="POST", data=data)
 
+    def refresh_entity(self, entity):
+        """Request an early Spotify entity refresh through Home Assistant Core."""
+        return self._request("/services/homeassistant/update_entity",
+                             method="POST", data={"entity_id": entity})
+
 def spotify_track(payload):
     """Normalize metadata from an HA Spotify entity, not Spotify's Web API."""
     if not isinstance(payload, dict):
