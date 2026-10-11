@@ -498,8 +498,78 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   }
   // An album's Songs total lists just that album's songs.
   await page.locator('#detail-dialog [data-browse="albums"]').click();
+  // Exercise the *actual* Spotify, record store and shelf links. The demo
+  // normally omits external AudioShelf integrations, so supply mock URLs.
+  await page.evaluate(() => {
+    window.__albumDemo = statusData.demo;
+    window.__albumShelfUrl = statusData.audioshelf_url;
+    statusData.demo = false;
+    statusData.audioshelf_url = "https://audioshelf.example.test";
+  });
+  await page.route('https://audioshelf.example.test/api/listening-links?*', route =>
+    route.fulfill({status:200, contentType:'application/json',
+      headers:{'Access-Control-Allow-Origin':'http://127.0.0.1:8105','Access-Control-Allow-Credentials':'true'},
+      body:JSON.stringify({matches:[{path:'#album/abbey-road',label:'Abbey Road'}]})}));
+  await page.route('**/api/detail?*', async route => {
+    if (new URL(route.request().url()).searchParams.get('entity') !== 'album')
+      return route.continue();
+    const response = await route.fetch();
+    const data = await response.json();
+    data.artwork = {url:'https://lastfm.freetls.fastly.net/i/u/174s/album-cover-fixture.png',
+      artist:'The Beatles',album:'Abbey Road'};
+    data.artwork_pending = false;
+    await route.fulfill({response,json:data});
+  });
+  await page.route('https://lastfm.freetls.fastly.net/**', route => route.fulfill({
+    path:path.join(__dirname, '../analytics/static/icon-192.png'), contentType:'image/png'
+  }));
   await page.locator('#content [data-detail="album"]').first().click();
   await page.locator('#detail-dialog [data-browse="songs"]').waitFor();
+  await page.locator('.album-detail-cover img').waitFor();
+  await page.waitForFunction(() => document.querySelector('.album-detail-cover img')?.naturalWidth > 0);
+  await page.locator('.album-detail-actions a').nth(2).waitFor();
+  assert.equal(await page.locator('.album-detail-actions a').count(), 3);
+  assert.equal(await page.locator('.album-detail-titles .album-detail-artist').innerText(), 'The Beatles');
+  assert.equal(await page.locator('.album-detail-titles h2').innerText(), 'Abbey Road');
+  assert.equal(await page.locator('.album-detail-cover figcaption').count(), 0);
+  for (const width of [320, 360, 390, 428, 1024]) {
+    await page.setViewportSize({width,height:844});
+    const layout = await page.evaluate(() => {
+      const box = s => document.querySelector(s).getBoundingClientRect();
+      const img = box('.album-detail-cover img');
+      const cover = box('.album-detail-cover');
+      const info = box('.album-detail-info');
+      const titles = box('.album-detail-titles');
+      const actions = box('.album-detail-actions');
+      const dialog = box('#detail-dialog');
+      return {imgWidth:img.width,imgHeight:img.height,coverWidth:cover.width,
+        coverBottom:cover.bottom,infoTop:info.top,titleRight:titles.right,
+        actionsLeft:actions.left,actionsWidth:actions.width,dialogWidth:dialog.width,
+        viewport:document.documentElement.clientWidth,
+        buttonRights:[...document.querySelectorAll('.album-detail-actions a')]
+          .map(a=>a.getBoundingClientRect().right)};
+    });
+    assert.ok(layout.imgWidth > 0 && Math.abs(layout.imgWidth-layout.imgHeight) < 2, 'Cover stays square');
+    assert.ok(Math.abs(layout.imgWidth-layout.coverWidth) < 2, 'Cover fills its container');
+    assert.ok(layout.infoTop >= layout.coverBottom - 1, 'Artist and buttons sit below cover');
+    assert.ok(layout.titleRight <= layout.actionsLeft + 2, 'Title stays left of buttons');
+    assert.ok(layout.buttonRights.every(right => right <= width + 1), 'Buttons stay on screen');
+    if (width <= 620) {
+      assert.ok(Math.abs(layout.coverWidth-width) < 2, 'Cover reaches phone edges');
+    } else {
+      assert.ok(layout.coverWidth > 750 && layout.coverWidth < width,
+        'Desktop album cover fills available dialog width');
+    }
+  }
+  await page.screenshot({path:path.join(output,'album-full-width-cover-mobile.png')});
+  await page.setViewportSize({width:1440,height:1050});
+  await page.evaluate(() => {
+    statusData.demo = window.__albumDemo;
+    statusData.audioshelf_url = window.__albumShelfUrl;
+  });
+  await page.unroute('https://audioshelf.example.test/api/listening-links?*');
+  await page.unroute('**/api/detail?*');
+  await page.unroute('https://lastfm.freetls.fastly.net/**');
   const albumSpotify = await page.locator('#detail-dialog .spotify-link').getAttribute('href');
   assert.match(decodeURIComponent(albumSpotify), /album:"Abbey Road".*artist:"The Beatles"/);
   const albumId = await page.locator('#detail-dialog [data-browse="songs"]').getAttribute('data-id');
