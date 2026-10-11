@@ -120,6 +120,30 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert((await page.locator('.variant-difference').first().textContent()).includes('Preferred standard'),
       'Major tracklist differences are visible before selecting Spotify');
     await page.getByRole('button',{name:'Close',exact:true}).click();
+    await page.unroute('**/api/albums/*/tracklist-variants?offset=*');
+    // The picker must automatically continue beyond its first eight releases.
+    const variantOffsets=[];
+    await page.route('**/api/albums/*/tracklist-variants?offset=*',async route=>{
+      const offset=Number(new URL(route.request().url()).searchParams.get('offset'));
+      variantOffsets.push(offset);
+      if(offset===0){
+        const upstream=await route.fetch();
+        const data=await upstream.json();
+        data.total=10;data.all_total=103;data.next_offset=8;
+        await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(data)});
+      }else if(offset===8){
+        await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({
+          variants:[],rejected:[],checked:2,total:10,all_total:103,next_offset:null})});
+      }else throw new Error('Unexpected tracklist scan offset: '+offset);
+    });
+    await page.getByRole('button',{name:'Album settings'}).click();
+    await page.getByRole('button',{name:'Change original tracklist'}).click();
+    await page.getByText('10 of 10 GB, Worldwide and US releases inspected',{exact:false}).waitFor();
+    assert.deepEqual(variantOffsets,[0,8],'All eligible pressings are checked automatically');
+    assert((await page.locator('[role="status"]').textContent()).includes('103 total MusicBrainz releases'));
+    assert((await page.locator('[role="status"]').textContent()).includes('Scan complete'));
+    await page.getByRole('button',{name:'Close',exact:true}).click();
+    await page.unroute('**/api/albums/*/tracklist-variants?offset=*');
     await page.getByRole('button',{name:'Album settings'}).click();
     await page.getByRole('button',{name:'Choose cover from another edition'}).click();
     const thumbnail=page.locator('.cover-choice img').first();
