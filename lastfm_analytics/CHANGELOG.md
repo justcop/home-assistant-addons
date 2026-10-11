@@ -1,3 +1,8 @@
+## 0.2.23
+- Redesign album detail around a full-width square album cover, edge-to-edge on phones.
+- Put the album artist and title below the cover on the left, with the existing Spotify, record store, and shelf actions stacked on the right.
+- Keep artist/song detail layouts and asynchronous artwork updates unchanged.
+
 ## 0.2.22
 - Show the 20 most played albums for a selected year, using the original album release year independently of the song release year, alongside the top 20 songs.
 - Report precise background recording and album lookup progress across the full library, with completed matches, unmatched results and pending work distinguished.

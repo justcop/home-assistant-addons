@@ -659,7 +659,10 @@ function artworkHTML(detail, kind) {
     return `<p class="method-note" role="status">${detail.artwork_pending ? "Loading artwork…" : "No album artwork available"}</p>`;
   }
   const art = detail.artwork;
-  return `<figure class="detail-artwork"><img src="${esc(art.url)}" alt="Cover of ${esc(art.album)} by ${esc(art.artist)}" width="112" height="112" decoding="async" referrerpolicy="no-referrer"><figcaption>${kind === "album" ? "Album cover" : esc(art.album)} · ${esc(art.source || "Last.fm")}</figcaption></figure>`;
+  if (kind === "album") {
+    return `<figure class="detail-artwork"><img src="${esc(art.url)}" alt="Cover of ${esc(art.album)} by ${esc(art.artist)}" width="850" height="850" decoding="async" fetchpriority="high" referrerpolicy="no-referrer"></figure>`;
+  }
+  return `<figure class="detail-artwork"><img src="${esc(art.url)}" alt="Cover of ${esc(art.album)} by ${esc(art.artist)}" width="112" height="112" decoding="async" referrerpolicy="no-referrer"><figcaption>${esc(art.album)} · ${esc(art.source || "Last.fm")}</figcaption></figure>`;
 }
 function spotifyLink(detail, kind) {
   const artist = kind === "artist" ? detail.name : detail.artist;
@@ -675,6 +678,11 @@ function detailHeaderHTML(detail, kind) {
   const links = `${spotifyLink(detail, kind)} ${recordStoreLink(detail, kind)} <span id="shelf-link-slot"></span>`;
   if (kind === "artist") {
     return `<div class="artist-detail-hero"><div id="artist-logo-slot" class="artist-logo-stage">${artistLogoHTML(detail)}</div><div class="detail-heading detail-media-actions artist-detail-heading"><div id="detail-artwork-slot">${artworkHTML(detail, kind)}</div><div class="artist-actions">${links}</div></div></div>`;
+  }
+  if (kind === "album") {
+    // A cover-led album layout: edge-to-edge cover on phones, with the album
+    // identity and existing Spotify / store / shelf links below it.
+    return `<div class="album-detail-hero"><div id="detail-artwork-slot" class="album-detail-cover">${artworkHTML(detail, kind)}</div><div class="album-detail-info"><div class="album-detail-titles"><p class="album-detail-artist">${esc(detail.artist)}</p><h2>${esc(detail.name)}</h2></div><div class="album-detail-actions artist-actions">${links}</div></div></div>`;
   }
   return `<div class="detail-entity-hero"><div class="detail-entity-title"><h2>${esc(detail.name)}</h2><p>${esc(detail.artist)}</p></div><div class="detail-heading detail-media-actions"><div id="detail-artwork-slot">${artworkHTML(detail, kind)}</div><div class="artist-actions">${links}</div></div></div>`;
 }
@@ -753,6 +761,7 @@ async function showDetail(kind, id, groupMode = false, restoring = false) {
   $("#detail-cache-status").hidden = true;
   const dialog = $("#detail-dialog");
   dialog.classList.toggle("artist-detail-open", kind === "artist");
+  dialog.classList.toggle("album-detail-open", kind === "album");
   const mode = groupMode ? "merged" : state.mode;
   // Release-year lists always provide canonical group IDs, but drill-down
   // should retain the user's selected listening period.
