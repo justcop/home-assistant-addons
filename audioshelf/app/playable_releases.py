@@ -4,6 +4,9 @@ Do not alter stored canonical tracks while previewing candidate releases. MusicB
 limits uncached requests to roughly one per second, so each page verifies at most
 four editions and returns a continuation cursor for the rest.
 """
+import hashlib
+import json
+
 from .errors import AppError
 from .matching import candidate
 from .musicbrainz import mbid, release_tracks
@@ -13,7 +16,8 @@ from .tracklist_variants import group_releases, vinyl_sides
 
 class PlayableReleases:
     PAGE_SIZE = 4
-    VARIANT_PAGE_SIZE = 8
+    # Keep every HTTP response within proxy budgets even on a cold MusicBrainz cache.
+    VARIANT_PAGE_SIZE = 2
     PICKER_COUNTRIES = frozenset({'GB', 'US', 'XW'})
 
     def __init__(self, store, musicbrainz, spotify):
@@ -153,7 +157,13 @@ class PlayableReleases:
     @staticmethod
     def match_summaries(matches, count):
         return [{'spotify_album_id': match['id'], 'name': match['name'],
-                 'matched_tracks': count, 'score': match['score']} for match in matches[:12]]
+                 'matched_tracks': count, 'score': match['score'],
+                 # Only combine variants if Spotify verifies the exact same
+                 # ordered recordings. Track-name similarity alone is unsafe.
+                 'recording_signature': hashlib.sha256(
+                     json.dumps([mapping['spotify_id'] for mapping in match['mappings']],
+                                separators=(',', ':')).encode()).hexdigest()}
+                for match in matches[:12]]
 
     @staticmethod
     def failure_summary(probe, assessments):
@@ -178,9 +188,10 @@ class PlayableReleases:
     def variants(self, album_id, offset=0):
         """Show ONLY grouped tracklists that have a complete Spotify match.
 
-        A page inspects eight MusicBrainz releases, then checks just the distinct
-        disc-layout representatives. The Spotify candidate pool is shared and
-        cached across the page; rejected tracks never enter the chooser.
+        A page inspects two MusicBrainz releases. Cold recording lookups are
+        rate-limited upstream; larger pages can exceed reverse-proxy timeouts.
+        Cache successful pages so the client can retry or resume without
+        repeating remote calls. Rejected tracks never enter the chooser.
         """
         if not self.spotify.connected:
             raise AppError('Connect Spotify in Settings to find playable tracklists.', 409)
@@ -198,6 +209,14 @@ class PlayableReleases:
         releases = [release for release in all_releases if eligible(release)]
         if type(offset) is not int or offset < 0 or offset > len(releases):
             raise AppError('Invalid tracklist cursor.')
+        # Account-specific metadata cache: cached page results include verified
+        # mappings, so the key includes market, preferences, and an algorithm
+        # revision. Never cache an interrupted/incomplete request.
+        cache_key = 'verified-variant-page-v3:' + self.spotify.market + ':' + album_id + ':' + str(offset) + ':' + hashlib.sha256(
+            json.dumps(self.store.release_filters(album_id), sort_keys=True).encode()).hexdigest()
+        cached = self.store.cache_get(cache_key)
+        if cached is not None:
+            return cached
         selected = releases[offset:offset + self.VARIANT_PAGE_SIZE]
         previews, probes = [], {}
         for item in selected:
@@ -239,10 +258,12 @@ class PlayableReleases:
                                  **(failed or {'missing': variant['track_count'], 'tracks': [],
                                                'reason': 'No verified Spotify recording found.'})})
         next_offset = offset + len(selected)
-        return {'variants': playable, 'rejected': rejected, 'checked': len(selected),
-                'total': len(releases), 'all_total': len(all_releases),
-                'countries': ['GB', 'XW', 'US'],
-                'next_offset': next_offset if next_offset < len(releases) else None}
+        result = {'variants': playable, 'rejected': rejected, 'checked': len(selected),
+                  'total': len(releases), 'all_total': len(all_releases),
+                  'countries': ['GB', 'XW', 'US'],
+                  'next_offset': next_offset if next_offset < len(releases) else None}
+        self.store.cache_put(cache_key, result, ttl=1800)
+        return result
 
     def matches(self, album_id, release_id):
         """Recheck a selected release, without saving or changing existing tracks."""
