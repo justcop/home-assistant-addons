@@ -124,6 +124,9 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.getByRole('button',{name:'Album settings'}).click();
     await page.getByRole('button',{name:'Restore automatic cover'}).click();
     await page.locator('#toast').filter({hasText:'Automatic artwork restored.'}).waitFor();
+    // The earlier add-to-shelf journey completed and cached this album. Clear
+    // its tab-only scan state before explicitly testing interrupted requests.
+    await page.evaluate(()=>sessionStorage.clear());
     await page.getByRole('button',{name:'Album settings'}).click();
     let failEditionRequest=true;
     await page.route('**/api/albums/*/tracklist-variants?offset=*',async route=>{
