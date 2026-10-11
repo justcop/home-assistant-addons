@@ -13,6 +13,7 @@ def play_current(self, allow_lookup=False):
         if not settings["cast_entity"]:
             raise ValueError("Choose the Chromecast media player first")
         key = song_key(track["artist"], track["title"])
+        started = time.monotonic()
         match = self.library.match(track["artist"], track["title"])
         if not match and allow_lookup and key not in self.searched:
             # Search at most once per new song per session. A YouTube search is
@@ -34,7 +35,12 @@ def play_current(self, allow_lookup=False):
                 if len(unique) == 1:
                     match = self.library.approve(track["artist"], track["title"],
                                                  next(iter(unique.values())), automatic=True)
+        lookup_ms = round((time.monotonic() - started) * 1000)
         if not match:
+            self.last_cast_timing = {
+                "artist": track["artist"], "title": track["title"],
+                "lookup_ms": lookup_ms, "result": "no verified match",
+            }
             self.info = "No verified official video for this track; skipped."
             return None
         if self.active and self.active["video_id"] == match["video_id"]:
@@ -49,6 +55,7 @@ def play_current(self, allow_lookup=False):
             if audio_entity == settings.get("spotify_entity"):
                 raise ValueError("Refusing to silence the Spotify audio device. Choose your TV or soundbar instead.")
             audio = silence(self.ha, audio_entity)
+        command_started = time.monotonic()
         try:
             cast_video(self.ha, entity, match["video_id"])
             if audio:
@@ -76,6 +83,20 @@ def play_current(self, allow_lookup=False):
             "sync_state": "Waiting for YouTube receiver", "seek_count": 0,
         }
         self.searched.add(key)
+        self.last_cast_timing = {
+            "artist": track["artist"], "title": track["title"],
+            "lookup_ms": lookup_ms,
+            "cast_request_ms": round((time.monotonic() - command_started) * 1000),
+            "observed_to_request_ms": (
+                round((time.monotonic() - self.last_detection_monotonic) * 1000)
+                if self.last_detection_monotonic is not None
+                and self.last_detection.get("artist") == track["artist"]
+                and self.last_detection.get("title") == track["title"]
+                else None
+            ),
+            "receiver_alignment_ms": None,
+            "result": "cast requested",
+        }
         self.info = ("Official video launched. Mute TV sound manually; initial alignment pending." if manual_audio
                      else "Official video launched. Initial alignment pending.")
         return match

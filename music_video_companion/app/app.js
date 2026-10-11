@@ -111,6 +111,25 @@ function render(data) {
     "Spotify refresh requests: " + (refresh.attempts || 0) +
       " · Next in " + Math.ceil(refresh.seconds_until_next || 0) + "s" +
       (refresh.last_error ? " · Error: " + refresh.last_error : ""));
+  const feed = data.event_feed || {};
+  $("push-status").textContent = "Home Assistant push events: " +
+    (feed.state || "unknown") + " · Track/state events: " + (feed.meaningful_events || 0) +
+    (feed.last_event_ago_seconds != null ? " · Last event " + Math.round(feed.last_event_ago_seconds) + "s ago" : "") +
+    (feed.last_error ? " · " + feed.last_error : "");
+  const detect = data.last_detection || {};
+  $("detection-status").textContent = detect.observed_at
+    ? "Last change detected via " + detect.method + " at " +
+      new Date(detect.observed_at).toLocaleTimeString() +
+      (detect.event_to_processing_ms == null ? "" : " · Push processing " + detect.event_to_processing_ms + "ms")
+    : "No track-change timing recorded yet.";
+  const timing = data.last_cast_timing || {};
+  $("cast-timing-status").textContent = timing.result
+    ? "Last video: " + timing.result +
+      (timing.lookup_ms != null ? " · Lookup " + timing.lookup_ms + "ms" : "") +
+      (timing.observed_to_request_ms != null ? " · Detection→Cast " + timing.observed_to_request_ms + "ms" : "") +
+      (timing.cast_request_ms != null ? " · Cast request " + timing.cast_request_ms + "ms" : "") +
+      (timing.receiver_alignment_ms != null ? " · Receiver ready " + timing.receiver_alignment_ms + "ms" : "")
+    : "";
   $("cast").disabled = !data.approved || track.state !== "playing";
   $("sync-status").textContent = data.active
     ? "Video timing: " + (data.active.sync_state || "Starting") +

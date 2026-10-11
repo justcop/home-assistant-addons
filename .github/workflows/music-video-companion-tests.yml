@@ -18,3 +18,4 @@ jobs:
           python-version: "3.12"
       - run: python -m unittest discover -s music_video_companion/tests -v
       - run: python -m compileall -q music_video_companion/app
+      - run: node --check music_video_companion/app/app.js

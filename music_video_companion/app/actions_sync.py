@@ -103,6 +103,9 @@ def sync_playback(self):
         )
         active["initial_pending"] = False
         active["resume_pending"] = False
+        if phase == "initial" and self.last_cast_timing.get("artist") == track.get("artist"):
+            self.last_cast_timing["receiver_alignment_ms"] = round((time.monotonic() - active["launched_at"]) * 1000)
+            self.last_cast_timing["result"] = "aligned"
         if owned is True and receiver_state == "paused":
             try:
                 self.ha.service("media_play", {"entity_id": active["entity"]})

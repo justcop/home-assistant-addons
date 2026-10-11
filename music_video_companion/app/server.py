@@ -7,6 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 from runtime import Companion
+from ha_events import run_event_feed
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 APP = Companion()
@@ -101,5 +102,6 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     threading.Thread(target=APP.run, name="music-video-monitor", daemon=True).start()
+    threading.Thread(target=run_event_feed, args=(APP,), name="music-video-ha-events", daemon=True).start()
     logging.info("Music Video Companion listening on 8099")
     ThreadingHTTPServer(("0.0.0.0", 8099), Handler).serve_forever()

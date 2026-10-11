@@ -89,3 +89,20 @@ With automatic mode enabled and a YouTube API key configured, exactly **one** se
 ## YouTube adverts
 
 The add-on now waits up to 105 seconds for the approved video's ID to appear on the YouTube Cast receiver, treating other IDs inside the YouTube app as possible pre-roll advertisements. It does not attempt to skip, block, or manipulate adverts. Initial alignment occurs when the real video becomes seekable, with the current Spotify position queried again. YouTube Premium on a signed-in compatible receiver may be required to avoid advertising; the generic Home Assistant Cast launch may not inherit a Premium account session.
+
+## Home Assistant event feed and timing breakdown (0.4.0)
+
+With the existing Home Assistant long-lived access token (`ha_access_token`) configured, the add-on now connects directly to the internal Home Assistant WebSocket API and subscribes to `state_changed`. Changes to artist, song title or playing/paused state wake the companion's monitor immediately. Position-only changes are deliberately ignored, and the connection automatically retries if Home Assistant restarts.
+
+- **Event feed connected:** The 3-second REST polling interval remains a safety fallback, but a Home Assistant push event is consumed immediately without needing another GET of the cached entity.
+- **Event feed disconnected:** REST polling continues normally; the interface displays a reason and the feed reconnects with backoff.
+- **Event feed disabled:** Configure the optional `ha_access_token` in the add-on's Configuration, or continue using REST polling alone. Never expose this token in frontend JavaScript.
+- **External source:** An authenticated `POST /api/track` from a future AudioShelf/Vinyl Guardian integration now wakes the monitor immediately rather than waiting for its next polling interval.
+
+### Reading the diagnostics
+
+Under **Now Playing**, the web UI reports connection state, number of meaningful push events, whether the last track was observed by push or polling, the time from event receipt to processing, video lookup time, time to submit the Cast command, and time for the receiver to reach initial alignment.
+
+These durations measure internal stages, **not** the elapsed time between pressing Next in Spotify and Home Assistant learning about the new song. That upstream lag needs comparison with the actual Spotify device. Faster HA events will not eliminate an upstream ~30-second Spotify integration update interval. The already implemented `spotify_refresh_seconds` attempts to trigger a controlled early refresh; it may not be honoured by every HA/Spotify version.
+
+The new listener uses the Alpine `py3-websocket-client` package and requires no new Spotify OAuth credentials, no Home Assistant YAML automation and no changes to AudioShelf or Vinyl Guardian.
