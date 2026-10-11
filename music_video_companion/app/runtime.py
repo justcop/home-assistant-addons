@@ -8,6 +8,7 @@ from pathlib import Path
 from model import Library, song_key
 from providers import HomeAssistant, spotify_track
 from video_actions import search, approve, play_current, stop
+from actions_sync import sync_playback
 
 LOG = logging.getLogger(__name__)
 
@@ -16,6 +17,7 @@ class Companion:
     approve = approve
     play_current = play_current
     stop = stop
+    sync_playback = sync_playback
 
     def __init__(self, path=None, ha=None, options=None):
         self.options = options if options is not None else self.load_options()
@@ -48,7 +50,7 @@ class Companion:
             same_song = self.candidate_song == song_key(track["artist"], track["title"])
             return {"settings": self.library.settings(), "current": track,
                     "approved": match, "candidates": list(self.candidates) if same_song else [],
-                    "active": dict(self.active) if self.active else None,
+                    "active": {k: v for k, v in self.active.items() if k != "old_mute"} if self.active else None,
                     "has_youtube_key": bool(self.options.get("youtube_api_key")),
                     "external_enabled": bool(self.options.get("source_api_token")),
                     "message": self.info, "error": self.error,
