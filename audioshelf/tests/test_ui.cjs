@@ -69,6 +69,24 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
         'Differences use bold type in '+mode);
     }
 
+    // Different printed titles collapse only when they resolve to identical
+    // Spotify recording IDs in exactly the same order.
+    const collapsed=await page.evaluate(()=>{
+      const example=(signature,recording,release)=>({
+        signature,track_count:2,pressings:1,tracks:[{title:signature}],layouts:[{
+          key:'disc',release_id:release,pressings:1,spotify_matches:[{
+            spotify_album_id:'album',recording_signature:recording,matched_tracks:2}]
+        }]});
+      const state={variants:[]};
+      combineVerifiedVariant(state,example('Opening','same-recordings','one'));
+      combineVerifiedVariant(state,example('Opening (In the Air)','same-recordings','two'));
+      combineVerifiedVariant(state,example('Opening (Live)','different-recordings','three'));
+      return state.variants.map(v=>({pressings:v.pressings,signatures:v.signatures}));
+    });
+    assert.equal(collapsed.length,2,'Equivalent verified audio must collapse without merging genuinely distinct recordings');
+    assert.equal(collapsed[0].pressings,2);
+    assert.equal(collapsed[0].signatures.length,2);
+
     fixtureCookie=(await page.context().cookies()).map(c=>`${c.name}=${c.value}`).join('; ');
     await fixtureFetch(base+'/api/settings',{method:'PUT',headers:{'Content-Type':'application/json','X-AudioShelf-Request':'1'},body:JSON.stringify({interface:'classic'})});
     await page.reload();
@@ -113,15 +131,16 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
       else await route.continue();
     });
     await page.getByRole('button',{name:'Change original tracklist'}).click();
-    await page.getByRole('button',{name:'Retry',exact:false}).click();
     await page.locator('[data-action="select-variant"]').first().waitFor();
+    assert.equal(failEditionRequest,false, 'Transient proxy failure should be retried without user input');
     assert.equal(await page.locator('.variant-option').count(),1,
       'One MusicBrainz release produces one Spotify-verified musical tracklist');
     assert((await page.locator('.variant-difference').first().textContent()).includes('Preferred standard'),
       'Major tracklist differences are visible before selecting Spotify');
     await page.getByRole('button',{name:'Close',exact:true}).click();
     await page.unroute('**/api/albums/*/tracklist-variants?offset=*');
-    // The picker must automatically continue beyond its first eight releases.
+    // The picker must automatically continue beyond its first short batch.
+    await page.evaluate(()=>sessionStorage.clear());
     const variantOffsets=[];
     await page.route('**/api/albums/*/tracklist-variants?offset=*',async route=>{
       const offset=Number(new URL(route.request().url()).searchParams.get('offset'));
@@ -129,19 +148,27 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
       if(offset===0){
         const upstream=await route.fetch();
         const data=await upstream.json();
-        data.total=10;data.all_total=103;data.checked=8;data.next_offset=8;
+        data.total=5;data.all_total=103;data.checked=2;data.next_offset=2;
         await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(data)});
-      }else if(offset===8){
+      }else if(offset===2||offset===4){
         await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({
-          variants:[],rejected:[],checked:2,total:10,all_total:103,next_offset:null})});
+          variants:[],rejected:[],checked:offset===2?2:1,total:5,all_total:103,
+          next_offset:offset===2?4:null})});
       }else throw new Error('Unexpected tracklist scan offset: '+offset);
     });
     await page.getByRole('button',{name:'Album settings'}).click();
     await page.getByRole('button',{name:'Change original tracklist'}).click();
-    await page.getByText('10 of 10 GB, Worldwide and US releases inspected',{exact:false}).waitFor();
-    assert.deepEqual(variantOffsets,[0,8],'All eligible pressings are checked automatically');
+    await page.getByText('5 of 5 GB, Worldwide and US releases inspected',{exact:false}).waitFor();
+    assert.deepEqual(variantOffsets,[0,2,4],'All eligible pressings are checked automatically');
     assert((await page.locator('.muted[role="status"]').textContent()).includes('103 total MusicBrainz releases'));
     assert((await page.locator('.muted[role="status"]').textContent()).includes('Scan complete'));
+    // Reopening the picker restores this tab's verified results without
+    // issuing the same expensive MusicBrainz requests again.
+    await page.getByRole('button',{name:'Close',exact:true}).click();
+    await page.getByRole('button',{name:'Album settings'}).click();
+    await page.getByRole('button',{name:'Change original tracklist'}).click();
+    await page.getByText('5 of 5 GB, Worldwide and US releases inspected',{exact:false}).waitFor();
+    assert.deepEqual(variantOffsets,[0,2,4], 'Completed scan is restored, not rescanned');
     await page.getByRole('button',{name:'Close',exact:true}).click();
     await page.unroute('**/api/albums/*/tracklist-variants?offset=*');
     await page.getByRole('button',{name:'Album settings'}).click();
