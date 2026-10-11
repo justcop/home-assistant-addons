@@ -449,7 +449,7 @@ async function openPlayableReleasePicker(albumId,mode){
     await loadReleasePage();
     return;
   }
-  releasePicker={album:albumId,mode,variants:[],rejected:[],next:0,checked:0,total:0,stage:'variants'};
+  releasePicker={album:albumId,mode,variants:[],rejected:[],next:0,checked:0,total:0,allTotal:0,stage:'variants',running:false,paused:false,error:''};
   showModal('<h2>Choose a tracklist</h2>'+loading('Grouping MusicBrainz releases and verifying complete Spotify matches…'));
   await loadVariantPage();
 }
@@ -488,32 +488,66 @@ function variantPickerHtml(state,error=''){
   const unavailable=rejected.length?'<details class="variant-unavailable"><summary>'+rejected.length+' unplayable tracklist '+(rejected.length===1?'variation':'variations')+' excluded</summary>'+rejected.map(v=>
     '<p><strong>'+v.track_count+' tracks, '+v.missing+' unverified</strong>. '+escapeHtml(v.reason||'No complete Spotify match')+
     (v.tracks?.length?'<ul>'+v.tracks.map(t=>'<li>'+escapeHtml(t.title)+' ('+escapeHtml(String(t.reason||'unknown').replaceAll('_',' '))+')</li>').join('')+'</ul>':'')+'</p>').join('')+'</details>':'';
-  return `<h2>Choose the album tracklist</h2><p>MusicBrainz pressings with the same songs in the same order are combined. <strong>Only tracklists with a complete Spotify match are selectable.</strong> See bonus tracks, omissions and changed running orders before choosing.</p><p class="muted">${state.checked} of ${state.total||'?'} preferred releases inspected; ${state.variants.length} verified tracklists. More choices may appear as you inspect additional pressings.</p>${state.variants.map((variant,index)=>`<section class="variant-option"><h3>${index===0?'Preferred verified': 'Tracklist '+(index+1)} · ${variant.track_count} tracks</h3><p class="variant-difference">${variantSummary(reference,variant)}</p><p class="muted">${variant.pressings} verified MusicBrainz ${variant.pressings===1?'release':'releases'} · ${variant.layouts.length} ${variant.layouts.length===1?'disc/side layout':'disc/side layouts'}</p><button class="secondary" data-action="select-variant" data-signature="${variant.signature}">Choose this tracklist</button><details><summary>Show the complete tracklist</summary>${variantTrackPreview(variant)}</details></section>`).join('')}${!state.variants.length&&!error?'<div class="note">No fully verified Spotify tracklists in the releases checked so far. Inspect more pressings, or review the excluded versions below.</div>':''}${unavailable}${error?`<div class="note">${escapeHtml(error)}</div>`:''}${state.next!==null?`<button class="secondary" data-action="load-releases">${error?'Retry':'Inspect more MusicBrainz pressings'} ↘</button>`:''}`;
+  const finished=state.next===null;
+  const progress=state.checked+' of '+(state.total||'?')+' GB, Worldwide and US releases inspected'+
+    (state.allTotal>state.total?' ('+state.allTotal+' total MusicBrainz releases)':'')+
+    '; '+state.variants.length+' verified tracklists. ';
+  const message=finished?'Scan complete.':state.paused?'Scan paused.':state.running?'Scanning remaining eligible pressings automatically…':'Ready to scan remaining pressings.';
+  const controls=finished?'':state.running&&!state.paused?
+    '<button class="quiet" data-action="pause-variant-scan">Pause scan</button>':
+    '<button class="secondary" data-action="load-releases">'+(error?'Retry scan':'Continue scan')+'</button>';
+  return `<h2>Choose the album tracklist</h2><p>MusicBrainz pressings with the same songs in the same order are combined. <strong>Only tracklists with a complete Spotify match are selectable.</strong> See bonus tracks, omissions and changed running orders before choosing.</p><p class="muted" role="status" aria-live="polite">${progress}${message}</p>${state.variants.map((variant,index)=>`<section class="variant-option"><h3>${index===0?'Preferred verified': 'Tracklist '+(index+1)} · ${variant.track_count} tracks</h3><p class="variant-difference">${variantSummary(reference,variant)}</p><p class="muted">${variant.pressings} verified MusicBrainz ${variant.pressings===1?'release':'releases'} · ${variant.layouts.length} ${variant.layouts.length===1?'disc/side layout':'disc/side layouts'}</p><button class="secondary" data-action="select-variant" data-signature="${variant.signature}">Choose this tracklist</button><details><summary>Show the complete tracklist</summary>${variantTrackPreview(variant)}</details></section>`).join('')}${!state.variants.length&&!error?'<div class="note">No fully verified Spotify tracklists in the releases checked so far. AudioShelf '+(finished?'has finished the regional scan.':'is still scanning.')+'</div>':''}${unavailable}${error?`<div class="note">${escapeHtml(error)}</div>`:''}${controls}`;
+}
+function renderVariantPicker(state,error=''){
+  // Preserve scroll and an expanded diagnostics panel while results arrive.
+  const position=modal.scrollTop;
+  const expanded=!!modalContent.querySelector('.variant-unavailable[open]');
+  modalContent.innerHTML=variantPickerHtml(state,error);
+  if(expanded){const details=modalContent.querySelector('.variant-unavailable');if(details)details.open=true;}
+  modal.scrollTop=position;
 }
 async function loadVariantPage(){
   const state=releasePicker,generation=routeGeneration;
-  if(!state||state.mode==='cover'||state.next===null)return;
-  modalContent.innerHTML=variantPickerHtml(state)+loading('Grouping songs and verifying complete Spotify matches…');
+  if(!state||state.mode==='cover'||state.running||state.next===null)return;
+  state.running=true;state.paused=false;state.error='';
   try{
-    const result=await api(`albums/${id(state.album)}/tracklist-variants?offset=${state.next}`);
-    if(generation!==routeGeneration||releasePicker!==state||!modal.open)return;
-    state.next=result.next_offset;state.total=result.total;state.checked+=result.checked;
-    state.rejected.push(...(result.rejected||[]));
-    for(const variant of result.variants){
-      const found=state.variants.find(v=>v.signature===variant.signature);
-      if(!found){state.variants.push(variant);continue;}
-      found.pressings+=variant.pressings;
-      for(const layout of variant.layouts){
-        const existing=found.layouts.find(l=>l.key===layout.key);
-        if(existing)existing.pressings+=layout.pressings;
-        else found.layouts.push(layout);
+    while(state.next!==null&&!state.paused&&state.stage==='variants'&&releasePicker===state&&modal.open&&generation===routeGeneration){
+      renderVariantPicker(state);
+      const result=await api(`albums/${id(state.album)}/tracklist-variants?offset=${state.next}`);
+      if(generation!==routeGeneration||releasePicker!==state||!modal.open||state.stage!=='variants')return;
+      state.next=result.next_offset;state.total=result.total;state.allTotal=result.all_total||result.total;
+      state.checked+=result.checked;
+      for(const variant of result.variants){
+        const found=state.variants.find(v=>v.signature===variant.signature);
+        if(!found){state.variants.push(variant);continue;}
+        found.pressings+=variant.pressings;
+        for(const layout of variant.layouts){
+          const existing=found.layouts.find(l=>l.key===layout.key);
+          if(existing)existing.pressings+=layout.pressings;
+          else found.layouts.push(layout);
+        }
       }
+      // Reject each musical tracklist only once, not once per page.
+      // Later matching pressings rescue earlier rejected signatures.
+      for(const issue of result.rejected||[]){
+        const found=state.rejected.find(v=>v.signature===issue.signature);
+        if(!found)state.rejected.push(issue);
+        else if(issue.missing<found.missing)Object.assign(found,issue);
+      }
+      const playableSignatures=new Set(state.variants.map(v=>v.signature));
+      state.rejected=state.rejected.filter(v=>!playableSignatures.has(v.signature));
+      renderVariantPicker(state);
     }
-    // A later pressing may rescue a tracklist rejected on an earlier page.
-    const playableSignatures=new Set(state.variants.map(v=>v.signature));
-    state.rejected=state.rejected.filter(v=>!playableSignatures.has(v.signature));
-    modalContent.innerHTML=variantPickerHtml(state);
-  }catch(error){if(generation===routeGeneration&&releasePicker===state&&modal.open)modalContent.innerHTML=variantPickerHtml(state,error.message);}
+  }catch(error){
+    if(generation===routeGeneration&&releasePicker===state&&modal.open&&state.stage==='variants'){
+      state.paused=true;state.error=error.message;
+    }
+  }finally{
+    state.running=false;
+    if(generation===routeGeneration&&releasePicker===state&&modal.open&&state.stage==='variants'){
+      renderVariantPicker(state,state.error);
+    }
+  }
 }
 function variantLayoutHtml(state){
   const v=state.variants.find(item=>item.signature===state.selectedSignature);
@@ -750,14 +784,24 @@ document.addEventListener('click',async event=>{
     if(action==='releases'||action==='cover-editions'||action==='find-playable-edition'){
       await openPlayableReleasePicker(currentAlbum.id,action==='cover-editions'?'cover':'tracks');
     }
-    if(action==='load-releases'){if(releasePicker?.mode==='cover')await loadReleasePage();else await loadVariantPage();}
+    if(action==='load-releases'){
+      if(releasePicker?.mode==='cover')await loadReleasePage();
+      else if(releasePicker){releasePicker.paused=false;releasePicker.error='';await loadVariantPage();}
+    }
+    if(action==='pause-variant-scan'&&releasePicker){
+      releasePicker.paused=true;
+      renderVariantPicker(releasePicker);
+    }
     if(action==='select-variant'){
       if(!releasePicker)return;
       releasePicker.selectedSignature=button.dataset.signature;
       releasePicker.stage='layout';modalContent.innerHTML=variantLayoutHtml(releasePicker);
     }
     if(action==='variant-back'){
-      if(releasePicker){releasePicker.stage='variants';modalContent.innerHTML=variantPickerHtml(releasePicker);}
+      if(releasePicker){
+        releasePicker.stage='variants';renderVariantPicker(releasePicker);
+        if(!releasePicker.paused&&!releasePicker.running&&releasePicker.next!==null)void loadVariantPage();
+      }
     }
     if(action==='variant-back-layout'){
       if(releasePicker){releasePicker.stage='layout';modalContent.innerHTML=variantLayoutHtml(releasePicker);}
