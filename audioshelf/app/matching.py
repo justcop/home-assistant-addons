@@ -141,7 +141,7 @@ def candidate(album, source):
         if (mapping.get('spotify_id') and evidence.get('reason') == 'needs_review'
                 and evidence.get('canonical_title') == evidence.get('spotify_title')
                 and isinstance(delta, (int, float)) and isinstance(duration, (int, float))
-                and duration > 0 and delta <= max(12000, min(20000, duration*.08))):
+                and duration > 0 and delta <= max(16000, min(20000, duration*.09))):
             mapping['verified'] = True
             mapping['assessment'] = {**evidence, 'verified': True,
                                      'reason': 'album_context_duration'}
