@@ -36,8 +36,11 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
     await route.fulfill({ status:200, contentType:"application/json", body:JSON.stringify({
       years:[{year:1968,plays:45},{year:1969,plays:17},{year:1994,plays:2}],
       total:70, identified:64, unidentified:6,
-      lookup:{queued:0,processing:0,enabled:false},
+      lookup:{queued:10,processing:1,enabled:true,
+        songs:{total:100,checked:70,matched:60,unresolved:10,pending:30,queued:10,processing:1,complete:false},
+        albums:{total:30,checked:30,matched:27,unresolved:3,pending:0,queued:0,processing:0,complete:true}},
       selected_year:selected, top_songs:selected ? [{id:1,name:"Blackbird",artist:"The Beatles",plays:45}] : [],
+      top_albums:selected ? [{id:2,name:"The Beatles (White Album)",artist:"The Beatles",plays:28}] : [],
       period:{start:0,end:1}
     })});
   });
@@ -69,6 +72,12 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   assert.equal(await page.locator('[data-release-year="1968"] .release-year-short').innerText(), "68");
   await page.locator('[data-release-year="1968"]').click();
   await page.locator('.release-year-details .list-row').waitFor();
+  assert.equal(await page.locator('.release-year-details').count(), 2);
+  assert.equal(await page.locator('.release-year-details [data-detail="song"]').count(), 1);
+  assert.equal(await page.locator('.release-year-details [data-detail="album"]').count(), 1);
+  assert.match(await page.locator('.release-lookup-status').innerText(), /70 \/ 100 checked/);
+  assert.match(await page.locator('.release-lookup-status').innerText(), /Lookup pass complete for the current library/);
+  assert.equal(await page.locator('.release-lookup-group progress').first().getAttribute('value'), '70');
   assert.equal(await page.locator('[data-release-year="1968"]').getAttribute("aria-pressed"), "true");
   await page.unroute("**/api/release-years?*");
   await page.setViewportSize({width:1440,height:1050});

@@ -39,6 +39,10 @@ class ViewCache:
         if name == "release-years":
             keys += ["release_year"]
         values = {k: args[k] for k in keys if args.get(k) not in (None, "")}
+        if name == "release-years":
+            # Refresh only this view's schema. Preserve users' other cached
+            # overview and ranking views across the add-on upgrade.
+            values["_release_year_schema"] = 2
         values.setdefault("period", "all")
         values.setdefault("source", "all")
         values.setdefault("mode", "merged")

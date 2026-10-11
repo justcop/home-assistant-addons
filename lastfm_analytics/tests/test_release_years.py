@@ -216,3 +216,100 @@ def test_musicbrainz_recording_finds_original_blackbird_1968():
         }
     worker.mb = fixture
     assert worker.song_year("The Beatles", "Blackbird") == 1968
+
+
+
+def test_album_top_twenty_is_based_on_album_year_not_songs_year(tmp_path):
+    db = Database(tmp_path / "album-year.sqlite3")
+    db.apply_window(0, 5000, [
+        play(100, "Blackbird", "White Album", "The Beatles"),
+        play(101, "Blackbird", "Later Collection", "The Beatles"),
+        play(102, "Blackbird", "Later Collection", "The Beatles"),
+        play(103, "Another Song", "Later Collection", "The Beatles"),
+    ])
+    with db.connect() as conn:
+        albums = dict(conn.execute(
+            "SELECT DISTINCT s.album,av.group_id FROM scrobbles s "
+            "JOIN resolved_variants av ON av.id=s.album_id"
+        ).fetchall())
+        blackbird = conn.execute(
+            "SELECT sv.group_id FROM scrobbles s "
+            "JOIN resolved_variants sv ON sv.id=s.song_id "
+            "WHERE s.title='Blackbird' LIMIT 1"
+        ).fetchone()[0]
+        conn.executemany("INSERT INTO release_years VALUES (?,?,?,?,?)", [
+            ("song", blackbird, 1968, "MusicBrainz", 9999999999),
+            ("album", albums["White Album"], 1968, "MusicBrainz", 9999999999),
+            ("album", albums["Later Collection"], 1994, "MusicBrainz", 9999999999),
+        ])
+    early = release_year_analysis(db, {"period": "all", "release_year": "1968"}, "UTC")
+    assert early["top_songs"][0]["name"] == "Blackbird"
+    assert early["top_songs"][0]["plays"] == 3
+    assert [(a["name"], a["plays"]) for a in early["top_albums"]] == [
+        ("White Album", 1),
+    ]
+    late = release_year_analysis(db, {"period": "all", "release_year": "1994"}, "UTC")
+    assert [(a["name"], a["plays"]) for a in late["top_albums"]] == [
+        ("Later Collection", 3),
+    ]
+    db.record_source("Tester", {
+        "username": "Tester", "source": "vinyl", "artist": "The Beatles",
+        "title": "Blackbird", "timestamp": 101,
+    })
+    filtered = release_year_analysis(
+        db, {"period": "all", "source": "vinyl", "release_year": "1994"}, "UTC"
+    )
+    assert [(a["name"], a["plays"]) for a in filtered["top_albums"]] == [
+        ("Later Collection", 1),
+    ]
+
+
+def test_release_metadata_progress_counts_all_songs_not_just_queued(tmp_path):
+    db = Database(tmp_path / "progress.sqlite3")
+    db.apply_window(0, 5000, [
+        play(100, "A"), play(101, "A"), play(102, "B"),
+        play(103, "C", "Second"),
+    ])
+    worker = ReleaseYearWorker(enabled=True)
+    baseline = worker.status(db)
+    assert baseline["songs"]["total"] == 3
+    assert baseline["albums"]["total"] == 2
+    assert baseline["songs"]["pending"] == 3
+    assert not baseline["songs"]["complete"]
+    with db.connect() as conn:
+        ids = list(conn.execute(
+            "SELECT DISTINCT sv.group_id FROM scrobbles s "
+            "JOIN resolved_variants sv ON sv.id=s.song_id ORDER BY sv.group_id"
+        ))
+        albums = list(conn.execute(
+            "SELECT DISTINCT av.group_id FROM scrobbles s "
+            "JOIN resolved_variants av ON av.id=s.album_id ORDER BY av.group_id"
+        ))
+        conn.executemany("INSERT INTO release_years VALUES (?,?,?,?,?)", [
+            ("song", ids[0][0], 1973, "MusicBrainz", 9999999999),
+            ("song", ids[1][0], None, None, 9999999999),
+            ("song", ids[2][0], 1968, "MusicBrainz", 1),  # expired
+            ("album", albums[0][0], 1973, "MusicBrainz", 9999999999),
+        ])
+    halfway = worker.status(db)
+    assert halfway["songs"]["checked"] == 2
+    assert halfway["songs"]["matched"] == 1
+    assert halfway["songs"]["unresolved"] == 1
+    assert halfway["songs"]["pending"] == 1
+    assert not halfway["songs"]["complete"]
+    assert halfway["albums"]["checked"] == 1
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE release_years SET expires=9999999999 WHERE kind='song' AND group_id=?",
+            (ids[2][0],),
+        )
+    finished = worker.status(db)
+    assert finished["songs"]["complete"] is True
+    assert finished["songs"]["checked"] == 3
+    assert finished["songs"]["matched"] == 2
+    assert finished["songs"]["unresolved"] == 1
+    assert finished["albums"]["complete"] is False
+    assert finished["albums"]["pending"] == 1
+    # A new song makes the previous "complete" status false again.
+    db.apply_window(0, 5000, [play(104, "D", "Second")])
+    assert not worker.status(db)["songs"]["complete"]
