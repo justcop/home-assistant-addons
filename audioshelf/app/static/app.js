@@ -502,8 +502,13 @@ function renderVariantPicker(state,error=''){
   // Preserve scroll and an expanded diagnostics panel while results arrive.
   const position=modal.scrollTop;
   const expanded=!!modalContent.querySelector('.variant-unavailable[open]');
+  const expandedTracks=new Set([...modalContent.querySelectorAll('.variant-option')]
+    .flatMap((section,index)=>section.querySelector('details[open]')?[index]:[]));
   modalContent.innerHTML=variantPickerHtml(state,error);
   if(expanded){const details=modalContent.querySelector('.variant-unavailable');if(details)details.open=true;}
+  [...modalContent.querySelectorAll('.variant-option')].forEach((section,index)=>{
+    if(expandedTracks.has(index))section.querySelector('details').open=true;
+  });
   modal.scrollTop=position;
 }
 async function loadVariantPage(){
