@@ -129,7 +129,7 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
       if(offset===0){
         const upstream=await route.fetch();
         const data=await upstream.json();
-        data.total=10;data.all_total=103;data.next_offset=8;
+        data.total=10;data.all_total=103;data.checked=8;data.next_offset=8;
         await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(data)});
       }else if(offset===8){
         await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({
