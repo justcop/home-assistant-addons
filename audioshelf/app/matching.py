@@ -36,13 +36,22 @@ def track_assessment(canonical, spotify, artist_names):
     if versions != set(VERSION.findall(right)):
         return {'score': 0, 'verified': False, 'reason': 'recording_version_mismatch'}
     exact = left == right
+    # A printed track title may omit a short trailing subtitle, such as the
+    # end of a combined medley title. This is NOT a general fuzzy match: the
+    # shorter title must be a four-word prefix, with at most three additional
+    # words, and the track duration must independently corroborate it.
+    left_words, right_words = left.split(), right.split()
+    shorter, longer = sorted((left_words, right_words), key=len)
+    expanded_title = (len(shorter) >= 4 and 0 < len(longer)-len(shorter) <= 3
+                      and longer[:len(shorter)] == shorter
+                      and len(' '.join(shorter)) >= 15)
     alternate_titles = {normalize(title, True) for title in
                         [recording_title, *canonical.get('recording_aliases', [])] if title}
     recording_match = bool(canonical.get('recording_id') and right in alternate_titles)
     similarity = SequenceMatcher(None, left, right).ratio()
     isrc = spotify.get('external_ids', {}).get('isrc')
     same_isrc = bool(isrc and isrc in canonical.get('isrcs', []))
-    if not exact and not recording_match and not same_isrc and similarity < .85:
+    if not exact and not recording_match and not same_isrc and not expanded_title and similarity < .85:
         return {'score': 0, 'verified': False, 'reason': 'title_mismatch', 'canonical_title': left, 'spotify_title': right}
     duration = canonical.get('duration_ms')
     actual = spotify.get('duration_ms')
@@ -50,11 +59,13 @@ def track_assessment(canonical, spotify, artist_names):
     plausible_duration = delta is None or delta <= max(8000, duration*.04)
     if delta is not None and delta > max(30000, duration*.18):
         return {'score': 0, 'verified': False, 'reason': 'duration_mismatch', 'duration_delta_ms': delta}
-    score = (95 if exact or recording_match or same_isrc else similarity*80) + (5 if delta is not None and delta<2000 else 0)
-    # Alternate titles require duration corroboration as well as the artist check.
-    verified = (exact or same_isrc or (recording_match and delta is not None)) and plausible_duration
+    score = (95 if exact or recording_match or same_isrc or expanded_title else similarity*80) + (5 if delta is not None and delta<2000 else 0)
+    # A trailing-title expansion is only verified with independent duration
+    # agreement. A similarly named edit/remix is still rejected above.
+    verified = (exact or same_isrc or (recording_match and delta is not None)
+                or (expanded_title and delta is not None)) and plausible_duration
     return {'score': score, 'verified': verified,
-            'reason': ('exact_title' if exact else 'same_recording_title' if recording_match else 'same_isrc') if verified else 'needs_review',
+            'reason': ('exact_title' if exact else 'same_recording_title' if recording_match else 'same_isrc' if same_isrc else 'extended_title') if verified else 'needs_review',
             'duration_delta_ms': delta, 'canonical_title': left, 'spotify_title': right}
 
 
@@ -116,6 +127,24 @@ def candidate(album, source):
             considered = sorted(({'id': t['id'], 'title': t['name'], **track_assessment(track, t, artists)}
                                 for t in source['all_tracks']), key=lambda t: t['score'], reverse=True)
             mapping.update(assessment={'reason': 'no_ordered_match'}, alternatives=considered[:3])
+    # An album with at least five tracks and every other song independently
+    # verified provides useful context for one exactly named recording whose
+    # boundary duration differs slightly between editions. Do not weaken the
+    # standalone single-track verifier, or accept multiple borderline matches.
+    missing = [(track, mapping) for track, mapping in zip(album['tracks'], mappings)
+               if not mapping['verified']]
+    if len(album['tracks']) >= 5 and len(missing) == 1:
+        track, mapping = missing[0]
+        evidence = mapping.get('assessment') or {}
+        delta = evidence.get('duration_delta_ms')
+        duration = track.get('duration_ms')
+        if (mapping.get('spotify_id') and evidence.get('reason') == 'needs_review'
+                and evidence.get('canonical_title') == evidence.get('spotify_title')
+                and isinstance(delta, (int, float)) and isinstance(duration, (int, float))
+                and duration > 0 and delta <= max(12000, min(20000, duration*.08))):
+            mapping['verified'] = True
+            mapping['assessment'] = {**evidence, 'verified': True,
+                                     'reason': 'album_context_duration'}
     verified = sum(m['verified'] for m in mappings)
     matched = sum(bool(m['spotify_id']) for m in mappings)
     clean_title = normalize(album['title']) == normalize(source['name'])
