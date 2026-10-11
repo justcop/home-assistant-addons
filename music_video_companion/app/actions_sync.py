@@ -2,6 +2,7 @@
 import time
 from model import song_key
 from sync import align_once, owned_video
+from providers import spotify_track
 
 def sync_playback(self):
     with self.lock:
@@ -51,6 +52,16 @@ def sync_playback(self):
         if not active["initial_pending"] and not active["resume_pending"]:
             # Deliberately do nothing during a continuously playing song.
             return
+        # Fetch the source clock at the moment of seeking, not when a user
+        # pressed Cast: receiver startup can take several seconds.
+        settings = self.library.settings()
+        if settings["source"] == "spotify" and settings["spotify_entity"]:
+            refreshed = spotify_track(self.ha.state(settings["spotify_entity"]))
+            if song_key(refreshed.get("artist"), refreshed.get("title")) != active["song_key"]:
+                self.stop()
+                return
+            track = refreshed
+            self.current = dict(refreshed)
         result = align_once(self.ha, active, track, receiver, phase, clock=now)
         if result == "waiting":
             active["sync_state"] = "Waiting for YouTube playback to become seekable"
