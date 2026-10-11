@@ -250,3 +250,21 @@ def test_provider_outage_is_short_lived(tmp_path):
         assert 290 < expires-time.time() <= 300
     finally:
         worker.close()
+
+def test_large_album_artwork_sources_are_preferred():
+    from analytics.artwork import image_url
+    tiny = 'https://lastfm.freetls.fastly.net/i/u/174s/cover.jpg'
+    bigger = 'https://lastfm.freetls.fastly.net/i/u/500x500/cover.jpg'
+    assert image_url([{'size': 'large', '#text': tiny},
+                      {'size': 'extralarge', '#text': bigger}]) == bigger
+    assert image_url([{'size': 'extralarge', '#text': 'https://evil.example/image.jpg'},
+                      {'size': 'large', '#text': tiny}]) == tiny
+
+    worker = ArtworkWorker('', opener=lambda req, timeout: io.BytesIO(
+        json.dumps({'data': [{
+            'title': 'Abbey Road', 'artist': {'name': 'The Beatles'},
+            'cover_medium': 'https://e-cdns-images.dzcdn.net/images/cover/one/250x250.jpg',
+            'cover_big': 'https://e-cdns-images.dzcdn.net/images/cover/one/500x500.jpg',
+            'cover_xl': 'https://e-cdns-images.dzcdn.net/images/cover/one/1000x1000.jpg',
+        }]}).encode()))
+    assert worker.fetch_deezer('The Beatles', 'Abbey Road').endswith('1000x1000.jpg')

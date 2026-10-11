@@ -527,6 +527,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   await page.locator('#detail-dialog [data-browse="songs"]').waitFor();
   await page.locator('.album-detail-cover img').waitFor();
   await page.waitForFunction(() => document.querySelector('.album-detail-cover img')?.naturalWidth > 0);
+  assert.match(await page.locator('.album-detail-cover img').getAttribute('src'), /\/500x500\/album-cover-fixture/);
   await page.locator('.album-detail-actions a').nth(2).waitFor();
   assert.equal(await page.locator('.album-detail-actions a').count(), 3);
   assert.equal(await page.locator('.album-detail-titles .album-detail-artist').innerText(), 'The Beatles');

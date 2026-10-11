@@ -14,7 +14,7 @@ from .grouping import normalise, canonical_title
 def image_url(images):
     if not isinstance(images, list):
         return None
-    for size in ("large", "medium", "small"):
+    for size in ("mega", "extralarge", "large", "medium", "small"):
         for image in images:
             if not isinstance(image, dict) or image.get("size") != size:
                 continue
@@ -189,7 +189,7 @@ class ArtworkWorker:
                 continue
             if not album_match(str(entry.get("title", "")), album):
                 continue
-            for key in ("cover_medium", "cover_big", "cover"):
+            for key in ("cover_xl", "cover_big", "cover_medium", "cover"):
                 url = deezer_image(entry.get(key))
                 if url:
                     return url

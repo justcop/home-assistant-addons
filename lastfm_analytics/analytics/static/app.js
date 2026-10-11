@@ -649,6 +649,19 @@ function artistLogoHTML(detail) {
     ? `<img class="artist-logo" src="${esc(detail.artist_logo)}" alt="${esc(detail.name)}" decoding="async" referrerpolicy="no-referrer" fetchpriority="high">`
     : ""}`;
 }
+function albumCoverUrl(source) {
+  // Last.fm's small thumbnails look blurred when stretched to phone width.
+  // Request the corresponding larger CDN rendition, and keep the original
+  // as an explicit fallback if that variant is not available.
+  try {
+    const url = new URL(source);
+    if (!["lastfm.freetls.fastly.net", "lastfm-img2.akamaized.net"].includes(url.hostname))
+      return source;
+    if (!/^\/i\/u\/(174s|300x300)\//.test(url.pathname)) return source;
+    url.pathname = url.pathname.replace(/^\/i\/u\/(174s|300x300)\//, "/i/u/500x500/");
+    return url.href;
+  } catch (_) { return source; }
+}
 function artworkHTML(detail, kind) {
   if (kind === "artist" && detail.artist_photo) {
     return `<figure class="detail-artwork artist-photo"><img src="${esc(detail.artist_photo)}" alt="${esc(detail.artist_name || detail.name)} artist photo" width="176" height="176" decoding="async" referrerpolicy="no-referrer"></figure>`;
@@ -660,7 +673,9 @@ function artworkHTML(detail, kind) {
   }
   const art = detail.artwork;
   if (kind === "album") {
-    return `<figure class="detail-artwork"><img src="${esc(art.url)}" alt="Cover of ${esc(art.album)} by ${esc(art.artist)}" width="850" height="850" decoding="async" fetchpriority="high" referrerpolicy="no-referrer"></figure>`;
+    const coverUrl = albumCoverUrl(art.url);
+    const backup = coverUrl !== art.url ? ` data-fallback-src="${esc(art.url)}"` : "";
+    return `<figure class="detail-artwork"><img src="${esc(coverUrl)}"${backup} alt="Cover of ${esc(art.album)} by ${esc(art.artist)}" width="850" height="850" decoding="async" fetchpriority="high" referrerpolicy="no-referrer"></figure>`;
   }
   return `<figure class="detail-artwork"><img src="${esc(art.url)}" alt="Cover of ${esc(art.album)} by ${esc(art.artist)}" width="112" height="112" decoding="async" referrerpolicy="no-referrer"><figcaption>${esc(art.album)} · ${esc(art.source || "Last.fm")}</figcaption></figure>`;
 }
@@ -734,6 +749,12 @@ function bindArtworkError(detail, kind) {
   document.querySelectorAll("#detail-hero .detail-artwork img, #detail-hero .artist-logo-stage img").forEach(img => {
     img.onerror = () => {
       const url = img.getAttribute("src");
+      const fallback = img.dataset.fallbackSrc;
+      if (fallback && fallback !== url) {
+        img.removeAttribute("data-fallback-src");
+        img.src = fallback;
+        return;
+      }
       if (detail.artist_logo === url) {
         detail.artist_logo = null;
         const slot = $("#artist-logo-slot");
