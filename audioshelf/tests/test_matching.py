@@ -101,3 +101,36 @@ def test_bonus_track_remaster_year_does_not_change_album_preference(application)
     source={'id':'s'*22,'name':'The Album','release_date':'2007','all_tracks':[
         spotify_track('Opening','a'*22),spotify_track('Closing','b'*22,240000),spotify_track('Bonus - 2025 Remaster','c'*22)]}
     assert candidate(album,source)['edition_year']==0
+
+
+def test_extended_combined_track_title_requires_duration_artist_and_version_agreement():
+    from app.matching import track_assessment
+    original={'title':'Speak to Me / Breathe','duration_ms':235000}
+    extended=spotify_track('Speak to Me / Breathe in the Air','a'*22,235500)
+    assert track_assessment(original,extended,['The Artist'])['verified']
+    assert track_assessment(original,extended,['The Artist'])['reason']=='extended_title'
+    assert not track_assessment(original,spotify_track('Speak to Me / Breathe in the Air','a'*22,270000),['The Artist'])['verified']
+    assert not track_assessment(original,spotify_track('Speak to Me / Breathe - Live','a'*22,235000),['The Artist'])['verified']
+    wrong_artist=spotify_track('Speak to Me / Breathe in the Air','a'*22,235000)
+    wrong_artist['artists']=[{'name':'Another Artist'}]
+    assert not track_assessment(original,wrong_artist,['The Artist'])['verified']
+    assert track_score({'title':'The Song','duration_ms':235000},
+                       spotify_track('The Song - Alternate','a'*22,235000),
+                       ['The Artist'])[1] is False
+
+
+def test_single_duration_discrepancy_can_be_corroborated_by_entire_album():
+    canonical=[{'title':f'Song {i}','position':i,'duration_ms':180000} for i in range(1,11)]
+    originals=[spotify_track(f'Song {i}',str(i)*22,196000 if i==4 else 180000)
+               for i in range(1,11)]
+    source={'id':'s'*22,'name':'Album','release_date':'2026','all_tracks':originals}
+    album={'title':'Album','release_date':'2026','artists':[{'name':'The Artist'}],'tracks':canonical}
+    assert not track_score(canonical[3],originals[3],['The Artist'])[1]
+    result=candidate(album,source)
+    assert result['verified']==10
+    assert result['mappings'][3]['assessment']['reason']=='album_context_duration'
+    originals[6]['duration_ms']=196000
+    assert candidate(album,source)['verified']==8, 'Two borderline recordings must still be rejected'
+    originals[6]['duration_ms']=180000
+    originals[3]['duration_ms']=210000
+    assert candidate(album,source)['verified']==9, 'Large timing differences cannot be excused'
