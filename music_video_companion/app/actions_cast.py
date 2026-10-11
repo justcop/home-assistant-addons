@@ -1,6 +1,7 @@
 """Launch an approved YouTube Cast video; never silently pick an untrusted result."""
 from model import song_key, strict_candidate
 from providers import youtube_search, cast_video
+from audio_controls import silence, reassert, restore
 import time
 
 def play_current(self, allow_lookup=False):
@@ -31,20 +32,30 @@ def play_current(self, allow_lookup=False):
         if self.active:
             self.stop()
         entity = settings["cast_entity"]
-        target = self.ha.state(entity) or {}
-        old_mute = (target.get("attributes") or {}).get("is_volume_muted")
-        self.ha.service("volume_mute", {"entity_id": entity, "is_volume_muted": True})
+        audio_entity = settings.get("mute_entity") or entity
+        if audio_entity == settings.get("spotify_entity"):
+            raise ValueError("Refusing to silence the Spotify audio device. Choose your TV or soundbar instead.")
+        audio = silence(self.ha, audio_entity)
         try:
             cast_video(self.ha, entity, match["video_id"])
-            # The YouTube receiver may initialise its audio after Cast launch.
-            self.ha.service("volume_mute", {"entity_id": entity, "is_volume_muted": True})
+            try:
+                # YouTube may change the receiver's audio controls while loading.
+                reassert(self.ha, audio)
+            except Exception as exc:
+                # Stop the video instead of leaving unmuted YouTube audio playing.
+                try:
+                    self.ha.service("media_stop", {"entity_id": entity})
+                finally:
+                    raise ValueError("YouTube launched, but audio muting failed: " + str(exc))
         except Exception:
-            if old_mute is False:
-                self.ha.service("volume_mute", {"entity_id": entity, "is_volume_muted": False})
+            try:
+                restore(self.ha, audio)
+            except Exception:
+                pass
             raise
         self.active = {
             "entity": entity, "video_id": match["video_id"],
-            "old_mute": old_mute, "song_key": key,
+            "audio_restore": audio, "song_key": key,
             "offset": match.get("offset_seconds", 0),
             "launched_at": time.monotonic(),
             "initial_pending": True, "resume_pending": False,
@@ -62,16 +73,21 @@ def stop(self):
             return
         self.active = None
         entity = active["entity"]
+        audio = active.get("audio_restore")
         try:
             target = self.ha.state(entity) or {}
             attrs = target.get("attributes") or {}
             content = str(attrs.get("media_content_id") or "")
             app_name = str(attrs.get("app_name") or "").lower()
+            # Don't stop other applications if somebody changed the TV.
             ours = active["video_id"] in content or (not content and "youtube" in app_name)
+            idle = target.get("state") in ("idle", "off", "unavailable")
             if ours:
                 self.ha.service("media_stop", {"entity_id": entity})
-                if active["old_mute"] is False:
-                    self.ha.service("volume_mute", {"entity_id": entity, "is_volume_muted": False})
+            # Restore volume after our video or after an idle receiver. When an
+            # unrelated app has taken over, never change that app's volume.
+            if audio and (ours or idle):
+                restore(self.ha, audio)
             self.info = "Video companion stopped."
         except Exception as exc:
-            self.error = "Could not stop Cast: " + str(exc)
+            self.error = "Could not stop Cast or restore audio: " + str(exc)

@@ -1,4 +1,4 @@
-# Music Video Companion (0.1.0)
+# Music Video Companion (0.2.2)
 
 A **separate** Home Assistant add-on for looking up approved official music videos and sending them to a Cast-enabled TV. Spotify and AudioShelf/Vinyl Guardian do **not** need to be changed for the first version.
 
@@ -53,3 +53,13 @@ The add-on uses the Home Assistant Supervisor proxy, enabled by `homeassistant_a
 If the add-on still displays a Home Assistant authentication error, create a **Long-Lived Access Token** from Home Assistant user Profile > Security > Long-Lived Access Tokens. Paste the token into the add-on Configuration field `ha_access_token`, save, and restart. This is an optional fallback for Home Assistant API access only. It is not the YouTube Data API key and not the source API token. The fallback is only sent to Home Assistant Core on the internal `http://homeassistant:8123/api` address; it is never sent to Google, YouTube or the Supervisor proxy.
 
 To populate the dropdowns, configure the standard **Spotify** and **Google Cast** integrations under Home Assistant Settings > Devices & Services. Then use the add-on's Refresh devices button. Both integrations must expose `media_player` entities. The Samsung TV entity by itself is not a substitute for a Cast media player.
+
+## Device without a mute action
+
+If casting fails with `does not support action media_player.volume_mute`, update to 0.2.2. The add-on now tries the receiver's volume controls in this order:
+
+1. Mute via `media_player.volume_mute` when supported.
+2. If the receiver cannot mute, use `media_player.volume_set` to set volume to zero, but **only when its previous volume is available** so it can be restored.
+3. If neither works, prevent autoplay with a clear error. Under **Mute audio using**, choose a separate media player representing your Samsung TV or Q800C soundbar (if that entity supports muting or volume adjustment).
+
+The Chromecast entity is still the target for video playback; the optional audio entity is only for silencing sound. Never choose the KEFs playing Spotify as the mute target. The add-on restores audio after its video stops unless the user adjusted the volume manually or an unrelated app took over the Cast receiver. A physical/HDMI volume control not exposed through Home Assistant cannot be controlled by this integration.

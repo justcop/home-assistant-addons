@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 from model import Library, song_key, strict_candidate
 from runtime import Companion
-from providers import spotify_track
+from providers import spotify_track, ApiHTTPError
 
 
 VID = "dQw4w9WgXcQ"
@@ -32,7 +32,11 @@ class FakeHA:
     def service(self, action, data):
         self.calls.append((action, data))
         if action == "volume_mute":
-            self.cast["attributes"]["is_volume_muted"] = data["is_volume_muted"]
+            target = self.state(data["entity_id"])
+            target["attributes"]["is_volume_muted"] = data["is_volume_muted"]
+        if action == "volume_set":
+            target = self.state(data["entity_id"])
+            target["attributes"]["volume_level"] = data["volume_level"]
         if action == "play_media":
             self.cast["state"] = "playing"
             self.cast["attributes"]["app_name"] = "YouTube"
@@ -197,6 +201,108 @@ class CompanionTests(unittest.TestCase):
         app.play_current()
         app.sync_playback()
         self.assertIn("seek unavailable", app.active["sync_state"])
+
+    def test_unsupported_mute_falls_back_to_volume_zero(self):
+        class VolumeOnlyHA(FakeHA):
+            def __init__(self):
+                super().__init__()
+                self.cast["attributes"] = {"volume_level": 0.35, "supported_features": 516}
+        ha = VolumeOnlyHA()
+        app = Companion(path=Path(self.temp.name) / "volume.json", ha=ha, options={})
+        app.library.configure({"spotify_entity": "media_player.spotify", "cast_entity": "media_player.chromecast"})
+        app.library.approve("The Beatles", "Something", CANDIDATE)
+        app.poll()
+        app.play_current()
+        self.assertEqual(ha.cast["attributes"]["volume_level"], 0.0)
+        self.assertEqual([a for a, _ in ha.calls if a == "volume_mute"], [])
+        self.assertEqual(app.active["audio_restore"]["method"], "volume")
+        app.stop()
+        self.assertEqual(ha.cast["attributes"]["volume_level"], 0.35)
+
+    def test_mute_action_rejected_falls_back_to_volume_set(self):
+        class RejectMuteHA(FakeHA):
+            def __init__(self):
+                super().__init__()
+                self.cast["attributes"]["volume_level"] = 0.3
+            def service(self, action, data):
+                if action == "volume_mute":
+                    raise ApiHTTPError(400, "Entity does not support mute")
+                return super().service(action, data)
+        ha = RejectMuteHA()
+        app = Companion(path=Path(self.temp.name) / "reject.json", ha=ha, options={})
+        app.library.configure({"spotify_entity": "media_player.spotify", "cast_entity": "media_player.chromecast"})
+        app.library.approve("The Beatles", "Something", CANDIDATE)
+        app.poll()
+        app.play_current()
+        self.assertEqual(app.active["audio_restore"]["method"], "volume")
+        self.assertEqual(ha.cast["attributes"]["volume_level"], 0)
+        app.stop()
+        self.assertEqual(ha.cast["attributes"]["volume_level"], 0.3)
+
+    def test_no_supported_audio_control_fails_closed_without_cast(self):
+        self.ha.cast["attributes"] = {"supported_features": 512}
+        self.app.library.approve("The Beatles", "Something", CANDIDATE)
+        self.app.poll()
+        with self.assertRaisesRegex(ValueError, "cannot be safely silenced"):
+            self.app.play_current()
+        self.assertFalse(any(action == "play_media" for action, _ in self.ha.calls))
+
+    def test_optional_separate_soundbar_mute(self):
+        class SeparateAudioHA(FakeHA):
+            def __init__(self):
+                super().__init__()
+                self.cast["attributes"] = {"supported_features": 512}
+                self.soundbar = {"state": "idle", "attributes": {
+                    "is_volume_muted": False, "supported_features": 8
+                }}
+            def state(self, entity):
+                if entity == "media_player.soundbar":
+                    return self.soundbar
+                return super().state(entity)
+        ha = SeparateAudioHA()
+        app = Companion(path=Path(self.temp.name) / "separate.json", ha=ha, options={})
+        app.library.configure({"spotify_entity": "media_player.spotify",
+                               "cast_entity": "media_player.chromecast",
+                               "mute_entity": "media_player.soundbar"})
+        app.library.approve("The Beatles", "Something", CANDIDATE)
+        app.poll()
+        app.play_current()
+        self.assertTrue(ha.soundbar["attributes"]["is_volume_muted"])
+        self.assertEqual(app.active["audio_restore"]["entity"], "media_player.soundbar")
+        app.stop()
+        self.assertFalse(ha.soundbar["attributes"]["is_volume_muted"])
+
+    def test_dont_mute_spotify_playing_device(self):
+        self.app.library.configure({"mute_entity": "media_player.spotify"})
+        self.app.library.approve("The Beatles", "Something", CANDIDATE)
+        self.app.poll()
+        with self.assertRaisesRegex(ValueError, "Spotify audio device"):
+            self.app.play_current()
+        self.assertEqual(self.ha.calls, [])
+
+    def test_manual_volume_change_is_not_undone(self):
+        self.ha.cast["attributes"] = {"volume_level": 0.5, "supported_features": 516}
+        self.app.library.approve("The Beatles", "Something", CANDIDATE)
+        self.app.poll()
+        self.app.play_current()
+        self.ha.cast["attributes"]["volume_level"] = 0.6
+        self.app.stop()
+        self.assertEqual(self.ha.cast["attributes"]["volume_level"], 0.6)
+
+    def test_mute_failure_prevents_cast_when_no_volume_fallback(self):
+        class NoMuteHA(FakeHA):
+            def service(self, action, data):
+                if action == "volume_mute":
+                    raise ApiHTTPError(400, "Unsupported")
+                return super().service(action, data)
+        ha = NoMuteHA()
+        app = Companion(path=Path(self.temp.name) / "none.json", ha=ha, options={})
+        app.library.configure({"spotify_entity": "media_player.spotify", "cast_entity": "media_player.chromecast"})
+        app.library.approve("The Beatles", "Something", CANDIDATE)
+        app.poll()
+        with self.assertRaisesRegex(ValueError, "cannot be safely silenced"):
+            app.play_current()
+        self.assertFalse(any(action == "play_media" for action, _ in ha.calls))
 
 
 if __name__ == "__main__":

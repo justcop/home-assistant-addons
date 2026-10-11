@@ -1,5 +1,5 @@
 FROM ghcr.io/home-assistant/base:3.22
-ARG BUILD_VERSION=0.2.1
+ARG BUILD_VERSION=0.2.2
 ARG BUILD_ARCH
 LABEL io.hass.version="${BUILD_VERSION}" io.hass.type="addon" io.hass.arch="${BUILD_ARCH}"
 RUN apk add --no-cache python3 ca-certificates tzdata

@@ -47,6 +47,7 @@ async function initSettings(settings) {
   }
   fillSelect("spotify", entities, settings.spotify_entity);
   fillSelect("cast-entity", entities, settings.cast_entity);
+  fillSelect("mute-entity", entities, settings.mute_entity || "");
   $("source").value = settings.source;
   $("auto").checked = !!settings.auto;
   initialized = true;
@@ -137,6 +138,7 @@ $("save").onclick = () => task(async () => {
     source: $("source").value,
     spotify_entity: $("spotify").value,
     cast_entity: $("cast-entity").value,
+    mute_entity: $("mute-entity").value,
     auto: $("auto").checked
   });
   notify("Settings saved.");

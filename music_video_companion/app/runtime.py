@@ -60,7 +60,8 @@ class Companion:
         states = self.ha.states()
         return [{"entity_id": e.get("entity_id"),
                  "name": (e.get("attributes") or {}).get("friendly_name", e.get("entity_id")),
-                 "state": e.get("state")}
+                 "state": e.get("state"),
+                 "supported_features": (e.get("attributes") or {}).get("supported_features", 0)}
                 for e in states if str(e.get("entity_id", "")).startswith("media_player.")]
 
     def poll(self):
