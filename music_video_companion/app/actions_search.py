@@ -1,5 +1,5 @@
 """Candidate discovery and explicit official-channel approval."""
-from model import song_key, strict_candidate, vevo_candidate
+from model import song_key, strict_candidate, vevo_candidate, official_channel_candidate
 from providers import youtube_search
 
 def search(self):
@@ -13,6 +13,7 @@ def search(self):
             item["trusted"] = item["channel_id"] in trusted
             item["strict_match"] = strict_candidate(item, track["artist"], track["title"], trusted)
             item["vevo_match"] = vevo_candidate(item, track["artist"], track["title"])
+            item["official_match"] = official_channel_candidate(item, track["artist"], track["title"])
         self.candidates = found
         self.candidate_song = song_key(track["artist"], track["title"])
         self.info = f"Found {len(found)} candidates. Verify the official uploader before approval."

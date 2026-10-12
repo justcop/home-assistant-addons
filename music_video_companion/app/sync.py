@@ -94,7 +94,7 @@ def align_once(ha, active, track, state, phase, clock=None):
     receiver = cast_position(state)
     # We still seek when the receiver lacks position metadata: initial and
     # resume alignment cannot be inferred from playback state alone.
-    if receiver is not None and abs(receiver - position) <= SEEK_TOLERANCE:
+    if not active.get("force_seek") and receiver is not None and abs(receiver - position) <= SEEK_TOLERANCE:
         return "aligned"
     try:
         ha.service("media_seek", {"entity_id": active["entity"], "seek_position": position})

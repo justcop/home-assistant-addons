@@ -60,6 +60,32 @@ def vevo_candidate(candidate, artist, title):
                     norm(title) + " " + norm(artist),
                     norm(title))
 
+
+def official_channel_candidate(candidate, artist, title):
+    """Any channel with standalone 'Official' plus exact artist/song title.
+
+    This is a naming heuristic, NOT verification of channel ownership.
+    """
+    if not isinstance(candidate, dict):
+        return False
+    channel_id = str(candidate.get("channel_id") or "")
+    if not re.fullmatch(r"UC[A-Za-z0-9_-]{22}", channel_id):
+        return False
+    if "official" not in norm(candidate.get("channel_title")).split():
+        return False
+    original = norm(candidate.get("title"))
+    if not original or any(word in original for word in EXCLUDED):
+        return False
+    words = original.split()
+    tail_words = {"official", "music", "video", "hd", "4k", "remastered", "remaster"}
+    while words and words[-1] in tail_words:
+        words.pop()
+    core = " ".join(words)
+    return core in (norm(artist) + " " + norm(title),
+                    norm(title) + " " + norm(artist))
+
+
+
 def video_id(value):
     v = str(value or "").strip()
     return v if re.fullmatch(r"[a-zA-Z0-9_-]{11}", v) else ""
@@ -68,7 +94,7 @@ class Library:
     def __init__(self, path):
         self.path = Path(path)
         self.lock = threading.RLock()
-        self.data = {"settings": {"spotify_entity": "", "cast_entity": "", "mute_entity": "", "audio_control": "manual", "auto": False, "source": "spotify"},
+        self.data = {"settings": {"spotify_entity": "", "cast_entity": "", "mute_entity": "", "audio_control": "manual", "auto": False, "source": "spotify", "sync_lead_seconds": 0.25},
                      "matches": {}, "trusted_channels": {}}
         if self.path.is_file():
             loaded = json.loads(self.path.read_text(encoding="utf8"))
@@ -95,9 +121,17 @@ class Library:
                 raise ValueError("Invalid input source")
             if "audio_control" in changes and changes["audio_control"] not in ("manual", "automatic"):
                 raise ValueError("Invalid audio control mode")
+            if "sync_lead_seconds" in changes:
+                try:
+                    lead = float(changes["sync_lead_seconds"])
+                except (ValueError, TypeError, OverflowError):
+                    raise ValueError("Sync fine-tune must be a number")
+                if not math.isfinite(lead) or not -3 <= lead <= 3:
+                    raise ValueError("Sync fine-tune must be between -3 and +3 seconds")
+                changes = dict(changes, sync_lead_seconds=round(lead, 2))
             if "auto" in changes and not isinstance(changes["auto"], bool):
                 raise ValueError("Auto must be true or false")
-            for key in ("spotify_entity", "cast_entity", "mute_entity", "audio_control", "auto", "source"):
+            for key in ("spotify_entity", "cast_entity", "mute_entity", "audio_control", "auto", "source", "sync_lead_seconds"):
                 if key in changes:
                     self.data["settings"][key] = changes[key]
             self.save()
@@ -117,9 +151,11 @@ class Library:
             if automatic:
                 trusted = strict_candidate(candidate, artist, title, self.trusted(artist))
                 branded_vevo = vevo_candidate(candidate, artist, title)
-                if not (trusted or branded_vevo):
-                    raise ValueError("Candidate is neither a trusted-channel match nor an exact artist VEVO match")
-                basis = "trusted_channel" if trusted else "vevo_channel_name"
+                official_channel = official_channel_candidate(candidate, artist, title)
+                if not (trusted or branded_vevo or official_channel):
+                    raise ValueError("Candidate is neither a trusted, VEVO nor artist-named Official channel match")
+                basis = ("trusted_channel" if trusted else
+                         "vevo_channel_name" if branded_vevo else "official_channel_name")
             previous = self.data["matches"].get(song_key(artist, title), {})
             retained = previous.get("offset_seconds", 0) if previous.get("video_id") == vid else 0
             record = {"video_id": vid, "offset_seconds": retained,

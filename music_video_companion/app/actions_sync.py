@@ -111,3 +111,42 @@ def sync_playback(self):
                 self.ha.service("media_play", {"entity_id": active["entity"]})
             except Exception as exc:
                 active["sync_state"] = "Video aligned, but resume failed: " + str(exc)
+
+def align_manually(self):
+    """User-requested single realignment, never an automatic drift correction."""
+    with self.lock:
+        active = self.active
+        if not active:
+            raise ValueError("No active video to align")
+        settings = self.library.settings()
+        track = dict(self.current)
+        if settings["source"] == "spotify" and settings["spotify_entity"]:
+            refreshed = spotify_track(self.ha.state(settings["spotify_entity"]))
+            if not refreshed:
+                raise ValueError("Spotify playback information unavailable")
+            track = refreshed
+        if track.get("state") != "playing":
+            raise ValueError("Spotify must be playing to realign the video")
+        if song_key(track.get("artist"), track.get("title")) != active["song_key"]:
+            raise ValueError("The song has changed; wait for the next video")
+        receiver = self.ha.state(active["entity"])
+        if owned_video(receiver, active["video_id"]) is not True:
+            raise ValueError("The approved YouTube video is not confirmed on Chromecast")
+        if (receiver or {}).get("state") != "playing":
+            raise ValueError("Wait for the video to start playing before aligning")
+        active["sync_lead_seconds"] = settings.get("sync_lead_seconds", 0.25)
+        # Force an explicit seek even if the cached Chromecast position appears
+        # close enough; the user is intentionally correcting an audible offset.
+        active["force_seek"] = True
+        try:
+            result = align_once(self.ha, active, track, receiver, "manual")
+        finally:
+            active.pop("force_seek", None)
+        if result != "aligned":
+            raise ValueError(active.get("sync_error") or "Chromecast cannot realign this video")
+        active["sync_state"] = "Manually realigned to Spotify"
+        active["manual_seek_count"] = active.get("manual_seek_count", 0) + 1
+        self.info = "Applied fine-tune and aligned the video once."
+        return {"sync_state": active["sync_state"],
+                "target_seconds": active.get("last_target"),
+                "sync_lead_seconds": active["sync_lead_seconds"]}

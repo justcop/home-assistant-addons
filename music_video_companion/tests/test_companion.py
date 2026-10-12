@@ -105,7 +105,7 @@ class CompanionTests(unittest.TestCase):
         self.ha.spotify["attributes"]["media_position"] = 42
         self.app.poll()
         self.assertEqual(self.ha.cast["state"], "playing")
-        self.assertEqual(self.ha.cast["attributes"]["media_position"], 42)
+        self.assertEqual(self.ha.cast["attributes"]["media_position"], 42.25)
         self.assertEqual(self.app.active["seek_count"], 2)
 
     def test_unrelated_tv_playback_not_stopped(self):
@@ -142,7 +142,7 @@ class CompanionTests(unittest.TestCase):
         self.app.poll()
         self.app.play_current()
         self.app.sync_playback()
-        self.assertEqual(self.ha.cast["attributes"]["media_position"], 65)
+        self.assertEqual(self.ha.cast["attributes"]["media_position"], 65.25)
         self.assertEqual(self.app.active["sync_state"], "Aligned at launch")
 
     def test_no_seek_corrections_during_uninterrupted_song(self):
@@ -163,7 +163,7 @@ class CompanionTests(unittest.TestCase):
         self.ha.spotify["attributes"]["media_position"] = 20
         self.app.play_current()
         self.app.sync_playback()
-        self.assertEqual(self.ha.cast["attributes"]["media_position"], 32.5)
+        self.assertEqual(self.ha.cast["attributes"]["media_position"], 32.75)
         self.assertEqual(Library(self.app.library.path).match("The Beatles", "Something")["offset_seconds"], 12.5)
 
     def test_different_receiver_content_not_sought(self):
@@ -436,7 +436,7 @@ class CompanionTests(unittest.TestCase):
         self.ha.spotify["attributes"]["media_position"] = 34
         self.app.sync_playback()
         self.assertEqual(self.app.active["seek_count"], 1)
-        self.assertEqual(self.ha.cast["attributes"]["media_position"], 34)
+        self.assertEqual(self.ha.cast["attributes"]["media_position"], 34.25)
 
 
 if __name__ == "__main__":

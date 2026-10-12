@@ -120,7 +120,7 @@ def spotify_track(payload):
 def youtube_search(api_key, artist, title, channel_id=None):
     if not api_key:
         raise ValueError("Add youtube_api_key in the add-on Configuration first")
-    params = {"part": "snippet", "type": "video", "maxResults": "12",
+    params = {"part": "snippet", "type": "video", "maxResults": "25",
               "q": f"{artist} {title} official music video", "key": api_key}
     if channel_id:
         params["channelId"] = channel_id

@@ -1,5 +1,5 @@
 """Launch an approved YouTube Cast video; never silently pick an untrusted result."""
-from model import song_key, strict_candidate, vevo_candidate
+from model import song_key, strict_candidate, vevo_candidate, official_channel_candidate
 from providers import youtube_search, cast_video
 from audio_controls import silence, reassert, restore
 import time
@@ -22,19 +22,27 @@ def play_current(self, allow_lookup=False):
             api_key = self.options.get("youtube_api_key")
             trusted = self.library.trusted(track["artist"])
             if api_key:
-                found = []
-                if trusted:
-                    for channel in trusted[:3]:
-                        found.extend(youtube_search(api_key, track["artist"], track["title"], channel))
-                else:
-                    found = youtube_search(api_key, track["artist"], track["title"])
-                approved = [item for item in found if
-                            strict_candidate(item, track["artist"], track["title"], trusted)
-                            or vevo_candidate(item, track["artist"], track["title"])]
-                unique = {item["video_id"]: item for item in approved}
-                if len(unique) == 1:
-                    match = self.library.approve(track["artist"], track["title"],
-                                                 next(iter(unique.values())), automatic=True)
+                # One general search per new song (fixed YouTube quota cost).
+                # Additional trusted-channel searches increase latency; search
+                # results include the channel ID for local matching.
+                found = youtube_search(api_key, track["artist"], track["title"])
+                # Prefer a uniquely matching trusted result, then VEVO,
+                # then an Official-named channel. Ambiguity within a tier
+                # requires human review rather than guessing.
+                tiers = (
+                    lambda item: strict_candidate(item, track["artist"], track["title"], trusted),
+                    lambda item: vevo_candidate(item, track["artist"], track["title"]),
+                    lambda item: official_channel_candidate(item, track["artist"], track["title"]),
+                )
+                for predicate in tiers:
+                    unique = {item["video_id"]: item for item in found if predicate(item)}
+                    if len(unique) == 1:
+                        match = self.library.approve(track["artist"], track["title"],
+                                                     next(iter(unique.values())), automatic=True)
+                        break
+                    if len(unique) > 1:
+                        self.info = "Ambiguous official videos; approve one in the search results."
+                        break
         lookup_ms = round((time.monotonic() - started) * 1000)
         if not match:
             self.last_cast_timing = {
@@ -77,6 +85,7 @@ def play_current(self, allow_lookup=False):
             "entity": entity, "video_id": match["video_id"],
             "audio_restore": audio, "manual_audio": manual_audio, "song_key": key,
             "offset": match.get("offset_seconds", 0),
+            "sync_lead_seconds": settings.get("sync_lead_seconds", 0.25),
             "launched_at": time.monotonic(),
             "initial_pending": True, "resume_pending": False,
             "pause_applied": False, "last_source_state": "playing",

@@ -11,6 +11,19 @@
 <p id="detection-status" class="small">No track-change timing recorded yet.</p>
 <p id="cast-timing-status" class="small"></p>
 <p id="sync-status" class="small">Video alignment not started.</p>
+<div class="offset-control">
+  <label for="sync-lead">Global sync fine-tune (seconds)</label>
+  <div class="offset-row sync-trim">
+    <button id="lead-less" class="secondary" type="button">Video ahead −0.25</button>
+    <input id="sync-lead" type="number" min="-3" max="3" step="0.05" value="0.25" inputmode="decimal">
+    <button id="lead-more" class="secondary" type="button">Video behind +0.25</button>
+  </div>
+  <div class="button-row">
+    <button id="lead-save" class="secondary" type="button">Save fine-tune</button>
+    <button id="lead-realign" class="secondary" type="button">Realign video now</button>
+  </div>
+  <p class="small">A positive number advances the video relative to Spotify. Fine-tune is saved for all songs. It is applied at launch or after a pause; Realign now performs one user-requested seek, never ongoing drift correction.</p>
+</div>
 <div class="offset-control"><label for="offset">Video timing offset, in seconds</label>
 <div class="offset-row"><input id="offset" type="number" step="0.5" min="-120" max="120" value="0">
 <button id="offset-save" class="secondary">Save offset</button></div>
@@ -28,16 +41,16 @@
 <div id="automatic-audio-controls">
 <label for="mute-entity">Mute audio using (optional)</label><select id="mute-entity"><option value="">Same as Chromecast (automatic)</option></select>
 <p class="small">If your Chromecast doesn't support mute or volume adjustment, choose a separate Home Assistant media player that controls your TV or soundbar volume. Never choose the KEFs playing Spotify.</p></div>
-<label class="check"><input type="checkbox" id="auto"><span>Automatically cast saved videos and strict matches from trusted or artist-named VEVO channels</span></label>
+<label class="check"><input type="checkbox" id="auto"><span>Automatically cast exact matches from saved, VEVO or channels with “Official” in their name</span></label>
 <button class="primary" id="save">Save settings</button>
 <p class="small">Push notifications use your existing HA Access Token, if configured. They eliminate the extra local polling delay, but cannot make Spotify itself publish tracks sooner. Requires the Spotify and Google Cast integrations configured in Home Assistant. YouTube search additionally requires a YouTube Data API key in the add-on Configuration.</p></section>
 <section class="card"><h2>Find an official video</h2>
-<p class="subtle">Approved videos and exact artist-named VEVO channel matches can play automatically. VEVO names can be imitated; check any unusual match.</p>
+<p class="subtle">Previously approved videos, exact VEVO matches, and channels with “Official” in the name can auto-play when the artist and song title match. Channel names are not verified ownership; inspect unusual matches.</p>
 <button class="primary" id="search">Find official candidates</button>
 <div id="candidates" class="candidates"></div>
 <div class="manual"><h3>Add a video manually</h3><label for="manual-id">YouTube video ID (11 characters)</label><input id="manual-id" placeholder="e.g. dQw4w9WgXcQ" maxlength="11">
 <label class="check"><input type="checkbox" id="manual-verified"><span>I verified this is an official artist, label or VEVO upload</span></label><button id="manual-save" class="secondary">Save this video</button></div>
 </section>
 <section class="card"><h2>Compatibility notes</h2><p>The add-on seeks once at launch and once after Spotify resumes from a pause, but does not correct drift during a continuously playing song. Initial alignment requires the Chromecast to expose a seekable YouTube session. Manual audio control leaves your TV and soundbar volume untouched. Automatic audio control mutes a selected audio device when supported.</p><p>Spotify and YouTube prohibit certain cross-service synchronisation and audio/video separation uses. This experimental add-on does not extract or modify any YouTube media.</p><p class="small">If the YouTube receiver cannot be launched on your Chromecast, the error appears below and in Home Assistant logs.</p></section>
-<div class="message" id="message" role="status"></div><footer>Music Video Companion v0.4.0 · Local approvals retained between updates</footer>
+<div class="message" id="message" role="status"></div><footer>Music Video Companion v0.5.0 · Local approvals retained between updates</footer>
 </main><script src="app.js" defer></script></body></html>

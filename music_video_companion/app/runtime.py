@@ -9,7 +9,7 @@ from pathlib import Path
 from model import Library, song_key
 from providers import HomeAssistant, spotify_track
 from video_actions import search, approve, play_current, stop
-from actions_sync import sync_playback
+from actions_sync import sync_playback, align_manually
 
 LOG = logging.getLogger(__name__)
 
@@ -19,6 +19,7 @@ class Companion:
     play_current = play_current
     stop = stop
     sync_playback = sync_playback
+    align_manually = align_manually
 
     def __init__(self, path=None, ha=None, options=None):
         self.options = options if options is not None else self.load_options()

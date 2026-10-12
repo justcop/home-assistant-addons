@@ -85,6 +85,15 @@ class Handler(BaseHTTPRequestHandler):
                         APP.active["offset"] = record["offset_seconds"]
                     APP.info = "Offset saved. It applies on the next launch or Spotify resume."
                 return self.send(200, {"approved": record})
+            if path == "/api/sync-lead":
+                with APP.lock:
+                    settings = APP.library.configure({"sync_lead_seconds": data.get("seconds")})
+                    if APP.active:
+                        APP.active["sync_lead_seconds"] = settings["sync_lead_seconds"]
+                    APP.info = "Fine-tune saved; next launch/resume or explicit Realign now applies it."
+                return self.send(200, {"sync_lead_seconds": settings["sync_lead_seconds"]})
+            if path == "/api/align":
+                return self.send(200, APP.align_manually())
             if path == "/api/stop":
                 APP.stop()
                 return self.send(200, {"ok": True})

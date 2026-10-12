@@ -2,3 +2,6 @@
 .offset-control{padding:13px 0;border-top:1px solid #354458;margin-top:12px}.offset-row{display:flex;gap:9px;align-items:center}.offset-row input{width:120px;flex:0 1 130px;min-width:80px}.offset-row button{flex:0 0 auto}#sync-status{font-weight:650;color:#9cd1ef}
 
 .device-error:not(:empty){border:1px solid #8b514f;background:#322123;color:#ffb4b4;padding:11px;border-radius:10px;margin:12px 0;overflow-wrap:anywhere}
+
+input[type=number]{background:#101720;color:#f3f8ff;border:1px solid #425064;border-radius:10px;padding:10px;font:inherit;max-width:100%}
+.offset-row.sync-trim{flex-wrap:wrap}.offset-row.sync-trim button{flex:1 1 125px;font-size:.8rem;padding:8px}.offset-row.sync-trim #sync-lead{flex:1 1 80px;width:85px;min-width:78px;text-align:center}

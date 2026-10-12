@@ -66,7 +66,7 @@ function candidateCard(item) {
   title.textContent = item.title;
   const subtitle = document.createElement("p");
   subtitle.className = "small";
-  subtitle.textContent = item.channel_title + (item.trusted ? " · Trusted artist channel" : item.vevo_match ? " · Exact artist VEVO-style channel" : " · Unverified channel");
+  subtitle.textContent = item.channel_title + (item.trusted ? " · Trusted artist channel" : item.vevo_match ? " · Exact artist VEVO-style channel" : item.official_match ? " · Official-named channel (unverified)" : " · Unverified channel");
   const link = document.createElement("a");
   link.href = "https://www.youtube.com/watch?v=" + encodeURIComponent(item.video_id);
   link.target = "_blank";
@@ -135,6 +135,10 @@ function render(data) {
     ? "Video timing: " + (data.active.sync_state || "Starting") +
       " · One-time seeks: " + (data.active.seek_count || 0)
     : "Video timing: inactive";
+  if (document.activeElement !== $("sync-lead")) {
+    $("sync-lead").value = Number(data.settings.sync_lead_seconds ?? 0.25).toFixed(2);
+  }
+  $("lead-realign").disabled = !data.active || track.state !== "playing";
   $("offset-save").disabled = !data.approved;
   if (document.activeElement !== $("offset")) {
     $("offset").value = data.approved ? (data.approved.offset_seconds || 0) : 0;
@@ -184,6 +188,34 @@ $("search").onclick = () => task(async () => {
 $("cast").onclick = () => task(async () => {
   await api("cast", {});
   notify("YouTube Cast launch requested.");
+});
+function syncLeadValue() {
+  const str = $("sync-lead").value;
+  const value = Number(str);
+  if (!str.trim() || !Number.isFinite(value) || value < -3 || value > 3) {
+    throw new Error("Enter a timing correction between -3 and +3 seconds");
+  }
+  return Math.round(value * 100) / 100;
+}
+async function saveSyncLead(seconds) {
+  const result = await api("sync-lead", {seconds});
+  $("sync-lead").value = Number(result.sync_lead_seconds).toFixed(2);
+}
+$("lead-less").onclick = () => task(async () => {
+  await saveSyncLead(Math.max(-3, Math.round((syncLeadValue() - 0.25) * 100) / 100));
+  notify("Video correction reduced. Use Realign now to test.");
+});
+$("lead-more").onclick = () => task(async () => {
+  await saveSyncLead(Math.min(3, Math.round((syncLeadValue() + 0.25) * 100) / 100));
+  notify("Video correction increased. Use Realign now to test.");
+});
+$("lead-save").onclick = () => task(async () => {
+  await saveSyncLead(syncLeadValue());
+  notify("Timing correction saved. Applies on next launch or pause/resume.");
+});
+$("lead-realign").onclick = () => task(async () => {
+  const result = await api("align", {});
+  notify("Video realigned once at " + Number(result.target_seconds).toFixed(2) + " seconds.");
 });
 $("offset-save").onclick = () => task(async () => {
   const value = Number($("offset").value);

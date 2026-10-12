@@ -106,3 +106,16 @@ Under **Now Playing**, the web UI reports connection state, number of meaningful
 These durations measure internal stages, **not** the elapsed time between pressing Next in Spotify and Home Assistant learning about the new song. That upstream lag needs comparison with the actual Spotify device. Faster HA events will not eliminate an upstream ~30-second Spotify integration update interval. The already implemented `spotify_refresh_seconds` attempts to trigger a controlled early refresh; it may not be honoured by every HA/Spotify version.
 
 The new listener uses the Alpine `py3-websocket-client` package and requires no new Spotify OAuth credentials, no Home Assistant YAML automation and no changes to AudioShelf or Vinyl Guardian.
+
+## More flexible Official channel matching (v0.5.0)
+
+Automatic discovery can approve one otherwise unambiguous video from a YouTube channel whose display name includes the standalone word `Official`, provided the video title is an exact artist/song match and is not labelled as live, lyrics, cover, or another unsuitable variant. The old exact artistVEVO rule and previously trusted channel approvals remain. This does not automatically trust every upload on that channel, and a channel's display name is not evidence of authenticity.
+
+## One-time alignment improvement
+
+- Initial/resume seek no longer accepts a receiver discrepancy of nearly one second as already aligned. Tolerance reduced from 0.8 seconds to 0.12 seconds.
+- The playback position is calculated using the Spotify entity timestamp with millisecond precision; it is read again immediately before a seek.
+- `sync_lead_seconds` defaults to **+0.25 seconds** globally. The UI permits -3 to +3 seconds; positive advances the video when it is consistently behind Spotify. Use the +/- 0.25-second buttons and **Realign video now** to test a correction. These are intentional user-initiated seeks, not continuous drift corrections.
+- Each approved video's existing `offset_seconds` still accommodates longer intros. The global fine-tune is added to that per-video offset.
+- Realign now refuses to seek unless the approved YouTube video is actually on the selected Chromecast and Spotify is playing the same song.
+- Different YouTube edits, ads, receiver buffering, and delayed Spotify metadata remain outside deterministic synchronisation; an exact outcome cannot be guaranteed.
