@@ -8,7 +8,7 @@ import re
 import time
 
 LOAD_TIMEOUT = 105.0
-SEEK_TOLERANCE = 0.8
+SEEK_TOLERANCE = 0.12
 
 
 def seconds(value):
@@ -88,7 +88,8 @@ def align_once(ha, active, track, state, phase, clock=None):
         if now - active["launched_at"] >= LOAD_TIMEOUT and phase == "initial":
             return "unavailable"
         return "waiting"
-    position = target_position(track, active.get("offset", 0))
+    lead = active.get("sync_lead_seconds", 0.0) if track.get("state") == "playing" else 0.0
+    position = target_position(track, active.get("offset", 0) + lead)
     if position is None:
         return "unavailable"
     receiver = cast_position(state)
@@ -97,7 +98,9 @@ def align_once(ha, active, track, state, phase, clock=None):
     if not active.get("force_seek") and receiver is not None and abs(receiver - position) <= SEEK_TOLERANCE:
         return "aligned"
     try:
+        started = time.monotonic()
         ha.service("media_seek", {"entity_id": active["entity"], "seek_position": position})
+        active["seek_request_ms"] = round((time.monotonic() - started) * 1000)
     except Exception as exc:
         active["sync_error"] = "Chromecast seek unavailable: " + str(exc)
         return "unavailable"

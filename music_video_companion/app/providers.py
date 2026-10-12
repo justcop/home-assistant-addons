@@ -115,7 +115,7 @@ def spotify_track(payload):
                 position += max(0, min(seconds, 120))
         except ValueError:
             pass
-    return {"artist": artist, "title": title, "state": status, "position": round(position, 1)}
+    return {"artist": artist, "title": title, "state": status, "position": round(position, 3)}
 
 def youtube_search(api_key, artist, title, channel_id=None):
     if not api_key:
