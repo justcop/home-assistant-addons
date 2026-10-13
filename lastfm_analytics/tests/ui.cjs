@@ -84,6 +84,21 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   assert.equal(await page.locator('[data-release-year="1968"]').getAttribute("aria-pressed"), "true");
   await page.unroute("**/api/release-years?*");
   await page.setViewportSize({width:1440,height:1050});
+  // A first-time cached calculation returns a pending payload. The browser
+  // must replace it with the completed album table without a second click.
+  let albumLoads = 0;
+  await page.route("**/api/rankings?*", async route => {
+    if (new URL(route.request().url()).searchParams.get("kind") !== "album")
+      return route.continue();
+    if (albumLoads++ === 0)
+      return route.fulfill({json:{_cache:{pending:true,refreshing:true,stale:true,generated:null,error:false}}});
+    return route.continue();
+  });
+  await page.locator('#nav [data-view="albums"]').click();
+  await page.locator('#content .loading').waitFor();
+  await page.locator('#content .table-panel').waitFor({timeout:10000});
+  assert.ok(albumLoads >= 2, "Loading results should poll until album data is ready");
+  await page.unroute("**/api/rankings?*");
   await page.locator('#nav [data-view="overview"]').click();
   await page.locator("#content .metrics").waitFor();
 

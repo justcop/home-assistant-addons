@@ -436,3 +436,48 @@ def test_album_lookup_upgrade_rechecks_incorrectly_cached_1994(tmp_path):
     with worker.lock:
         worker.pending.discard((str(db.path), "album", album_id))
     assert worker.status(db)["albums"]["complete"]
+
+
+def test_release_year_scheduler_runs_even_without_page_open(tmp_path):
+    import threading
+    db = Database(tmp_path / "background.sqlite3")
+    worker = ReleaseYearWorker()
+    seen = threading.Event()
+    scans = []
+
+    def scan(_db, force=False):
+        scans.append(force)
+        seen.set()
+
+    worker.scan = scan
+    try:
+        worker.start(db)
+        assert seen.wait(2)
+        assert scans == [True]
+        assert worker.status(db)["background"] is True
+        worker.start(db)  # idempotent, no second scheduler
+        assert scans == [True]
+    finally:
+        worker.close()
+
+
+def test_musicbrainz_transient_failure_is_not_marked_complete(tmp_path):
+    import time
+    db = Database(tmp_path / "retry.sqlite3")
+    db.apply_window(0, 5000, [play(100, "A")])
+    with db.connect() as conn:
+        song_id = conn.execute(
+            "SELECT sv.group_id FROM scrobbles s "
+            "JOIN resolved_variants sv ON sv.id=s.song_id LIMIT 1"
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO release_years(kind,group_id,year,source,expires) "
+            "VALUES ('song', ?, NULL, 'error', ?)",
+            (song_id, int(time.time()) + 3600)
+        )
+    status = ReleaseYearWorker().status(db)["songs"]
+    assert status["failed"] == 1
+    assert status["checked"] == 0
+    assert status["pending"] == 1
+    assert status["retry_at"] > time.time()
+    assert not status["complete"]

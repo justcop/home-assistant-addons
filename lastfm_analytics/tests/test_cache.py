@@ -268,3 +268,50 @@ def test_release_year_metadata_invalidates_years_without_discarding_overview(tmp
         assert cache.get(db, "release-years", {})["_cache"]["stale"]
     finally:
         cache.close()
+
+
+def test_cold_analysis_returns_pending_and_later_ready_without_error(tmp_path):
+    """An expensive first view never responds 'come back later'."""
+    db = Database(tmp_path / "slow.sqlite3")
+    started, complete = threading.Event(), threading.Event()
+
+    def compute(db, args):
+        started.set()
+        assert complete.wait(4)
+        return {"plays": 17}
+
+    cache = ViewCache("Europe/London", {"overview": compute})
+    cache.COLD_WAIT_SECONDS = 0.02
+    try:
+        pending = cache.get(db, "overview", {})
+        assert started.wait(1)
+        assert pending["_cache"]["pending"]
+        assert pending["_cache"]["refreshing"]
+        assert pending["_cache"]["generated"] is None
+        complete.set()
+        with cache.lock:
+            future = cache.jobs.get((str(db.path), cache.key("overview", {})))
+        if future:
+            future.result(timeout=3)
+        ready = cache.get(db, "overview", {})
+        assert ready["plays"] == 17
+        assert not ready["_cache"].get("pending")
+    finally:
+        complete.set()
+        cache.close()
+
+
+def test_failed_cold_analysis_exposes_retry_state_not_server_error(tmp_path):
+    db = Database(tmp_path / "failed.sqlite3")
+
+    def broken(db, args):
+        raise RuntimeError("Provider temporarily unavailable")
+
+    cache = ViewCache("Europe/London", {"overview": broken})
+    try:
+        pending = cache.get(db, "overview", {})
+        assert pending["_cache"]["pending"]
+        assert pending["_cache"]["error"]
+        assert not pending["_cache"]["refreshing"]
+    finally:
+        cache.close()
