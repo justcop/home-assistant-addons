@@ -1,5 +1,9 @@
 # AudioShelf
 
+### Back-cover artwork (v0.6.27)
+
+In either Vinyl or Classic album view, tap the large cover to turn the sleeve over and reveal its back cover. Tap again to return to the front. The reverse is fetched only on request from the selected Cover Art Archive edition, with the chosen MusicBrainz album release as a fallback. If neither release has back art, the cover stays on its front and a brief message appears. The ordinary shelf and Record Store cover thumbnails still open the album. Back artwork is cached separately on the server for collected albums, and does not alter your uploaded front cover or Spotify tracklist.
+
 ### MusicBrainz tracklist variants (v0.6.26)
 
 When adding or changing a record's tracklist, AudioShelf first groups MusicBrainz releases with the same ordered songs and performers into musical choices. **Before displaying them, it verifies every canonical track against Spotify.** Only entirely matched tracklists and disc/side layouts can be selected. The picker explains bonus songs, omissions and reordered tracks, highlights added tracks in green and removed tracks in red, and can expand each complete tracklist. Choose a tracklist and its physical disc arrangement, optionally enable **real** vinyl-side breaks when MusicBrainz supplies A1/B1 numbering, and select an already verified Spotify edition. Extra Spotify bonus tracks never enter the queue. Saving the choice rechecks every match before changing your collection.
