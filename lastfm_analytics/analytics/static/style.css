@@ -1768,7 +1768,7 @@ dialog { overscroll-behavior: contain; }
 }
 @media (max-width:620px) {
   .detail-dialog.album-detail-open .dialog-head { display:none; }
-  .detail-dialog.album-detail-open .album-detail-cover {
+  .detail-dialog.album-detail-open .album-detail-hero #detail-artwork-slot.album-detail-cover {
     width:72%;
     max-width:290px;
     margin:0 auto;
