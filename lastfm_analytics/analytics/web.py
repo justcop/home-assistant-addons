@@ -222,7 +222,6 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
                     demo_db = Database(Path(data_dir) / "demo.sqlite3")
                     seed(demo_db)
             return demo_db
-        tracklist_worker.scan(database)
         return database
 
     def dates(conn):
@@ -678,5 +677,6 @@ self.addEventListener('fetch', event => {
     if start_worker:
         worker.start()
         release_worker.start(database)
+        tracklist_worker.start(database)
         view_cache.warm(database)
     return app

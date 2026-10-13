@@ -1,3 +1,9 @@
+## 0.2.26
+- Make artist/song/album detail analyses compute only the information their detail dialogs display; single-album pages no longer rank the entire music library.
+- Fetch only requested MusicBrainz album tracklists when calculating ordinary album estimates, instead of decoding every saved tracklist.
+- Move the periodic all-album tracklist discovery scan into an autonomous background scheduler, keeping API requests responsive without waiting for catalogue scans.
+- Add regression coverage for lightweight detail queries, scoped metadata reads and scan scheduling.
+
 ## 0.2.25
 - Repair malformed album listening-analysis cache entries automatically, rather than passing missing play totals to the interface.
 - Keep polling even when an ingress proxy returns a pending payload with HTTP 200; protect against incomplete overview responses.

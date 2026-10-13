@@ -88,6 +88,35 @@ class TracklistWorker:
         self.last_scan = {}
         self.databases = {}
         self.processing = None
+        self.scheduler = None
+
+    def start(self, db):
+        """Prepare tracklists autonomously; API requests should only read data."""
+        if not self.enabled or self.stop.is_set():
+            return
+        with self.lock:
+            self.databases[str(db.path)] = db
+            if self.scheduler is not None:
+                return
+            self.scheduler = threading.Thread(
+                target=self.background_scan, name="album-tracklist-scheduler",
+                daemon=True,
+            )
+            self.scheduler.start()
+
+    def background_scan(self):
+        # Scanning all albums can be expensive on large libraries. Never do it
+        # synchronously in a request for an album, overview or app status.
+        while not self.stop.is_set():
+            with self.lock:
+                databases = list(self.databases.values())
+            for db in databases:
+                try:
+                    self.scan(db)
+                except (sqlite3.Error, OSError, ValueError):
+                    pass
+            if self.stop.wait(120):
+                return
 
     def request_json(self, url):
         return metadata_request(url, self.opener, self.stop)
@@ -294,5 +323,7 @@ class TracklistWorker:
 
     def close(self):
         self.stop.set()
+        if self.scheduler:
+            self.scheduler.join(timeout=2)
         if self.thread:
             self.thread.join(timeout=5)

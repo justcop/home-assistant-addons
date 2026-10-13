@@ -145,6 +145,91 @@ def test_artist_and_album_overview_display_estimates(tmp_path):
     assert [r["plays"] for r in album["album_estimate"]["track_breakdown"]] == [1] * 6
 
 
+def test_detail_overview_skips_global_catalogue_rankings(tmp_path, monkeypatch):
+    from analytics import insights
+
+    db = Database(tmp_path / "detail-fast.sqlite3")
+    db.apply_window(0, 5000, [
+        play(100 + i, "Example", "First", title)
+        for i, title in enumerate("ABCDEF")
+    ] + [
+        play(200 + i, "Another", "Second", title)
+        for i, title in enumerate("ABCDEF")
+    ])
+    add_tracks(db, "First", list("ABCDEF"))
+    add_tracks(db, "Second", list("ABCDEF"))
+    with db.connect() as conn:
+        album_id = conn.execute(
+            "SELECT av.group_id FROM scrobbles s JOIN resolved_variants av "
+            "ON av.id=s.album_id WHERE s.album='First' LIMIT 1"
+        ).fetchone()[0]
+        song_id = conn.execute(
+            "SELECT sv.group_id FROM scrobbles s JOIN resolved_variants sv "
+            "ON sv.id=s.song_id WHERE s.title='A' LIMIT 1"
+        ).fetchone()[0]
+        artist = conn.execute(
+            "SELECT artist_group_key FROM scrobbles WHERE artist='Example' LIMIT 1"
+        ).fetchone()[0]
+    original = insights.rankings
+    observed = []
+
+    def spy(conn, p, kind, *args, **kwargs):
+        observed.append((kind, kwargs.get("sort"), kwargs.get("limit"),
+                         kwargs.get("include_breakdown")))
+        return original(conn, p, kind, *args, **kwargs)
+
+    monkeypatch.setattr(insights, "rankings", spy)
+    now = datetime(2026, 10, 10, tzinfo=timezone.utc)
+    album = insights.overview(db, {"period": "all", "entity": "album",
+                                   "id": str(album_id)}, "Europe/London", now)
+    assert album["current"]["plays"] == 6
+    assert album["album_estimate"]["estimated_listens"] == 1
+    assert observed == [("album", None, 1, True)]
+    observed.clear()
+    song = insights.overview(db, {"period": "all", "entity": "song",
+                                  "id": str(song_id)}, "Europe/London", now)
+    assert song["current"]["plays"] == 1 and "album_estimate" not in song
+    assert observed == []
+    observed.clear()
+    artist_data = insights.overview(db, {"period": "all", "entity": "artist",
+                                         "id": artist}, "Europe/London", now)
+    assert artist_data["top_albums"][0]["name"] == "First"
+    assert artist_data["top_albums_estimated"][0]["estimated_listens"] == 1
+    assert observed == [("album", None, 5, None), ("album", "estimated", 12, None)]
+
+
+def test_album_detail_only_fetches_its_tracklist(tmp_path):
+    db = Database(tmp_path / "tracklist-fast.sqlite3")
+    db.apply_window(0, 5000, [play(100, "Example", "First", "A")])
+    add_tracks(db, "First", list("ABCDEF"))
+    # An unrelated MusicBrainz tracklist should not be loaded or decoded.
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO album_tracklists(album_id,tracks_json,source,expires) VALUES(?,?,?,?)",
+            (999999, "{not valid JSON", "fixture", 9999999999),
+        )
+        queries = []
+        conn.set_trace_callback(queries.append)
+        result = rankings(conn, period(), "album")[0]
+        conn.set_trace_callback(None)
+    assert result["estimated_listens"] == 0
+    assert any("FROM album_tracklists WHERE album_id IN (" in q for q in queries)
+
+
+def test_tracklist_scans_run_in_background_without_a_page_request(tmp_path, monkeypatch):
+    import threading
+
+    db = Database(tmp_path / "background.sqlite3")
+    worker = TracklistWorker(enabled=True)
+    seen = threading.Event()
+    monkeypatch.setattr(worker, "scan", lambda database, force=False: seen.set())
+    try:
+        worker.start(db)
+        assert seen.wait(3)
+    finally:
+        worker.close()
+
+
 def test_musicbrainz_chooses_standard_audio_release_not_deluxe():
     worker = TracklistWorker(enabled=False)
     canonical_id = "11111111-1111-1111-1111-111111111111"

@@ -207,10 +207,19 @@ def album_listen_scores(conn, p, rows, raw, extra="", params=(), breakdown=False
     """
     if not rows:
         return
+    # Most requests display a single album or a page of up to 50 albums.
+    # Avoid deserialising the *entire* library's MusicBrainz tracklists just
+    # to score these rows. The global estimated ranking still reads all.
+    group_ids = sorted({int(r["album_group_id"]) for r in rows
+                        if r["album_group_id"] is not None})
+    targeted = bool(group_ids) and len(group_ids) <= 200
+    tracklist_sql = "SELECT album_id,tracks_json,source FROM album_tracklists"
+    if targeted:
+        tracklist_sql += " WHERE album_id IN (" + ",".join("?" for _ in group_ids) + ")"
     available = {
         r["album_id"]: (json.loads(r["tracks_json"]) if r["tracks_json"] else None,
                          r["source"])
-        for r in conn.execute("SELECT album_id,tracks_json,source FROM album_tracklists")
+        for r in conn.execute(tracklist_sql, group_ids if targeted else ())
     }
     expected = {
         str(r["id"]): {track_key(title)
@@ -313,6 +322,33 @@ def overview(database, args, tz_name, now=None):
         raw = args.get("mode") == "raw"
         current, previous = summaries(conn, p, extra, params, raw)
         bins, hours = timeline(conn, p, tz, extra, params)
+        entity = args.get("entity")
+        if entity in ("album", "song", "artist"):
+            # Detail dialogs render totals, the timeline and optionally the
+            # album estimate or an artist's album lists. The global overview's
+            # discovery, ranking, grouping and whole-library album estimates
+            # are not displayed here. Skipping those full scans is especially
+            # important for single-album opens and uncached detail views.
+            detail = dict(period=p, current=current, previous=previous,
+                          timeline=bins, hours=hours)
+            if entity == "album":
+                detail["album_estimate"] = (
+                    rankings(conn, p, "album", raw, limit=1, extra=extra,
+                             params=params, include_breakdown=True)[0]
+                    if current["albums"] else None
+                )
+            elif entity == "artist":
+                detail["top_albums"] = rankings(
+                    conn, p, "album", raw, limit=5, extra=extra, params=params,
+                    include_estimate=False
+                )
+                detail["top_albums_estimated"] = [
+                    row for row in rankings(conn, p, "album", raw, limit=12,
+                                            extra=extra, params=params,
+                                            sort="estimated")
+                    if row["estimated_listens"] is not None
+                ][:5]
+            return detail
         artists = rankings(conn, p, "artist", limit=5, extra=extra, params=params)
         top_share = (
             round(100 * sum(a["plays"] for a in artists) / current["plays"], 1)

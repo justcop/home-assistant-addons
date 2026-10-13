@@ -690,6 +690,21 @@ def test_candidate_review_learning_and_undo(tmp_path):
         db.change_groups("merge_learn", protected["ids"])
 
 
+def test_api_calls_do_not_synchronously_scan_tracklist_catalogue(tmp_path, monkeypatch):
+    app = create_app(tmp_path, config={}, start_worker=False, development=True)
+    worker = app.extensions["tracklist_worker"]
+
+    def unexpected_scan(*args, **kwargs):
+        raise AssertionError("A request triggered a whole-library tracklist scan")
+
+    monkeypatch.setattr(worker, "scan", unexpected_scan)
+    client = app.test_client()
+    assert client.get("/api/status").status_code == 200
+    assert client.get("/api/overview").status_code in (200, 202)
+    assert client.get("/api/rankings?kind=album").status_code in (200, 202)
+    app.extensions["view_cache"].close()
+
+
 def test_corrupt_album_overview_cache_is_repaired_automatically(tmp_path):
     """Album details must never receive a 200 response missing current plays."""
     import time
