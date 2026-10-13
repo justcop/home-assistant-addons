@@ -16,7 +16,7 @@ class ViewCache:
     RETRY_SECONDS = 60
     # This changes only when cached payload semantics change, not every release.
     CACHE_FORMAT = "analytics-v4"
-    COLD_WAIT_SECONDS = 6
+    COLD_WAIT_SECONDS = 1
 
     def __init__(self, timezone, compute):
         self.timezone = ZoneInfo(timezone)
@@ -111,25 +111,30 @@ class ViewCache:
                         (time.time(), key),
                     )
             today = datetime.now(self.timezone).date()
+            # MusicBrainz may update once per second, so don't rebuild a
+            # full-library heatmap more than once a minute.
+            revision_changed = row is not None and row["revision"] != revision
+            if (name == "release-years" and revision_changed
+                    and time.time() - row["generated"] < 60):
+                revision_changed = False
             stale = (
                 row is None
-                or row["revision"] != revision
+                or revision_changed
                 or datetime.fromtimestamp(row["generated"], self.timezone).date()
                 != today
             )
             future = self._schedule(db, key) if stale else None
         if row is None:
-            # A first-ever view has no saved result. Share one calculation even
-            # when multiple phones request it together.
+            # The calculation continues in a background thread. A cold
+            # request returns a pollable state, never a "come back" error.
             if future is None:
-                raise ValueError(
-                    "This view could not be updated. Please retry shortly."
-                )
+                return self._pending(db, key)
             try:
                 result, generated, revision = future.result(timeout=self.COLD_WAIT_SECONDS)
             except FutureTimeout:
-                # Never monopolise every web thread during a long first calculation.
-                raise ValueError("Analysis is generating. Please retry shortly.") from None
+                return self._pending(db, key)
+            except Exception:
+                return self._pending(db, key)
             with db.connect() as conn:
                 stale = revision != self._revision(db, conn, name)
         else:
@@ -146,6 +151,16 @@ class ViewCache:
                 "error": failed,
             },
         }
+
+    def _pending(self, db, key):
+        jobkey = (str(db.path), key)
+        with self.lock:
+            refreshing = jobkey in self.jobs
+            failed = jobkey in self.failures
+        return {"_cache": {
+            "pending": True, "stale": True, "refreshing": refreshing,
+            "generated": None, "error": failed,
+        }}
 
     def warm(self, db):
         self.register(db)

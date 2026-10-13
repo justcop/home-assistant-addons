@@ -53,6 +53,30 @@ class ReleaseYearWorker:
         self.last_scan = {}
         self.processing = None
         self.thread = None
+        self.scheduler = None
+
+    def start(self, db):
+        """Resume release-year enrichment on startup without a browser."""
+        if not self.enabled or self.stop.is_set():
+            return
+        with self.lock:
+            if self.scheduler is not None:
+                return
+            self.scheduler = threading.Thread(
+                target=self._schedule, args=(db,), daemon=True,
+                name="release-years-scheduler",
+            )
+            self.scheduler.start()
+
+    def _schedule(self, db):
+        while not self.stop.is_set():
+            try:
+                self.scan(db, force=True)
+            except (sqlite3.Error, OSError, ValueError):
+                # Retry after a transient database failure.
+                pass
+            if self.stop.wait(300):
+                return
 
     def mb(self, entity, **params):
         params["fmt"] = "json"
@@ -229,14 +253,18 @@ class ReleaseYearWorker:
                           WHERE s.active=1 AND s.{field} IS NOT NULL
                        )
                        SELECT COUNT(*) AS total,
-                         COUNT(CASE WHEN r.expires>? THEN 1 END) AS checked,
-                         COUNT(CASE WHEN r.expires>? AND r.year IS NOT NULL
-                           THEN 1 END) AS matched,
-                         COUNT(CASE WHEN r.expires>? AND r.year IS NULL
-                           THEN 1 END) AS unresolved
-                       FROM active_groups a
-                       LEFT JOIN release_years r ON r.kind=? AND r.group_id=a.id""",
-                    (now, now, now, kind),
+                         COUNT(CASE WHEN r.expires>? AND COALESCE(r.source,'')<>'error'
+                            THEN 1 END) AS checked,
+                          COUNT(CASE WHEN r.expires>? AND r.year IS NOT NULL
+                            AND COALESCE(r.source,'')<>'error' THEN 1 END) AS matched,
+                          COUNT(CASE WHEN r.expires>? AND r.year IS NULL
+                            AND COALESCE(r.source,'')<>'error' THEN 1 END) AS unresolved,
+                          COUNT(CASE WHEN r.source='error' THEN 1 END) AS failed,
+                          MIN(CASE WHEN r.source='error' AND r.expires>?
+                            THEN r.expires END) AS retry_at
+                        FROM active_groups a
+                        LEFT JOIN release_years r ON r.kind=? AND r.group_id=a.id""",
+                    (now, now, now, now, kind),
                 ).fetchone()
                 progress[kind + "s"] = dict(row)
 
@@ -253,6 +281,7 @@ class ReleaseYearWorker:
                 group["complete"] = group["pending"] == 0 and group["queued"] == 0 and not processing
         return {
             "enabled": self.enabled and not self.stop.is_set(),
+            "background": bool(self.scheduler and self.scheduler.is_alive()),
             "songs": progress["songs"],
             "albums": progress["albums"],
             "queued": progress["songs"]["queued"] + progress["albums"]["queued"],
@@ -282,7 +311,7 @@ class ReleaseYearWorker:
                            VALUES (?,?,?,?,?)
                            ON CONFLICT(kind,group_id) DO UPDATE SET
                            year=excluded.year,source=excluded.source,expires=excluded.expires""",
-                        (kind, group_id, year, "MusicBrainz" if year else None,
+                        (kind, group_id, year, "error" if failed else "MusicBrainz" if year else None,
                          now + (3600 if failed else 90 * 86400)),
                     )
                     if old is None or old["year"] != year:
@@ -306,3 +335,5 @@ class ReleaseYearWorker:
         self.stop.set()
         if self.thread is not None:
             self.thread.join(timeout=5)
+        if self.scheduler is not None:
+            self.scheduler.join(timeout=5)

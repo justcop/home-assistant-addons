@@ -662,5 +662,6 @@ self.addEventListener('fetch', event => {
 
     if start_worker:
         worker.start()
+        release_worker.start(database)
         view_cache.warm(database)
     return app
