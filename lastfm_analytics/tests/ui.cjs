@@ -78,9 +78,8 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   assert.equal(await page.locator('.release-year-details [data-detail="song"]').count(), 1);
   assert.equal(await page.locator('.release-year-details [data-detail="album"]').count(), 1);
   assert.match(await page.locator('.release-lookup-status').innerText(), /70 \/ 100 checked/);
-  // Finished groups hide their progress bar, while an unfinished group
-  // remains visible. Both hide automatically once coverage exceeds 99%.
-  assert.equal(await page.locator('.release-lookup-group progress').count(), 1);
+  // Progress stays visible even at 100%, so completion is unambiguous.
+  assert.equal(await page.locator('.release-lookup-group progress').count(), 2);
   assert.equal(await page.locator('.release-lookup-group progress').first().getAttribute('value'), '70');
   assert.equal(await page.locator('[data-release-year="1968"]').getAttribute("aria-pressed"), "true");
   await page.unroute("**/api/release-years?*");

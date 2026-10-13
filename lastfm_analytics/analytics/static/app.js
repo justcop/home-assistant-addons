@@ -262,20 +262,25 @@ function releaseYearsHTML(data) {
       '" aria-label="' + esc(label) + ' matching progress"></progress>' +
       '<p class="method-note">' + number(group.matched) + ' dated, ' +
       number(group.unresolved) + ' checked with no usable year, ' +
-      number(group.pending) + ' not yet checked. ' + esc(description) + '</p></div>';
+      number(group.pending) + ' pending' +
+       (group.failed ? ', ' + number(group.failed) + ' retrying after a lookup error' : '') +
+       (group.retry_at ? ' (next retry ' + esc(formatDate(group.retry_at, {hour:"2-digit",minute:"2-digit"})) + ')' : '') +
+       '. ' + esc(description) + '</p></div>';
   };
   // Keep the UI focused on release-year analysis once the initial matching
   // pass is essentially complete. When fresh imports bring coverage below
   // 99%, the unfinished progress bar appears again.
-  const showProgress = group => group && group.total > 0 &&
-    group.checked / group.total <= 0.99;
-  const progress = (showProgress(lookup.songs) || showProgress(lookup.albums))
-    ? '<section class="release-lookup-status" aria-label="Release-year matching status">' +
-      '<h3>Metadata matching progress</h3>' +
-      (showProgress(lookup.songs) ? progressDetails(lookup.songs, 'Songs') : '') +
-      (showProgress(lookup.albums) ? progressDetails(lookup.albums, 'Albums') : '') +
-      '<p class="method-note">A completed pass means every imported song or album has been checked, ' +
-      'not that every date is historically correct. Cached dates are rechecked when matching improves. ' +
+  const finished = lookup.songs?.complete && lookup.albums?.complete;
+  const active = Boolean(lookup.enabled && lookup.background);
+  const progress = lookup.songs && lookup.albums
+    ? '<section class="release-lookup-status" aria-label="Release-year matching status" role="status">' +
+      '<h3>Metadata matching · ' +
+      (finished ? 'Complete' : active ? 'Processing in the background' : lookup.enabled ? 'Waiting to start' : 'Paused') +
+      '</h3>' +
+      progressDetails(lookup.songs, 'Songs') +
+      progressDetails(lookup.albums, 'Albums') +
+      '<p class="method-note">Matching continues with this page closed and resumes automatically after a restart. ' +
+      'A completed pass means every imported song or album has been checked; it does not guarantee that all dates are historically correct. ' +
       'Unmatched recordings may still use provisional album dates.</p></section>' : '';
   const grid = years.length
     ? '<p class="method-note">Darker squares mean more scrobbles. Replaying the same song adds to its release year. Tap a year to see its most played songs.</p>' +
@@ -515,11 +520,22 @@ async function fetchStatus() {
   $("#banner").hidden = !banner;
 }
 const cacheTimers = {};
+function pendingAnalysisHTML(data) {
+  const retrying = Boolean(data?._cache?.error);
+  return `<section class="panel"><div class="loading" role="status" aria-live="polite">
+    ${retrying ? "Analysis temporarily delayed. Retrying automatically…" :
+      "Preparing your listening analysis… This page will update automatically when ready."}
+  </div></section>`;
+}
 function cacheLabel(data, target) {
   const marker = $(target);
   const cache = data?._cache;
   marker.hidden = !cache;
   if (!cache) return;
+  if (cache.pending) {
+    marker.textContent = cache.error ? "Preparing analysis · retry scheduled" : "Preparing analysis · updating automatically…";
+    return;
+  }
   const updated = formatDate(cache.generated, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
   marker.textContent = `Saved view · updated ${updated}${cache.error ? " · Update delayed; showing saved results" : cache.stale || cache.refreshing ? " · Updating…" : ""}`;
 }
@@ -547,7 +563,7 @@ function watchCachedView(slot, path, extra, data, render, valid, target) {
       const next = await api(path, extra);
       if (!valid()) return;
       const updated = content(next);
-      if (updated !== displayed && document.activeElement?.id !== "search") {
+      if (!next?._cache?.pending && updated !== displayed && document.activeElement?.id !== "search") {
         render(next);
         displayed = updated;
       }
@@ -559,12 +575,12 @@ function watchCachedView(slot, path, extra, data, render, valid, target) {
     }
     const processingAlbums = (path === "rankings" && extra.kind === "album" && data?.album_progress?.enabled && (data.album_progress.pending > 0 || data.album_progress.queued > 0 || data.album_progress.processing > 0))
       || (path === "release-years" && data?.lookup?.enabled && (data.lookup.songs?.pending > 0 || data.lookup.albums?.pending > 0 || data.lookup.queued > 0 || data.lookup.processing > 0));
-    cacheTimers[slot] = setTimeout(tick, data?._cache?.error ? 60000 : data?._cache?.stale || data?._cache?.refreshing ? 2000 : processingAlbums ? 10000 : 60000);
+    cacheTimers[slot] = setTimeout(tick, data?._cache?.pending ? 2000 : data?._cache?.error ? 60000 : data?._cache?.stale || data?._cache?.refreshing ? 2000 : processingAlbums ? 10000 : 60000);
   }
   if (data?._cache) {
     const processingAlbums = (path === "rankings" && extra.kind === "album" && data?.album_progress?.enabled && (data.album_progress.pending > 0 || data.album_progress.queued > 0 || data.album_progress.processing > 0))
       || (path === "release-years" && data?.lookup?.enabled && (data.lookup.songs?.pending > 0 || data.lookup.albums?.pending > 0 || data.lookup.queued > 0 || data.lookup.processing > 0));
-    cacheTimers[slot] = setTimeout(tick, data._cache.error ? 60000 : data._cache.stale || data._cache.refreshing ? 2000 : processingAlbums ? 10000 : 60000);
+    cacheTimers[slot] = setTimeout(tick, data._cache.pending ? 2000 : data._cache.error ? 60000 : data._cache.stale || data._cache.refreshing ? 2000 : processingAlbums ? 10000 : 60000);
   }
 }
 async function load({historyMode = "push"} = {}) {
@@ -614,12 +630,12 @@ async function load({historyMode = "push"} = {}) {
       const view = state.view;
       const render = next => replaceCachedView("#content", view === "overview" ? overviewHTML(next) : trendsHTML(next));
       cachedView = { path: "overview", extra: {}, data, render };
-      html = view === "overview" ? overviewHTML(data) : trendsHTML(data);
+      html = data?._cache?.pending ? pendingAnalysisHTML(data) : view === "overview" ? overviewHTML(data) : trendsHTML(data);
     } else if (state.view === "release-years") {
       const extra = { release_year: state.releaseYear };
       const data = await api("release-years", extra, { signal });
       cachedView = { path: "release-years", extra, data, render: next => replaceCachedView("#content", releaseYearsHTML(next)) };
-      html = releaseYearsHTML(data);
+      html = data?._cache?.pending ? pendingAnalysisHTML(data) : releaseYearsHTML(data);
     } else if (state.view === "history") {
       html = historyHTML(
         await api("history", { q: state.q, offset: state.offset }, { signal }),
@@ -635,7 +651,7 @@ async function load({historyMode = "push"} = {}) {
       const extra = { kind, q: state.q, offset: state.offset, album_sort:kind === "album" ? state.albumSort : null };
       const data = await api("rankings", extra, { signal });
       cachedView = { path: "rankings", extra, data, render: next => replaceCachedView("#content", rankTable(next, kind)) };
-      html = rankTable(data, kind);
+      html = data?._cache?.pending ? pendingAnalysisHTML(data) : rankTable(data, kind);
     }
     if (serial === loadSerial) {
       $("#content").innerHTML = html;
@@ -840,7 +856,11 @@ async function showDetail(kind, id, groupMode = false, restoring = false) {
       replaceCachedView("#detail-analytics",
         `${metrics(next, mode, {kind,id,name:detail.name}, allTime)}<section class="panel">${panelHead("Listening history", "Select a bar to inspect individual scrobbles.")}${chart(next, {kind,id,name:detail.name}, mode)}</section>${kind === "album" ? albumEstimateHTML(next.album_estimate) : ""}${kind === "artist" ? artistAlbumsHTML(next, id, detail.name) : ""}${detail.versions.length ? `<div class="panel-head" style="margin-top:23px"><div><h2>Versions</h2><p>All-time plays for the selected source, including versions outside the selected period.</p></div></div><div class="table-wrap"><table><thead><tr><th>Scrobbled name</th><th class="num">Plays</th><th>First / latest play</th><th></th></tr></thead><tbody>${detail.versions.map(v => `<tr><td class="name-cell"><strong>${esc(v.name)}</strong><small>${v.manual ? "Manual decision" : "Automatic grouping"}</small></td><td class="num">${number(v.plays)}</td><td><small>${formatDate(v.first_play)}<br>${formatDate(v.last_play)}</small></td><td>${detail.versions.length > 1 ? `<button class="button" data-separate="${v.id}" data-name="${esc(v.name)}">Separate</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : ""}<div class="dialog-actions" style="margin-top:18px"><button class="button primary" data-show-history="${kind}" data-id="${esc(id)}" data-name="${esc(detail.name)}" data-mode="${mode}" data-all="${allTime}">View scrobbles →</button></div>`);
     };
-    renderDetail(data);
+    if (data?._cache?.pending) {
+      $("#detail-analytics").innerHTML = pendingAnalysisHTML(data);
+    } else {
+      renderDetail(data);
+    }
     watchCachedView("detail", "overview", extra, data, renderDetail, () => serial === detailSerial && dialog.open, "#detail-cache-status");
   } catch (error) {
     if (serial === detailSerial && dialog.open) {
