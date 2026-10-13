@@ -59,7 +59,7 @@ def test_back_cover_falls_back_to_canonical_release_not_release_group(applicatio
     monkeypatch.setattr(artwork, 'download', download)
     response = client.get(f'/api/albums/{ALBUM}/artwork/back')
     assert response.status_code == 200
-    assert [OTHER_RELEASE, RELEASE] == [url.split('/release/')[1].split('/')[0] for url in urls]
+    assert [OTHER_RELEASE, OTHER_RELEASE, RELEASE] == [url.split('/release/')[1].split('/')[0] for url in urls]
     assert all('/release-group/' not in url and '/back-' in url for url in urls)
 
 
@@ -73,7 +73,7 @@ def test_missing_back_cover_returns_404_not_front_placeholder(application, clien
     first = client.get(path)
     second = client.get(path)
     assert first.status_code == second.status_code == 404
-    assert download.call_count == 1
+    assert download.call_count == 2  # The 1200px and 500px sizes were both absent.
     assert not (artwork.directory / (ALBUM + '-back.img')).exists()
     assert not store.cache_get('artwork:' + ALBUM + ':back')
 
