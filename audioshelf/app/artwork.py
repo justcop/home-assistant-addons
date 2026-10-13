@@ -261,7 +261,7 @@ class Artwork:
                             transient = True
                         except (requests.RequestException, AppError, OSError):
                             transient = True
-            if not transient:
+            if not transient and album['on_shelf']:
                 self.store.cache_put(negative, True, ttl=3600)
             raise AppError('Could not load the back cover. Try again.' if transient
                            else 'No back cover is available for this edition.',
