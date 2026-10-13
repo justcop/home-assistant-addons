@@ -8,6 +8,35 @@ const output =
   path.join(os.tmpdir(), "listening-analytics-ui");
 fs.mkdirSync(output, { recursive: true });
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
+/* Unlike element.isVisible(), this measures where the *opaque pixels*
+   should land after responsive scaling. Regression: previously the crop
+   wrapper remained visible while max-height moved the PNG out of view. */
+async function assertLogoPixelsInCrop(page, label) {
+  const result = await page.locator('#artist-logo-slot .artist-logo-crop').evaluate(crop => {
+    const img = crop.querySelector('.artist-logo');
+    const cr = crop.getBoundingClientRect(), ir = img.getBoundingClientRect();
+    const iw = 192, ih = 192, x = 15, y = 60, w = 160, h = 75;
+    const visible = {
+      left: ir.left + ir.width*x/iw,
+      top: ir.top + ir.height*y/ih,
+      right: ir.left + ir.width*(x+w)/iw,
+      bottom: ir.top + ir.height*(y+h)/ih
+    };
+    const overlapW = Math.max(0, Math.min(visible.right, cr.right) - Math.max(visible.left, cr.left));
+    const overlapH = Math.max(0, Math.min(visible.bottom, cr.bottom) - Math.max(visible.top, cr.top));
+    const projectedArea = Math.max(1, (visible.right-visible.left)*(visible.bottom-visible.top));
+    return {
+      fraction:(overlapW*overlapH)/projectedArea,
+      imageWidth:ir.width, imageHeight:ir.height,
+      containerWidth:cr.width, containerHeight:cr.height
+    };
+  });
+  assert.ok(result.fraction > .95,
+    `${label}: visible PNG pixels must not be clipped away (${JSON.stringify(result)})`);
+  assert.ok(result.imageHeight > result.containerHeight,
+    `${label}: original transparent padding must not force height compression`);
+}
+
 (async () => {
   const browser = await chromium.launch({
     headless: true,
@@ -213,6 +242,8 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
     const response = await route.fetch();
     const detail = await response.json();
     detail.artwork = { url: "https://lastfm.freetls.fastly.net/i/u/174s/fixture.png", album: "Abbey Road", artist: "The Beatles" };
+    detail.artist_logo = "https://lastfm.freetls.fastly.net/i/u/174s/song-logo-fixture.png";
+    detail.artist_logo_trim = {image_width:192,image_height:192,x:15,y:60,width:160,height:75};
     await route.fulfill({ response, json: detail });
   });
   await page.route("https://lastfm.freetls.fastly.net/**", route => route.fulfill({ path: path.join(__dirname, "../analytics/static/icon-192.png"), contentType: "image/png" }));
@@ -232,6 +263,8 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   await page.waitForFunction(() => document.querySelector(".detail-artwork img")?.naturalWidth > 0);
   assert.match(await cover.getAttribute("alt"), /Abbey Road/);
   await page.setViewportSize({ width: 320, height: 700 });
+  await page.locator('#artist-logo-slot.logo-ready').waitFor();
+  await assertLogoPixelsInCrop(page, 'Song, narrow phone');
   assert.equal(await page.locator("#detail-content").evaluate(el => el.scrollWidth <= el.clientWidth), true);
   await page.screenshot({ path: path.join(output, "cover-art-mobile.png") });
   await cover.evaluate(el => el.dispatchEvent(new Event("error")));
@@ -619,6 +652,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
     assert.ok(layout.titleRight <= layout.actionsLeft + 2, 'Logo stays left of buttons');
     assert.ok(layout.logoCropHeight > 0 && layout.logoCropHeight <= (width <= 620 ? 61 : 77),
       'Cropped artist logo respects compact panel height');
+    await assertLogoPixelsInCrop(page, `Album at ${width}px`);
     assert.ok(layout.buttonRights.every(right => right <= width + 1), 'Buttons stay on screen');
     if (width <= 620) {
       const expected = Math.min((width - 36) * .72, 290);

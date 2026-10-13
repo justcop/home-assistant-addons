@@ -1,3 +1,7 @@
+## 0.2.30
+- Fix artist logos sometimes disappearing on song and album details: height limits now apply only to untrimmed images, keeping the full source image scale for accurate CSS alpha-boundary clipping.
+- Test that projected visible pixels, not merely the crop container, remain visible at narrow and wide phone widths and desktop in album and song details.
+
 ## 0.2.29
 - Trim transparent borders around artist logos automatically using a bounded background image inspection.
 - Persist only the visible alpha-boundary coordinates with artist metadata; use CSS to clip the original CDN image on artist, album and song detail pages without storing image copies.

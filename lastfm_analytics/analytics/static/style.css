@@ -1564,7 +1564,7 @@ dialog { overscroll-behavior: contain; }
   overflow:hidden;
 }
 .artist-logo-stage.logo-ready .artist-logo-crop { display:block; }
-.artist-logo-stage .artist-logo-crop .artist-logo {
+.artist-logo-stage .artist-logo-crop > .artist-logo {
   position:absolute;
   width:calc(100% * var(--logo-scale));
   height:auto;
@@ -1727,7 +1727,9 @@ dialog { overscroll-behavior: contain; }
   letter-spacing:normal;
   line-height:1.4;
 }
-.album-artist-logo-stage .artist-logo {
+/* Direct (uncropped) images can be height-limited, but cropped images must
+   retain full intrinsic scaling so their visible pixels line up with the clip. */
+.album-artist-logo-stage > .artist-logo {
   max-width:100%;
   max-height:76px;
 }
@@ -1801,7 +1803,7 @@ dialog { overscroll-behavior: contain; }
     border-radius:12px;
   }
   .detail-dialog.album-detail-open .album-detail-info { padding-top:16px; }
-  .detail-dialog.album-detail-open .album-artist-logo-stage .artist-logo { max-height:60px; }
+  .detail-dialog.album-detail-open .album-artist-logo-stage > .artist-logo { max-height:60px; }
   .detail-dialog.album-detail-open .album-artist-logo-stage .artist-logo-crop { width:min(100%, calc(60px * var(--logo-ratio))); }
   .detail-dialog.album-detail-open .album-detail-titles .song-detail-name { font-size:clamp(20px,5.5vw,28px); }
   .detail-dialog.album-detail-open .album-detail-actions .button { padding:9px 7px; }
