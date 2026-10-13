@@ -574,6 +574,12 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   assert.equal(await page.locator('.album-detail-titles .artist-title-fallback').isVisible(), false);
   assert.match(await page.locator('.album-detail-titles .artist-logo').getAttribute('alt'), /The Beatles/);
   assert.equal(await page.locator('.album-detail-titles .song-detail-name').count(), 0);
+  assert.equal(await page.locator('.album-detail-titles .album-detail-name').innerText(), 'Abbey Road');
+  assert.equal(await page.locator('.album-detail-titles .album-detail-name').isVisible(), true);
+  assert.ok(await page.locator('.album-detail-titles').evaluate(node =>
+    document.querySelector('#artist-logo-slot').getBoundingClientRect().bottom <=
+      node.querySelector('.album-detail-name').getBoundingClientRect().top),
+    'Album title sits directly below the artist logo');
   assert.equal(await page.locator('.album-cover-fallback').count(), 0);
   assert.equal(await page.locator('#detail-kind').isVisible(), false);
   assert.equal(await page.locator('.album-detail-cover figcaption').count(), 0);
@@ -606,15 +612,18 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
     }
   }
   await page.screenshot({path:path.join(output,'album-audioshelf-size-mobile.png')});
-  // The title only replaces the cover when image loading genuinely fails.
+  // Even when artwork fails, the album title stays beneath the artist logo.
   const albumCover = page.locator('.album-detail-cover img');
   await albumCover.evaluate(el => el.dispatchEvent(new Event('error')));
   await albumCover.evaluate(el => el.dispatchEvent(new Event('error')));
-  assert.equal(await page.locator('.album-cover-fallback h2').innerText(), 'Abbey Road');
+  assert.match(await page.locator('.album-cover-fallback').innerText(), /No album artwork available/);
+  assert.equal(await page.locator('.album-cover-fallback h2').count(), 0);
+  assert.equal(await page.locator('.album-detail-titles .album-detail-name').innerText(), 'Abbey Road');
   assert.equal(await page.locator('.album-detail-titles .song-detail-name').count(), 0);
   // A failed logo restores the artist name without disturbing the cover layout.
   await page.locator('#artist-logo-slot img').evaluate(el => el.dispatchEvent(new Event('error')));
   assert.equal(await page.locator('#artist-logo-slot .artist-title-fallback').isVisible(), true);
+  assert.equal(await page.locator('.album-detail-titles .album-detail-name').innerText(), 'Abbey Road');
   await page.setViewportSize({width:1440,height:1050});
   await page.evaluate(() => {
     statusData.demo = window.__albumDemo;

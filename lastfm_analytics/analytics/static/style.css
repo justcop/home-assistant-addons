@@ -1709,7 +1709,8 @@ dialog { overscroll-behavior: contain; }
   max-width:100%;
   max-height:76px;
 }
-.detail-dialog .album-detail-titles .song-detail-name {
+.detail-dialog .album-detail-titles .song-detail-name,
+.detail-dialog .album-detail-titles .album-detail-name {
   margin:12px 0 0;
   font-size:clamp(21px,4vw,32px);
   line-height:1.16;

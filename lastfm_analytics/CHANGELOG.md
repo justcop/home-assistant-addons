@@ -1,3 +1,8 @@
+## 0.2.28
+- Always display the album title beneath the artist logo (or fallback artist name) in the left column of album details, matching the existing song-title positioning.
+- When album cover art is unavailable, show a simple artwork-unavailable message without duplicating the album title.
+- Extend browser regressions for album-title placement, missing artwork and failed artist logos.
+
 ## 0.2.27
 - Give song and album detail panels the same compact cover-led layout, sized like AudioShelf (330px desktop; 72% up to 290px on phones), without an always-visible SONG/ALBUM bar.
 - Place artist logos in the left column below the cover, replacing the artist name only when loaded; show the album name in the cover slot only if artwork is missing. Keep song titles beneath the cover.

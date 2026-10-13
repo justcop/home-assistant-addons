@@ -713,6 +713,12 @@ function artworkHTML(detail, kind) {
     // A logo by itself is enough for an artist header, without a fallback box.
     if (kind === "artist" && detail.artist_logo) return "";
     if (kind === "album" || kind === "song") {
+      // Album titles now live under the artist's logo/name, even when cover
+      // artwork is unavailable. Songs retain the track title fallback on art.
+      if (kind === "album") {
+        return `<div class="album-cover-fallback" role="status"><p class="method-note">${detail.artwork_pending
+          ? "Loading artwork…" : "No album artwork available"}</p></div>`;
+      }
       return `<div class="album-cover-fallback" role="status"><h2>${esc(detail.name)}</h2>${detail.artwork_pending
         ? '<p class="method-note">Loading artwork…</p>' : ''}</div>`;
     }
@@ -743,10 +749,11 @@ function detailHeaderHTML(detail, kind) {
   }
   if (kind === "album" || kind === "song") {
     // Match AudioShelf's cover dimensions on both desktop and phones.
-    // The album title is already on its cover; show it only when art fails.
-    // Songs retain their track title beneath their album artwork.
+    // Place the album title below the artist logo/name, just like song titles.
+    // Keep it in the left-hand column even if the logo or artwork is missing.
     const trackTitle = kind === "song"
-      ? `<h2 class="song-detail-name">${esc(detail.name)}</h2>` : "";
+      ? `<h2 class="song-detail-name">${esc(detail.name)}</h2>`
+      : `<h2 class="album-detail-name">${esc(detail.name)}</h2>`;
     return `<div class="album-detail-hero"><div id="detail-artwork-slot" class="album-detail-cover">${artworkHTML(detail, kind)}</div><div class="album-detail-info"><div class="album-detail-titles"><div id="artist-logo-slot" class="artist-logo-stage album-artist-logo-stage">${artistLogoHTML(detail, kind)}</div>${trackTitle}</div><div class="album-detail-actions artist-actions">${links}</div></div></div>`;
   }
   return `<div class="detail-entity-hero"><div class="detail-entity-title"><h2>${esc(detail.name)}</h2><p>${esc(detail.artist)}</p></div><div class="detail-heading detail-media-actions"><div id="detail-artwork-slot">${artworkHTML(detail, kind)}</div><div class="artist-actions">${links}</div></div></div>`;
