@@ -641,7 +641,19 @@ def details(conn, kind, value, raw, args=None, include_artwork=True):
     group = conn.execute(
         "SELECT * FROM groups WHERE id=?", (versions[0]["group_id"],)
     ).fetchone()
+    links = conn.execute(
+        f"""SELECT s.artist_group_key AS artist_id,
+                   {"av.id" if raw else "av.group_id"} AS album_id,
+                   COUNT(*) AS plays {JOINS}
+            WHERE s.active=1 AND {column}=? AND v.kind=?
+            GROUP BY s.artist_group_key, album_id
+            ORDER BY plays DESC LIMIT 1""".replace("v.kind=?", ("sv.kind=?" if kind == "song" else "av.kind=?"))
+            .replace(f"{column}=?", (f"{'sv' if kind == 'song' else 'av'}.{'id' if raw else 'group_id'}=?")),
+        (value, kind),
+    ).fetchone()
     return {
+        "link_artist_id": links["artist_id"] if links else None,
+        "link_album_id": links["album_id"] if links and kind == "song" else None,
         "name": versions[0]["name"] if raw else group["name"],
         "artist": group["artist"],
         "versions": versions,

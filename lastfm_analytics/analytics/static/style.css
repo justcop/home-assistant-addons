@@ -1808,3 +1808,9 @@ dialog { overscroll-behavior: contain; }
   .detail-dialog.album-detail-open .album-detail-titles .song-detail-name { font-size:clamp(20px,5.5vw,28px); }
   .detail-dialog.album-detail-open .album-detail-actions .button { padding:9px 7px; }
 }
+
+/* Detail drill-down targets preserve the visual hero design. */
+.detail-nav-hit { display:block; border:0; background:transparent; padding:0; margin:0; width:100%; color:inherit; font:inherit; text-align:left; cursor:pointer; }
+.detail-nav-hit:disabled { cursor:default; }
+.detail-nav-hit:not(:disabled):focus-visible { outline:2px solid var(--accent); outline-offset:4px; border-radius:6px; }
+.detail-nav-hit .detail-artwork, .detail-nav-hit .artist-logo-stage { pointer-events:none; }

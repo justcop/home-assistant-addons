@@ -10,6 +10,8 @@ const esc = (value) =>
   );
 const number = (n) => new Intl.NumberFormat("en-GB").format(n ?? 0);
 const initial = new URLSearchParams(location.search);
+const initialDetail = ["artist","album","song"].includes(initial.get("detail_kind")) && initial.get("detail_id") ? {kind:initial.get("detail_kind"),id:initial.get("detail_id"),groupMode:initial.get("detail_group")==="1"} : null;
+let initiallyRestoredDetail = false;
 let savedMode = "merged";
 try { savedMode = localStorage.getItem("listening-version-mode") || "merged"; } catch (_) {}
 const views = [
@@ -173,6 +175,16 @@ function navigationState() {
   const keys = ["view", "period", "source", "mode", "start", "end", "demo", "q", "offset", "filter", "albumSort", "releaseYear", "groupKind", "groupTab"];
   return Object.fromEntries(keys.map(key => [key, state[key]]));
 }
+function detailUrl(detail) {
+  const url = new URL(location.href);
+  for (const key of ["detail_kind","detail_id","detail_group"]) url.searchParams.delete(key);
+  if (detail) {
+    url.searchParams.set("detail_kind", detail.kind);
+    url.searchParams.set("detail_id", detail.id);
+    if (detail.groupMode) url.searchParams.set("detail_group", "1");
+  }
+  return url.pathname + url.search;
+}
 function urlState(historyMode = "push") {
   if (historyMode === "none") return;
   const nav = navigationState();
@@ -290,15 +302,17 @@ function releaseYearsHTML(data) {
       number(group.unresolved) + ' checked with no usable year, ' +
       number(group.pending) + ' not yet checked. ' + esc(description) + '</p></div>';
   };
-  // Always display the status, including the final 1% and completed state.
-  // A hidden progress bar left people unable to tell if scanning had finished.
+  // Metadata lookup can keep retrying the last difficult matches for a long time.
+  // At 95% checked, retire the progress panel rather than showing 100% forever.
   const hasCatalogue = (lookup.songs?.total || lookup.albums?.total) > 0;
   const complete = lookup.songs?.complete && lookup.albums?.complete;
   const eta = lookup.eta_seconds == null ? '' :
     ' · Roughly ' + (lookup.eta_seconds < 3600
       ? Math.max(1, Math.ceil(lookup.eta_seconds / 60)) + ' min'
       : (lookup.eta_seconds / 3600).toFixed(1) + ' hours') + ' remaining at the recent lookup rate';
-  const progress = hasCatalogue
+  const matchingProgress = [lookup.songs, lookup.albums].filter(group => group?.total > 0);
+  const reachedThreshold = matchingProgress.length > 0 && matchingProgress.every(group => group.checked / group.total >= 0.95);
+  const progress = hasCatalogue && !reachedThreshold
     ? '<section class="release-lookup-status" aria-label="Release-year matching status">' +
       '<h3>' + (complete ? 'Metadata matching complete' : 'Metadata matching in progress') + '</h3>' +
       progressDetails(lookup.songs, 'Songs') +
@@ -768,7 +782,7 @@ function detailHeaderHTML(detail, kind) {
     const trackTitle = kind === "song"
       ? `<h2 class="song-detail-name">${esc(detail.name)}</h2>`
       : `<h2 class="album-detail-name">${esc(detail.name)}</h2>`;
-    return `<div class="album-detail-hero"><div id="detail-artwork-slot" class="album-detail-cover">${artworkHTML(detail, kind)}</div><div class="album-detail-info"><div class="album-detail-titles"><div id="artist-logo-slot" class="artist-logo-stage album-artist-logo-stage">${artistLogoHTML(detail, kind)}</div>${trackTitle}</div><div class="album-detail-actions artist-actions">${links}</div></div></div>`;
+    return `<div class="album-detail-hero"><div id="detail-artwork-slot" class="album-detail-cover">${kind === "song" && detail.link_album_id ? `<button type="button" class="detail-nav-hit cover-nav-hit" data-nav-detail="album" data-nav-id="${esc(detail.link_album_id)}" data-nav-group="${state.mode === "merged"}" aria-label="View album ${esc(detail.artwork?.album || detail.listening_albums?.[0] || "")}">${artworkHTML(detail, kind)}</button>` : artworkHTML(detail, kind)}</div><div class="album-detail-info"><div class="album-detail-titles"><button type="button" class="detail-nav-hit artist-nav-hit" data-nav-detail="artist" data-nav-id="${esc(detail.link_artist_id || "")}" aria-label="View ${esc(detail.artist)} artist" ${detail.link_artist_id ? "" : "disabled"}><div id="artist-logo-slot" class="artist-logo-stage album-artist-logo-stage">${artistLogoHTML(detail, kind)}</div></button>${trackTitle}</div><div class="album-detail-actions artist-actions">${links}</div></div></div>`;
   }
   return `<div class="detail-entity-hero"><div class="detail-entity-title"><h2>${esc(detail.name)}</h2><p>${esc(detail.artist)}</p></div><div class="detail-heading detail-media-actions"><div id="detail-artwork-slot">${artworkHTML(detail, kind)}</div><div class="artist-actions">${links}</div></div></div>`;
 }
@@ -847,7 +861,10 @@ function bindArtworkError(detail, kind) {
   });
 }
 async function showDetail(kind, id, groupMode = false, restoring = false) {
-  if (!restoring) history.pushState({listening:true, nav:navigationState(), detail:{kind,id,groupMode}}, "", location.href);
+  if (!restoring) {
+    initiallyRestoredDetail = false;
+    history.pushState({listening:true, nav:navigationState(), detail:{kind,id,groupMode}}, "", detailUrl({kind,id,groupMode}));
+  }
   const serial = ++detailSerial;
   detailController?.abort();
   detailController = new AbortController();
@@ -890,7 +907,7 @@ async function showDetail(kind, id, groupMode = false, restoring = false) {
           const oldArtwork = artworkHTML(detail, kind), oldLogo = artistLogoHTML(detail, kind);
           Object.assign(detail, next);
           if (artworkHTML(detail, kind) !== oldArtwork) {
-            $("#detail-artwork-slot").innerHTML = artworkHTML(detail, kind);
+            $("#detail-artwork-slot").innerHTML = kind === "song" && detail.link_album_id ? `<button type="button" class="detail-nav-hit cover-nav-hit" data-nav-detail="album" data-nav-id="${esc(detail.link_album_id)}" aria-label="View album">${artworkHTML(detail, kind)}</button>` : artworkHTML(detail, kind);
             bindArtworkError(detail, kind);
           }
           const logoSlot = $("#artist-logo-slot");
@@ -968,6 +985,10 @@ async function groupAction(action, ids = [], key = null, name = undefined) {
 document.addEventListener("click", (event) => {
   const b = event.target.closest("button");
   if (!b || b.disabled) return;
+  if (b.dataset.navDetail && b.dataset.navId) {
+    showDetail(b.dataset.navDetail, b.dataset.navId, b.dataset.navGroup === "true");
+    return;
+  }
   if (b.dataset.releaseYear) {
     const year = Number(b.dataset.releaseYear);
     state.releaseYear = state.releaseYear === year ? null : year;
@@ -1246,7 +1267,12 @@ function closeDetail() {
   detailController?.abort();
   $("#detail-dialog").close();
   detailSerial++;
-  if (history.state?.detail) history.back();
+  if (history.state?.detail) {
+    if (initiallyRestoredDetail) {
+      initiallyRestoredDetail = false;
+      history.replaceState({...history.state, detail:null}, "", detailUrl(null));
+    } else history.back();
+  }
 }
 $("#close-detail").onclick = closeDetail;
 $("#detail-dialog").addEventListener("cancel", event => {event.preventDefault(); closeDetail();});
@@ -1284,7 +1310,12 @@ setInterval(async () => {
       load();
   } catch (_) {}
 }, 15000);
-load();
+load().then(() => {
+  if (!initialDetail) return;
+  initiallyRestoredDetail = true;
+  history.replaceState({listening:true, nav:navigationState(), detail:initialDetail}, "", detailUrl(initialDetail));
+  showDetail(initialDetail.kind, initialDetail.id, initialDetail.groupMode, true);
+});
 
 if ($("#logout")) $("#logout").onclick = async () => {
   try {
