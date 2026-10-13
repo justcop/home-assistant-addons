@@ -104,33 +104,51 @@ function query(extra = {}) {
   return new URLSearchParams(p);
 }
 async function api(path, extra = {}, opts = {}) {
-  const response = await fetch(`api/${path}?${query(extra)}`, {
-    ...opts,
-    headers: {
-      ...(opts.body
-        ? {
-            "Content-Type": "application/json",
-            "X-CSRF-Token": $("meta[name=csrf-token]").content,
-          }
-        : {}),
-      ...opts.headers,
-    },
-  });
-  if (response.status === 401) {
-    location.assign(new URL("login", document.baseURI));
-    throw new Error("Sign in to continue.");
+  // First-time analyses return 202 until their shared cache job is ready.
+  // Poll without recursive promises; leave the current page/modal loading.
+  const { onPending, ...fetchOptions } = opts;
+  while (true) {
+    if (opts.signal?.aborted) throw new DOMException("Request cancelled", "AbortError");
+    const response = await fetch(`api/${path}?${query(extra)}`, {
+      ...fetchOptions,
+      headers: {
+        ...(opts.body ? {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": $("meta[name=csrf-token]").content,
+        } : {}),
+        ...opts.headers,
+      },
+    });
+    if (response.status === 401) {
+      location.assign(new URL("login", document.baseURI));
+      throw new Error("Sign in to continue.");
+    }
+    let data;
+    try { data = await response.json(); }
+    catch (_) { throw new Error(`The server returned ${response.status}. Please reload the page.`); }
+    if (response.status === 202 && data._pending) {
+      onPending?.(data);
+      const delay = Math.max(1000, Math.min(10000, Number(data.retry_after || 2) * 1000));
+      await new Promise((resolve, reject) => {
+        if (opts.signal?.aborted) {
+          reject(new DOMException("Request cancelled", "AbortError"));
+          return;
+        }
+        const abort = () => {
+          clearTimeout(timer);
+          reject(new DOMException("Request cancelled", "AbortError"));
+        };
+        const timer = setTimeout(() => {
+          opts.signal?.removeEventListener("abort", abort);
+          resolve();
+        }, delay);
+        opts.signal?.addEventListener("abort", abort, {once:true});
+      });
+      continue;
+    }
+    if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+    return data;
   }
-  let data;
-  try {
-    data = await response.json();
-  } catch (_) {
-    throw new Error(
-      `The server returned ${response.status}. Please reload the page.`,
-    );
-  }
-  if (!response.ok)
-    throw new Error(data.error || `Request failed (${response.status})`);
-  return data;
 }
 function toast(text) {
   clearTimeout(toastTimer);

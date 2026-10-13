@@ -1,3 +1,10 @@
+## 0.2.24
+- Automatically start and periodically resume release-year MusicBrainz lookups after add-on startup, even without opening the Release Years page.
+- Keep song and album matching progress visible through 100% completion and show a rolling estimate of time remaining.
+- Automatically render previously uncached analytics when ready; the browser polls an explicit pending status rather than showing "try again later".
+- Run two cache workers to keep short details responsive while longer global calculations are being prepared.
+- Speed up regular album rankings by estimating only visible rows and limiting album-specific song aggregation. Sorting by estimated listens still scores every album.
+
 ## 0.2.23
 - Redesign album detail around a full-width square album cover, edge-to-edge on phones.
 - Put the album artist and title below the cover on the left, with the existing Spotify, record store, and shelf actions stacked on the right.

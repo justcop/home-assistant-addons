@@ -166,6 +166,7 @@ def rankings(
        GROUP BY {key}) SELECT *, COUNT(*) OVER() AS total_rows FROM ranked
        WHERE plays>0 AND (instr(lower(name),lower(?))>0 OR instr(lower(artist),lower(?))>0)
        ORDER BY plays DESC, name COLLATE NOCASE, id LIMIT ? OFFSET ?"""
+    estimate_sort_all = kind == "album" and include_estimate and sort == "estimated"
     rows = [
         dict(r)
         for r in conn.execute(
@@ -178,8 +179,8 @@ def rankings(
                 *params,
                 search,
                 search,
-                -1 if kind == "album" and include_estimate else limit,
-                0 if kind == "album" and include_estimate else offset,
+                -1 if estimate_sort_all else limit,
+                0 if estimate_sort_all else offset,
             ],
         )
     ]
@@ -189,8 +190,8 @@ def rankings(
             rows.sort(key=lambda r: (r["estimated_listens"] is None,
                                      -(r["estimated_listens"] or 0),
                                      -r["plays"], r["name"].casefold()))
-        # Score before pagination so a short record is not disadvantaged.
-        rows = rows[offset:offset + limit]
+            # Full catalogue ranking needs all scores; ordinary pages don't.
+            rows = rows[offset:offset + limit]
     for r in rows:
         if not p["compare"]:
             r["previous"] = None
@@ -220,12 +221,16 @@ def album_listen_scores(conn, p, rows, raw, extra="", params=(), breakdown=False
     counts = {}
     identifier = "av.id" if raw else "av.group_id"
     if expected:
+        ids = sorted(int(album_id) for album_id in expected)
+        constrained = len(ids) <= 200
+        id_filter = (" AND " + identifier + " IN (" +
+                     ",".join("?" for _ in ids) + ")") if constrained else ""
         for album_id, title, grouped_title, plays in conn.execute(
             f"""SELECT {identifier},s.title,sg.name,COUNT(*) {JOINS}
                 WHERE s.active=1 AND s.album_id IS NOT NULL
-                      AND s.ts>=? AND s.ts<? {extra}
+                      AND s.ts>=? AND s.ts<? {extra} {id_filter}
                 GROUP BY {identifier},s.title,sg.name""",
-            [p["start"], p["end"], *params],
+            [p["start"], p["end"], *params, *(ids if constrained else ())],
         ):
             if str(album_id) in expected:
                 counter = counts.setdefault(str(album_id), Counter())
