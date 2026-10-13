@@ -184,18 +184,20 @@ def test_detail_overview_skips_global_catalogue_rankings(tmp_path, monkeypatch):
                                    "id": str(album_id)}, "Europe/London", now)
     assert album["current"]["plays"] == 6
     assert album["album_estimate"]["estimated_listens"] == 1
-    assert observed == [("album", None, 1, True)]
+    assert observed == [("artist", None, 5, None), ("album", None, 1, True)]
     observed.clear()
     song = insights.overview(db, {"period": "all", "entity": "song",
                                   "id": str(song_id)}, "Europe/London", now)
     assert song["current"]["plays"] == 1 and "album_estimate" not in song
-    assert observed == []
+    assert observed == [("artist", None, 5, None)]
     observed.clear()
     artist_data = insights.overview(db, {"period": "all", "entity": "artist",
                                          "id": artist}, "Europe/London", now)
     assert artist_data["top_albums"][0]["name"] == "First"
     assert artist_data["top_albums_estimated"][0]["estimated_listens"] == 1
-    assert observed == [("album", None, 5, None), ("album", "estimated", 12, None)]
+    assert observed == [("artist", None, 5, None),
+                        ("album", None, 5, None),
+                        ("album", "estimated", 12, None)]
 
 
 def test_album_detail_only_fetches_its_tracklist(tmp_path):
