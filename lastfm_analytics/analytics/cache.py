@@ -111,19 +111,22 @@ class ViewCache:
                         (time.time(), key),
                     )
             today = datetime.now(self.timezone).date()
-            # MusicBrainz may update once per second, so don't rebuild a
-            # full-library heatmap more than once a minute.
+            # Keep stale metadata visible as such, but coalesce quick
+            # MusicBrainz-only revisions into one heatmap rebuild per minute.
+            # Changes to imported plays/grouping bypass this throttle.
             revision_changed = row is not None and row["revision"] != revision
-            if (name == "release-years" and revision_changed
-                    and time.time() - row["generated"] < 60):
-                revision_changed = False
+            throttle = (
+                name == "release-years" and revision_changed
+                and row["revision"] // 1_000_000_000 == revision // 1_000_000_000
+                and time.time() - row["generated"] < 60
+            )
             stale = (
                 row is None
                 or revision_changed
                 or datetime.fromtimestamp(row["generated"], self.timezone).date()
                 != today
             )
-            future = self._schedule(db, key) if stale else None
+            future = self._schedule(db, key) if stale and not throttle else None
         if row is None:
             # The calculation continues in a background thread. A cold
             # request returns a pollable state, never a "come back" error.

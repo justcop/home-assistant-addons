@@ -247,6 +247,14 @@ def test_release_year_metadata_invalidates_years_without_discarding_overview(tmp
         old_years = cache.get(db, "release-years", {})
         assert old_years["count"] == 1
         assert old_years["_cache"]["stale"]
+        # Frequent MusicBrainz changes should not recalculate a heavy full
+        # library view every second. An aged cache is regenerated.
+        with cache.lock:
+            assert (str(db.path), cache.key("release-years", {})) not in cache.jobs
+        with db.connect() as conn:
+            conn.execute("UPDATE view_cache SET generated=? WHERE cache_key=?",
+                         (time.time() - 61, cache.key("release-years", {})))
+        cache.get(db, "release-years", {})
         with cache.lock:
             future = cache.jobs[(str(db.path), cache.key("release-years", {}))]
         future.result(timeout=5)
