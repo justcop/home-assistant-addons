@@ -257,7 +257,7 @@ class Artwork:
                             return data, mime, 'cover-art-archive'
                         except requests.HTTPError as error:
                             if error.response is not None and error.response.status_code == 404:
-                                break
+                                continue
                             transient = True
                         except (requests.RequestException, AppError, OSError):
                             transient = True
