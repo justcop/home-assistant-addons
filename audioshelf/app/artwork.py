@@ -68,6 +68,7 @@ class Artwork:
     def evict(self, album_id):
         with self.locks[hash(album_id)%len(self.locks)]:
             (self.directory/(album_id+'.img')).unlink(missing_ok=True)
+            (self.directory/(album_id+'-back.img')).unlink(missing_ok=True)
             for variant in self.directory.glob(album_id+'-*.webp'):
                 variant.unlink(missing_ok=True)
             with self.store.cache_connect() as db:
@@ -213,6 +214,80 @@ class Artwork:
                     self.store.cache_put(negative,True,ttl=300)
                 return PLACEHOLDER, 'image/svg+xml', 'placeholder'
 
+    def back(self, album_id):
+        """Fetch the back of the selected sleeve or canonical release on demand.
+
+        Never use an arbitrary release-group/Spotify image: another edition's
+        reverse may show different tracks or bonus material.
+        """
+        with self.locks[hash(album_id)%len(self.locks)]:
+            album = self.store.album(album_id)
+            chosen = self.store.setting('artwork_release:'+album_id)
+            releases = list(dict.fromkeys(r for r in (chosen, album.get('release_id')) if r))
+            identity = {'chosen': chosen, 'release': album.get('release_id')}
+            key = 'artwork:'+album_id+':back'
+            path = self.directory/(album_id+'-back.img')
+            metadata = self.store.cache_get(key)
+            if metadata and metadata.get('identity') == identity and path.exists():
+                try:
+                    data = path.read_bytes()
+                    return data, image_type(data), metadata['source']
+                except (AppError, OSError):
+                    path.unlink(missing_ok=True)
+            negative = key+':missing:'+str(identity)
+            if self.store.cache_get(negative):
+                raise AppError('No back cover is available for this edition.', 404)
+            transient = False
+            with self.download_slots:
+                for release in releases:
+                    for resolution in ('1200', '500'):
+                        url = f'https://coverartarchive.org/release/{release}/back-{resolution}'
+                        try:
+                            data, mime = self.download(url)
+                            if album['on_shelf']:
+                                temporary = path.with_suffix('.'+uuid.uuid4().hex+'.tmp')
+                                try:
+                                    temporary.write_bytes(data)
+                                    os.replace(temporary, path)
+                                finally:
+                                    temporary.unlink(missing_ok=True)
+                                self.store.cache_put(key, {'source':'cover-art-archive',
+                                    'identity':identity, 'release':release}, ttl=30*86400)
+                                self._prune()
+                            return data, mime, 'cover-art-archive'
+                        except requests.HTTPError as error:
+                            if error.response is not None and error.response.status_code == 404:
+                                break
+                            transient = True
+                        except (requests.RequestException, AppError, OSError):
+                            transient = True
+            if not transient:
+                self.store.cache_put(negative, True, ttl=3600)
+            raise AppError('Could not load the back cover. Try again.' if transient
+                           else 'No back cover is available for this edition.',
+                           502 if transient else 404)
+
+    def back_sized(self, album_id, size):
+        with self.locks[hash(album_id)%len(self.locks)]:
+            data, mime, source = self.back(album_id)
+            digest = hashlib.sha256(data).hexdigest()[:24]
+            path = self.directory/(album_id+'-back-'+str(size)+'-'+digest+'.webp')
+            owned = self.store.album(album_id)['on_shelf']
+            if owned and path.exists():
+                return path.read_bytes(), 'image/webp', source
+            data, mime = self.resize(data, mime, size)
+            if owned:
+                for old in self.directory.glob(album_id+'-back-'+str(size)+'-*.webp'):
+                    old.unlink(missing_ok=True)
+                temporary = path.with_suffix('.'+uuid.uuid4().hex+'.tmp')
+                try:
+                    temporary.write_bytes(data)
+                    os.replace(temporary, path)
+                finally:
+                    temporary.unlink(missing_ok=True)
+                self._prune()
+            return data, mime, source
+
     @staticmethod
     def resize(data, mime, size):
         if mime == 'image/svg+xml':
@@ -273,6 +348,7 @@ class Artwork:
             if previous:
                 (self.custom_directory/Path(previous).name).unlink(missing_ok=True)
             (self.directory/(album_id+'.img')).unlink(missing_ok=True)
+            (self.directory/(album_id+'-back.img')).unlink(missing_ok=True)
             for variant in self.directory.glob(album_id+'-*.webp'):
                 variant.unlink(missing_ok=True)
             with self.store.cache_connect() as db:
