@@ -436,3 +436,17 @@ def test_album_lookup_upgrade_rechecks_incorrectly_cached_1994(tmp_path):
     with worker.lock:
         worker.pending.discard((str(db.path), "album", album_id))
     assert worker.status(db)["albums"]["complete"]
+
+
+
+def test_release_year_scheduler_starts_without_a_page_visit(tmp_path):
+    import threading
+    db = Database(tmp_path / "background.sqlite3")
+    worker = ReleaseYearWorker()
+    discovered = threading.Event()
+    worker.scan = lambda database, force=False: discovered.set()
+    try:
+        worker.start(db)
+        assert discovered.wait(2), "A restart must automatically resume matching"
+    finally:
+        worker.close()

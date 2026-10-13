@@ -78,15 +78,25 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   assert.equal(await page.locator('.release-year-details [data-detail="song"]').count(), 1);
   assert.equal(await page.locator('.release-year-details [data-detail="album"]').count(), 1);
   assert.match(await page.locator('.release-lookup-status').innerText(), /70 \/ 100 checked/);
-  // Finished groups hide their progress bar, while an unfinished group
-  // remains visible. Both hide automatically once coverage exceeds 99%.
-  assert.equal(await page.locator('.release-lookup-group progress').count(), 1);
+  // Keep both progress bars present, even once a group reaches 100%.
+  assert.equal(await page.locator('.release-lookup-group progress').count(), 2);
   assert.equal(await page.locator('.release-lookup-group progress').first().getAttribute('value'), '70');
+  assert.equal(await page.locator('.release-lookup-group progress').nth(1).getAttribute('value'), '30');
   assert.equal(await page.locator('[data-release-year="1968"]').getAttribute("aria-pressed"), "true");
   await page.unroute("**/api/release-years?*");
   await page.setViewportSize({width:1440,height:1050});
+  // A cold view is pending rather than failing: one 202, then the real data.
+  let overviewAttempts = 0;
+  await page.route("**/api/overview?*", async route => {
+    if (++overviewAttempts === 1)
+      return route.fulfill({ status:202, contentType:"application/json",
+        body:JSON.stringify({_pending:true,retry_after:1}) });
+    return route.continue();
+  });
   await page.locator('#nav [data-view="overview"]').click();
-  await page.locator("#content .metrics").waitFor();
+  await page.locator("#content .metrics").waitFor({timeout:15000});
+  assert.ok(overviewAttempts >= 2, "The browser should retry a pending view automatically");
+  await page.unroute("**/api/overview?*");
 
   // Switching album rankings must explain missing metadata, not appear inert.
   await page.route("**/api/rankings?*", async route => {

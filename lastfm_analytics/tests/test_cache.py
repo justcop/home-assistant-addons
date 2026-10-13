@@ -260,3 +260,54 @@ def test_release_year_metadata_invalidates_years_without_discarding_overview(tmp
         assert cache.get(db, "release-years", {})["_cache"]["stale"]
     finally:
         cache.close()
+
+
+def test_uncached_slow_analysis_is_pending_and_then_appears(tmp_path):
+    """A slow cold view must never turn into 'try again later'."""
+    db = Database(tmp_path / "pending.sqlite3")
+    entered, release = threading.Event(), threading.Event()
+
+    def slow(db, args):
+        entered.set()
+        assert release.wait(5)
+        return {"plays": 42}
+
+    cache = ViewCache("Europe/London", {"overview": slow})
+    cache.COLD_WAIT_SECONDS = 0.02
+    try:
+        first = cache.get(db, "overview", {})
+        assert first["_pending"] is True and first["retry_after"] > 0
+        assert entered.wait(2)
+        # Other pollers share the same future, not duplicate calculations.
+        assert cache.get(db, "overview", {})["_pending"]
+        release.set()
+        with cache.lock:
+            future = next(iter(cache.jobs.values()))
+        assert future.result(timeout=5)[0]["plays"] == 42
+        result = cache.get(db, "overview", {})
+        assert result["plays"] == 42 and not result.get("_pending")
+    finally:
+        release.set()
+        cache.close()
+
+
+def test_parallel_cache_worker_does_not_block_small_page(tmp_path):
+    db = Database(tmp_path / "concurrent.sqlite3")
+    entered, release = threading.Event(), threading.Event()
+
+    def compute(db, args):
+        if args.get("period") == "all":
+            entered.set()
+            assert release.wait(5)
+        return {"period": args.get("period", "all")}
+
+    cache = ViewCache("Europe/London", {"overview": compute})
+    cache.COLD_WAIT_SECONDS = 0.02
+    try:
+        assert cache.get(db, "overview", {})["_pending"]
+        assert entered.wait(2)
+        # A separate worker can finish a short job while the first is blocked.
+        assert cache.get(db, "overview", {"period": "365d"})["period"] == "365d"
+    finally:
+        release.set()
+        cache.close()
