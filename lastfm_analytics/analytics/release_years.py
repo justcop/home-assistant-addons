@@ -8,6 +8,7 @@ Unverified years are left unknown, not guessed from composition or play dates.
 """
 import json
 import queue
+from collections import deque
 import re
 import sqlite3
 import threading
@@ -53,6 +54,38 @@ class ReleaseYearWorker:
         self.last_scan = {}
         self.processing = None
         self.thread = None
+        self.scheduler = None
+        self.databases = {}
+        self.completed_times = deque(maxlen=101)
+
+    def start(self, db):
+        """Start autonomous discovery at add-on startup, without a browser visit."""
+        if not self.enabled or self.stop.is_set():
+            return
+        with self.lock:
+            self.databases[str(db.path)] = db
+            if self.scheduler is not None:
+                return
+            self.scheduler = threading.Thread(
+                target=self.background_scan, name="release-years-scheduler",
+                daemon=True,
+            )
+            self.scheduler.start()
+
+    def background_scan(self):
+        # Rescan periodically to discover new scrobbles and resume after restart.
+        # The queue itself is held in memory; checked results survive in SQLite.
+        while not self.stop.is_set():
+            with self.lock:
+                databases = list(self.databases.values())
+            for db in databases:
+                try:
+                    self.scan(db)
+                except (sqlite3.Error, OSError, ValueError):
+                    # Keep the scheduler alive through transient database failures.
+                    pass
+            if self.stop.wait(120):
+                return
 
     def mb(self, entity, **params):
         params["fmt"] = "json"
@@ -251,8 +284,19 @@ class ReleaseYearWorker:
                 group["queued"] = max(0, queued)
                 group["processing"] = processing
                 group["complete"] = group["pending"] == 0 and group["queued"] == 0 and not processing
+        with self.lock:
+            samples = list(self.completed_times)
+        remaining = progress["songs"]["pending"] + progress["albums"]["pending"]
+        # A rolling estimate from actual completed network lookups, not a
+        # promise: MusicBrainz delays, the other metadata worker, and restarts
+        # can all change the rate.
+        eta = None
+        if remaining and len(samples) >= 5 and time.monotonic() - samples[-1] < 180:
+            seconds_per_lookup = (samples[-1] - samples[0]) / (len(samples) - 1)
+            eta = max(0, round(remaining * seconds_per_lookup))
         return {
             "enabled": self.enabled and not self.stop.is_set(),
+            "eta_seconds": eta,
             "songs": progress["songs"],
             "albums": progress["albums"],
             "queued": progress["songs"]["queued"] + progress["albums"]["queued"],
@@ -294,6 +338,8 @@ class ReleaseYearWorker:
             finally:
                 with self.lock:
                     self.pending.discard((path, kind, group_id))
+                    if saved:
+                        self.completed_times.append(time.monotonic())
                     self.processing = None
                 self.jobs.task_done()
             if saved and self.jobs.empty() and not self.stop.is_set():
@@ -304,5 +350,7 @@ class ReleaseYearWorker:
 
     def close(self):
         self.stop.set()
+        if self.scheduler is not None:
+            self.scheduler.join(timeout=2)
         if self.thread is not None:
             self.thread.join(timeout=5)

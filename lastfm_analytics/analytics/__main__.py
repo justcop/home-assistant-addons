@@ -39,6 +39,8 @@ def main():
 
     def shutdown(*_):
         app.extensions["artwork_worker"].close()
+        app.extensions["release_year_worker"].close()
+        app.extensions["tracklist_worker"].close()
         app.extensions["view_cache"].close()
         app.extensions["sync_worker"].close()
         server.close()
@@ -50,6 +52,8 @@ def main():
         server.run()
     finally:
         app.extensions["artwork_worker"].close()
+        app.extensions["release_year_worker"].close()
+        app.extensions["tracklist_worker"].close()
         app.extensions["view_cache"].close()
         app.extensions["sync_worker"].close()
 

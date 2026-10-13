@@ -232,7 +232,6 @@ function releaseYearsHTML(data) {
   const max = Math.max(1, ...years.map(item => item.plays));
   const pct = data.total ? Math.round(100 * data.identified / data.total) : 0;
   const lookup = data.lookup || {};
-  const busy = lookup.queued > 0 || lookup.processing > 0;
   const headings = Array.from({length:10}, (_,i) => '<span class="release-year-column">' + i + '</span>').join("");
   const cells = decades.map(decade => '<span class="release-year-decade">' + decade + 's</span>' +
     Array.from({length:10}, (_,i) => {
@@ -264,19 +263,24 @@ function releaseYearsHTML(data) {
       number(group.unresolved) + ' checked with no usable year, ' +
       number(group.pending) + ' not yet checked. ' + esc(description) + '</p></div>';
   };
-  // Keep the UI focused on release-year analysis once the initial matching
-  // pass is essentially complete. When fresh imports bring coverage below
-  // 99%, the unfinished progress bar appears again.
-  const showProgress = group => group && group.total > 0 &&
-    group.checked / group.total <= 0.99;
-  const progress = (showProgress(lookup.songs) || showProgress(lookup.albums))
+  // Always display the status, including the final 1% and completed state.
+  // A hidden progress bar left people unable to tell if scanning had finished.
+  const hasCatalogue = (lookup.songs?.total || lookup.albums?.total) > 0;
+  const complete = lookup.songs?.complete && lookup.albums?.complete;
+  const eta = lookup.eta_seconds == null ? '' :
+    ' · Roughly ' + (lookup.eta_seconds < 3600
+      ? Math.max(1, Math.ceil(lookup.eta_seconds / 60)) + ' min'
+      : (lookup.eta_seconds / 3600).toFixed(1) + ' hours') + ' remaining at the recent lookup rate';
+  const progress = hasCatalogue
     ? '<section class="release-lookup-status" aria-label="Release-year matching status">' +
-      '<h3>Metadata matching progress</h3>' +
-      (showProgress(lookup.songs) ? progressDetails(lookup.songs, 'Songs') : '') +
-      (showProgress(lookup.albums) ? progressDetails(lookup.albums, 'Albums') : '') +
-      '<p class="method-note">A completed pass means every imported song or album has been checked, ' +
-      'not that every date is historically correct. Cached dates are rechecked when matching improves. ' +
-      'Unmatched recordings may still use provisional album dates.</p></section>' : '';
+      '<h3>' + (complete ? 'Metadata matching complete' : 'Metadata matching in progress') + '</h3>' +
+      progressDetails(lookup.songs, 'Songs') +
+      progressDetails(lookup.albums, 'Albums') +
+      '<p class="method-note">' + (complete
+        ? 'All currently imported songs and albums have been checked.'
+        : lookup.enabled ? 'Matching continues automatically in the background, even when this page is closed' + eta + '.'
+          : 'Metadata lookups are paused.') +
+      ' A completed pass does not guarantee every historical date is correct. Unmatched recordings may use provisional album dates.</p></section>' : '';
   const grid = years.length
     ? '<p class="method-note">Darker squares mean more scrobbles. Replaying the same song adds to its release year. Tap a year to see its most played songs.</p>' +
       '<div class="release-year-scroll" tabindex="0" aria-label="Release year heatmap, decades in rows">' +
