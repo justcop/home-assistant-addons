@@ -1,3 +1,10 @@
+## 0.2.24
+- Resume release-year enrichment at startup, revisit newly imported scrobbles on a schedule even if the page is closed, and keep failed MusicBrainz requests pending until retry.
+- Show song and album completion persistently, with failed lookup counts and retry times.
+- Replace cold-cache "try again" errors with loading states that automatically turn into results; reduce first-page blocking to one second.
+- Throttle unnecessary release-year cache recalculation during active matching.
+- Accelerate normal album lists and album details by scoring only requested albums and avoiding global estimated rankings in song/album detail.
+
 ## 0.2.23
 - Redesign album detail around a full-width square album cover, edge-to-edge on phones.
 - Put the album artist and title below the cover on the left, with the existing Spotify, record store, and shelf actions stacked on the right.

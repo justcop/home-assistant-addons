@@ -178,8 +178,8 @@ def rankings(
                 *params,
                 search,
                 search,
-                -1 if kind == "album" and include_estimate else limit,
-                0 if kind == "album" and include_estimate else offset,
+                -1 if kind == "album" and include_estimate and sort == "estimated" else limit,
+                0 if kind == "album" and include_estimate and sort == "estimated" else offset,
             ],
         )
     ]
@@ -220,12 +220,24 @@ def album_listen_scores(conn, p, rows, raw, extra="", params=(), breakdown=False
     counts = {}
     identifier = "av.id" if raw else "av.group_id"
     if expected:
+        # Restrict per-album detail and ordinary paginated rankings to the
+        # relevant album IDs. Only whole-library estimated sorting requires
+        # scoring all albums.
+        ids = [int(r["id"]) for r in rows if str(r["id"]) in expected]
+        album_filter, album_params = "", []
+        if ids and len(ids) <= 100:
+            placeholders = ",".join("?" for _ in ids)
+            album_filter = (
+                f" AND s.album_id IN ({placeholders})" if raw else
+                f" AND s.album_id IN (SELECT id FROM resolved_variants WHERE group_id IN ({placeholders}))"
+            )
+            album_params = ids
         for album_id, title, grouped_title, plays in conn.execute(
             f"""SELECT {identifier},s.title,sg.name,COUNT(*) {JOINS}
                 WHERE s.active=1 AND s.album_id IS NOT NULL
-                      AND s.ts>=? AND s.ts<? {extra}
+                      AND s.ts>=? AND s.ts<? {extra} {album_filter}
                 GROUP BY {identifier},s.title,sg.name""",
-            [p["start"], p["end"], *params],
+            [p["start"], p["end"], *params, *album_params],
         ):
             if str(album_id) in expected:
                 counter = counts.setdefault(str(album_id), Counter())
@@ -364,7 +376,7 @@ def overview(database, args, tz_name, now=None):
                 r for r in rankings(conn, p, "album", raw, limit=12, extra=extra,
                                     params=params, sort="estimated")
                 if r["estimated_listens"] is not None
-            ][:5],
+            ][:5] if args.get("entity") not in ("album", "song") else [],
             "album_estimate": (
                 rankings(conn, p, "album", raw, limit=1, extra=extra, params=params,
                          include_breakdown=True)[0]
