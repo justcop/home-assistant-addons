@@ -58,6 +58,43 @@ async function assertLogoPixelsInCrop(page, label) {
     path: path.join(output, "overview-light.png"),
     fullPage: true,
   });
+  // Rolling 365-day musical eras live in Trends, not an extra navigation tab.
+  // A date change requests a different historical snapshot without changing
+  // the main listening period; neglected favourites remain clickable.
+  const eraRequests = [];
+  await page.route("**/api/musical-eras?*", async route => {
+    const url = new URL(route.request().url());
+    eraRequests.push(url.searchParams.get("as_of") || "today");
+    const asOf = url.searchParams.get("as_of") || "2026-10-13";
+    await route.fulfill({status:200, contentType:"application/json", body:JSON.stringify({
+      as_of:asOf, first_complete:"2024-01-01", complete_history:true,
+      sufficient:true, window_days:365, current_total:950,
+      artist:null,
+      artists:[
+        {id:"the beatles",name:"The Beatles",current_plays:320,current_share:33.68,peak_share:45.2,peak_date:"2025-01-31"},
+        {id:"radiohead",name:"Radiohead",current_plays:280,current_share:29.47,peak_share:35,peak_date:"2026-01-31"}
+      ],
+      suggested:["the beatles"],
+      neglected:[{id:"the beatles",name:"The Beatles",favourite_years:3,
+        baseline_share:35,current_share:4.2,last_played:"2026-02-01"}],
+      points:[{date:"2025-12-31",plays:900,shares:{"the beatles":35,radiohead:20}},
+              {date:asOf,plays:950,shares:{"the beatles":33.68,radiohead:29.47}}]
+    })});
+  });
+  await page.locator('#nav [data-view="trends"]').click();
+  await page.locator('#era-date').waitFor();
+  assert.equal(await page.locator('.era-chart-scroll svg').count(),1);
+  assert.match(await page.locator('.musical-eras').innerText(), /Neglected favourites/);
+  await page.locator('[data-era-toggle="radiohead"]').click();
+  assert.equal(await page.locator('[data-era-toggle="radiohead"]').getAttribute('aria-pressed'),'true');
+  assert.match(await page.locator('.era-legend').innerText(), /Radiohead/);
+  await page.locator('#era-date').fill('2026-04-15');
+  await page.waitForFunction(()=>document.querySelector('#era-date')?.value==='2026-04-15');
+  await page.waitForFunction(()=>document.querySelector('.musical-eras .era-chart-scroll svg')!==null);
+  assert.ok(eraRequests.includes('2026-04-15'), 'Historic day must be requested from the server');
+  await page.locator('#nav [data-view="overview"]').click();
+  await page.locator('#content .metrics').waitFor();
+  await page.unroute("**/api/musical-eras?*");
   // Seven navigation tabs stay on one bottom row on narrow phones, and
   // the year grid scales to the actual available width without sideways scroll.
   await page.route("**/api/release-years?*", async route => {
