@@ -39,6 +39,8 @@ const state = {
   releaseYear: /^\d{4}$/.test(initial.get("release_year") || "") ? Number(initial.get("release_year")) : null,
   groupKind: "song",
   groupTab: "suggested",
+  eraAsOf: initial.get("as_of") || "",
+  eraSelected: [],
   selected: new Map(),
 };
 let statusData,
@@ -172,7 +174,7 @@ function report(error) {
   $("#error").hidden = false;
 }
 function navigationState() {
-  const keys = ["view", "period", "source", "mode", "start", "end", "demo", "q", "offset", "filter", "albumSort", "releaseYear", "groupKind", "groupTab"];
+  const keys = ["view", "period", "source", "mode", "start", "end", "demo", "q", "offset", "filter", "albumSort", "releaseYear", "groupKind", "groupTab", "eraAsOf"];
   return Object.fromEntries(keys.map(key => [key, state[key]]));
 }
 function detailUrl(detail) {
@@ -188,7 +190,7 @@ function detailUrl(detail) {
 function urlState(historyMode = "push") {
   if (historyMode === "none") return;
   const nav = navigationState();
-  const q = query({ view: state.view, q:state.q, offset:state.offset || null, album_sort:state.albumSort === "estimated" ? "estimated" : null, release_year:state.view === "release-years" ? state.releaseYear : null, name:state.filter?.name });
+  const q = query({ view: state.view, q:state.q, offset:state.offset || null, album_sort:state.albumSort === "estimated" ? "estimated" : null, release_year:state.view === "release-years" ? state.releaseYear : null, as_of:state.view === "trends" ? state.eraAsOf : null, name:state.filter?.name });
   const url = `${location.pathname}?${q}`;
   const current = history.state;
   if (!current?.listening || historyMode === "replace") {
@@ -406,8 +408,132 @@ function heatmap(data) {
 function overviewHTML(data) {
   return `${metrics(data)}<div class="grid-two"><section class="panel">${panelHead("Listening activity", `${data.period.start_label} to ${data.period.end_label}`, '<span class="pill">Scrobbles</span>')}${chart(data)}</section>${discovery(data)}</div>${insightsStrip(data)}<div class="grid-equal">${topList("Top artists", "artist", data.top_artists, "artists")}${topList("Top albums by scrobbles", "album", data.top_albums, "albums")}${topList("Top songs", "song", data.top_songs, "songs")}</div><div class="grid-two" style="margin-top:18px">${topList("Top albums by estimated listens", "album", data.top_albums_estimated || [], "albums", "estimated")}<section class="panel"><h2>Estimated album listens</h2><p class="method-note">The third least played track from an identified complete tracklist, including tracks with zero plays. Albums must contain at least six tracks. This avoids favouring longer albums. Figures appear as tracklists are identified in the background.</p><button class="button quiet" data-view="albums">Browse album rankings →</button></section></div>`;
 }
+
+/* Rolling-year views are loaded independently of the main overview cache. */
+let eraData = null;
+let eraController = null;
+
+function eraChart(data, selected) {
+  const artists = data.artists.filter(a => selected.includes(a.id));
+  const points = data.points;
+  if (!artists.length || points.length < 2)
+    return '<p class="method-note">Not enough complete listening history for a comparison yet.</p>';
+  const width = 660, height = 240, left = 43, right = 16, top = 12, bottom = 37;
+  const maxShare = Math.max(1, ...points.flatMap(p => artists.map(a => p.shares[a.id] || 0)));
+  const maximum = Math.ceil(maxShare / 5) * 5;
+  const x = index => left + index * (width - left - right) / Math.max(1, points.length - 1);
+  const y = share => top + (1 - share / maximum) * (height - top - bottom);
+  const colours = ['#6172d7','#d5825b','#289782','#ab77b7','#b49a3b'];
+  const grid = [0, .5, 1].map(f =>
+    '<line x1="' + left + '" x2="' + (width-right) + '" y1="' + y(maximum*f) + '" y2="' +
+    y(maximum*f) + '" stroke="currentColor" opacity=".15"/><text x="' + (left-7) +
+    '" y="' + (y(maximum*f)+4) + '" text-anchor="end" fill="currentColor" font-size="11">' +
+    (maximum*f).toFixed(f===0?0:1) + '%</text>').join('');
+  const labels = points.map((p,index) => ({p,index})).filter((v,i,all) =>
+    i === 0 || i === all.length-1 || (v.p.date.slice(5,7) === '12' && Number(v.p.date.slice(0,4))%2 === 0))
+    .map(({p,index}) => '<text x="' + x(index) + '" y="' + (height-8) +
+      '" text-anchor="middle" fill="currentColor" font-size="11">' + esc(p.date.slice(0,4)) + '</text>').join('');
+  const lines = artists.map((a,index) => {
+    const colour = colours[index%colours.length];
+    const paths = [];
+    let part = [];
+    for (let j=0;j<points.length;j++) {
+      const share = points[j].shares[a.id];
+      if (share == null) {
+        if (part.length) paths.push(part.join(' '));
+        part = [];
+      } else {
+        part.push(x(j).toFixed(1) + ',' + y(share).toFixed(1));
+      }
+    }
+    if (part.length) paths.push(part.join(' '));
+    return paths.map(path => '<polyline points="' + path + '" fill="none" stroke="' + colour +
+      '" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>').join('');
+  }).join('');
+  const legend = artists.map((a,index) => '<span><i style="background:' + colours[index%colours.length] +
+    '"></i>' + esc(a.name) + ' · ' + a.current_share + '% at selected date</span>').join('');
+  return '<div class="era-chart-scroll"><svg viewBox="0 0 ' + width + ' ' + height +
+    '" role="img" aria-label="365-day rolling artist listening share chart for ' +
+    esc(artists.map(a=>a.name).join(', ')) + '">' + grid + lines + labels +
+    '</svg></div><div class="era-legend">' + legend + '</div>';
+}
+function renderMusicalEras(data) {
+  const slot = $('#musical-eras');
+  if (!slot) return;
+  const options = data.artists.slice(0, 20);
+  const eligible = new Set(options.map(a=>a.id));
+  state.eraSelected = state.eraSelected.filter(id=>eligible.has(id));
+  if (!state.eraSelected.length)
+    state.eraSelected = (data.suggested || []).filter(id=>eligible.has(id)).slice(0,3);
+  const note = !data.complete_history
+    ? 'History import is still running; these comparisons may change.'
+    : !data.sufficient
+      ? 'Fewer than 300 plays in the selected 365-day window; rankings are withheld to avoid misleading shares.'
+      : 'Each point is the preceding 365 local calendar days. Monthly points are drawn here; peak shares are calculated from every day.';
+  const buttons = options.map(a=>'<button type="button" class="era-choice" data-era-toggle="' +
+    esc(a.id) + '" aria-pressed="' + state.eraSelected.includes(a.id) + '">' +
+    esc(a.name) + '</button>').join('');
+  const neglected = data.neglected.length
+    ? data.neglected.map(a=>'<div class="era-neglected-row"><button type="button" class="era-artist-link" data-detail="artist" data-id="' +
+        esc(a.id) + '">' + esc(a.name) + '</button><span>' + a.favourite_years +
+        ' historical top-20 years · ' + a.baseline_share + '% then → ' + a.current_share +
+        '% now · last played ' + esc(a.last_played) + '</span></div>').join('')
+    : '<p class="method-note">No sustained former favourites currently meet the neglect criteria.</p>';
+  const timeline = data.points.length > 1
+    ? '<div class="era-choices" role="group" aria-label="Compare up to five artists">' +
+       buttons + '</div>' + eraChart(data, state.eraSelected)
+    : '<p class="method-note">A full year of listening history is required before this chart can start.</p>';
+  const dateControl = '<label class="era-date-label">As at <input id="era-date" type="date" value="' +
+    esc(data.as_of) + '" min="' + esc(data.first_complete || data.as_of) + '"></label>';
+  slot.innerHTML = '<div id="era-cache-status" hidden></div><section class="panel era-panel">' +
+    '<div class="panel-head"><div><h2>Musical eras</h2><p>How have your favourites changed?</p></div>' +
+    dateControl + '</div><p class="method-note">' + esc(note) + '</p>' + timeline +
+    '</section><section class="panel era-panel"><h2>Neglected favourites</h2>' +
+    '<p class="method-note">Once among your top 20 in two full years, now below 25% of their historical share and unplayed for at least 60 days. Minimum 120 historical plays.</p>' +
+    (data.complete_history && data.sufficient ? neglected :
+      '<p class="method-note">This ranking needs a completed history import and at least 300 plays in the selected year.</p>') +
+    '</section>';
+}
+function artistEraHTML(data) {
+  const artist = data && data.artists && data.artists[0];
+  if (!artist || !data.points.length)
+    return '<section class="panel"><h2>Musical eras</h2><p class="method-note">A complete 365-day period is needed for a rolling timeline.</p></section>';
+  return '<section class="panel era-panel"><h2>Musical eras</h2>' +
+    '<p class="method-note">Rolling share of your listening, with monthly points and daily peak detection.</p>' +
+    '<div class="era-stats"><span><strong>' + artist.peak_share + '%</strong><small>Peak' +
+    (artist.peak_date ? ' · ' + esc(artist.peak_date) : '') + '</small></span>' +
+    '<span><strong>' + artist.current_share + '%</strong><small>Past 365 days · ' +
+    number(artist.current_plays) + ' plays</small></span></div>' +
+    eraChart(data,[artist.id]) + '</section>';
+}
+async function loadMusicalEras(serial) {
+  if (serial !== loadSerial || state.view !== 'trends') return;
+  const extra = {as_of:state.eraAsOf || null};
+  eraController?.abort();
+  eraController = new AbortController();
+  const signal = eraController.signal;
+  const slot = $('#musical-eras');
+  if (slot) slot.innerHTML = '<section class="panel"><h2>Musical eras</h2><p class="method-note">Calculating rolling 365-day listening shares…</p></section>';
+  try {
+    const data = await api('musical-eras',extra,{signal});
+    if (signal.aborted || serial !== loadSerial || state.view !== 'trends' || state.eraAsOf !== (extra.as_of || '')) return;
+    eraData = data;
+    renderMusicalEras(data);
+    watchCachedView('eras','musical-eras',extra,data,next=>{
+      if (signal.aborted || serial !== loadSerial || state.view !== 'trends') return;
+      eraData = next;
+      renderMusicalEras(next);
+    },()=>!signal.aborted && serial===loadSerial && state.view==='trends' &&
+      state.eraAsOf === (extra.as_of || ''),'#era-cache-status');
+  } catch (error) {
+    if (error.name !== 'AbortError' && serial === loadSerial && state.view === 'trends')
+      $('#musical-eras').innerHTML = '<section class="panel"><h2>Musical eras</h2><p class="method-note">' +
+        esc(error.message) + '</p></section>';
+  }
+}
+
 function trendsHTML(data) {
-  return `${metrics(data)}<section class="panel" style="margin-bottom:22px">${panelHead("Your listening over time", "Select any bar to explore the plays behind it.")}${chart(data)}</section><div class="grid-two">${heatmap(data)}<section class="panel">${panelHead("Artist concentration", "Share of plays from your five most played artists")}<div class="insight-number">${data.top_five_share}%</div><p class="method-note">${number(data.current.artists)} artists in this period. A higher share means more listening centred on your favourites.</p><div class="split-bar"><span style="width:${data.top_five_share}%"></span></div><div class="legend"><span>Top five</span><span>Other artists</span></div></section></div><div class="grid-two">${discovery(data)}<section class="panel">${panelHead("Rediscoveries", "At least 90 days since the previous recorded play")}${data.returning.map((r) => `<button class="list-row" ${detailAttrs("artist", r)}><span class="list-name"><strong>${esc(r.name)}</strong><small>${number(Math.floor(r.gap_days))} days between plays</small></span><span class="list-count">${number(r.plays)}</span></button>`).join("") || '<p class="method-note">No rediscoveries in this period.</p>'}</section></div>`;
+  return `${metrics(data)}<section class="panel" style="margin-bottom:22px">${panelHead("Your listening over time", "Select any bar to explore the plays behind it.")}${chart(data)}</section><div class="grid-two">${heatmap(data)}<section class="panel">${panelHead("Artist concentration", "Share of plays from your five most played artists")}<div class="insight-number">${data.top_five_share}%</div><p class="method-note">${number(data.current.artists)} artists in this period. A higher share means more listening centred on your favourites.</p><div class="split-bar"><span style="width:${data.top_five_share}%"></span></div><div class="legend"><span>Top five</span><span>Other artists</span></div></section></div><div class="grid-two">${discovery(data)}<section class="panel">${panelHead("Rediscoveries", "At least 90 days since the previous recorded play")}${data.returning.map((r) => `<button class="list-row" ${detailAttrs("artist", r)}><span class="list-name"><strong>${esc(r.name)}</strong><small>${number(Math.floor(r.gap_days))} days between plays</small></span><span class="list-count">${number(r.plays)}</span></button>`).join("") || '<p class="method-note">No rediscoveries in this period.</p>'}</section></div><div id="musical-eras" class="musical-eras"><section class="panel"><h2>Musical eras</h2><p class="method-note">Preparing rolling 365-day listening shares…</p></section></div>`;
 }
 function pager(total) {
   return `<div class="pager"><span>${total ? `${number(state.offset + 1)}–${number(Math.min(state.offset + 50, total))} of ${number(total)}` : "No results"}</span><div><button class="button" data-page="prev" ${state.offset === 0 ? "disabled" : ""}>Previous</button><button class="button" data-page="next" ${state.offset + 50 >= total ? "disabled" : ""}>Next</button></div></div>`;
@@ -615,6 +741,9 @@ function watchCachedView(slot, path, extra, data, render, valid, target) {
 async function load({historyMode = "push"} = {}) {
   const serial = ++loadSerial;
   clearTimeout(cacheTimers.main);
+  clearTimeout(cacheTimers.eras);
+  eraController?.abort();
+  eraData = null;
   $("#cache-status").hidden = true;
   requestController?.abort();
   requestController = new AbortController();
@@ -657,7 +786,10 @@ async function load({historyMode = "push"} = {}) {
     if (["overview", "trends"].includes(state.view)) {
       const data = await api("overview", {}, { signal });
       const view = state.view;
-      const render = next => replaceCachedView("#content", view === "overview" ? overviewHTML(next) : trendsHTML(next));
+      const render = next => {
+        replaceCachedView("#content", view === "overview" ? overviewHTML(next) : trendsHTML(next));
+        if (view === "trends") loadMusicalEras(serial);
+      };
       cachedView = { path: "overview", extra: {}, data, render };
       html = view === "overview" ? overviewHTML(data) : trendsHTML(data);
     } else if (state.view === "release-years") {
@@ -684,6 +816,7 @@ async function load({historyMode = "push"} = {}) {
     }
     if (serial === loadSerial) {
       $("#content").innerHTML = html;
+      if (state.view === "trends") loadMusicalEras(serial);
       if (cachedView) watchCachedView("main", cachedView.path, cachedView.extra, cachedView.data, cachedView.render, () => serial === loadSerial, "#cache-status");
     }
   } catch (error) {
@@ -889,6 +1022,7 @@ async function showDetail(kind, id, groupMode = false, restoring = false) {
       slot.innerHTML = '<div class="loading">Preparing listening statistics… This will appear automatically when ready.</div>';
   }}).then(data => ({data}), error => ({error}));
   try {
+    const artistEraTask = kind === "artist" ? api("musical-eras",{artist:id},{signal}).then(data=>({data}),error=>({error})) : null;
     const detail = await api("detail", extra, {signal});
     if (serial !== detailSerial || !dialog.open) return;
     $("#detail-content").innerHTML = `<div id="detail-hero">${detailHeaderHTML(detail, kind)}</div><div id="detail-analytics"><div class="loading">Loading listening analysis…</div></div>`;
@@ -924,11 +1058,18 @@ async function showDetail(kind, id, groupMode = false, restoring = false) {
     if (serial !== detailSerial || !dialog.open) return;
     if (result.error) throw result.error;
     const data = result.data;
+    let artistEraData = null;
     const renderDetail = next => {
       replaceCachedView("#detail-analytics",
-        `${metrics(next, mode, {kind,id,name:detail.name}, allTime)}<section class="panel">${panelHead("Listening history", "Select a bar to inspect individual scrobbles.")}${chart(next, {kind,id,name:detail.name}, mode)}</section>${kind === "album" ? albumEstimateHTML(next.album_estimate) : ""}${kind === "artist" ? artistAlbumsHTML(next, id, detail.name) : ""}${detail.versions.length ? `<div class="panel-head" style="margin-top:23px"><div><h2>Versions</h2><p>All-time plays for the selected source, including versions outside the selected period.</p></div></div><div class="table-wrap"><table><thead><tr><th>Scrobbled name</th><th class="num">Plays</th><th>First / latest play</th><th></th></tr></thead><tbody>${detail.versions.map(v => `<tr><td class="name-cell"><strong>${esc(v.name)}</strong><small>${v.manual ? "Manual decision" : "Automatic grouping"}</small></td><td class="num">${number(v.plays)}</td><td><small>${formatDate(v.first_play)}<br>${formatDate(v.last_play)}</small></td><td>${detail.versions.length > 1 ? `<button class="button" data-separate="${v.id}" data-name="${esc(v.name)}">Separate</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : ""}<div class="dialog-actions" style="margin-top:18px"><button class="button primary" data-show-history="${kind}" data-id="${esc(id)}" data-name="${esc(detail.name)}" data-mode="${mode}" data-all="${allTime}">View scrobbles →</button></div>`);
+        `${metrics(next, mode, {kind,id,name:detail.name}, allTime)}<section class="panel">${panelHead("Listening history", "Select a bar to inspect individual scrobbles.")}${chart(next, {kind,id,name:detail.name}, mode)}</section>${kind === "album" ? albumEstimateHTML(next.album_estimate) : ""}${kind === "artist" ? artistAlbumsHTML(next, id, detail.name) + `<div id="artist-era-section">${artistEraData ? artistEraHTML(artistEraData) : '<p class="method-note">Loading musical eras…</p>'}</div>` : ""}${detail.versions.length ? `<div class="panel-head" style="margin-top:23px"><div><h2>Versions</h2><p>All-time plays for the selected source, including versions outside the selected period.</p></div></div><div class="table-wrap"><table><thead><tr><th>Scrobbled name</th><th class="num">Plays</th><th>First / latest play</th><th></th></tr></thead><tbody>${detail.versions.map(v => `<tr><td class="name-cell"><strong>${esc(v.name)}</strong><small>${v.manual ? "Manual decision" : "Automatic grouping"}</small></td><td class="num">${number(v.plays)}</td><td><small>${formatDate(v.first_play)}<br>${formatDate(v.last_play)}</small></td><td>${detail.versions.length > 1 ? `<button class="button" data-separate="${v.id}" data-name="${esc(v.name)}">Separate</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : ""}<div class="dialog-actions" style="margin-top:18px"><button class="button primary" data-show-history="${kind}" data-id="${esc(id)}" data-name="${esc(detail.name)}" data-mode="${mode}" data-all="${allTime}">View scrobbles →</button></div>`);
     };
     renderDetail(data);
+    if (artistEraTask) artistEraTask.then(result=>{
+      if (serial !== detailSerial || !dialog.open) return;
+      artistEraData = result.data || null;
+      const target = $("#artist-era-section");
+      if (target) target.innerHTML = result.error ? `<p class="method-note">${esc(result.error.message)}</p>` : artistEraHTML(artistEraData);
+    });
     watchCachedView("detail", "overview", extra, data, renderDetail, () => serial === detailSerial && dialog.open, "#detail-cache-status");
   } catch (error) {
     if (serial === detailSerial && dialog.open) {
@@ -985,6 +1126,14 @@ async function groupAction(action, ids = [], key = null, name = undefined) {
 document.addEventListener("click", (event) => {
   const b = event.target.closest("button");
   if (!b || b.disabled) return;
+  if (b.dataset.eraToggle) {
+    const key = b.dataset.eraToggle;
+    if (state.eraSelected.includes(key)) state.eraSelected = state.eraSelected.filter(id=>id!==key);
+    else if (state.eraSelected.length < 5) state.eraSelected.push(key);
+    else {toast("Compare up to five artists at a time.");return;}
+    if (eraData) renderMusicalEras(eraData);
+    return;
+  }
   if (b.dataset.navDetail && b.dataset.navId) {
     showDetail(b.dataset.navDetail, b.dataset.navId, b.dataset.navGroup === "true");
     return;
@@ -1170,6 +1319,13 @@ document.addEventListener("click", (event) => {
   }
 });
 document.addEventListener("change", (event) => {
+  if (event.target.id === "era-date") {
+    state.eraAsOf = event.target.value;
+    state.eraSelected = [];
+    urlState("replace");
+    loadMusicalEras(loadSerial);
+    return;
+  }
   if (event.target.classList.contains("candidate-name-choice")) {
     const select = event.target;
     const input = select.closest(".review-card").querySelector(".candidate-name");

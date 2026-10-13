@@ -1814,3 +1814,25 @@ dialog { overscroll-behavior: contain; }
 .detail-nav-hit:disabled { cursor:default; }
 .detail-nav-hit:not(:disabled):focus-visible { outline:2px solid var(--accent); outline-offset:4px; border-radius:6px; }
 .detail-nav-hit .detail-artwork, .detail-nav-hit .artist-logo-stage { pointer-events:none; }
+
+/* Musical eras: focused Trends and artist detail sections */
+.musical-eras { margin-top:22px; display:grid; gap:16px; }
+.era-panel { min-width:0; }
+.era-date-label { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted); }
+.era-date-label input { max-width:155px; padding:5px; border-radius:7px; border:1px solid var(--line); color:var(--ink); background:var(--surface); }
+.era-choices { display:flex; flex-wrap:wrap; gap:7px; margin:12px 0; }
+.era-choice { border:1px solid var(--line); background:var(--surface2); color:var(--ink); border-radius:99px; padding:5px 10px; font-size:12px; }
+.era-choice[aria-pressed="true"] { background:var(--accent-light); border-color:var(--accent); }
+.era-chart-scroll { width:100%; overflow-x:auto; }
+.era-chart-scroll svg { display:block; width:100%; min-width:440px; height:auto; color:var(--muted); }
+.era-legend { display:flex; flex-wrap:wrap; gap:8px 16px; margin-top:6px; font-size:12px; color:var(--muted); }
+.era-legend span { display:flex; align-items:center; gap:6px; }
+.era-legend i { display:inline-block; width:14px; height:4px; border-radius:2px; }
+.era-neglected-row { padding:10px 0; border-bottom:1px solid var(--line); display:grid; gap:4px; }
+.era-neglected-row:last-child { border-bottom:0; }
+.era-artist-link { border:0; background:none; text-align:left; width:fit-content; padding:0; color:var(--accent); font-weight:650; }
+.era-neglected-row span { font-size:12px; color:var(--muted); }
+.era-stats { display:flex; flex-wrap:wrap; gap:22px; padding:12px 0; }
+.era-stats span { display:grid; gap:2px; }
+.era-stats strong { font-size:20px; }
+@media(max-width:600px) {.era-panel .panel-head { display:grid; gap:8px; }}

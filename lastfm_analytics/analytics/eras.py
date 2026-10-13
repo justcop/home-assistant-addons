@@ -137,7 +137,7 @@ def analyse(db, args, timezone, now=None):
                 *(row["id"] for row in neglected[:8])]:
         if key in lifetime and key not in selected:
             selected.append(key)
-    selected = [artist_id] if artist_id is not None and artist_id in lifetime else selected[:32]
+    selected = ([artist_id] if artist_id in lifetime else []) if artist_id is not None else selected[:32]
     artists = []
     for key in selected:
         peak_share, peak_date = peaks.get(key, (0, None))
