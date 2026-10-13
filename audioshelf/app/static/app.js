@@ -130,6 +130,48 @@ async function preloadShelfArtwork(){
 }
 
 function coverUrl(albumId,size){return `api/albums/${id(albumId)}/artwork?size=${size}&v=${artworkRevision}&account=${id(statusInfo.account?.id||'owner')}`;}
+
+function albumArtwork(album){
+  const title=escapeHtml(album.title);
+  return `<button type="button" class="album-flip" data-action="flip-artwork" data-album="${id(album.id)}" data-side="front" aria-pressed="false" aria-label="Show back cover of ${title}" title="Tap to turn over this sleeve"><span class="album-flip-inner"><span class="album-flip-face album-flip-front"><img class="cover" src="${coverUrl(album.id,640)}" alt="${title} front cover" fetchpriority="high"></span><span class="album-flip-face album-flip-back"><img class="cover" alt="${title} back cover"></span></span><span class="album-flip-hint" aria-hidden="true">Turn over ↻</span></button>`;
+}
+function loadAlbumBackCover(button){
+  if(button.dataset.side==='back'){
+    button.classList.remove('is-flipped');
+    button.dataset.side='front';
+    button.setAttribute('aria-pressed','false');
+    button.setAttribute('aria-label','Show back cover of '+currentAlbum.title);
+    button.querySelector('.album-flip-hint').textContent='Turn over ↻';
+    return Promise.resolve();
+  }
+  const flip=()=>{
+    if(!button.isConnected||currentAlbum?.id!==button.dataset.album)return;
+    button.classList.add('is-flipped');
+    button.dataset.side='back';
+    button.setAttribute('aria-pressed','true');
+    button.setAttribute('aria-label','Show front cover of '+currentAlbum.title);
+    button.querySelector('.album-flip-hint').textContent='Front cover ↻';
+  };
+  if(button.dataset.loaded==='true'){flip();return Promise.resolve();}
+  button.querySelector('.album-flip-hint').textContent='Finding back cover…';
+  const image=button.querySelector('.album-flip-back img');
+  return new Promise(resolve=>{
+    image.onload=()=>{
+      button.dataset.loaded='true';
+      flip();
+      resolve();
+    };
+    image.onerror=()=>{
+      if(button.isConnected){
+        button.querySelector('.album-flip-hint').textContent='Turn over ↻';
+        toast('No back cover available for this edition, or it could not be loaded.');
+      }
+      image.removeAttribute('src');
+      resolve();
+    };
+    image.src=`api/albums/${id(button.dataset.album)}/artwork/back?size=640&v=${artworkRevision}&account=${id(statusInfo.account?.id||'owner')}`;
+  });
+}
 function cover(album,large=false){return `<a class="cover-wrap" href="#album/${id(album.id)}" aria-label="Open ${escapeHtml(album.title)}"><img class="cover" src="${coverUrl(album.id,large?640:320)}" srcset="${[128,320,640].map(size=>`${coverUrl(album.id,size)} ${size}w`).join(', ')}" sizes="${large?'(max-width: 700px) 85vw, 480px':'(max-width: 700px) 44vw, 260px'}" decoding="async" alt="${escapeHtml(album.title)} album cover" ${large?'fetchpriority="high"':'loading="lazy"'}></a>`;}
 
 function cards(albums){if(isVinyl())return vinylCards(albums);return `<div class="album-grid">${albums.map(a=>`<article class="album-card">${cover(a)}${a.on_shelf?'<span class="badge">On your shelf</span>':''}<a class="album-title" href="#album/${id(a.id)}">${escapeHtml(a.title)}</a><div class="album-meta">${artistNames(a)}<br>${year(a)}</div>${a.on_shelf?'':`<button class="card-action" data-action="add" data-id="${escapeHtml(a.id)}">+ Add to shelf</button>`}</article>`).join('')}</div>`;}
@@ -158,7 +200,7 @@ function trackRows(album){
 function albumPage(album){
   currentAlbum=album;
   if(isVinyl())return vinylAlbum(album);
-  return `<a class="back" href="#artist/${id(album.artists[0]?.id || '')}">← ${artistNames(album)}</a><div class="album-hero">${cover(album,true)}<div><div class="eyebrow">${year(album)} · Studio album</div><h1>${escapeHtml(album.title)}</h1><p class="muted">${artistNames(album)} · ${album.tracks.length} tracks</p><div class="actions">${album.on_shelf?`<button class="primary" data-action="play">▶ Play album</button>`:`<button class="primary" data-action="add" data-id="${escapeHtml(album.id)}">+ Add to shelf</button>`}<button class="secondary" data-action="resolve">${album.playable?'Find another edition':'Match Spotify tracks'}</button>${album.on_shelf&&!album.playable?'<button class="secondary" data-action="find-playable-edition">Find playable edition</button>':''}</div><button class="quiet" data-action="playback-devices">Change device</button><button class="quiet" data-action="album-settings">Album settings ↗</button></div></div>${!album.playable?'<div class="note">This album is not fully matched to Spotify. You can try matching its current tracks or choose Find playable edition to select a complete, verified tracklist. Your existing edition is kept until you confirm a replacement.</div>':`<div class="note">Ready to play ${album.tracks.length} mapped tracks, without the extras.${album.spotify_album_name?` Playback edition: ${escapeHtml(album.spotify_album_name)}.`:''} AudioShelf starts your synced tracklist on an available Spotify device.</div>`}${/\bCassette\b/i.test(album.release_label||'')&&!album.release_filters?.formats.includes('cassette')?'<div class="note">This saved tracklist uses a cassette edition outside your current preferences. Album settings lets you choose a vinyl, CD or digital edition. Your current Spotify matches are kept until you replace the tracklist.</div>':''}${!album.canonical_reviewed?`<div class="note">Original tracklist selected from MusicBrainz: ${escapeHtml(album.release_label)}. If this includes bonus tracks or misses a track, choose another original edition in Album settings. <button class="quiet" data-action="review">This tracklist is correct ✓</button></div>`:''}${trackRows(album)}<p class="footer-note">Catalogue and artwork: <a href="https://musicbrainz.org/release-group/${id(album.id)}" target="_blank" rel="noopener">MusicBrainz / Cover Art Archive ↗</a>${album.spotify_album_id?` · Playback: <a href="https://open.spotify.com/album/${id(album.spotify_album_id)}" target="_blank" rel="noopener">Spotify ↗</a>`:''}</p>`;
+  return `<a class="back" href="#artist/${id(album.artists[0]?.id || '')}">← ${artistNames(album)}</a><div class="album-hero">${albumArtwork(album)}<div><div class="eyebrow">${year(album)} · Studio album</div><h1>${escapeHtml(album.title)}</h1><p class="muted">${artistNames(album)} · ${album.tracks.length} tracks</p><div class="actions">${album.on_shelf?`<button class="primary" data-action="play">▶ Play album</button>`:`<button class="primary" data-action="add" data-id="${escapeHtml(album.id)}">+ Add to shelf</button>`}<button class="secondary" data-action="resolve">${album.playable?'Find another edition':'Match Spotify tracks'}</button>${album.on_shelf&&!album.playable?'<button class="secondary" data-action="find-playable-edition">Find playable edition</button>':''}</div><button class="quiet" data-action="playback-devices">Change device</button><button class="quiet" data-action="album-settings">Album settings ↗</button></div></div>${!album.playable?'<div class="note">This album is not fully matched to Spotify. You can try matching its current tracks or choose Find playable edition to select a complete, verified tracklist. Your existing edition is kept until you confirm a replacement.</div>':`<div class="note">Ready to play ${album.tracks.length} mapped tracks, without the extras.${album.spotify_album_name?` Playback edition: ${escapeHtml(album.spotify_album_name)}.`:''} AudioShelf starts your synced tracklist on an available Spotify device.</div>`}${/\bCassette\b/i.test(album.release_label||'')&&!album.release_filters?.formats.includes('cassette')?'<div class="note">This saved tracklist uses a cassette edition outside your current preferences. Album settings lets you choose a vinyl, CD or digital edition. Your current Spotify matches are kept until you replace the tracklist.</div>':''}${!album.canonical_reviewed?`<div class="note">Original tracklist selected from MusicBrainz: ${escapeHtml(album.release_label)}. If this includes bonus tracks or misses a track, choose another original edition in Album settings. <button class="quiet" data-action="review">This tracklist is correct ✓</button></div>`:''}${trackRows(album)}<p class="footer-note">Catalogue and artwork: <a href="https://musicbrainz.org/release-group/${id(album.id)}" target="_blank" rel="noopener">MusicBrainz / Cover Art Archive ↗</a>${album.spotify_album_id?` · Playback: <a href="https://open.spotify.com/album/${id(album.spotify_album_id)}" target="_blank" rel="noopener">Spotify ↗</a>`:''}</p>`;
 }
 const themeIds=['record-store','midnight','paper','forest','ocean','sunset','plum','monochrome','amber','high-contrast'];
 function applyTheme(value){
@@ -422,7 +464,7 @@ async function route(){
 }
 function applyPermissions(root){
   if(statusInfo.role!=='view')return;
-  const allowed=new Set(['retry','refresh-status','search-kind','shelf-view','shelf-expand-all','shelf-artist','load-releases','logout','artwork-cache-refresh','artwork-cache-preload','artwork-cache-clear']);
+  const allowed=new Set(['flip-artwork','retry','refresh-status','search-kind','shelf-view','shelf-expand-all','shelf-artist','load-releases','logout','artwork-cache-refresh','artwork-cache-preload','artwork-cache-clear']);
   root.querySelectorAll('button[data-action]').forEach(button=>{if(!allowed.has(button.dataset.action))button.disabled=true;});
   root.querySelectorAll('form').forEach(form=>{if(form.id!=='search-form')form.querySelectorAll('input,select,button').forEach(control=>control.disabled=true);});
 }
@@ -764,6 +806,7 @@ document.addEventListener('click',async event=>{
   try {
     if(action==='retry'||action==='refresh-status')await route();
     if(action==='interface'){const result=await api('settings','PUT',{interface:button.dataset.id});statusInfo.interface=result.interface;applyInterface(result.interface);await route();toast(`${result.interface==='vinyl'?'Vinyl':'Classic'} interface saved.`);}
+    if(action==='flip-artwork')await loadAlbumBackCover(button);
     if(action==='shelf-expand-all')toggleAllShelves();
     if(action==='shelf-style'){const result=await api('settings','PUT',{shelf_style:button.dataset.id});statusInfo.shelf_style=result.shelf_style;applyInterface(statusInfo.interface);await route();toast('Shelf style saved.');}
     if(action==='shelf-artist')toggleShelfArtist(button);
