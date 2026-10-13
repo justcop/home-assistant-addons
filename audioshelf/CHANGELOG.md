@@ -1,3 +1,10 @@
+# 0.6.27 — Flip album sleeves to see back-cover artwork
+
+- Tap the large album cover in Classic or Vinyl album view to flip to its reverse; tap again to see the front. Record-rack covers still open albums.
+- Fetch back-cover art from the chosen sleeve edition first, then the selected canonical MusicBrainz release. Never substitute unrelated releases, Spotify front art or a placeholder for an unavailable reverse.
+- Download only on first request, report absent artwork without flipping, and use independent server-side artwork caching and thumbnail sizes for albums on your shelf.
+- Respect account permissions, remove cached reverse artwork when covers are reset or albums leave your shelf, and provide back-cover regression tests.
+
 # 0.6.26 — Resumable tracklist scans and true recording equivalence
 
 - Fetch only two eligible MusicBrainz pressings per response, preventing a slow rate-limited batch from holding a single proxy request open for too long.
