@@ -690,6 +690,40 @@ def test_candidate_review_learning_and_undo(tmp_path):
         db.change_groups("merge_learn", protected["ids"])
 
 
+def test_corrupt_album_overview_cache_is_repaired_automatically(tmp_path):
+    """Album details must never receive a 200 response missing current plays."""
+    import time
+
+    app = create_app(tmp_path, config={}, start_worker=False, development=True)
+    db = app.extensions["database"]
+    now = int(datetime.now(timezone.utc).timestamp())
+    db.apply_window(now - 30, now + 1, [play(now - 8)])
+    client = app.test_client()
+    args = {"entity": "album", "id": "1", "mode": "merged"}
+    with db.connect() as conn:
+        album_id = conn.execute("SELECT group_id FROM resolved_variants WHERE kind='album' LIMIT 1").fetchone()[0]
+    args["id"] = str(album_id)
+    url = "/api/overview?entity=album&id=" + args["id"] + "&mode=merged"
+    cache = app.extensions["view_cache"]
+    try:
+        first = client.get(url)
+        assert first.status_code == 200 and first.json["current"]["plays"] == 1
+        with db.connect() as conn:
+            conn.execute("UPDATE view_cache SET payload=? WHERE cache_key=?",
+                         (json.dumps({"_cache": {"stale": True}}), cache.key("overview", args)))
+        result = client.get(url)
+        for _ in range(30):
+            if result.status_code == 200 and isinstance(result.json.get("current"), dict):
+                break
+            assert result.status_code == 202 and result.json["_pending"]
+            time.sleep(0.05)
+            result = client.get(url)
+        assert result.status_code == 200 and result.json["current"]["plays"] == 1
+        assert isinstance(result.json["timeline"], list)
+    finally:
+        cache.close()
+
+
 def test_cached_analysis_refreshes_in_background_after_import(tmp_path, monkeypatch):
     app = create_app(tmp_path, config={}, start_worker=False, development=True)
     client = app.test_client()

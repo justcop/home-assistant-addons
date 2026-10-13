@@ -150,6 +150,13 @@ class ViewCache:
             },
         }
 
+    def invalidate(self, db, name, args):
+        """Evict only a broken saved response; preserve all other cached views."""
+        key = self.key(name, args)
+        with self.lock:
+            with db.connect() as conn:
+                conn.execute("DELETE FROM view_cache WHERE cache_key=?", (key,))
+
     def warm(self, db):
         self.register(db)
         self._schedule(db, self.key("overview", {}))

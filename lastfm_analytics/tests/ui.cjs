@@ -537,8 +537,22 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   await page.route('https://lastfm.freetls.fastly.net/**', route => route.fulfill({
     path:path.join(__dirname, '../analytics/static/icon-192.png'), contentType:'image/png'
   }));
+  // Real Home Assistant ingress can return pending analytics with HTTP 200.
+  // Also tolerate a temporary structurally incomplete overview response.
+  let albumOverviewRequests = 0;
+  await page.route('**/api/overview?*', route => {
+    if (new URL(route.request().url()).searchParams.get('entity') !== 'album') return route.continue();
+    albumOverviewRequests++;
+    if (albumOverviewRequests <= 2) return route.fulfill({status:200, contentType:'application/json',
+      body:JSON.stringify(albumOverviewRequests === 1 ? {_pending:true,retry_after:1} : {_cache:{stale:true}})});
+    return route.continue();
+  });
   await page.locator('#content [data-detail="album"]').first().click();
   await page.locator('#detail-dialog [data-browse="songs"]').waitFor();
+  await page.locator('#detail-analytics .metrics').waitFor({timeout:20000});
+  assert.ok(albumOverviewRequests >= 3, 'Incomplete album analytics must refresh instead of crashing');
+  assert.equal((await page.locator('#detail-analytics').innerText()).includes("Cannot read properties"), false);
+  await page.unroute('**/api/overview?*');
   await page.locator('.album-detail-cover img').waitFor();
   await page.waitForFunction(() => document.querySelector('.album-detail-cover img')?.naturalWidth > 0);
   assert.match(await page.locator('.album-detail-cover img').getAttribute('src'), /\/500x500\/album-cover-fixture/);

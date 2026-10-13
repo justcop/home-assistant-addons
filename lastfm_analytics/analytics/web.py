@@ -484,7 +484,19 @@ self.addEventListener('fetch', event => {
 
     @app.get("/api/overview")
     def overview():
-        return cached_response(view_cache.get(db_for_request(), "overview", dict(request.args)))
+        db = db_for_request()
+        args = dict(request.args)
+        result = view_cache.get(db, "overview", args)
+        # Never send a saved partial/obsolete payload as a successful view.
+        # Repair just the affected cache key, then let ordinary pending polls
+        # bring the fully calculated page back without manual reload.
+        if not result.get("_pending") and (
+            not isinstance(result.get("current"), dict)
+            or not isinstance(result.get("timeline"), list)
+        ):
+            view_cache.invalidate(db, "overview", args)
+            result = view_cache.get(db, "overview", args)
+        return cached_response(result)
 
     @app.get("/api/rankings")
     def ranking():

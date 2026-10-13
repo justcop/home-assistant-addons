@@ -1,3 +1,9 @@
+## 0.2.25
+- Repair malformed album listening-analysis cache entries automatically, rather than passing missing play totals to the interface.
+- Keep polling even when an ingress proxy returns a pending payload with HTTP 200; protect against incomplete overview responses.
+- Show an automatic loading message and cancel abandoned album-detail requests, avoiding repeated background polling after closing a detail.
+- Add browser and backend regression coverage for the album detail crash.
+
 ## 0.2.24
 - Automatically start and periodically resume release-year MusicBrainz lookups after add-on startup, even without opening the Release Years page.
 - Keep song and album matching progress visible through 100% completion and show a rolling estimate of time remaining.

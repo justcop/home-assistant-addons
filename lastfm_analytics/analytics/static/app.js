@@ -44,7 +44,8 @@ let statusData,
   loadSerial = 0,
   detailSerial = 0,
   toastTimer,
-  searchTimer;
+  searchTimer,
+  detailController;
 const titles = {
   overview: ["Overview", "Understand the patterns behind your plays."],
   trends: ["Listening trends", "See how your listening changes over time."],
@@ -107,6 +108,7 @@ async function api(path, extra = {}, opts = {}) {
   // First-time analyses return 202 until their shared cache job is ready.
   // Poll without recursive promises; leave the current page/modal loading.
   const { onPending, ...fetchOptions } = opts;
+  let malformedCount = 0;
   while (true) {
     if (opts.signal?.aborted) throw new DOMException("Request cancelled", "AbortError");
     const response = await fetch(`api/${path}?${query(extra)}`, {
@@ -126,7 +128,13 @@ async function api(path, extra = {}, opts = {}) {
     let data;
     try { data = await response.json(); }
     catch (_) { throw new Error(`The server returned ${response.status}. Please reload the page.`); }
-    if (response.status === 202 && data._pending) {
+    // Some ingress/proxy paths present a pending response as HTTP 200.
+    // Never treat a pending or incomplete overview as real analytics data.
+    const incompleteOverview = path === "overview" && response.ok &&
+      (!data || typeof data.current?.plays !== "number" || !Array.isArray(data.timeline));
+    if ((response.ok || response.status === 202) && (data?._pending || incompleteOverview)) {
+      if (incompleteOverview && !data?._pending && ++malformedCount > 8)
+        throw new Error("Listening statistics could not be prepared. Please reopen this album.");
       onPending?.(data);
       const delay = Math.max(1000, Math.min(10000, Number(data.retry_after || 2) * 1000));
       await new Promise((resolve, reject) => {
@@ -183,6 +191,7 @@ window.addEventListener("popstate", async event => {
   if (!event.state?.listening) return;
   clearTimeout(searchTimer);
   detailSerial++;
+  detailController?.abort();
   $("#confirm-dialog").close();
   $("#detail-dialog").close();
   Object.assign(state, event.state.nav);
@@ -807,6 +816,9 @@ function bindArtworkError(detail, kind) {
 async function showDetail(kind, id, groupMode = false, restoring = false) {
   if (!restoring) history.pushState({listening:true, nav:navigationState(), detail:{kind,id,groupMode}}, "", location.href);
   const serial = ++detailSerial;
+  detailController?.abort();
+  detailController = new AbortController();
+  const signal = detailController.signal;
   clearTimeout(cacheTimers.detail);
   $("#detail-cache-status").hidden = true;
   const dialog = $("#detail-dialog");
@@ -821,9 +833,13 @@ async function showDetail(kind, id, groupMode = false, restoring = false) {
   $("#detail-content").innerHTML = '<div class="loading">Loading details…</div>';
   if (!dialog.open) dialog.showModal();
   // Begin analytics immediately, but do not delay the visible header for it.
-  const analyticsTask = api("overview", extra).then(data => ({data}), error => ({error}));
+  const analyticsTask = api("overview", extra, {signal, onPending: () => {
+    const slot = $("#detail-analytics");
+    if (serial === detailSerial && dialog.open && slot)
+      slot.innerHTML = '<div class="loading">Preparing listening statistics… This will appear automatically when ready.</div>';
+  }}).then(data => ({data}), error => ({error}));
   try {
-    const detail = await api("detail", extra);
+    const detail = await api("detail", extra, {signal});
     if (serial !== detailSerial || !dialog.open) return;
     $("#detail-content").innerHTML = `<div id="detail-hero">${detailHeaderHTML(detail, kind)}</div><div id="detail-analytics"><div class="loading">Loading listening analysis…</div></div>`;
     bindArtworkError(detail, kind);
@@ -1194,12 +1210,14 @@ $("#apply-dates").onclick = () => {
   load();
 };
 function closeDetail() {
+  detailController?.abort();
   $("#detail-dialog").close();
   detailSerial++;
   if (history.state?.detail) history.back();
 }
 $("#close-detail").onclick = closeDetail;
 $("#detail-dialog").addEventListener("cancel", event => {event.preventDefault(); closeDetail();});
+$("#detail-dialog").addEventListener("close", () => detailController?.abort());
 $("#confirm-cancel").onclick = () => $("#confirm-dialog").close();
 $("#theme").onclick = () => {
   const next =
