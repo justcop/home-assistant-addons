@@ -16,7 +16,8 @@ class ViewCache:
     RETRY_SECONDS = 60
     # This changes only when cached payload semantics change, not every release.
     CACHE_FORMAT = "analytics-v4"
-    COLD_WAIT_SECONDS = 6
+    COLD_WAIT_SECONDS = 0.6
+    WORKER_COUNT = 2
 
     def __init__(self, timezone, compute):
         self.timezone = ZoneInfo(timezone)
@@ -28,7 +29,7 @@ class ViewCache:
         self.epochs = {}
         self.queue = queue.Queue()
         self.stop = threading.Event()
-        self.thread = None
+        self.threads = []
 
     def key(self, name, args):
         keys = ["period", "source", "mode", "entity", "id"]
@@ -71,11 +72,16 @@ class ViewCache:
                                 "DELETE FROM view_cache WHERE cache_key=?", (row[0],)
                             )
             self.databases[str(db.path)] = db
-            if self.thread is None:
-                self.thread = threading.Thread(
-                    target=self._run, daemon=True, name="analytics-cache"
-                )
-                self.thread.start()
+            if not self.threads:
+                # Keep small detail requests responsive even when a long
+                # all-time calculation is running (SQLite uses WAL).
+                self.threads = [
+                    threading.Thread(target=self._run, daemon=True,
+                                     name=f"analytics-cache-{i + 1}")
+                    for i in range(self.WORKER_COUNT)
+                ]
+                for thread in self.threads:
+                    thread.start()
 
     def _schedule(self, db, key):
         jobkey = (str(db.path), key)
@@ -119,17 +125,14 @@ class ViewCache:
             )
             future = self._schedule(db, key) if stale else None
         if row is None:
-            # A first-ever view has no saved result. Share one calculation even
-            # when multiple phones request it together.
+            # A first view has no saved result: respond with pending instead
+            # of telling the user that a queued calculation has failed.
             if future is None:
-                raise ValueError(
-                    "This view could not be updated. Please retry shortly."
-                )
+                return {"_pending": True, "retry_after": 5}
             try:
                 result, generated, revision = future.result(timeout=self.COLD_WAIT_SECONDS)
             except FutureTimeout:
-                # Never monopolise every web thread during a long first calculation.
-                raise ValueError("Analysis is generating. Please retry shortly.") from None
+                return {"_pending": True, "retry_after": 2}
             with db.connect() as conn:
                 stale = revision != self._revision(db, conn, name)
         else:
@@ -233,6 +236,7 @@ class ViewCache:
 
     def close(self):
         self.stop.set()
-        self.queue.put(None)
-        if self.thread:
-            self.thread.join(timeout=2)
+        for _ in self.threads:
+            self.queue.put(None)
+        for thread in self.threads:
+            thread.join(timeout=2)

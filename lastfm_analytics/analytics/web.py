@@ -479,17 +479,20 @@ self.addEventListener('fetch', event => {
                 reconcile_days=config["reconcile_days"],
             )
 
+    def cached_response(result):
+        return jsonify(result), (202 if result.get("_pending") else 200)
+
     @app.get("/api/overview")
     def overview():
-        return jsonify(view_cache.get(db_for_request(), "overview", dict(request.args)))
+        return cached_response(view_cache.get(db_for_request(), "overview", dict(request.args)))
 
     @app.get("/api/rankings")
     def ranking():
         db = db_for_request()
         result = view_cache.get(db, "rankings", dict(request.args))
-        if request.args.get("kind") == "album":
+        if not result.get("_pending") and request.args.get("kind") == "album":
             result["album_progress"] = tracklist_worker.status(db)
-        return jsonify(result)
+        return cached_response(result)
 
     @app.get("/api/release-years")
     def release_years():
@@ -498,7 +501,7 @@ self.addEventListener('fetch', event => {
             release_worker.scan(db)
         result = view_cache.get(db, "release-years", dict(request.args))
         result["lookup"] = release_worker.status(db)
-        return jsonify(result)
+        return cached_response(result)
 
     @app.get("/api/history")
     def history():
