@@ -1,3 +1,9 @@
+## 0.2.27
+- Give song and album detail panels the same compact cover-led layout, sized like AudioShelf (330px desktop; 72% up to 290px on phones), without an always-visible SONG/ALBUM bar.
+- Place artist logos in the left column below the cover, replacing the artist name only when loaded; show the album name in the cover slot only if artwork is missing. Keep song titles beneath the cover.
+- Reuse cached/background artist-logo lookups for album and song API responses, including asynchronous artwork refreshes.
+- Cover responsive layout, image/logo failure fallbacks and API logo delivery in regression tests.
+
 ## 0.2.26
 - Make artist/song/album detail analyses compute only the information their detail dialogs display; single-album pages no longer rank the entire music library.
 - Fetch only requested MusicBrainz album tracklists when calculating ordinary album estimates, instead of decoding every saved tracklist.

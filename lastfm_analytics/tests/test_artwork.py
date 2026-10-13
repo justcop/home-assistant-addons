@@ -170,6 +170,44 @@ def test_detail_does_not_repeat_expensive_album_discovery(tmp_path, monkeypatch)
         app.extensions["artwork_worker"].close()
         app.extensions["view_cache"].close()
 
+def test_album_and_song_details_reuse_artist_logo_lookup(tmp_path, monkeypatch):
+    app = create_app(tmp_path, config={'username': 'user', 'api_key': 'fixture'},
+                     development=True, start_worker=False)
+    db = app.extensions['database']
+    db.apply_window(0, 200, [play(100)])
+    worker = app.extensions['artwork_worker']
+    photo = 'https://r2.theaudiodb.com/images/media/artist/thumb/beatles.jpg'
+    logo = 'https://r2.theaudiodb.com/images/media/artist/logo/beatles.png'
+    artists = []
+    def fake_artist(_db, artist):
+        artists.append(artist)
+        return dict(artist_logo=logo, artist_photo=photo,
+                    artist_name=artist, artwork_pending=False)
+    monkeypatch.setattr(worker, 'resolve_artist', fake_artist)
+    with db.connect() as conn:
+        album_id = conn.execute(
+            "SELECT group_id FROM resolved_variants WHERE kind='album' LIMIT 1"
+        ).fetchone()[0]
+        song_id = conn.execute(
+            "SELECT group_id FROM resolved_variants WHERE kind='song' LIMIT 1"
+        ).fetchone()[0]
+    try:
+        client = app.test_client()
+        for kind, group_id in (('album', album_id), ('song', song_id)):
+            query = f'?entity={kind}&id={group_id}'
+            detail = client.get('/api/detail' + query)
+            assert detail.status_code == 200
+            assert detail.json['artist_logo'] == logo
+            assert detail.json['artist_photo'] == photo
+            followup = client.get('/api/artwork' + query)
+            assert followup.json['artist_logo'] == logo
+            assert followup.json['artwork_pending'] is False
+        assert artists == ['The Beatles'] * 4
+    finally:
+        worker.close()
+        app.extensions['view_cache'].close()
+
+
 def test_artist_photo_logo_cache_and_identity(tmp_path):
     photo = 'https://r2.theaudiodb.com/images/media/artist/thumb/beatles.jpg'
     logo = 'https://r2.theaudiodb.com/images/media/artist/logo/beatles.png'

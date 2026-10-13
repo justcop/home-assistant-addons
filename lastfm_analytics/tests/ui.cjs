@@ -214,13 +214,19 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   );
   const cover = page.locator(".detail-artwork img");
   await cover.waitFor();
+  assert.equal(await page.locator("#detail-kind").isVisible(), false);
+  assert.equal(await page.locator(".album-detail-hero").isVisible(), true);
+  assert.equal(await page.locator(".album-detail-titles .song-detail-name").innerText(), "Come Together");
   await page.waitForFunction(() => document.querySelector(".detail-artwork img")?.naturalWidth > 0);
   assert.match(await cover.getAttribute("alt"), /Abbey Road/);
   await page.setViewportSize({ width: 320, height: 700 });
   assert.equal(await page.locator("#detail-content").evaluate(el => el.scrollWidth <= el.clientWidth), true);
   await page.screenshot({ path: path.join(output, "cover-art-mobile.png") });
   await cover.evaluate(el => el.dispatchEvent(new Event("error")));
+  await cover.evaluate(el => el.dispatchEvent(new Event("error")));
   assert.equal(await page.locator(".detail-artwork").count(), 0);
+  assert.equal(await page.locator(".album-cover-fallback h2").innerText(), "Come Together");
+  assert.equal(await page.locator(".song-detail-name").isVisible(), false);
   assert.equal(await page.locator("#detail-dialog .metrics").isVisible(), true);
   await page.unroute("**/api/detail?*");
   await page.unroute("https://lastfm.freetls.fastly.net/**");
@@ -531,6 +537,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
     const data = await response.json();
     data.artwork = {url:'https://lastfm.freetls.fastly.net/i/u/174s/album-cover-fixture.png',
       artist:'The Beatles',album:'Abbey Road'};
+    data.artist_logo = 'https://lastfm.freetls.fastly.net/i/u/174s/album-artist-logo-fixture.png';
     data.artwork_pending = false;
     await route.fulfill({response,json:data});
   });
@@ -563,8 +570,12 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
     el.innerHTML = '<a class="button" href="https://audioshelf.example.test/#album/abbey-road">On your shelf</a>';
   });
   assert.equal(await page.locator('.album-detail-actions a').count(), 3);
-  assert.equal(await page.locator('.album-detail-titles .album-detail-artist').innerText(), 'The Beatles');
-  assert.equal(await page.locator('.album-detail-titles h2').innerText(), 'Abbey Road');
+  await page.locator('#artist-logo-slot.logo-ready').waitFor();
+  assert.equal(await page.locator('.album-detail-titles .artist-title-fallback').isVisible(), false);
+  assert.match(await page.locator('.album-detail-titles .artist-logo').getAttribute('alt'), /The Beatles/);
+  assert.equal(await page.locator('.album-detail-titles .song-detail-name').count(), 0);
+  assert.equal(await page.locator('.album-cover-fallback').count(), 0);
+  assert.equal(await page.locator('#detail-kind').isVisible(), false);
   assert.equal(await page.locator('.album-detail-cover figcaption').count(), 0);
   for (const width of [320, 360, 390, 428, 1024]) {
     await page.setViewportSize({width,height:844});
@@ -575,27 +586,35 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
       const info = box('.album-detail-info');
       const titles = box('.album-detail-titles');
       const actions = box('.album-detail-actions');
-      const dialog = box('#detail-dialog');
       return {imgWidth:img.width,imgHeight:img.height,coverWidth:cover.width,
         coverBottom:cover.bottom,infoTop:info.top,titleRight:titles.right,
-        actionsLeft:actions.left,actionsWidth:actions.width,dialogWidth:dialog.width,
-        viewport:document.documentElement.clientWidth,
+        actionsLeft:actions.left,
         buttonRights:[...document.querySelectorAll('.album-detail-actions a')]
           .map(a=>a.getBoundingClientRect().right)};
     });
     assert.ok(layout.imgWidth > 0 && Math.abs(layout.imgWidth-layout.imgHeight) < 2, 'Cover stays square');
     assert.ok(Math.abs(layout.imgWidth-layout.coverWidth) < 2, 'Cover fills its container');
     assert.ok(layout.infoTop >= layout.coverBottom - 1, 'Artist and buttons sit below cover');
-    assert.ok(layout.titleRight <= layout.actionsLeft + 2, 'Title stays left of buttons');
+    assert.ok(layout.titleRight <= layout.actionsLeft + 2, 'Logo stays left of buttons');
     assert.ok(layout.buttonRights.every(right => right <= width + 1), 'Buttons stay on screen');
     if (width <= 620) {
-      assert.ok(Math.abs(layout.coverWidth-width) < 2, 'Cover reaches phone edges');
+      const expected = Math.min((width - 36) * .72, 290);
+      assert.ok(Math.abs(layout.coverWidth-expected) < 3,
+        'Phone cover matches AudioShelf 72% sizing');
     } else {
-      assert.ok(layout.coverWidth > 750 && layout.coverWidth < width,
-        'Desktop album cover fills available dialog width');
+      assert.ok(Math.abs(layout.coverWidth-330) < 2, 'Desktop cover matches AudioShelf 330px sizing');
     }
   }
-  await page.screenshot({path:path.join(output,'album-full-width-cover-mobile.png')});
+  await page.screenshot({path:path.join(output,'album-audioshelf-size-mobile.png')});
+  // The title only replaces the cover when image loading genuinely fails.
+  const albumCover = page.locator('.album-detail-cover img');
+  await albumCover.evaluate(el => el.dispatchEvent(new Event('error')));
+  await albumCover.evaluate(el => el.dispatchEvent(new Event('error')));
+  assert.equal(await page.locator('.album-cover-fallback h2').innerText(), 'Abbey Road');
+  assert.equal(await page.locator('.album-detail-titles .song-detail-name').count(), 0);
+  // A failed logo restores the artist name without disturbing the cover layout.
+  await page.locator('#artist-logo-slot img').evaluate(el => el.dispatchEvent(new Event('error')));
+  assert.equal(await page.locator('#artist-logo-slot .artist-title-fallback').isVisible(), true);
   await page.setViewportSize({width:1440,height:1050});
   await page.evaluate(() => {
     statusData.demo = window.__albumDemo;

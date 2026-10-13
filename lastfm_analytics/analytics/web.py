@@ -543,11 +543,22 @@ self.addEventListener('fetch', event => {
                 fallback = artwork_worker.resolve(db, albums)
                 assets["artwork_pending"] |= fallback["artwork_pending"]
                 return dict(artwork=fallback["artwork"], **assets)
+        # Album and song headers also display an artist logo. Reuse the same
+        # persisted, background AudioDB lookup as artist pages, without making
+        # a network request on the detail endpoint's critical path.
+        artist_assets = {}
+        if kind in ("album", "song") and not is_demo():
+            artist = (result or {}).get("artist") or (albums[0]["artist"] if albums else None)
+            if artist:
+                artist_assets = artwork_worker.resolve_artist(db, artist)
+        pending_logo = artist_assets.pop("artwork_pending", False)
         if artwork:
-            return dict(artwork=artwork, artwork_pending=False)
+            return dict(artwork=artwork, artwork_pending=pending_logo, **artist_assets)
         if is_demo():
             return dict(artwork=None, artwork_pending=False)
-        return artwork_worker.resolve(db, albums)
+        fallback = artwork_worker.resolve(db, albums)
+        fallback["artwork_pending"] |= pending_logo
+        return dict(**fallback, **artist_assets)
 
     @app.get("/api/artwork")
     def artwork():

@@ -681,10 +681,15 @@ async function load({historyMode = "push"} = {}) {
     }
   }
 }
-function artistLogoHTML(detail) {
-  // The logo takes the title's place only after its image has loaded.
-  return `<h2 class="artist-title-fallback">${esc(detail.name)}</h2>${detail.artist_logo
-    ? `<img class="artist-logo" src="${esc(detail.artist_logo)}" alt="${esc(detail.name)}" decoding="async" referrerpolicy="no-referrer" fetchpriority="high">`
+function artistLogoHTML(detail, kind = "artist") {
+  // The name stays readable until a usable logo has actually loaded.
+  // On album/song pages the logo replaces the ARTIST name, not the title.
+  const name = kind === "artist" ? detail.name : detail.artist;
+  const fallback = kind === "artist"
+    ? `<h2 class="artist-title-fallback">${esc(name)}</h2>`
+    : `<p class="artist-title-fallback album-detail-artist">${esc(name)}</p>`;
+  return `${fallback}${detail.artist_logo
+    ? `<img class="artist-logo" src="${esc(detail.artist_logo)}" alt="${esc(name)}" decoding="async" referrerpolicy="no-referrer" fetchpriority="high">`
     : ""}`;
 }
 function albumCoverUrl(source) {
@@ -707,13 +712,17 @@ function artworkHTML(detail, kind) {
   if (!detail.artwork) {
     // A logo by itself is enough for an artist header, without a fallback box.
     if (kind === "artist" && detail.artist_logo) return "";
+    if (kind === "album" || kind === "song") {
+      return `<div class="album-cover-fallback" role="status"><h2>${esc(detail.name)}</h2>${detail.artwork_pending
+        ? '<p class="method-note">Loading artwork…</p>' : ''}</div>`;
+    }
     return `<p class="method-note" role="status">${detail.artwork_pending ? "Loading artwork…" : "No album artwork available"}</p>`;
   }
   const art = detail.artwork;
-  if (kind === "album") {
+  if (kind === "album" || kind === "song") {
     const coverUrl = albumCoverUrl(art.url);
     const backup = coverUrl !== art.url ? ` data-fallback-src="${esc(art.url)}"` : "";
-    return `<figure class="detail-artwork"><img src="${esc(coverUrl)}"${backup} alt="Cover of ${esc(art.album)} by ${esc(art.artist)}" width="850" height="850" decoding="async" fetchpriority="high" referrerpolicy="no-referrer"></figure>`;
+    return `<figure class="detail-artwork"><img src="${esc(coverUrl)}"${backup} alt="Cover of ${esc(art.album)} by ${esc(art.artist)}" width="500" height="500" decoding="async" fetchpriority="high" referrerpolicy="no-referrer"></figure>`;
   }
   return `<figure class="detail-artwork"><img src="${esc(art.url)}" alt="Cover of ${esc(art.album)} by ${esc(art.artist)}" width="112" height="112" decoding="async" referrerpolicy="no-referrer"><figcaption>${esc(art.album)} · ${esc(art.source || "Last.fm")}</figcaption></figure>`;
 }
@@ -732,10 +741,13 @@ function detailHeaderHTML(detail, kind) {
   if (kind === "artist") {
     return `<div class="artist-detail-hero"><div id="artist-logo-slot" class="artist-logo-stage">${artistLogoHTML(detail)}</div><div class="detail-heading detail-media-actions artist-detail-heading"><div id="detail-artwork-slot">${artworkHTML(detail, kind)}</div><div class="artist-actions">${links}</div></div></div>`;
   }
-  if (kind === "album") {
-    // A cover-led album layout: edge-to-edge cover on phones, with the album
-    // identity and existing Spotify / store / shelf links below it.
-    return `<div class="album-detail-hero"><div id="detail-artwork-slot" class="album-detail-cover">${artworkHTML(detail, kind)}</div><div class="album-detail-info"><div class="album-detail-titles"><p class="album-detail-artist">${esc(detail.artist)}</p><h2>${esc(detail.name)}</h2></div><div class="album-detail-actions artist-actions">${links}</div></div></div>`;
+  if (kind === "album" || kind === "song") {
+    // Match AudioShelf's cover dimensions on both desktop and phones.
+    // The album title is already on its cover; show it only when art fails.
+    // Songs retain their track title beneath their album artwork.
+    const trackTitle = kind === "song"
+      ? `<h2 class="song-detail-name">${esc(detail.name)}</h2>` : "";
+    return `<div class="album-detail-hero"><div id="detail-artwork-slot" class="album-detail-cover">${artworkHTML(detail, kind)}</div><div class="album-detail-info"><div class="album-detail-titles"><div id="artist-logo-slot" class="artist-logo-stage album-artist-logo-stage">${artistLogoHTML(detail, kind)}</div>${trackTitle}</div><div class="album-detail-actions artist-actions">${links}</div></div></div>`;
   }
   return `<div class="detail-entity-hero"><div class="detail-entity-title"><h2>${esc(detail.name)}</h2><p>${esc(detail.artist)}</p></div><div class="detail-heading detail-media-actions"><div id="detail-artwork-slot">${artworkHTML(detail, kind)}</div><div class="artist-actions">${links}</div></div></div>`;
 }
@@ -798,7 +810,7 @@ function bindArtworkError(detail, kind) {
         const slot = $("#artist-logo-slot");
         if (slot) {
           slot.classList.remove("logo-ready");
-          slot.innerHTML = artistLogoHTML(detail);
+          slot.innerHTML = artistLogoHTML(detail, kind);
         }
         return;
       }
@@ -823,7 +835,7 @@ async function showDetail(kind, id, groupMode = false, restoring = false) {
   $("#detail-cache-status").hidden = true;
   const dialog = $("#detail-dialog");
   dialog.classList.toggle("artist-detail-open", kind === "artist");
-  dialog.classList.toggle("album-detail-open", kind === "album");
+  dialog.classList.toggle("album-detail-open", kind === "album" || kind === "song");
   const mode = groupMode ? "merged" : state.mode;
   // Release-year lists always provide canonical group IDs, but drill-down
   // should retain the user's selected listening period.
@@ -854,16 +866,16 @@ async function showDetail(kind, id, groupMode = false, restoring = false) {
           let next;
           try { next = await api("artwork", extra); } catch (_) { continue; }
           if (serial !== detailSerial || !dialog.open) return;
-          const oldArtwork = artworkHTML(detail, kind), oldLogo = artistLogoHTML(detail);
+          const oldArtwork = artworkHTML(detail, kind), oldLogo = artistLogoHTML(detail, kind);
           Object.assign(detail, next);
           if (artworkHTML(detail, kind) !== oldArtwork) {
             $("#detail-artwork-slot").innerHTML = artworkHTML(detail, kind);
             bindArtworkError(detail, kind);
           }
           const logoSlot = $("#artist-logo-slot");
-          if (logoSlot && oldLogo !== artistLogoHTML(detail)) {
+          if (logoSlot && oldLogo !== artistLogoHTML(detail, kind)) {
             logoSlot.classList.remove("logo-ready");
-            logoSlot.innerHTML = artistLogoHTML(detail);
+            logoSlot.innerHTML = artistLogoHTML(detail, kind);
             bindArtworkError(detail, kind);
           }
           if (!next.artwork_pending) return;
