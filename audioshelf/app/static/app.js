@@ -156,19 +156,28 @@ function loadAlbumBackCover(button){
   button.querySelector('.album-flip-hint').textContent='Finding back cover…';
   const image=button.querySelector('.album-flip-back img');
   return new Promise(resolve=>{
-    image.onload=()=>{
-      button.dataset.loaded='true';
-      flip();
-      resolve();
-    };
-    image.onerror=()=>{
-      if(button.isConnected){
-        button.querySelector('.album-flip-hint').textContent='Turn over ↻';
-        toast('No back cover available for this edition, or it could not be loaded.');
+    let settled=false;
+    const finish=(success)=>{
+      if(settled)return;
+      settled=true;
+      clearTimeout(timeout);
+      image.onload=null;
+      image.onerror=null;
+      if(success){
+        button.dataset.loaded='true';
+        flip();
+      }else{
+        image.removeAttribute('src');
+        if(button.isConnected){
+          button.querySelector('.album-flip-hint').textContent='Turn over ↻';
+          toast('No back cover available for this edition, or it could not be loaded.');
+        }
       }
-      image.removeAttribute('src');
       resolve();
     };
+    const timeout=setTimeout(()=>finish(false),20000);
+    image.onload=()=>finish(true);
+    image.onerror=()=>finish(false);
     image.src=`api/albums/${id(button.dataset.album)}/artwork/back?size=640&v=${artworkRevision}&account=${id(statusInfo.account?.id||'owner')}`;
   });
 }
