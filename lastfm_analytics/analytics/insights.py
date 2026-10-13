@@ -330,7 +330,9 @@ def overview(database, args, tz_name, now=None):
             # are not displayed here. Skipping those full scans is especially
             # important for single-album opens and uncached detail views.
             detail = dict(period=p, current=current, previous=previous,
-                          timeline=bins, hours=hours)
+                          timeline=bins, hours=hours,
+                          top_artists=rankings(conn, p, "artist", limit=5,
+                                               extra=extra, params=params))
             if entity == "album":
                 detail["album_estimate"] = (
                     rankings(conn, p, "album", raw, limit=1, extra=extra,
