@@ -1,9 +1,11 @@
 import io
 import json
 import threading
+
+from PIL import Image
 from urllib.parse import parse_qs, urlsplit
 
-from analytics.artwork import ArtworkWorker
+from analytics.artwork import ArtworkWorker, transparent_logo_trim
 from analytics.db import Database
 from analytics.insights import details
 from analytics.web import create_app
@@ -24,6 +26,59 @@ def deezer_response(url='https://e-cdns-images.dzcdn.net/images/cover/fixture/25
         'artist': {'name': 'The Beatles'},
         'cover_medium': url,
     }]}).encode())
+
+
+def logo_png_fixture(width=200, height=100, box=(20, 45, 180, 80)):
+    picture = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+    if box:
+        from PIL import ImageDraw
+        ImageDraw.Draw(picture).rectangle(box, fill=(230, 230, 230, 255))
+    stream = io.BytesIO()
+    picture.save(stream, format='PNG')
+    return stream.getvalue()
+
+
+def test_logo_alpha_trimming_and_fallbacks():
+    bounds = transparent_logo_trim(logo_png_fixture())
+    assert bounds == dict(image_width=200, image_height=100,
+                          x=18, y=43, width=164, height=39)
+    assert transparent_logo_trim(logo_png_fixture(box=(0, 0, 199, 99))) is None
+    assert transparent_logo_trim(logo_png_fixture(box=None)) is None
+    opaque = io.BytesIO()
+    Image.new('RGB', (160, 80), 'white').save(opaque, format='PNG')
+    assert transparent_logo_trim(opaque.getvalue()) is None
+    assert transparent_logo_trim(logo_png_fixture(2500, 2500)) is None
+
+
+def test_artist_logo_trim_is_cached_without_storing_images(tmp_path):
+    logo = 'https://r2.theaudiodb.com/images/media/artist/logo/beatles.png'
+    opened = []
+    def logo_opener(request, timeout):
+        opened.append((request.full_url, timeout))
+        return io.BytesIO(logo_png_fixture())
+    def metadata_opener(request, timeout):
+        return io.BytesIO(json.dumps({'artists':[{'strArtist':'The Beatles',
+            'strArtistLogo': logo}]}).encode())
+    db = Database(tmp_path / 'trim.sqlite3')
+    worker = ArtworkWorker('', opener=metadata_opener, image_opener=logo_opener)
+    try:
+        assert worker.resolve_artist(db, 'The Beatles')['artwork_pending']
+        worker.jobs.join()
+        result = worker.resolve_artist(db, 'The Beatles')
+        assert result['artist_logo'] == logo
+        assert result['artist_logo_trim']['y'] == 43
+        assert opened == [(logo, 10)]
+        with db.connect() as conn:
+            cached = conn.execute("SELECT url FROM artwork_urls WHERE album_key=?",
+                                  ('__artist_assets_v2__',)).fetchone()[0]
+        assert 'image_height' in cached and 'PNG' not in cached
+        worker.close()
+        again = ArtworkWorker('', enabled=False)
+        assert again.resolve_artist(Database(db.path), 'The Beatles') == result
+        assert len(opened) == 1
+        assert worker.fetch_logo_trim('https://evil.example/logo.png') is None
+    finally:
+        worker.close()
 
 
 def test_cover_uses_older_scrobbles_and_less_played_albums(tmp_path):

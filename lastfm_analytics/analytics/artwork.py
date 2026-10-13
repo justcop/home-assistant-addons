@@ -1,5 +1,6 @@
 """Small remote cover URLs, with paced background metadata lookups only."""
 
+import io
 import json
 import queue
 import sqlite3
@@ -7,6 +8,8 @@ import threading
 import time
 import urllib.parse
 import urllib.request
+
+from PIL import Image, UnidentifiedImageError
 
 from .grouping import normalise, canonical_title
 
@@ -64,11 +67,54 @@ def album_match(a, b):
     return normalise(canonical_title(a, "album")) == normalise(canonical_title(b, "album"))
 
 
+class _NoImageRedirects(urllib.request.HTTPRedirectHandler):
+    """Logo image fetches must never follow a CDN redirect to another host."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def transparent_logo_trim(content):
+    """Return the visible rectangle in original pixel coordinates, not an image.
+
+    A small gutter preserves anti-aliased edges. Opaque assets, giant images,
+    and nearly uncropped logos retain their original layout.
+    """
+    with Image.open(io.BytesIO(content)) as picture:
+        width, height = picture.size
+        if not width or not height or width * height > 4_000_000:
+            return None
+        if "A" not in picture.getbands() and "transparency" not in picture.info:
+            return None
+        alpha = picture.convert("RGBA").getchannel("A")
+        bbox = alpha.point(lambda value: 255 if value >= 12 else 0).getbbox()
+        if not bbox:
+            return None
+        margin = max(2, round(min(width, height) * 0.015))
+        left = max(0, bbox[0] - margin)
+        top = max(0, bbox[1] - margin)
+        right = min(width, bbox[2] + margin)
+        bottom = min(height, bbox[3] + margin)
+        cropped_width, cropped_height = right - left, bottom - top
+        if cropped_width < 4 or cropped_height < 4:
+            return None
+        if ((width - cropped_width) / width < 0.03
+                and (height - cropped_height) / height < 0.03):
+            return None
+        return dict(image_width=width, image_height=height,
+                    x=left, y=top, width=cropped_width, height=cropped_height)
+
+
 class ArtworkWorker:
-    def __init__(self, api_key, enabled=True, opener=None):
+    def __init__(self, api_key, enabled=True, opener=None, image_opener=None):
         self.api_key = api_key
         self.enabled = enabled
         self.opener = opener or urllib.request.urlopen
+        # Keep mocked metadata lookups entirely offline unless a fixture image
+        # opener is explicitly supplied. Production refuses image redirects.
+        self.image_opener = (image_opener if image_opener is not None else
+                             urllib.request.build_opener(_NoImageRedirects()).open
+                             if opener is None else None)
         self.stop = threading.Event()
         self.jobs = queue.Queue(maxsize=64)
         self.pending = set()
@@ -77,11 +123,31 @@ class ArtworkWorker:
         self.last_request = {}
 
     def resolve_artist(self, db, artist):
-        result = self.resolve(db, [dict(artist=artist, album="__artist_assets_v1__")])
+        # A new cache key automatically reprocesses previously fetched logos
+        # following an upgrade, without needing a browser session.
+        result = self.resolve(db, [dict(artist=artist, album="__artist_assets_v2__")])
         art = result["artwork"]
         assets = json.loads(art["url"]) if art else {}
         return dict(artist_photo=assets.get("photo"), artist_logo=assets.get("logo"),
+                    artist_logo_trim=assets.get("logo_trim"),
                     artist_name=artist, artwork_pending=result["artwork_pending"])
+
+    def fetch_logo_trim(self, url):
+        # Only fetch artist images supplied by our trusted artwork provider.
+        if not self.image_opener or audiodb_image(url, "artist") != url:
+            return None
+        request = urllib.request.Request(
+            url, headers={"User-Agent": "ListeningAnalytics (Home Assistant companion)",
+                          "Accept": "image/png,image/webp,image/gif,image/*"})
+        with self.image_opener(request, timeout=10) as response:
+            # Refuse unexpectedly large images; do not retain image bytes.
+            content = response.read(3 * 1024 * 1024 + 1)
+        if len(content) > 3 * 1024 * 1024:
+            return None
+        try:
+            return transparent_logo_trim(content)
+        except (OSError, ValueError, UnidentifiedImageError):
+            return None
 
     def fetch_artist(self, artist):
         request = urllib.request.Request(
@@ -100,6 +166,14 @@ class ArtworkWorker:
                 url = audiodb_image(url, "artist")
                 if url:
                     assets[key] = url
+            if assets.get("logo"):
+                # Failure to inspect the image must never hide a valid logo.
+                try:
+                    bounds = self.fetch_logo_trim(assets["logo"])
+                    if bounds:
+                        assets["logo_trim"] = bounds
+                except (OSError, ValueError):
+                    pass
             return json.dumps(assets) if assets else None
         return None
 
@@ -237,7 +311,7 @@ class ArtworkWorker:
         db, artist, album, key, job_key = job
         try:
             try:
-                url = self.fetch_artist(artist) if album == "__artist_assets_v1__" else self.fetch(artist, album)
+                url = self.fetch_artist(artist) if album == "__artist_assets_v2__" else self.fetch(artist, album)
                 ttl = 30 * 86400 if url else 86400
             except (OSError, ValueError, TypeError):
                 url, ttl = None, 300

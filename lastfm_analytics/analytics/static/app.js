@@ -681,6 +681,14 @@ async function load({historyMode = "push"} = {}) {
     }
   }
 }
+function safeLogoTrim(value) {
+  if (!value || typeof value !== "object") return null;
+  const {image_width:iw, image_height:ih, x, y, width:w, height:h} = value;
+  if (![iw,ih,x,y,w,h].every(n => Number.isInteger(n)) || iw < 1 || ih < 1 ||
+      w < 4 || h < 4 || x < 0 || y < 0 || x + w > iw || y + h > ih ||
+      iw * ih > 4000000) return null;
+  return {iw,ih,x,y,w,h};
+}
 function artistLogoHTML(detail, kind = "artist") {
   // The name stays readable until a usable logo has actually loaded.
   // On album/song pages the logo replaces the ARTIST name, not the title.
@@ -688,9 +696,15 @@ function artistLogoHTML(detail, kind = "artist") {
   const fallback = kind === "artist"
     ? `<h2 class="artist-title-fallback">${esc(name)}</h2>`
     : `<p class="artist-title-fallback album-detail-artist">${esc(name)}</p>`;
-  return `${fallback}${detail.artist_logo
-    ? `<img class="artist-logo" src="${esc(detail.artist_logo)}" alt="${esc(name)}" decoding="async" referrerpolicy="no-referrer" fetchpriority="high">`
-    : ""}`;
+  if (!detail.artist_logo) return fallback;
+  const img = `<img class="artist-logo" src="${esc(detail.artist_logo)}" alt="${esc(name)}" decoding="async" referrerpolicy="no-referrer" fetchpriority="high">`;
+  const crop = safeLogoTrim(detail.artist_logo_trim);
+  if (!crop) return fallback + img;
+  // Clip an original CDN image in the browser using only its saved alpha
+  // bounds. We do not download or serve a second copy of the actual image.
+  const {iw,ih,x,y,w,h} = crop;
+  const style = `--logo-aspect:${w} / ${h};--logo-scale:${iw / w};--logo-left:${-100*x/w}%;--logo-top:${-100*y/h}%`;
+  return `${fallback}<span class="artist-logo-crop" style="${style}">${img}</span>`;
 }
 function albumCoverUrl(source) {
   // Last.fm's small thumbnails look blurred when stretched to phone width.

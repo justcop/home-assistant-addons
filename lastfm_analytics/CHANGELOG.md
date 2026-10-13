@@ -1,3 +1,9 @@
+## 0.2.29
+- Trim transparent borders around artist logos automatically using a bounded background image inspection.
+- Persist only the visible alpha-boundary coordinates with artist metadata; use CSS to clip the original CDN image on artist, album and song detail pages without storing image copies.
+- Refresh existing artist-logo metadata once with a versioned cache key; preserve a readable name and the original image on failures.
+- Add tests for transparent, opaque, blank and oversized logos, metadata persistence and safe image URLs.
+
 ## 0.2.28
 - Always display the album title beneath the artist logo (or fallback artist name) in the left column of album details, matching the existing song-title positioning.
 - When album cover art is unavailable, show a simple artwork-unavailable message without duplicating the album title.
