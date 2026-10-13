@@ -107,10 +107,9 @@ async function assertLogoPixelsInCrop(page, label) {
   assert.equal(await page.locator('.release-year-details [data-detail="song"]').count(), 1);
   assert.equal(await page.locator('.release-year-details [data-detail="album"]').count(), 1);
   assert.match(await page.locator('.release-lookup-status').innerText(), /70 \/ 100 checked/);
-  // Keep both progress bars present, even once a group reaches 100%.
-  assert.equal(await page.locator('.release-lookup-group progress').count(), 2);
+  // Retire each matching progress bar individually at 95% checked.
+  assert.equal(await page.locator('.release-lookup-group progress').count(), 1);
   assert.equal(await page.locator('.release-lookup-group progress').first().getAttribute('value'), '70');
-  assert.equal(await page.locator('.release-lookup-group progress').nth(1).getAttribute('value'), '30');
   assert.equal(await page.locator('[data-release-year="1968"]').getAttribute("aria-pressed"), "true");
   await page.unroute("**/api/release-years?*");
   await page.setViewportSize({width:1440,height:1050});

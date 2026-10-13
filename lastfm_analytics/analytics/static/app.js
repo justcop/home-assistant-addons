@@ -286,8 +286,8 @@ function releaseYearsHTML(data) {
         '</span></button>';
     }).join("")).join("");
   const progressDetails = (group, label) => {
-    if (!group) return '';
-    const pct = group.total ? Math.round(100 * group.checked / group.total) : 100;
+    if (!group || !group.total || group.checked / group.total >= 0.95) return '';
+    const pct = Math.round(100 * group.checked / group.total);
     const description = !lookup.enabled ? 'Matching is paused.' :
       group.complete ? 'Lookup pass complete for the current library.' :
       group.processing || group.queued ? number(group.queued) + ' queued' +
