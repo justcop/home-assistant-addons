@@ -172,7 +172,7 @@ def create_app(options=None):
 
     @app.after_request
     def headers(response):
-        cover_response = request.endpoint == 'album_artwork' and request.method == 'GET' and response.status_code in (200, 304)
+        cover_response = request.endpoint in {'album_artwork', 'album_back_artwork'} and request.method == 'GET' and response.status_code in (200, 304)
         if not cover_response and (request.path.startswith(('/api/','/auth/')) or request.path == '/'):
             response.headers['Cache-Control'] = 'no-store'
         response.headers['X-Content-Type-Options'] = 'nosniff'
@@ -520,6 +520,21 @@ def create_app(options=None):
             raise AppError('Choose a cover size of 128, 320 or 640 pixels.')
         data,mime,source = artwork.sized(album_id, int(size)) if size else artwork.get(album_id)
         response = send_file(io.BytesIO(data),mimetype=mime,max_age=0,etag=hashlib.sha256(data).hexdigest())
+        response.headers['Cache-Control'] = 'private, no-cache' if store.album(album_id)['on_shelf'] else 'no-store'
+        response.headers['X-Artwork-Source'] = source
+        response.vary.add('Cookie')
+        return response
+
+    @app.get('/api/albums/<album_id>/artwork/back')
+    def album_back_artwork(album_id):
+        album_id = mbid(album_id)
+        if request.args.get('account') not in (None, g.account['id']):
+            raise AppError('This cover belongs to another account. Reload AudioShelf.', 403)
+        size = request.args.get('size')
+        if size is not None and size not in {'128', '320', '640'}:
+            raise AppError('Choose a cover size of 128, 320 or 640 pixels.')
+        data, mime, source = artwork.back_sized(album_id, int(size)) if size else artwork.back(album_id)
+        response = send_file(io.BytesIO(data), mimetype=mime, max_age=0, etag=hashlib.sha256(data).hexdigest())
         response.headers['Cache-Control'] = 'private, no-cache' if store.album(album_id)['on_shelf'] else 'no-store'
         response.headers['X-Artwork-Source'] = source
         response.vary.add('Cookie')
