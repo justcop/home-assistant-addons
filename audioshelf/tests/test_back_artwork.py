@@ -87,6 +87,34 @@ def test_back_cover_store_preview_is_never_persisted(application, client, monkey
     assert not store.cache_get('artwork:' + ALBUM + ':back')
 
 
+
+def test_back_falls_back_to_500px_if_1200px_is_unavailable(application, client, monkeypatch):
+    artwork = application.extensions['artwork']
+    urls = []
+
+    def download(url):
+        urls.append(url)
+        if url.endswith('back-1200'):
+            no_cover()
+        return png(), 'image/png'
+
+    monkeypatch.setattr(artwork, 'download', download)
+    assert client.get(f'/api/albums/{ALBUM}/artwork/back').status_code == 200
+    assert urls == [f'https://coverartarchive.org/release/{RELEASE}/back-1200',
+                    f'https://coverartarchive.org/release/{RELEASE}/back-500']
+
+
+def test_missing_back_does_not_cache_store_preview(application, client, monkeypatch):
+    artwork = application.extensions['artwork']
+    store = application.extensions['store']
+    monkeypatch.setattr(artwork, 'download', lambda url: no_cover())
+    assert client.get(f'/api/albums/{ALBUM}/artwork/back').status_code == 404
+    assert not store.cache_get('artwork:' + ALBUM + ':back')
+    with store.cache_connect() as db:
+        assert not db.execute("SELECT key FROM cache WHERE key LIKE ?",
+                              ('artwork:' + ALBUM + ':back%',)).fetchone()
+
+
 def test_back_cover_uses_same_account_and_size_guards(application, client, monkeypatch):
     path = f'/api/albums/{ALBUM}/artwork/back'
     assert client.get(path + '?size=999').status_code == 400
