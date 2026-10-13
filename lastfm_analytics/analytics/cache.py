@@ -32,7 +32,8 @@ class ViewCache:
         self.threads = []
 
     def key(self, name, args):
-        keys = ["period", "source", "mode", "entity", "id"]
+        keys = (["source", "as_of", "artist"] if name == "musical-eras"
+                else ["period", "source", "mode", "entity", "id"])
         if args.get("period", "all") == "custom":
             keys += ["start", "end"]
         if name == "rankings":

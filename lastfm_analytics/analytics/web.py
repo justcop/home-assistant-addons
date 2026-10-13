@@ -24,6 +24,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from . import __version__, insights
 from .cache import ViewCache
+from . import eras
 from .review import review
 from .grouping import normalise
 from .db import Database
@@ -203,6 +204,9 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
             ),
             "rankings": calculate_rankings,
             "release-years": lambda db, args: insights.release_year_analysis(
+                db, args, config["timezone"]
+            ),
+            "musical-eras": lambda db, args: eras.analyse(
                 db, args, config["timezone"]
             ),
         },
@@ -513,6 +517,10 @@ self.addEventListener('fetch', event => {
         result = view_cache.get(db, "release-years", dict(request.args))
         result["lookup"] = release_worker.status(db)
         return cached_response(result)
+
+    @app.get("/api/musical-eras")
+    def musical_eras():
+        return cached_response(view_cache.get(db_for_request(), "musical-eras", dict(request.args)))
 
     @app.get("/api/history")
     def history():
