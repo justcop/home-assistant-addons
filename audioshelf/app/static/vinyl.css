@@ -198,3 +198,9 @@
 .variant-layout{display:flex;gap:12px;align-items:flex-start;border:1px solid var(--line);padding:12px;margin:10px 0;border-radius:4px;cursor:pointer}
 .variant-layout input{margin-top:5px}
 .variant-layout small{display:block;color:var(--muted);margin-top:6px;line-height:1.45}
+
+/* Only the full-size sleeve in album view flips; record-rack covers still navigate. */
+[data-interface=vinyl] .listening-sleeve .album-flip{width:100%;max-width:520px;margin:auto}
+[data-interface=vinyl] .listening-sleeve .album-flip-face{box-shadow:3px 3px 0 var(--line),7px 8px 16px #0002}
+[data-interface=vinyl] .listening-sleeve .album-flip:hover:not(:disabled){filter:brightness(1.02)}
+@media(max-width:700px){[data-interface=vinyl] .listening-sleeve .album-flip{width:calc(100% - 20px);max-width:420px}}
