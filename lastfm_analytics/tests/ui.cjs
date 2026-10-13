@@ -138,6 +138,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
     const response = await route.fetch();
     const detail = await response.json();
     detail.artist_logo = demoArtistLogo;
+    detail.artist_logo_trim = {image_width:192,image_height:192,x:15,y:60,width:160,height:75};
     detail.artist_photo = demoArtistPhoto;
     detail.artwork = null;
     detail.artwork_pending = false;
@@ -167,7 +168,18 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   assert.equal(await page.locator(".artist-actions .button").count() >= 1, true);
   finishLogo();
   await page.locator("#artist-logo-slot.logo-ready").waitFor();
+  await page.locator("#artist-logo-slot .artist-logo-crop").waitFor();
   assert.equal(await page.locator("#artist-logo-slot .artist-title-fallback").isVisible(), false);
+  const croppedArtist = await page.locator('#artist-logo-slot .artist-logo-crop').evaluate(node => {
+    const b = node.getBoundingClientRect(), img = node.querySelector('img').getBoundingClientRect();
+    return {height:b.height,width:b.width,imgHeight:img.height,top:img.top,clipTop:b.top,
+      overflow:getComputedStyle(node).overflow,ratio:b.width/b.height};
+  });
+  assert.ok(croppedArtist.height > 0 && croppedArtist.height <= 171);
+  assert.ok(croppedArtist.imgHeight > croppedArtist.height * 2, 'Transparent padding is cropped');
+  assert.ok(croppedArtist.top < croppedArtist.clipTop, 'Original art is offset to the visible pixels');
+  assert.ok(Math.abs(croppedArtist.ratio - 160/75) < .05, 'Alpha bounding box controls the layout');
+  assert.equal(croppedArtist.overflow,'hidden');
   assert.equal(await page.locator("#artist-logo-slot img.artist-logo").isVisible(), true);
   await page.setViewportSize({width:390,height:844});
   assert.equal(await page.locator("#close-detail").isVisible(), false);
@@ -538,6 +550,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
     data.artwork = {url:'https://lastfm.freetls.fastly.net/i/u/174s/album-cover-fixture.png',
       artist:'The Beatles',album:'Abbey Road'};
     data.artist_logo = 'https://lastfm.freetls.fastly.net/i/u/174s/album-artist-logo-fixture.png';
+    data.artist_logo_trim = {image_width:192,image_height:192,x:15,y:60,width:160,height:75};
     data.artwork_pending = false;
     await route.fulfill({response,json:data});
   });
@@ -571,6 +584,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   });
   assert.equal(await page.locator('.album-detail-actions a').count(), 3);
   await page.locator('#artist-logo-slot.logo-ready').waitFor();
+  assert.equal(await page.locator('.album-detail-titles .artist-logo-crop').isVisible(), true);
   assert.equal(await page.locator('.album-detail-titles .artist-title-fallback').isVisible(), false);
   assert.match(await page.locator('.album-detail-titles .artist-logo').getAttribute('alt'), /The Beatles/);
   assert.equal(await page.locator('.album-detail-titles .song-detail-name').count(), 0);
@@ -591,10 +605,11 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
       const cover = box('.album-detail-cover');
       const info = box('.album-detail-info');
       const titles = box('.album-detail-titles');
+      const logoCrop = box('.album-detail-titles .artist-logo-crop');
       const actions = box('.album-detail-actions');
       return {imgWidth:img.width,imgHeight:img.height,coverWidth:cover.width,
         coverBottom:cover.bottom,infoTop:info.top,titleRight:titles.right,
-        actionsLeft:actions.left,
+        logoCropWidth:logoCrop.width,logoCropHeight:logoCrop.height,actionsLeft:actions.left,
         buttonRights:[...document.querySelectorAll('.album-detail-actions a')]
           .map(a=>a.getBoundingClientRect().right)};
     });
@@ -602,6 +617,8 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
     assert.ok(Math.abs(layout.imgWidth-layout.coverWidth) < 2, 'Cover fills its container');
     assert.ok(layout.infoTop >= layout.coverBottom - 1, 'Artist and buttons sit below cover');
     assert.ok(layout.titleRight <= layout.actionsLeft + 2, 'Logo stays left of buttons');
+    assert.ok(layout.logoCropHeight > 0 && layout.logoCropHeight <= (width <= 620 ? 61 : 77),
+      'Cropped artist logo respects compact panel height');
     assert.ok(layout.buttonRights.every(right => right <= width + 1), 'Buttons stay on screen');
     if (width <= 620) {
       const expected = Math.min((width - 36) * .72, 290);

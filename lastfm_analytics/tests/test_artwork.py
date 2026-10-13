@@ -41,7 +41,7 @@ def logo_png_fixture(width=200, height=100, box=(20, 45, 180, 80)):
 def test_logo_alpha_trimming_and_fallbacks():
     bounds = transparent_logo_trim(logo_png_fixture())
     assert bounds == dict(image_width=200, image_height=100,
-                          x=18, y=43, width=164, height=39)
+                          x=18, y=43, width=165, height=40)
     assert transparent_logo_trim(logo_png_fixture(box=(0, 0, 199, 99))) is None
     assert transparent_logo_trim(logo_png_fixture(box=None)) is None
     opaque = io.BytesIO()

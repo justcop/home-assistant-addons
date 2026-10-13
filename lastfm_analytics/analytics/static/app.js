@@ -703,7 +703,7 @@ function artistLogoHTML(detail, kind = "artist") {
   // Clip an original CDN image in the browser using only its saved alpha
   // bounds. We do not download or serve a second copy of the actual image.
   const {iw,ih,x,y,w,h} = crop;
-  const style = `--logo-aspect:${w} / ${h};--logo-scale:${iw / w};--logo-left:${-100*x/w}%;--logo-top:${-100*y/h}%`;
+  const style = `--logo-aspect:${w} / ${h};--logo-ratio:${w/h};--logo-scale:${iw / w};--logo-left:${-100*x/w}%;--logo-top:${-100*y/h}%`;
   return `${fallback}<span class="artist-logo-crop" style="${style}">${img}</span>`;
 }
 function albumCoverUrl(source) {
