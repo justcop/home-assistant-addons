@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-14T12:40:00+01:00 (Europe/London).
+Reviewed: 2026-10-14T12:44:00+01:00 (Europe/London).
 
-Reviewed the expanded Android integration test: the new asynchronous CacheStorage mock checks successful offline snapshot publication, preserved previous data after an interrupted download, generation cleanup, and omission of Spotify connection fields. Existing native origin, wake and forbidden-route assertions remain unchanged. The browser and Android acceptance tests must still pass in CI; real-phone WebView behaviour requires device verification.
+Reviewed the isolated Android offline regression after CI exposed a missing test fixture variable. The test now supplies the same offlineSaving/offlineReadOnly flags declared by the real web page, while asserting interrupted refreshes preserve prior snapshots, complete refreshes replace old snapshots, and saved status excludes Spotify connection secrets. Existing playback/browser tests remain unchanged.
 
-<!-- inventory: {"reviewed_at":"2026-10-14T12:40:00+01:00","review_note":"Reviewed the expanded Android integration test: the new asynchronous CacheStorage mock checks successful offline snapshot publication, preserved previous data after an interrupted download, generation cleanup, and omission of Spotify connection fields. Existing native origin, wake and forbidden-route assertions remain unchanged. The browser and Android acceptance tests must still pass in CI; real-phone WebView behaviour requires device verification.","source_sha256":"7fa9ae460d72ae2c549d52f96241987b4a699b428d6ea1748f564256e5daa465"} -->
+<!-- inventory: {"reviewed_at":"2026-10-14T12:44:00+01:00","review_note":"Reviewed the isolated Android offline regression after CI exposed a missing test fixture variable. The test now supplies the same offlineSaving/offlineReadOnly flags declared by the real web page, while asserting interrupted refreshes preserve prior snapshots, complete refreshes replace old snapshots, and saved status excludes Spotify connection secrets. Existing playback/browser tests remain unchanged.","source_sha256":"c038004b780cab113694fd142f8236d0cd976468d7472f95a40adc2ff0b2a024"} -->
 
 ## Backend cases (340)
 
