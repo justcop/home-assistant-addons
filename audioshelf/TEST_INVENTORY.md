@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-14T11:00:00+01:00 (Europe/London).
+Reviewed: 2026-10-14T12:40:00+01:00 (Europe/London).
 
-Reviewed updated Playwright album-cover assertions after the previously released front/back sleeve flip, selecting the front image explicitly and verifying its requested thumbnail size. Integrated Android bridge and offline route tests remain present and included in CI, with the legacy PWA helper fallback independently exercised.
+Reviewed the expanded Android integration test: the new asynchronous CacheStorage mock checks successful offline snapshot publication, preserved previous data after an interrupted download, generation cleanup, and omission of Spotify connection fields. Existing native origin, wake and forbidden-route assertions remain unchanged. The browser and Android acceptance tests must still pass in CI; real-phone WebView behaviour requires device verification.
 
-<!-- inventory: {"reviewed_at":"2026-10-14T11:00:00+01:00","review_note":"Reviewed updated Playwright album-cover assertions after the previously released front/back sleeve flip, selecting the front image explicitly and verifying its requested thumbnail size. Integrated Android bridge and offline route tests remain present and included in CI, with the legacy PWA helper fallback independently exercised.","source_sha256":"b4a85f1c7bcf4782a52a842395ee625518a63552fca6500431349af46737414e"} -->
+<!-- inventory: {"reviewed_at":"2026-10-14T12:40:00+01:00","review_note":"Reviewed the expanded Android integration test: the new asynchronous CacheStorage mock checks successful offline snapshot publication, preserved previous data after an interrupted download, generation cleanup, and omission of Spotify connection fields. Existing native origin, wake and forbidden-route assertions remain unchanged. The browser and Android acceptance tests must still pass in CI; real-phone WebView behaviour requires device verification.","source_sha256":"7fa9ae460d72ae2c549d52f96241987b4a699b428d6ea1748f564256e5daa465"} -->
 
 ## Backend cases (340)
 
