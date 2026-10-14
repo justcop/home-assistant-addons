@@ -42,4 +42,53 @@ for(const route of ['status','shelf','artists/'+('a'.repeat(36)),'albums/'+('f'.
   assert(cacheContext.offlineEligible(route),'Supported offline route '+route);
 for(const route of ['login','spotify/playback','search?q=beatles','albums/'+('a'.repeat(36))+'/diagnostics'])
   assert(!cacheContext.offlineEligible(route),'Never cache '+route);
-console.log('Integrated Android native wake and opt-in offline snapshot security checks passed');
+async function testAtomicOfflineRefresh(){
+  const saved=new Map(),blobs=new Map();
+  const storage={getItem:k=>saved.get(k)||null,setItem:(k,v)=>saved.set(k,String(v)),removeItem:k=>saved.delete(k)};
+  const cachesMock={
+    open:async name=>{if(!blobs.has(name))blobs.set(name,new Map());const entries=blobs.get(name);
+      return {put:async(k,v)=>entries.set(k,v.clone()),match:async k=>entries.get(k)?.clone()};},
+    keys:async()=>[...blobs.keys()],delete:async name=>blobs.delete(name)
+  };
+  const artist='a'.repeat(36),album='b'.repeat(36);
+  const shelf={artists:[{id:artist,name:'Artist'}],albums:[{id:album,title:'Album'}]};
+  let broken=false,next=0;
+  const context=vm.createContext({
+    document:{baseURI:'https://audioshelf.example/',querySelector:()=>null,documentElement:{classList:{add(){}}}},
+    window:{},localStorage:storage,caches:cachesMock,Response,toast:()=>{},
+    navigator:{},crypto:{randomUUID:()=>String(++next).padStart(32,'0')},
+    statusInfo:{authenticated:true,account:{id:'owner',username:'Owner'},
+      role:'owner',interface:'vinyl',shelf_style:'floating',theme:'record-store',
+      themes:[],release_filters:{},build:{version:'test'}},
+    api:async route=>{
+      if(broken&&route==='albums/'+album)throw Error('offline');
+      if(route==='shelf')return shelf;
+      if(route==='artists/'+artist)return {artist:shelf.artists[0],albums:shelf.albums};
+      if(route==='albums/'+album)return {id:album,title:'Album'};
+      throw Error(route);
+    }
+  });
+  vm.runInContext(offline,context);
+  await vm.runInContext('saveOfflineShelf()',context);
+  const first=vm.runInContext('offlineCacheName("owner")',context);
+  assert.equal(blobs.size,1);
+  vm.runInContext('offlineReadOnly=false',context);
+  broken=true;
+  await assert.rejects(vm.runInContext('saveOfflineShelf()',context),/Offline save interrupted/);
+  assert.equal(vm.runInContext('offlineCacheName("owner")',context),first);
+  assert.equal(blobs.size,1);
+  assert.equal((await (await context.offlineResponse('albums/'+album)).json()).title,'Album');
+  vm.runInContext('offlineReadOnly=false',context);
+  broken=false;
+  await vm.runInContext('saveOfflineShelf()',context);
+  assert.notEqual(vm.runInContext('offlineCacheName("owner")',context),first);
+  assert.equal(blobs.size,1);
+  const status=(await (await context.offlineResponse('status')).json());
+  assert.equal(status.offline_snapshot,true);
+  assert(!('spotify_client_id' in status));
+  await vm.runInContext('clearOfflineShelf()',context);
+  assert.equal(blobs.size,0);
+}
+testAtomicOfflineRefresh().then(()=>
+  console.log('Integrated Android native wake and atomic offline snapshot tests passed')
+).catch(error=>{console.error(error);process.exitCode=1;});

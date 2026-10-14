@@ -1,3 +1,8 @@
+# 0.6.30 — Atomic offline shelf refresh
+
+- Save a complete new offline shelf revision before activating it. Interrupted saves preserve the previous usable shelf instead of mixing old and new albums.
+- Keep only required display metadata in the offline snapshot, remove superseded data after success, and tolerate optional cover preload failures.
+
 # 0.6.29 — Integrated OAuth handoff and offline artwork
 
 - Keep Spotify account linking usable from Android's embedded WebView by opening OAuth in the system browser rather than depending on an unsupported popup.

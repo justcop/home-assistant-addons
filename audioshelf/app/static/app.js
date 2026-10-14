@@ -74,10 +74,16 @@ async function api(path, method='GET', body={}) {
  * Store only the current account's shelf/album/artist details. Never cache
  * credentials, Spotify API responses, searches, diagnostics, or mutations. */
 const OFFLINE_PREFIX='audioshelf-offline-shelf-v1-';
+const OFFLINE_REVISION_PREFIX='audioshelf-offline-revision:';
 function offlineEligible(path){return path==='status'||path==='shelf'||
   /^artists\/[0-9a-f-]{36}$/.test(path)||/^albums\/[0-9a-f-]{36}$/.test(path);}
 function offlineAccount(){try{return localStorage.getItem('audioshelf-offline-account');}catch{return null;}}
-function offlineCacheName(account){return OFFLINE_PREFIX+account;}
+function offlineRevisionKey(account){return OFFLINE_REVISION_PREFIX+account;}
+function offlineCacheName(account){
+  let revision;
+  try{revision=localStorage.getItem(offlineRevisionKey(account));}catch{}
+  return OFFLINE_PREFIX+account+(revision&&/^[a-f0-9]{32}$/.test(revision)?'-'+revision:'');
+}
 function offlineKey(path){return new URL('api/'+path,document.baseURI).href;}
 async function offlineResponse(path){
   const account=offlineAccount();
@@ -87,52 +93,82 @@ async function offlineResponse(path){
   offlineReadOnly=true;
   return response;
 }
-async function clearOfflineShelf(keep=null){
+async function clearOfflineShelf(keepCache=null){
   if(typeof caches!=='undefined')
-    await Promise.all((await caches.keys()).filter(k=>k.startsWith(OFFLINE_PREFIX)&&
-      (!keep||k!==offlineCacheName(keep))).map(k=>caches.delete(k)));
-  if(!keep){try{localStorage.removeItem('audioshelf-offline-account');}catch{}}
+    await Promise.all((await caches.keys()).filter(name=>name.startsWith(OFFLINE_PREFIX)&&
+      name!==keepCache).map(name=>caches.delete(name)));
+  if(!keepCache){
+    try{
+      const account=offlineAccount();
+      if(account)localStorage.removeItem(offlineRevisionKey(account));
+      localStorage.removeItem('audioshelf-offline-account');
+    }catch{}
+  }
 }
 async function saveOfflineShelf(){
   if(offlineSaving)return;
-  if(offlineReadOnly || !statusInfo.authenticated)throw new Error('Connect to AudioShelf before saving your offline shelf.');
-  if(typeof caches==='undefined')throw new Error('Offline storage is not supported on this device.');
+  if(offlineReadOnly||!statusInfo.authenticated)throw new Error('Connect to AudioShelf before saving your offline shelf.');
+  if(typeof caches==='undefined'||!crypto?.randomUUID)throw new Error('Offline storage is not supported on this device.');
   offlineSaving=true;
-  const account=statusInfo.account.id;
+  const account=statusInfo.account.id,revision=crypto.randomUUID().replace(/-/g,'');
+  const staged=OFFLINE_PREFIX+account+'-'+revision,revisionKey=offlineRevisionKey(account);
+  const oldAccount=offlineAccount(),oldRevision=localStorage.getItem(revisionKey);
   const line=document.querySelector('#offline-shelf-status');
   const setProgress=text=>{if(line?.isConnected)line.textContent=text;};
+  let published=false;
   try{
-    const shelf=await api('shelf');
-    const cache=await caches.open(offlineCacheName(account));
-    const status={...statusInfo,spotify_connected:false,spotify_configured:false,
-      preferred_device:null,offline_snapshot:true};
+    const shelf=await api('shelf'),cache=await caches.open(staged);
+    // Store only display metadata: never persist future server/session fields.
+    const status={authenticated:true,offline_snapshot:true,
+      account:{id:account,username:statusInfo.account.username},
+      role:statusInfo.role,interface:statusInfo.interface,shelf_style:statusInfo.shelf_style,
+      theme:statusInfo.theme,themes:statusInfo.themes,release_filters:statusInfo.release_filters,
+      show_skip_controls:false,spotify_connected:false,spotify_configured:false,
+      preferred_device:null,build:statusInfo.build};
     const put=async(path,data)=>cache.put(offlineKey(path),
       new Response(JSON.stringify(data),{headers:{'Content-Type':'application/json'}}));
-    // Put the status last: an incomplete download must never be considered
-    // a usable offline shelf when the app starts without a network.
     await put('shelf',shelf);
     const tasks=[...new Set(shelf.artists.map(a=>'artists/'+a.id)),
                  ...new Set(shelf.albums.map(a=>'albums/'+a.id))];
-    let cursor=0,completed=0;
-    await Promise.all(Array.from({length:Math.min(4,tasks.length)},async()=>{
-      while(cursor<tasks.length){
-        if(statusInfo.account?.id!==account)throw new Error('Account changed while saving offline data.');
+    let cursor=0,done=0,interrupted=false;
+    const outcomes=await Promise.allSettled(Array.from({length:Math.min(4,tasks.length)},async()=>{
+      while(cursor<tasks.length&&!interrupted){
+        if(statusInfo.account?.id!==account){interrupted=true;throw new Error('Account changed while saving offline data.');}
         const path=tasks[cursor++];
-        try{await put(path,await api(path));}catch(error){throw new Error('Offline save interrupted at '+path+': '+error.message);}
-        setProgress('Saving album details: '+(++completed)+' of '+tasks.length+'…');
+        try{await put(path,await api(path));}
+        catch(error){interrupted=true;throw new Error('Offline save interrupted at '+path+': '+error.message);}
+        setProgress('Saving album details: '+(++done)+' of '+tasks.length+'…');
       }
     }));
+    const failure=outcomes.find(result=>result.status==='rejected');
+    if(failure)throw failure.reason;
+    // Only activate a fully downloaded revision; failed saves leave old data untouched.
     await put('status',status);
-    try{localStorage.setItem('audioshelf-offline-account',account);}catch{}
-    await clearOfflineShelf(account);
+    try{
+      localStorage.setItem(revisionKey,revision);
+      localStorage.setItem('audioshelf-offline-account',account);
+      published=true;
+    }catch{
+      if(oldRevision)localStorage.setItem(revisionKey,oldRevision);
+      else localStorage.removeItem(revisionKey);
+      if(oldAccount)localStorage.setItem('audioshelf-offline-account',oldAccount);
+      else localStorage.removeItem('audioshelf-offline-account');
+      throw new Error('Browser storage could not activate the downloaded shelf.');
+    }
+    await clearOfflineShelf(staged);
+    if(oldAccount&&oldAccount!==account){
+      try{localStorage.removeItem(offlineRevisionKey(oldAccount));}catch{}
+    }
     setProgress('Saved '+shelf.albums.length+' albums and '+shelf.artists.length+' artists for offline browsing.');
-    // Reuse the PWA's existing account-specific artwork thumbnail cache.
-    if(typeof navigator!=='undefined'&&navigator.serviceWorker?.controller){
+    if(navigator.serviceWorker?.controller){
       setProgress('Album details saved. Downloading cover thumbnails…');
-      await preloadShelfArtwork();
-      setProgress('Offline shelf saved. Covers are available where downloaded.');
+      try{await preloadShelfArtwork();setProgress('Offline shelf and covers saved.');}
+      catch{setProgress('Offline shelf saved; some covers were unavailable.');}
     }
     toast('Your shelf is saved for offline browsing on this device.');
+  }catch(error){
+    if(!published)await caches.delete(staged).catch(()=>{});
+    throw error;
   }finally{offlineSaving=false;}
 }
 function offlineShelfSection(){
