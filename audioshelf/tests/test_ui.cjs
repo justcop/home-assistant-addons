@@ -109,11 +109,14 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.locator('.album-title').click();
     await page.getByRole('heading',{name:'The Original Album',exact:true}).waitFor();
     assert.equal(await page.locator('.track-row').count(),2);
-    await page.locator('.cover').evaluate(image=>image.decode());
-    assert.equal(await page.locator('.cover').evaluate(async image=>{const bitmap=await createImageBitmap(await (await fetch(image.currentSrc)).blob());const width=bitmap.width;bitmap.close();return width;}),50);
-    assert((await page.locator('.cover').getAttribute('src')).startsWith('api/albums/'));
-    assert((await page.locator('.cover').getAttribute('srcset')).includes('640w'));
-    assert((await page.locator('.cover').evaluate(img=>img.currentSrc)).includes('size='));
+    // Sleeve flipping adds a lazy-loaded back-cover image. Check the front
+    // explicitly so the reverse scan cannot make image selectors ambiguous.
+    const frontCover=page.locator('.album-flip-front img.cover');
+    await frontCover.evaluate(image=>image.decode());
+    assert.equal(await frontCover.evaluate(async image=>{const bitmap=await createImageBitmap(await (await fetch(image.currentSrc)).blob());const width=bitmap.width;bitmap.close();return width;}),50);
+    assert((await frontCover.getAttribute('src')).startsWith('api/albums/'));
+    assert((await frontCover.getAttribute('src')).includes('size=640'));
+    assert((await frontCover.evaluate(img=>img.currentSrc)).includes('size='));
     await page.getByRole('button',{name:'Album settings'}).click();
     const cover=await (await fixtureFetch(base+'/api/albums/f5093c06-23e3-4f01-aeaa-40f72885ee3a/artwork')).arrayBuffer();
     await page.getByLabel('Choose album cover').setInputFiles({name:'cover.png',mimeType:'image/png',buffer:Buffer.from(cover)});
