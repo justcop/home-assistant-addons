@@ -16,11 +16,13 @@ final class ShelfShortcuts {
         if(manager==null)return;
         ShortcutInfo shelf=new ShortcutInfo.Builder(context,"shelf")
             .setShortLabel("My shelf").setIcon(Icon.createWithResource(context,R.mipmap.ic_launcher))
-            .setIntent(new Intent(context,ShelfActivity.class).setAction(ShelfActivity.ACTION_SHELF))
+            .setIntent(new Intent(context,ShelfActivity.class).setAction(ShelfActivity.ACTION_SHELF)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP))
             .build();
         ShortcutInfo playing=new ShortcutInfo.Builder(context,"playing")
             .setShortLabel("Now Playing").setIcon(Icon.createWithResource(context,R.mipmap.ic_launcher))
-            .setIntent(new Intent(context,ShelfActivity.class).setAction(ShelfActivity.ACTION_NOW_PLAYING))
+            .setIntent(new Intent(context,ShelfActivity.class).setAction(ShelfActivity.ACTION_NOW_PLAYING)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP))
             .build();
         manager.setDynamicShortcuts(Arrays.asList(shelf,playing));
     }

@@ -1,3 +1,11 @@
+# 0.2.2 — Integrated Android usability
+
+- Launch integrated mode in its own Android task so the app remains in Recents, while the transient companion stays hidden.
+- Expose the existing verified APK updater in the integrated menu, including permission and installer return handling.
+- Allow Spotify pairing/reconnection without turning off integrated mode.
+- Refresh Now Playing after launching through its shortcut and reuse the integrated task for notification shortcuts.
+- Retain existing server-owned canonical Play and companion fallback.
+
 # 0.2.1 — Keep integrated AudioShelf in Android Recents
 
 - Give the integrated WebView its own normal Android task so the full AudioShelf application remains in Recents; keep the original transient Spotify companion excluded from Recents.

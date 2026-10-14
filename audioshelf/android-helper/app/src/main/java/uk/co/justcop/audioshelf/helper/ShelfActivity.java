@@ -51,6 +51,8 @@ public final class ShelfActivity extends Activity {
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private WebView web;
     private TextView options;
+    private TextView updaterStatus;
+    private HelperUpdater updater;
     private String trustedOrigin;
     private SpotifyAppRemote remote;
     private int sequence;
@@ -103,6 +105,8 @@ public final class ShelfActivity extends Activity {
             }
             @Override public void onPageFinished(WebView view, String url) {
                 loaded = sameOrigin(Uri.parse(url));
+                if (loaded && ACTION_NOW_PLAYING.equals(getIntent().getAction()))
+                    view.evaluateJavascript("window.dispatchEvent(new CustomEvent(\'audioshelf-native-playback\'));", null);
             }
         });
         WebViewCompat.addWebMessageListener(web, "AudioShelfAndroid", Collections.singleton(trustedOrigin),
@@ -130,6 +134,10 @@ public final class ShelfActivity extends Activity {
         button.rightMargin = dp(4);
         root.addView(options,button);
         setContentView(root);
+        updaterStatus = new TextView(this);
+        updaterStatus.setPadding(dp(20), dp(12), dp(20), dp(16));
+        updaterStatus.setText("Check for Android updates");
+        updater = new HelperUpdater(this, updaterStatus);
         SpotifyMediaListener.attach(this);
         ShelfShortcuts.install(this);
         web.loadUrl(trustedOrigin + (ACTION_NOW_PLAYING.equals(getIntent().getAction()) ? "/#shelf" : "/#shelf"));
@@ -235,12 +243,17 @@ public final class ShelfActivity extends Activity {
         PopupMenu menu=new PopupMenu(this,options);
         boolean enabled=getSharedPreferences(PREFS,MODE_PRIVATE).getBoolean("playback_notifications",false);
         menu.getMenu().add("Refresh AudioShelf");
+        menu.getMenu().add("Check for Android updates");
+        menu.getMenu().add("Pair or reconnect Spotify");
         menu.getMenu().add("Enable Spotify playback awareness…");
         menu.getMenu().add(enabled?"Disable playback notifications":"Enable playback notifications");
         menu.getMenu().add("Use companion mode");
         menu.setOnMenuItemClickListener(item -> {
             String choice=String.valueOf(item.getTitle());
             if(choice.equals("Refresh AudioShelf")) web.reload();
+            else if(choice.equals("Check for Android updates")) showUpdater();
+            else if(choice.equals("Pair or reconnect Spotify"))
+                startActivity(new Intent(this, MainActivity.class).putExtra("force_companion", true));
             else if(choice.startsWith("Enable Spotify playback awareness")) openMediaPermission();
             else if(choice.contains("playback notifications")) changeNotifications(!enabled);
             else if(choice.equals("Use companion mode")) {
@@ -251,6 +264,18 @@ public final class ShelfActivity extends Activity {
         });
         menu.show();
     }
+    private void showUpdater() {
+        if (updater == null || updaterStatus == null) return;
+        if (updaterStatus.getParent() instanceof ViewGroup)
+            ((ViewGroup) updaterStatus.getParent()).removeView(updaterStatus);
+        new AlertDialog.Builder(this)
+            .setTitle("AudioShelf Android update")
+            .setView(updaterStatus)
+            .setPositiveButton("Close", null)
+            .show();
+        updater.check();
+    }
+
     private void changeNotifications(boolean enabled) {
         if(enabled && Build.VERSION.SDK_INT>=33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED){
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},19);
@@ -263,6 +288,14 @@ public final class ShelfActivity extends Activity {
     @Override public void onRequestPermissionsResult(int request,String[] names,int[] results){
         super.onRequestPermissionsResult(request,names,results);
         if(request==19 && results.length>0 && results[0]==PackageManager.PERMISSION_GRANTED) changeNotifications(true);
+    }
+    @Override public void onWindowFocusChanged(boolean focused) {
+        super.onWindowFocusChanged(focused);
+        if (focused && updater != null) updater.onVisible();
+    }
+    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (updater != null) updater.activityResult(requestCode);
     }
     @Override public void onBackPressed() {
         if(web!=null && web.canGoBack())web.goBack();
@@ -277,6 +310,7 @@ public final class ShelfActivity extends Activity {
     }
     @Override protected void onDestroy() {
         stopWake();SpotifyMediaListener.detach(this);
+        if(updater != null) updater.close();
         executor.shutdownNow();
         if(web!=null){web.destroy();web=null;}
         super.onDestroy();

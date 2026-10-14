@@ -78,7 +78,8 @@ public final class SpotifyMediaListener extends NotificationListenerService {
         NotificationManager notifications=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
         if(Build.VERSION.SDK_INT>=26)notifications.createNotificationChannel(
             new NotificationChannel(CHANNEL,"AudioShelf playback",NotificationManager.IMPORTANCE_LOW));
-        Intent intent=new Intent(this,ShelfActivity.class).setAction(ShelfActivity.ACTION_NOW_PLAYING);
+        Intent intent=new Intent(this,ShelfActivity.class).setAction(ShelfActivity.ACTION_NOW_PLAYING)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent pending=PendingIntent.getActivity(this,44,intent,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
         Notification.Builder builder=Build.VERSION.SDK_INT>=26?new Notification.Builder(this,CHANNEL):new Notification.Builder(this);
         builder.setSmallIcon(R.mipmap.ic_launcher).setContentTitle(title==null?"Spotify playing":title)

@@ -65,8 +65,8 @@ public final class MainActivity extends Activity {
         super.onCreate(state);
         diagnosticStartedAt = SystemClock.elapsedRealtime();
         Uri data = getIntent().getData();
-        if (data == null && getPreferences(MODE_PRIVATE).getBoolean("integrated_mode", false)) {
-            startActivity(new Intent(this, ShelfActivity.class));
+        if (data == null && !getIntent().getBooleanExtra("force_companion", false) && getPreferences(MODE_PRIVATE).getBoolean("integrated_mode", false)) {
+            startActivity(new Intent(this, ShelfActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP));
             finish();
             return;
         }
@@ -86,7 +86,7 @@ public final class MainActivity extends Activity {
                     return;
                 }
                 getPreferences(MODE_PRIVATE).edit().putBoolean("integrated_mode",true).apply();
-                startActivity(new Intent(this, ShelfActivity.class));
+                startActivity(new Intent(this, ShelfActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP));
                 finish();
             });
         message = screen.message;
