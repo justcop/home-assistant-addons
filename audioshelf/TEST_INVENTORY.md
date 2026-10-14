@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-11T15:04:00+01:00 (Europe/London).
+Reviewed: 2026-10-14T10:48:00+01:00 (Europe/London).
 
-Reviewed the regression suite for two-release page requests, cached retry/resume, automatic browser retry and complete multi-page scans; verified that both different printed titles and different Spotify recordings are handled independently, and that clearly incompatible 36-track editions skip costly MusicBrainz recording lookups. Updated tests account for country-priority sorting across page boundaries. The retry browser check clears a previously completed tab scan so it actually exercises the first-request proxy failure. Existing full-track verification and account separation remain covered.
+Reviewed the added Android integration and offline-snapshot smoke tests: origin-restricted bridge, Spotify-only listener, no native Play commands, canonical account/job handoff, and read-only allowlisted offline endpoints. Existing backend cases remain unchanged. Browser-level and Android tests still require CI and real-device follow-up; storage, permissions and WebView compatibility require device testing.
 
-<!-- inventory: {"reviewed_at":"2026-10-11T15:04:00+01:00","review_note":"Reviewed the regression suite for two-release page requests, cached retry/resume, automatic browser retry and complete multi-page scans; verified that both different printed titles and different Spotify recordings are handled independently, and that clearly incompatible 36-track editions skip costly MusicBrainz recording lookups. Updated tests account for country-priority sorting across page boundaries. The retry browser check clears a previously completed tab scan so it actually exercises the first-request proxy failure. Existing full-track verification and account separation remain covered.","source_sha256":"98e44e53e78c6bb46115d289fe5615efc6286d94a88c710d6ca0611ebd7e3568"} -->
+<!-- inventory: {"reviewed_at":"2026-10-14T10:48:00+01:00","review_note":"Reviewed the added Android integration and offline-snapshot smoke tests: origin-restricted bridge, Spotify-only listener, no native Play commands, canonical account/job handoff, and read-only allowlisted offline endpoints. Existing backend cases remain unchanged. Browser-level and Android tests still require CI and real-device follow-up; storage, permissions and WebView compatibility require device testing.","source_sha256":"eb8a66bc5ee2f224855b8996bd24f2dac9bd1ee6c7cd575a2235cea6cf5a161d"} -->
 
 ## Backend cases (332)
 
