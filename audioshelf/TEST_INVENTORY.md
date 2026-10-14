@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-14T12:44:00+01:00 (Europe/London).
+Reviewed: 2026-10-14T12:49:00+01:00 (Europe/London).
 
-Reviewed the isolated Android offline regression after CI exposed a missing test fixture variable. The test now supplies the same offlineSaving/offlineReadOnly flags declared by the real web page, while asserting interrupted refreshes preserve prior snapshots, complete refreshes replace old snapshots, and saved status excludes Spotify connection secrets. Existing playback/browser tests remain unchanged.
+Reviewed the Android offline snapshot regression fixture's browser API globals. Node vm provides no URL object automatically, so the test now explicitly passes the standard URL/URLSearchParams APIs along with Response, localStorage, CacheStorage and offline flags; production browser code is unchanged. Tests continue to exercise atomic publication, failed-refresh rollback and Spotify metadata omission.
 
-<!-- inventory: {"reviewed_at":"2026-10-14T12:44:00+01:00","review_note":"Reviewed the isolated Android offline regression after CI exposed a missing test fixture variable. The test now supplies the same offlineSaving/offlineReadOnly flags declared by the real web page, while asserting interrupted refreshes preserve prior snapshots, complete refreshes replace old snapshots, and saved status excludes Spotify connection secrets. Existing playback/browser tests remain unchanged.","source_sha256":"c038004b780cab113694fd142f8236d0cd976468d7472f95a40adc2ff0b2a024"} -->
+<!-- inventory: {"reviewed_at":"2026-10-14T12:49:00+01:00","review_note":"Reviewed the Android offline snapshot regression fixture's browser API globals. Node vm provides no URL object automatically, so the test now explicitly passes the standard URL/URLSearchParams APIs along with Response, localStorage, CacheStorage and offline flags; production browser code is unchanged. Tests continue to exercise atomic publication, failed-refresh rollback and Spotify metadata omission.","source_sha256":"4cb8db840213b976980de0c6cb865ea2c0f175c96cdc94f15d008a9776fb97d4"} -->
 
 ## Backend cases (340)
 
