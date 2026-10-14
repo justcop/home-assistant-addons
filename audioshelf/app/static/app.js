@@ -44,15 +44,16 @@ async function api(path, method='GET', body={}) {
   let response;
   if(method!=='GET')pendingChanges++;
   if(offlineReadOnly && method!=='GET'){pendingChanges--;throw new Error('Offline shelf is read-only. Reconnect to make changes or play music.');}
-  try {response=await fetch(new URL('api/'+path,document.baseURI),options);}
-  catch {
-    response=method==='GET'?await offlineResponse(path):null;
-    if(!response)throw new Error('AudioShelf is offline. Connect to the server or open a previously saved shelf page.');
-  }
-  if(response.status>=500&&method==='GET'){
-    const saved=await offlineResponse(path);if(saved)response=saved;
-  }
-   finally{if(method!=='GET')pendingChanges--;}
+  try {
+    try {response=await fetch(new URL('api/'+path,document.baseURI),options);}
+    catch {
+      response=method==='GET'?await offlineResponse(path):null;
+      if(!response)throw new Error('AudioShelf is offline. Connect to the server or open a previously saved shelf page.');
+    }
+    if(response.status>=500&&method==='GET'){
+      const saved=await offlineResponse(path);if(saved)response=saved;
+    }
+  }finally{if(method!=='GET')pendingChanges--;}
   if(!response.ok){const error=await response.json().catch(()=>({error:'The request failed.'}));const failure=new Error(error.error);failure.status=response.status;if(error.error?.startsWith('The active account changed.'))window.location.reload();throw failure;}
   if(response.headers.get('Content-Type')?.includes('application/json')) {
     const result=await response.json();
