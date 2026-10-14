@@ -3,7 +3,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <queries><package android:name="com.spotify.music" /></queries>
-    <application android:label="AudioShelf Spotify Helper" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher"
+    <application android:label="AudioShelf" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher"
         android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:allowBackup="false" android:usesCleartextTraffic="false">
         <provider android:name="androidx.core.content.FileProvider"

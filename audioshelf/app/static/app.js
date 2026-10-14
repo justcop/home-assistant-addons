@@ -43,7 +43,7 @@ async function api(path, method='GET', body={}) {
   if(method!=='GET'){Object.assign(options.headers,{'Content-Type':'application/json','X-AudioShelf-Request':'1'});options.body=JSON.stringify(body);}
   let response;
   if(method!=='GET')pendingChanges++;
-  if(offlineReadOnly && method!=='GET')throw new Error('Offline shelf is read-only. Reconnect to make changes or play music.');
+  if(offlineReadOnly && method!=='GET'){pendingChanges--;throw new Error('Offline shelf is read-only. Reconnect to make changes or play music.');}
   try {response=await fetch(new URL('api/'+path,document.baseURI),options);}
   catch {
     response=method==='GET'?await offlineResponse(path):null;
@@ -52,10 +52,7 @@ async function api(path, method='GET', body={}) {
   if(response.status>=500&&method==='GET'){
     const saved=await offlineResponse(path);if(saved)response=saved;
   }
-  if(path==='status'&&response.ok&&!response.headers.has('X-AudioShelf-Offline-Local')){
-    // Cached snapshot responses have offline_snapshot set below.
-  }
-  finally{if(method!=='GET')pendingChanges--;}
+   finally{if(method!=='GET')pendingChanges--;}
   if(!response.ok){const error=await response.json().catch(()=>({error:'The request failed.'}));const failure=new Error(error.error);failure.status=response.status;if(error.error?.startsWith('The active account changed.'))window.location.reload();throw failure;}
   if(response.headers.get('Content-Type')?.includes('application/json')) {
     const result=await response.json();
@@ -146,6 +143,7 @@ function offlineShelfSection(){
 }
 function nativeAudioShelf(){return typeof window!=='undefined'&&
   !!window.AudioShelfAndroid?.postMessage;}
+if(nativeAudioShelf())document.documentElement.classList.add('native-android');
 function nativeWake(request){
   if(!nativeAudioShelf()||!request?.job||!request?.helperToken||
       !statusInfo.spotify_client_id||statusInfo.preferred_device?.type!=='Smartphone')return false;

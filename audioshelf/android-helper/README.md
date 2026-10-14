@@ -35,3 +35,13 @@ Optional notification-listener playback detection, legacy wake timing experiment
 This Gradle/Java Android application is built by `.github/workflows/audioshelf-android-helper.yml` on helper changes. The workflow runs JVM tests, Android lint, and the debug APK assembly, then publishes its **stably signed** update package on `main`. The same signing key must be used for subsequent releases.
 
 Key components: `MainActivity` (trusted wake and paired SDK orchestration); `HelperScreen` (branded setup/diagnostics UI); `SpotifyAuthGrant` (temporary Android 14+ foreground authorisation grant); `PlaybackStatusClient` (server job polling); `HelperUpdater` (verified, user-approved updates). No private login credentials are stored in APK source.
+
+## Integrated mode (Android 0.2.0)
+
+The installed app now offers **Use AudioShelf as full Android app** from its companion home screen. This is opt-in. It embeds the existing HTTPS AudioShelf site in a locked-down Android WebView; it does not ship an independent copy of AudioShelf or change the standalone PWA. Tap the native ⋮ icon to return to companion mode, refresh AudioShelf, enable the optional Spotify media-session listener or turn on playback notifications.
+
+The embedded page receives an origin-limited AndroidX WebMessageListener named `AudioShelfAndroid`. Only a trusted HTTPS main frame can request a short-lived, server-created playback job. The Android SDK stays connected until Spotify accepts Play or a bounded timeout expires; the server alone selects the device, sends the exact tracklist and verifies playback. An incoming external link cannot load into the trusted frame. Spotify authorisation remains explicitly user-initiated from companion mode.
+
+With notification access explicitly granted in Android settings, the listener reads only Spotify's media session. It signals the web UI to refresh its authoritative Now Playing data. If enabled separately, a low-priority playback notification opens the same AudioShelf app; no competing native Spotify transport controls are installed. Long-press the launcher icon for My shelf or Now Playing shortcuts.
+
+To browse offline, use **Settings → Offline shelf → Save my shelf offline** while connected. This reuses the existing artwork cache and stores a private, read-only, per-account snapshot of your shelf, artists and album tracklists in WebView or PWA storage. It does not cache Spotify API responses, tracks, authentication secrets or record-store searches. Changes/playback require a server connection. Sign out or use Clear offline shelf to erase the local snapshot. Android WebView and Chrome PWA have separate storage and require separate logins/snapshot downloads.

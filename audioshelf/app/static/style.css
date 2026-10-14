@@ -77,3 +77,6 @@ input[type="checkbox"],dialog input[type="checkbox"]{width:18px;height:18px;padd
 .album-hero .album-flip{max-width:330px}
 @media(max-width:600px){.album-hero .album-flip{width:72%;max-width:290px;margin:auto}}
 @media(prefers-reduced-motion:reduce){.album-flip-inner{transition:none}}
+
+/* Embedded Android keeps its native overflow button separate from web Settings. */
+.native-android .masthead{padding-right:max(58px,calc(env(safe-area-inset-right) + 58px))}

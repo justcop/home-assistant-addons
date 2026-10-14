@@ -1,3 +1,11 @@
+# 0.2.0 — Optional integrated AudioShelf Android app
+
+- Add opt-in full AudioShelf interface using a trusted HTTPS WebView. Keep the existing working companion mode unchanged as the default and accessible in one tap.
+- Wake Spotify App Remote within the same visible Android activity; no separate helper transition. Server still owns exact queue, preferred device, Play and confirmation.
+- Add opt-in Spotify media-session change detection to refresh Now Playing, optional low-priority playback notification, and launcher shortcuts to shelf / Now Playing.
+- Use account-partitioned, explicit offline snapshots supplied by the web app (AudioShelf server 0.6.28 or later). Album metadata and artwork remain browseable offline, without claiming Spotify audio is available.
+- Restrict the native web messaging interface to an approved HTTPS origin and main frame; preserve explicit pairing, diagnostics and signed updater.
+
 # 0.1.26
 
 - Keep the Spotify App Remote wake connection open after the selected phone appears on Spotify Connect. Returning and disconnecting at discovery could make the freshly awakened phone disappear while AudioShelf's server was still transferring the player or preparing the exact queue.
