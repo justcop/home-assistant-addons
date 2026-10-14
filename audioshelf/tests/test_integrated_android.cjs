@@ -56,7 +56,7 @@ async function testAtomicOfflineRefresh(){
   const context=vm.createContext({
     document:{baseURI:'https://audioshelf.example/',querySelector:()=>null,documentElement:{classList:{add(){}}}},
     window:{},localStorage:storage,caches:cachesMock,Response,toast:()=>{},
-    navigator:{},crypto:{randomUUID:()=>String(++next).padStart(32,'0')},
+    navigator:{},URL,URLSearchParams,crypto:{randomUUID:()=>String(++next).padStart(32,'0')},
     offlineReadOnly:false,offlineSaving:false,
     statusInfo:{authenticated:true,account:{id:'owner',username:'Owner'},
       role:'owner',interface:'vinyl',shelf_style:'floating',theme:'record-store',
