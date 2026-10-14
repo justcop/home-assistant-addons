@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-14T10:54:49+01:00 (Europe/London).
+Reviewed: 2026-10-14T10:57:00+01:00 (Europe/London).
 
-Reviewed integrated Android origin-scoped bridge smoke tests, short-lived server-owned Spotify jobs, unchanged standalone PWA behaviour and account-partitioned, read-only offline snapshot allowlist. Android JVM tests and lint passed in the build workflow. Reviewed legacy PWA harness native-bridge stubbing alongside the new Android integration smoke test. The server retains canonical Play control, and Android device operation still needs manual verification.
+Reviewed native Android integration smoke tests after bump to helper 0.2.1. The test validates origin restrictions, server-owned Spotify handoff, Spotify-only media event access and offline route allowlisting without hardcoding a patch version. Reviewed the separate legacy PWA fallback fixture. The 332 collected backend test names are unchanged, and Android build/lint passed; on-device use still needs manual verification.
 
-<!-- inventory: {"reviewed_at": "2026-10-14T10:54:49+01:00", "review_note": "Reviewed integrated Android origin-scoped bridge smoke tests, short-lived server-owned Spotify jobs, unchanged standalone PWA behaviour and account-partitioned, read-only offline snapshot allowlist. Android JVM tests and lint passed in the build workflow. Reviewed legacy PWA harness native-bridge stubbing alongside the new Android integration smoke test. The server retains canonical Play control, and Android device operation still needs manual verification.", "source_sha256": "80c13bed49926e538e419915788b71a6d7ac3f9afde3eba4f19d9f00c091640e"} -->
+<!-- inventory: {"reviewed_at":"2026-10-14T10:57:00+01:00","review_note":"Reviewed native Android integration smoke tests after bump to helper 0.2.1. The test validates origin restrictions, server-owned Spotify handoff, Spotify-only media event access and offline route allowlisting without hardcoding a patch version. Reviewed the separate legacy PWA fallback fixture. The 332 collected backend test names are unchanged, and Android build/lint passed; on-device use still needs manual verification.","source_sha256":"bc50cba74fa3e5be31f7870ea2de22973b9ed39281e98a56264f3d745d08e087"} -->
 
 ## Backend cases (340)
 
