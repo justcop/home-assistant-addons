@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-14T10:49:40+01:00 (Europe/London).
+Reviewed: 2026-10-14T10:54:49+01:00 (Europe/London).
 
-Reviewed integrated Android origin-scoped bridge smoke tests, short-lived server-owned Spotify jobs, unchanged standalone PWA behaviour and account-partitioned, read-only offline snapshot allowlist. Android JVM tests and lint passed in the build workflow. The new JavaScript smoke test is executed in AudioShelf CI; end-to-end device wake, notifications and offline storage still require manual device verification.
+Reviewed integrated Android origin-scoped bridge smoke tests, short-lived server-owned Spotify jobs, unchanged standalone PWA behaviour and account-partitioned, read-only offline snapshot allowlist. Android JVM tests and lint passed in the build workflow. Reviewed legacy PWA harness native-bridge stubbing alongside the new Android integration smoke test. The server retains canonical Play control, and Android device operation still needs manual verification.
 
-<!-- inventory: {"reviewed_at": "2026-10-14T10:49:40+01:00", "review_note": "Reviewed integrated Android origin-scoped bridge smoke tests, short-lived server-owned Spotify jobs, unchanged standalone PWA behaviour and account-partitioned, read-only offline snapshot allowlist. Android JVM tests and lint passed in the build workflow. The new JavaScript smoke test is executed in AudioShelf CI; end-to-end device wake, notifications and offline storage still require manual device verification.", "source_sha256": "0bf357b8064d32d818c36886d794775b40790d4f27fe9d918a3d88e0caa4a4aa"} -->
+<!-- inventory: {"reviewed_at": "2026-10-14T10:54:49+01:00", "review_note": "Reviewed integrated Android origin-scoped bridge smoke tests, short-lived server-owned Spotify jobs, unchanged standalone PWA behaviour and account-partitioned, read-only offline snapshot allowlist. Android JVM tests and lint passed in the build workflow. Reviewed legacy PWA harness native-bridge stubbing alongside the new Android integration smoke test. The server retains canonical Play control, and Android device operation still needs manual verification.", "source_sha256": "80c13bed49926e538e419915788b71a6d7ac3f9afde3eba4f19d9f00c091640e"} -->
 
 ## Backend cases (340)
 
