@@ -250,3 +250,9 @@ When Spotify is unavailable on your selected phone, AudioShelf shows the chosen 
 ## Android Spotify handover helper
 
 An optional [Android companion helper](android-helper/README.md) can wake Spotify and return to the installed web app when the preferred phone is unavailable. Normal playback stays in the web app. The helper includes a GitHub Actions APK build and Spotify developer setup instructions.
+
+### Android integrated mode and offline shelf (0.6.28)
+
+The standalone PWA remains complete and independent. The optional Android 0.2.1 companion can now open the same HTTPS AudioShelf interface in a WebView and wake Spotify without switching activities. The existing transient companion mode remains available. Android media-session awareness requires optional notification-listener approval; playback notifications can be enabled separately, with launcher shortcuts for quick access.
+
+On the PWA or Android WebView, **Settings → Offline shelf → Save my shelf offline** stores a read-only copy of your shelf, artist pages, album tracklists and available cover thumbnails on that device. Spotify controls, record-store searches and editing still require the server. The saved snapshot is local to that browser's storage and should be cleared on sign-out or when no longer needed.
