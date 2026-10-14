@@ -47,3 +47,5 @@ With notification access explicitly granted in Android settings, the listener re
 To browse offline, use **Settings → Offline shelf → Save my shelf offline** while connected. This reuses the existing artwork cache and stores a private, read-only, per-account snapshot of your shelf, artists and album tracklists in WebView or PWA storage. It does not cache Spotify API responses, tracks, authentication secrets or record-store searches. Changes/playback require a server connection. Sign out or use Clear offline shelf to erase the local snapshot. Android WebView and Chrome PWA have separate storage and require separate logins/snapshot downloads.
 
 In integrated mode 0.2.2, the Android ⋮ menu also provides Check for Android updates and Pair or reconnect Spotify. The embedded shelf runs in its own Android Recents task, independently of the transient helper activity.
+
+Integrated mode 0.2.3 also respects Android's status-bar, camera-cutout, gesture-navigation and keyboard insets, keeping web content below the system icons and above the gesture area.

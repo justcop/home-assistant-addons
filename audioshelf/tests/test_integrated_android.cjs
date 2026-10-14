@@ -8,9 +8,20 @@ const android=fs.readFileSync(path.join(directory,'android-helper/app/src/main/j
 const manifest=fs.readFileSync(path.join(directory,'android-helper/app/src/main/AndroidManifest.xml'),'utf8');
 const gradle=fs.readFileSync(path.join(directory,'android-helper/app/build.gradle'),'utf8');
 const media=fs.readFileSync(path.join(directory,'android-helper/app/src/main/java/uk/co/justcop/audioshelf/helper/SpotifyMediaListener.java'),'utf8');
+const workflow=fs.readFileSync(path.join(directory,'../.github/workflows/audioshelf-android-helper.yml'),'utf8');
 assert(android.includes('WebViewCompat.addWebMessageListener') && android.includes('Collections.singleton(trustedOrigin)'));
 assert(android.includes('!isMainFrame') && android.includes('sameOrigin(sourceOrigin)'));
 assert(android.includes('result.playAccepted') && android.includes('stopWake()'));
+assert(android.includes('WindowCompat.setDecorFitsSystemWindows(getWindow(), false)'));
+assert(android.includes('ViewCompat.setOnApplyWindowInsetsListener(root'));
+assert(android.includes('WindowInsetsCompat.Type.systemBars()') &&
+  android.includes('WindowInsetsCompat.Type.displayCutout()') &&
+  android.includes('WindowInsetsCompat.Type.ime()'));
+assert(android.includes('Math.max(safe.bottom, keyboard.bottom)'));
+assert(android.includes('return WindowInsetsCompat.CONSUMED'));
+assert(android.includes('ViewCompat.requestApplyInsets(root)'));
+assert(manifest.includes('android:windowSoftInputMode="adjustResize"'));
+assert(workflow.includes('audioshelf-spotify-helper-0.2.3'));
 assert(!android.includes('.play('),'No native SDK playback/queue command');
 assert(manifest.includes('android.permission.BIND_NOTIFICATION_LISTENER_SERVICE'));
 assert(media.includes('com.spotify.music') && media.includes('onPlaybackStateChanged'));

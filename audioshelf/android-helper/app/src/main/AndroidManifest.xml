@@ -27,7 +27,8 @@
         </activity>
         <activity android:name=".ShelfActivity" android:exported="false"
             android:taskAffinity="${applicationId}.shelf" android:excludeFromRecents="false"
-            android:launchMode="singleTask" android:configChanges="orientation|screenSize" />
+            android:launchMode="singleTask" android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize" />
         <service android:name=".SpotifyMediaListener" android:exported="true"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter>

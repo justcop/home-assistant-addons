@@ -1,3 +1,9 @@
+# 0.2.3 — Respect Android status and navigation bars
+
+- Keep the integrated WebView and native menu clear of the phone's status icons, cutout and gesture-navigation area on Android 15 and later.
+- Apply live system-bar, cutout and software keyboard insets to the native root, without double-offsetting the embedded website.
+- Preserve server-owned Spotify wake, notifications, offline shelf and the companion fallback unchanged.
+
 # 0.2.2 — Integrated Android usability
 
 - Launch integrated mode in its own Android task so the app remains in Recents, while the transient companion stays hidden.

@@ -28,6 +28,10 @@ import android.widget.FrameLayout;
 import android.widget.PopupMenu;
 import android.widget.TextView;
 import android.widget.Toast;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.webkit.JavaScriptReplyProxy;
 import androidx.webkit.WebMessageCompat;
 import androidx.webkit.WebViewCompat;
@@ -80,7 +84,19 @@ public final class ShelfActivity extends Activity {
             return;
         }
 
+        // Android 15+ targeting SDK 35 draws behind the system bars. Constrain
+        // both the website and native menu to the safe rectangle instead.
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(Color.rgb(250, 248, 245));
+        ViewCompat.setOnApplyWindowInsetsListener(root, (view, windowInsets) -> {
+            Insets safe = windowInsets.getInsets(
+                WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+            Insets keyboard = windowInsets.getInsets(WindowInsetsCompat.Type.ime());
+            view.setPadding(safe.left, safe.top, safe.right, Math.max(safe.bottom, keyboard.bottom));
+            // Insets already shrink the WebView, so children must not add them again.
+            return WindowInsetsCompat.CONSUMED;
+        });
         web = new WebView(this);
         web.setBackgroundColor(Color.rgb(250,248,245));
         web.getSettings().setJavaScriptEnabled(true);
@@ -134,6 +150,9 @@ public final class ShelfActivity extends Activity {
         button.rightMargin = dp(4);
         root.addView(options,button);
         setContentView(root);
+        WindowCompat.getInsetsController(getWindow(), root).setAppearanceLightStatusBars(true);
+        WindowCompat.getInsetsController(getWindow(), root).setAppearanceLightNavigationBars(true);
+        ViewCompat.requestApplyInsets(root);
         updaterStatus = new TextView(this);
         updaterStatus.setPadding(dp(20), dp(12), dp(20), dp(16));
         updaterStatus.setText("Check for Android updates");
