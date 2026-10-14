@@ -93,9 +93,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ "$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" != "$GITHUB_SHA" ]; then
-            echo 'A newer main commit exists; leaving the update channel unchanged.'
-            exit 0
+          # An unrelated commit can land while the APK builds. Only supersede
+          # this release if Android helper sources or this workflow changed.
+          newer_head="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          if [ "$newer_head" != "$GITHUB_SHA" ]; then
+            changed_paths="$(gh api --paginate "repos/$GITHUB_REPOSITORY/compare/$GITHUB_SHA...$newer_head" --jq '.files[].filename')"
+            if printf '%s\n' "$changed_paths" | grep -Eq '^(audioshelf/android-helper/|\.github/workflows/audioshelf-android-helper\.yml$)'; then
+              echo 'A newer Android helper or publishing workflow change exists; leaving the update channel unchanged.'
+              exit 0
+            fi
+            echo 'Newer commits affect unrelated files only; publishing this verified helper APK.'
           fi
           if ! gh release view audioshelf-helper >/dev/null 2>&1; then
             gh release create audioshelf-helper --target "$GITHUB_SHA" --title 'AudioShelf Android Helper' --latest=false --notes 'Signed Android helper updates. Open the installed helper to check for updates.'
