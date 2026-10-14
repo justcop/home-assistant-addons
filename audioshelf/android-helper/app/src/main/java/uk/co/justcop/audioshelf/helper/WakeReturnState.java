@@ -6,16 +6,11 @@ final class WakeReturnState {
     private boolean deadlineReached;
     private boolean jobFinished;
     private boolean playAccepted;
-    private boolean deviceReady;
 
     void onLocalPlayback() { jobFinished = true; }
 
     // Play was accepted, but the server continues independent playback verification.
     void onPlayAccepted() { playAccepted = true; }
-
-    // The server has found the uniquely selected Spotify Connect phone. It owns
-    // Play dispatch and verification, so the helper can close before Play is sent.
-    void onDeviceReady() { deviceReady = true; }
 
     void onDeadline() { deadlineReached = true; }
 
@@ -26,11 +21,11 @@ final class WakeReturnState {
     }
 
     boolean shouldReturn(boolean visible, boolean diagnosticHold) {
-        return (jobFinished || deviceReady || playAccepted || deadlineReached) && visible && !diagnosticHold;
+        return (jobFinished || playAccepted || deadlineReached) && visible && !diagnosticHold;
     }
 
     boolean shouldPoll(boolean diagnosticHold) {
         return !jobFinished && (!deadlineReached || diagnosticHold)
-            && (!(deviceReady || playAccepted) || diagnosticHold);
+            && (!playAccepted || diagnosticHold);
     }
 }

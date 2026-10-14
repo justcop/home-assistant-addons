@@ -1,3 +1,9 @@
+# 0.1.26
+
+- Keep the Spotify App Remote wake connection open after the selected phone appears on Spotify Connect. Returning and disconnecting at discovery could make the freshly awakened phone disappear while AudioShelf's server was still transferring the player or preparing the exact queue.
+- Return as soon as Spotify's Web API accepts Play, rather than on discovery. Continue verifying the selected phone and exact first track in AudioShelf; maintain the 20-second fallback, explicit pairing and diagnostic hold.
+- Keep polling the server while the phone is found but Play has not yet been accepted, and log the reason for the brief extra wait. Add return-policy and Android integration regression checks.
+
 # 0.1.25
 
 - Replace the accumulated troubleshooting screen with a unified AudioShelf-branded companion splash, displaying just the logo, connection progress and concise status while the normal Spotify wake runs.

@@ -220,29 +220,10 @@ public final class MainActivity extends Activity {
                     record("AudioShelf playback: " + result.state + ".");
                 }
                 if (result.state.equals("waiting")) {
-                    // The server has already selected exactly one unrestricted matching
-                    // Spotify Connect phone. Its worker continues Play and verification
-                    // independently of this helper and of the PWA foreground state.
-                    boolean selectedPhoneFound = "preparing_playback".equals(result.phase)
-                        || "sending_play".equals(result.phase);
-                    if (selectedPhoneFound) {
-                        wakeReturn.onDeviceReady();
-                        handler.removeCallbacks(returnDeadline);
-                        if (!deviceReadinessLogged) {
-                            deviceReadinessLogged = true;
-                            record(keepOpen
-                                ? "Selected phone found on Spotify Connect. Diagnostic hold continues through playback confirmation."
-                                : "Selected phone found on Spotify Connect. Returning before Play; AudioShelf's server continues playback independently.");
-                        }
-                        message.setText(keepOpen ? "Phone found. Watching server playback for diagnostics…" :
-                            "Phone found. Returning while AudioShelf starts playback…");
-                        if (keepOpen) {
-                            handler.postDelayed(pollStatus, 350);
-                        } else {
-                            returnWhenVisible();
-                        }
-                        return;
-                    }
+                    // Spotify Connect discovery is not a safe time to disconnect
+                    // App Remote: the server may still need to transfer the player,
+                    // disable shuffle/repeat and send Play. Wait for Play acceptance
+                    // before returning and tearing down the wake session.
                     if (result.playAccepted) {
                         wakeReturn.onPlayAccepted();
                         handler.removeCallbacks(returnDeadline);
@@ -257,6 +238,19 @@ public final class MainActivity extends Activity {
                         } else {
                             returnWhenVisible();
                         }
+                        return;
+                    }
+                    boolean selectedPhoneFound = "preparing_playback".equals(result.phase)
+                        || "sending_play".equals(result.phase);
+                    if (selectedPhoneFound) {
+                        if (!deviceReadinessLogged) {
+                            deviceReadinessLogged = true;
+                            record("Selected phone found on Spotify Connect. Holding Spotify SDK until Play is accepted.");
+                        }
+                        message.setText("Phone found. Waiting for Spotify to accept Play…");
+                        // Keep the 20-second independent deadline as a fallback.
+                        // Do not close the SDK or stop status polling on discovery.
+                        handler.postDelayed(pollStatus, 350);
                         return;
                     }
                     message.setText(sdkFailed ? "Spotify SDK session failed, but background waking may still work. Waiting for AudioShelf…" :

@@ -3,6 +3,22 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname,'../app/static/app.js'),'utf8');
+// Device discovery must not close the Android helper's Spotify SDK session
+// before the server has actually dispatched Play. Keep this separate from
+// PWA playback confirmation, which remains server owned.
+const helperActivitySource = fs.readFileSync(
+  path.join(__dirname,'../android-helper/app/src/main/java/uk/co/justcop/audioshelf/helper/MainActivity.java'),'utf8');
+const wakeWait = helperActivitySource.slice(
+  helperActivitySource.indexOf('if (result.state.equals("waiting"))'),
+  helperActivitySource.indexOf('message.setText(sdkFailed ?'));
+assert(wakeWait.indexOf('if (result.playAccepted)') < wakeWait.indexOf('boolean selectedPhoneFound'),
+  'Play-accepted return must have precedence over phone discovery');
+const discoveryBlock = wakeWait.slice(wakeWait.indexOf('if (selectedPhoneFound)'),wakeWait.lastIndexOf('message.setText("Phone found.'));
+assert(discoveryBlock.includes('handler.postDelayed(pollStatus, 350)'),
+  'Phone discovery must continue polling the playback job');
+assert(!discoveryBlock.includes('returnWhenVisible()') && !discoveryBlock.includes('removeCallbacks(returnDeadline)'),
+  'Phone discovery must not end the SDK session or remove the fallback deadline');
+
 // Exercise the shipped link builder, with browser globals for Android HTTPS.
 const functions = source.slice(source.indexOf('function browserPreferenceKey('),source.indexOf('let pendingPlayback='));
 const preferences = new Map([['audioshelf-android-helper','true']]);

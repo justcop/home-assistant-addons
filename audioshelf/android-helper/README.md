@@ -4,7 +4,7 @@ AudioShelf is the source of truth for albums, the selected Spotify Connect devic
 
 ## What the phone shows
 
-When AudioShelf launches the companion, it displays a quiet AudioShelf logo and a **Connecting to Spotify** status. It does not show a wall of logs or playback controls. It automatically returns to the AudioShelf PWA when the selected phone is ready, Spotify has accepted Play, or the job has completed; otherwise it returns after a bounded 20-second wake window. The server continues its job independently. The companion **never sends Play, changes device, or rewrites the tracklist**.
+When AudioShelf launches the companion, it displays a quiet AudioShelf logo and a **Connecting to Spotify** status. It does not show a wall of logs or playback controls. It automatically returns to the AudioShelf PWA once Spotify accepts Play or the job completes; otherwise it returns after a bounded 20-second wake window. Merely discovering the phone is not enough: keeping the Spotify App Remote connection alive during the server's playback preparation prevents an early-disconnect race. The server continues its job independently. The companion **never sends Play, changes device, or rewrites the tracklist**.
 
 Launch the companion directly from the Android app drawer to see setup status and a **Connect Spotify** or **Reconnect Spotify** button. Pairing is an ordinary setup action, not a diagnostic.
 

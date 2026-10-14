@@ -15,11 +15,12 @@ public class WakeReturnStateTest {
         assertFalse(state.shouldPoll(false));
     }
 
-    @Test public void discoveredPhoneReturnsBeforePlayIsDispatchedOrConfirmed() {
+    @Test public void discoveryDoesNotReturnBeforePlayAcceptance() {
         WakeReturnState state = new WakeReturnState();
-        state.onServerState("waiting");
+        state.onServerState("waiting"); // Includes phone discovery/preparation.
         assertFalse(state.shouldReturn(true, false));
-        state.onDeviceReady();
+        assertTrue(state.shouldPoll(false)); // Continue watching with SDK connected.
+        state.onPlayAccepted();
         assertTrue(state.shouldReturn(true, false));
         assertFalse(state.shouldPoll(false));
         assertFalse(state.shouldReturn(false, false));
@@ -28,7 +29,7 @@ public class WakeReturnStateTest {
 
     @Test public void diagnosticHoldCanWatchServerAfterDeviceDiscovery() {
         WakeReturnState state = new WakeReturnState();
-        state.onDeviceReady();
+        state.onServerState("waiting"); // Phone discovered but no accepted Play.
         assertFalse(state.shouldReturn(true, true));
         assertTrue(state.shouldPoll(true));
         state.onServerState("waiting");
