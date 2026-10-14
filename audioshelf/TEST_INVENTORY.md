@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-14T12:49:00+01:00 (Europe/London).
+Reviewed: 2026-10-14T18:23:00+01:00 (Europe/London).
 
-Reviewed the Android offline snapshot regression fixture's browser API globals. Node vm provides no URL object automatically, so the test now explicitly passes the standard URL/URLSearchParams APIs along with Response, localStorage, CacheStorage and offline flags; production browser code is unchanged. Tests continue to exercise atomic publication, failed-refresh rollback and Spotify metadata omission.
+Reviewed the Android integrated-WebView regression updates: status/navigation/display-cutout/IME safe insets, root-only padding to avoid double offsets, and APK workflow version assertion. No Python test case names changed. The check is structural; physical phone visual validation remains necessary.
 
-<!-- inventory: {"reviewed_at":"2026-10-14T12:49:00+01:00","review_note":"Reviewed the Android offline snapshot regression fixture's browser API globals. Node vm provides no URL object automatically, so the test now explicitly passes the standard URL/URLSearchParams APIs along with Response, localStorage, CacheStorage and offline flags; production browser code is unchanged. Tests continue to exercise atomic publication, failed-refresh rollback and Spotify metadata omission.","source_sha256":"4cb8db840213b976980de0c6cb865ea2c0f175c96cdc94f15d008a9776fb97d4"} -->
+<!-- inventory: {"reviewed_at":"2026-10-14T18:23:00+01:00","review_note":"Reviewed the Android integrated-WebView regression updates: status/navigation/display-cutout/IME safe insets, root-only padding to avoid double offsets, and APK workflow version assertion. No Python test case names changed. The check is structural; physical phone visual validation remains necessary.","source_sha256":"20976c168f4c4f88f3cb5b9124211e625ba2a807b768c56925a80b91a595ae1c"} -->
 
 ## Backend cases (340)
 
