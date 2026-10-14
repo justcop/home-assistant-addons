@@ -13,7 +13,7 @@ const wakeWait = helperActivitySource.slice(
   helperActivitySource.indexOf('message.setText(sdkFailed ?'));
 assert(wakeWait.indexOf('if (result.playAccepted)') < wakeWait.indexOf('boolean selectedPhoneFound'),
   'Play-accepted return must have precedence over phone discovery');
-const discoveryBlock = wakeWait.slice(wakeWait.indexOf('if (selectedPhoneFound)'),wakeWait.lastIndexOf('message.setText("Phone found.'));
+const discoveryBlock = wakeWait.slice(wakeWait.indexOf('if (selectedPhoneFound)'));
 assert(discoveryBlock.includes('handler.postDelayed(pollStatus, 350)'),
   'Phone discovery must continue polling the playback job');
 assert(!discoveryBlock.includes('returnWhenVisible()') && !discoveryBlock.includes('removeCallbacks(returnDeadline)'),
