@@ -2,6 +2,7 @@
 const content = document.querySelector('#content');
 const modal = document.querySelector('#modal');
 const modalContent = document.querySelector('#modal-content');
+let offlineReadOnly=false, offlineSaving=false;
 let statusInfo = {}, shelfView = 'artists', searchKind = 'artist', currentAlbum = null, routeGeneration = 0, toastTimer, artworkRevision = 0, releasePicker = null, settingsDirty = false;
 const loadedAssets = document.documentElement.dataset.assetVersion;
 let workerRegistration, pendingChanges = 0;
@@ -42,12 +43,118 @@ async function api(path, method='GET', body={}) {
   if(method!=='GET'){Object.assign(options.headers,{'Content-Type':'application/json','X-AudioShelf-Request':'1'});options.body=JSON.stringify(body);}
   let response;
   if(method!=='GET')pendingChanges++;
-  try {response=await fetch(new URL('api/'+path,document.baseURI),options);} catch {throw new Error('AudioShelf is offline. Check your connection and the add-on.');}
+  if(offlineReadOnly && method!=='GET')throw new Error('Offline shelf is read-only. Reconnect to make changes or play music.');
+  try {response=await fetch(new URL('api/'+path,document.baseURI),options);}
+  catch {
+    response=method==='GET'?await offlineResponse(path):null;
+    if(!response)throw new Error('AudioShelf is offline. Connect to the server or open a previously saved shelf page.');
+  }
+  if(response.status>=500&&method==='GET'){
+    const saved=await offlineResponse(path);if(saved)response=saved;
+  }
+  if(path==='status'&&response.ok&&!response.headers.has('X-AudioShelf-Offline-Local')){
+    // Cached snapshot responses have offline_snapshot set below.
+  }
   finally{if(method!=='GET')pendingChanges--;}
   if(!response.ok){const error=await response.json().catch(()=>({error:'The request failed.'}));const failure=new Error(error.error);failure.status=response.status;if(error.error?.startsWith('The active account changed.'))window.location.reload();throw failure;}
-  if(response.headers.get('Content-Type')?.includes('application/json')) {const result=await response.json();if(path==='status')noticeUpdate(result.build);return result;}
+  if(response.headers.get('Content-Type')?.includes('application/json')) {
+    const result=await response.json();
+    if(path==='status'){
+      offlineReadOnly=!!result.offline_snapshot;
+      if(!offlineReadOnly){
+        const previous=offlineAccount();
+        if(previous&&previous!==result.account?.id)await clearOfflineShelf();
+      }
+      noticeUpdate(result.build);
+    }
+    return result;
+  }
   return response;
 }
+
+/* Explicit, read-only offline shelf snapshot, shared by PWA and native WebView.
+ * Store only the current account's shelf/album/artist details. Never cache
+ * credentials, Spotify API responses, searches, diagnostics, or mutations. */
+const OFFLINE_PREFIX='audioshelf-offline-shelf-v1-';
+function offlineEligible(path){return path==='status'||path==='shelf'||
+  /^artists\/[0-9a-f-]{36}$/.test(path)||/^albums\/[0-9a-f-]{36}$/.test(path);}
+function offlineAccount(){try{return localStorage.getItem('audioshelf-offline-account');}catch{return null;}}
+function offlineCacheName(account){return OFFLINE_PREFIX+account;}
+function offlineKey(path){return new URL('api/'+path,document.baseURI).href;}
+async function offlineResponse(path){
+  const account=offlineAccount();
+  if(!account || !offlineEligible(path) || typeof caches==='undefined')return null;
+  const response=await (await caches.open(offlineCacheName(account))).match(offlineKey(path));
+  if(!response)return null;
+  offlineReadOnly=true;
+  return response;
+}
+async function clearOfflineShelf(keep=null){
+  if(typeof caches!=='undefined')
+    await Promise.all((await caches.keys()).filter(k=>k.startsWith(OFFLINE_PREFIX)&&
+      (!keep||k!==offlineCacheName(keep))).map(k=>caches.delete(k)));
+  if(!keep){try{localStorage.removeItem('audioshelf-offline-account');}catch{}}
+}
+async function saveOfflineShelf(){
+  if(offlineSaving)return;
+  if(offlineReadOnly || !statusInfo.authenticated)throw new Error('Connect to AudioShelf before saving your offline shelf.');
+  if(typeof caches==='undefined')throw new Error('Offline storage is not supported on this device.');
+  offlineSaving=true;
+  const account=statusInfo.account.id;
+  const line=document.querySelector('#offline-shelf-status');
+  const setProgress=text=>{if(line?.isConnected)line.textContent=text;};
+  try{
+    const shelf=await api('shelf');
+    const cache=await caches.open(offlineCacheName(account));
+    const status={...statusInfo,spotify_connected:false,spotify_configured:false,
+      preferred_device:null,offline_snapshot:true};
+    const put=async(path,data)=>cache.put(offlineKey(path),
+      new Response(JSON.stringify(data),{headers:{'Content-Type':'application/json'}}));
+    // Put the status last: an incomplete download must never be considered
+    // a usable offline shelf when the app starts without a network.
+    await put('shelf',shelf);
+    const tasks=[...new Set(shelf.artists.map(a=>'artists/'+a.id)),
+                 ...new Set(shelf.albums.map(a=>'albums/'+a.id))];
+    let cursor=0,completed=0;
+    await Promise.all(Array.from({length:Math.min(4,tasks.length)},async()=>{
+      while(cursor<tasks.length){
+        if(statusInfo.account?.id!==account)throw new Error('Account changed while saving offline data.');
+        const path=tasks[cursor++];
+        try{await put(path,await api(path));}catch(error){throw new Error('Offline save interrupted at '+path+': '+error.message);}
+        setProgress('Saving album details: '+(++completed)+' of '+tasks.length+'…');
+      }
+    }));
+    await put('status',status);
+    try{localStorage.setItem('audioshelf-offline-account',account);}catch{}
+    await clearOfflineShelf(account);
+    setProgress('Saved '+shelf.albums.length+' albums and '+shelf.artists.length+' artists for offline browsing.');
+    // Reuse the PWA's existing account-specific artwork thumbnail cache.
+    if(typeof navigator!=='undefined'&&navigator.serviceWorker?.controller){
+      setProgress('Album details saved. Downloading cover thumbnails…');
+      await preloadShelfArtwork();
+      setProgress('Offline shelf saved. Covers are available where downloaded.');
+    }
+    toast('Your shelf is saved for offline browsing on this device.');
+  }finally{offlineSaving=false;}
+}
+function offlineShelfSection(){
+  return '<section class="settings-block"><h2>Offline shelf</h2>'+
+    '<p>Save a read-only snapshot of your collected albums, artist pages and tracklists to browse without the server. Playback and record-store searches still need a connection. Album covers use the existing device artwork cache.</p>'+
+    '<p id="offline-shelf-status" role="status">Offline data remains on this device until cleared or the account changes. Anyone with access to this unlocked device may see the saved collection.</p>'+
+    '<div class="actions"><button class="secondary" data-action="offline-save">Save my shelf offline</button>'+
+    '<button class="quiet" data-action="offline-clear">Clear offline shelf</button></div></section>';
+}
+function nativeAudioShelf(){return typeof window!=='undefined'&&
+  !!window.AudioShelfAndroid?.postMessage;}
+function nativeWake(request){
+  if(!nativeAudioShelf()||!request?.job||!request?.helperToken||
+      !statusInfo.spotify_client_id||statusInfo.preferred_device?.type!=='Smartphone')return false;
+  window.AudioShelfAndroid.postMessage(JSON.stringify({type:'wake',
+    client_id:statusInfo.spotify_client_id,account_id:statusInfo.account.id,
+    job_id:request.job,helper_token:request.helperToken}));
+  return true;
+}
+
 /* Local, account-partitioned PWA cache. Separate from the server cache. */
 const ARTWORK_CACHE_PREFIX='audioshelf-artwork-v1-';
 let artworkCacheAccountSynced=undefined,artworkPreloadBusy=false;
@@ -230,15 +337,16 @@ let spotifyDevices=[];
 function browserPreferenceKey(name){return name+(statusInfo.account?.id && statusInfo.account.id!=='owner'?':'+statusInfo.account.id:'');}
 function shouldOpenSpotify(){try{return localStorage.getItem(browserPreferenceKey('audioshelf-open-spotify'))==='true';}catch{return false;}}
 function spotifyAppLink(){return 'spotify:';}
-function androidHelperEnabled(){try{return /Android/i.test(navigator.userAgent)&&localStorage.getItem(browserPreferenceKey('audioshelf-android-helper'))==='true';}catch{return false;}}
+function androidHelperEnabled(){if(nativeAudioShelf())return true;try{return /Android/i.test(navigator.userAgent)&&localStorage.getItem(browserPreferenceKey('audioshelf-android-helper'))==='true';}catch{return false;}}
 function androidHelperLink(automatic=false,request=null){
   const active=request||pendingPlayback;
-  if(!androidHelperEnabled()||!statusInfo.spotify_client_id||statusInfo.preferred_device?.type!=='Smartphone'||location.protocol!=='https:'||!active?.job||!active.helperToken)return null;
+  if(nativeAudioShelf()||!androidHelperEnabled()||!statusInfo.spotify_client_id||statusInfo.preferred_device?.type!=='Smartphone'||location.protocol!=='https:'||!active?.job||!active.helperToken)return null;
   const query=new URLSearchParams({client_id:statusInfo.spotify_client_id,origin:location.origin,return_url:location.href,account_id:statusInfo.account.id,job_id:active.job,helper_token:active.helperToken});
   return `intent://wake?${query}#Intent;scheme=audioshelf-helper;package=uk.co.justcop.audioshelf.helper;${automatic?'':`S.browser_fallback_url=${encodeURIComponent(location.href)};`}end`;
 }
 function wakePlaybackHelper(request){
   if(pendingPlayback!==request||request.generation!==routeGeneration||!request.job||request.helperLaunched)return false;
+  if(nativeWake(request)){request.helperLaunched=true;return true;}
   const link=androidHelperLink(true,request);
   if(!link)return false;
   request.helperLaunched=true;
@@ -249,9 +357,11 @@ function wakePlaybackHelper(request){
 }
 function playbackWakeLinks(request=null){
   const helper=androidHelperLink(false,request);
-  return `${helper?`<a class="primary" data-action="open-playback-helper" href="${escapeHtml(helper)}">Wake Spotify and return</a>`:''}<a class="${helper?'secondary':'primary'}" data-action="open-playback-spotify" href="${spotifyAppLink()}">Open Spotify</a>`;
+  const native=nativeAudioShelf()&&statusInfo.preferred_device?.type==='Smartphone';
+  return `${native?'<button class="primary" data-action="native-wake">Wake Spotify here</button>':helper?`<a class="primary" data-action="open-playback-helper" href="${escapeHtml(helper)}">Wake Spotify and return</a>`:''}<a class="${helper||native?'secondary':'primary'}" data-action="open-playback-spotify" href="${spotifyAppLink()}">Open Spotify</a>`;
 }
 function androidHelperSettings(){
+  if(nativeAudioShelf())return '<p class="muted">Integrated Android mode is active. Spotify can be woken without switching apps. Native playback permissions and notifications are available from the Android menu (⋮).</p><button class="secondary" data-action="native-settings">Android app options</button>';
   return /Android/i.test(navigator.userAgent)?`<label class="check-option"><input type="checkbox" id="android-helper" ${androidHelperEnabled()?'checked':''}> Use the installed Android Spotify helper on this phone</label><p class="muted">Press Play to start music normally. If the selected phone is unavailable, AudioShelf automatically opens the helper to wake Spotify and return. Install and configure the helper first. Available devices play normally. This setting is saved only in this browser.</p>`:'';
 }
 let pendingPlayback=null, checkingPlayback=false, lastPendingPollAt=0;
@@ -310,7 +420,7 @@ async function playbackHandoff(request,message){
   request.job=job.id;
   request.helperToken=job.helper_token;
   if(pendingPlayback!==request||request.generation!==routeGeneration){await api(`spotify/playback-handoff/${id(job.id)}`,'DELETE');return;}
-  showModal(`<h2>Starting playback on ${escapeHtml(statusInfo.preferred_device.name)}</h2><p id="playback-handoff-status" aria-live="polite">Waking Spotify and finding your selected phone…</p><p class="muted">${escapeHtml(message)}</p><div class="actions">${playbackWakeLinks()}<button class="secondary" data-action="play" ${request.disc===null?'':`data-disc="${request.disc}"`}>Retry playback</button><button class="secondary" data-action="playback-devices">Change device</button></div><p>${androidHelperLink()?'The helper wakes Spotify and returns here automatically. If it did not open, tap “Wake Spotify and return”.':'You can stay in Spotify.'} AudioShelf waits up to one minute and sends this synced ${request.disc===null?'album':'disc'} to your chosen device. Closing this dialog cancels the request.</p>`);
+  showModal(`<h2>Starting playback on ${escapeHtml(statusInfo.preferred_device.name)}</h2><p id="playback-handoff-status" aria-live="polite">Waking Spotify and finding your selected phone…</p><p class="muted">${escapeHtml(message)}</p><div class="actions">${playbackWakeLinks()}<button class="secondary" data-action="play" ${request.disc===null?'':`data-disc="${request.disc}"`}>Retry playback</button><button class="secondary" data-action="playback-devices">Change device</button></div><p>${nativeAudioShelf()?'The Android app wakes Spotify here without switching screens.':androidHelperLink()?'The helper wakes Spotify and returns here automatically. If it did not open, tap “Wake Spotify and return”.':'You can stay in Spotify.'} AudioShelf waits up to one minute and sends this synced ${request.disc===null?'album':'disc'} to your chosen device. Closing this dialog cancels the request.</p>`);
   wakePlaybackHelper(request);
   retryPendingPlayback();
 }
@@ -325,7 +435,7 @@ async function startPlayback(request,openApp=true){
   if(playbackRequest===playbackCommand)beginPlayback(request.album,result);
   if(request.generation!==routeGeneration)return;
   pendingPlayback=null;modal.close();toast(`Playing ${result.track_count} tracks on ${result.device}.`);
-  if(openApp&&shouldOpenSpotify()){
+  if(openApp&&!nativeAudioShelf()&&shouldOpenSpotify()){
     showModal(`<h2>Playing on ${escapeHtml(result.device)}</h2><p>${result.track_count} synced tracks started.</p><a class="primary" href="${spotifyAppLink()}">Open Spotify</a><button class="secondary" data-action="playback-devices">Change device</button>`);
     location.href=spotifyAppLink();
   }
@@ -415,7 +525,7 @@ async function accountSettings(){
   showModal(`<h2>AudioShelf accounts</h2><p>Every account has a separate library, Spotify connection, artwork and settings. Disabling an account revokes access and keeps its collection.</p><h3>Create account</h3><form data-account-form data-operation="create">${reauthFields()}<label>Username<input name="username" autocomplete="off" maxlength="32" pattern="[a-zA-Z0-9][a-zA-Z0-9_.\\-]{0,31}" required></label><label>New account password<input type="password" name="new_password" autocomplete="new-password" minlength="12" required></label><button class="primary">Create account</button></form>${result.accounts.map(account=>`<section class="settings-block"><h3>${escapeHtml(account.username)}</h3>${account.id==='owner'?'<p>The existing library and Spotify connection belong to owner. Its password is set in Home Assistant configuration.</p>':`<p>${account.disabled?'Disabled':'Enabled'}</p><form data-account-form data-operation="status" data-id="${escapeHtml(account.id)}" data-disabled="${account.disabled?'false':'true'}">${reauthFields()}<button class="secondary">${account.disabled?'Enable':'Disable'} account</button></form><form data-account-form data-operation="reset" data-id="${escapeHtml(account.id)}">${reauthFields()}<label>Replacement password<input type="password" name="new_password" autocomplete="new-password" minlength="12" required></label><label class="check-option"><input type="checkbox" name="reset_two_factor"> Also reset this account’s authenticator and recovery codes</label><p class="muted">Changing the password signs this account out on every device.</p><button class="secondary">Reset password</button></form>`}</section>`).join('')}`);
 }
 function accountSection(){return `<section class="settings-block"><h2>Your account</h2><p>Signed in as <strong>${escapeHtml(statusInfo.account?.username||'owner')}</strong>. Your shelf, Spotify connection and preferences belong to this account.</p><div class="actions"><button class="secondary" data-action="logout">Switch account / Sign out</button>${statusInfo.account?.admin?'<button class="secondary" data-action="accounts">Manage accounts</button>':''}</div></section>`;}
-function settingsPage(){return `<div class="eyebrow">Make yourself at home</div><h1>Settings.</h1>${accountSection()}<section class="settings-block"><h2>Spotify</h2><p>${statusInfo.spotify_connected?'Your Spotify account is connected. Playback uses your chosen device. Unavailable devices are never replaced automatically.':'Connect your Spotify Premium account to match and play albums.'}</p>${!statusInfo.spotify_configured?'<div class="note">In Home Assistant, open AudioShelf configuration and set <code>spotify_client_id</code> and <code>spotify_redirect_uri</code>. Use your HTTPS address followed by <code>/auth/spotify/callback</code>, and add the exact same redirect URL to your Spotify developer app. No client secret is needed.</div>':''}<div class="actions">${statusInfo.role==='owner'?`<button class="primary" data-action="connect">${statusInfo.spotify_connected?'Reconnect Spotify':'Connect Spotify'}</button>${statusInfo.spotify_connected?'<button class="quiet" data-action="disconnect">Disconnect</button>':''}`:''}<button class="quiet" data-action="refresh-status">Refresh connection status</button></div><p class="muted">Catalogue market: ${escapeHtml(statusInfo.market || 'GB')}. Turn Autoplay off in Spotify if you want silence when the album finishes. AudioShelf switches Shuffle and Repeat off before starting an album.</p></section>${statusInfo.role==='owner'?'<section class="settings-block"><h2>Security</h2><p>Manage two-factor authentication, trusted browsers and temporary support logins.</p><button class="secondary" data-action="security">Open Security settings</button></section>':'<div class="note">Temporary support login. Access is limited and expires automatically.</div>'}${playbackSettings()}${themeSettings()}${releaseFilterSettings()}${artworkCacheSection()}<section class="settings-block"><h2>Your collection</h2><p>Your shelf belongs to AudioShelf. Adding or removing a record here does not change your saved Spotify albums.</p>${statusInfo.role==='owner'?'<div class="actions"><a class="secondary" href="api/export" download>Export collection</a><button class="secondary" data-action="backup">Download database backup</button></div>':''}<p class="muted">Library: <code>${escapeHtml(statusInfo.data_directory)}</code>. Back up this folder as well as your add-on data.</p><p class="muted">Replaceable artwork and metadata cache: <code>${escapeHtml(statusInfo.cache_directory)}</code>. You can exclude this separate folder from backups. It rebuilds automatically.</p></section><section class="settings-block"><h2>About AudioShelf</h2><p>Albums, in their original order. No singles, compilation appearances or anniversary clutter.</p><p class="muted">Version ${escapeHtml(statusInfo.build?.version)} · ${escapeHtml(statusInfo.build?.channel)} · ${escapeHtml(statusInfo.build?.revision)}</p><p class="footer-note">Install AudioShelf from your phone browser using Add to Home Screen at your standalone HTTPS address.</p></section>`;}
+function settingsPage(){return `<div class="eyebrow">Make yourself at home</div><h1>Settings.</h1>${accountSection()}<section class="settings-block"><h2>Spotify</h2><p>${statusInfo.spotify_connected?'Your Spotify account is connected. Playback uses your chosen device. Unavailable devices are never replaced automatically.':'Connect your Spotify Premium account to match and play albums.'}</p>${!statusInfo.spotify_configured?'<div class="note">In Home Assistant, open AudioShelf configuration and set <code>spotify_client_id</code> and <code>spotify_redirect_uri</code>. Use your HTTPS address followed by <code>/auth/spotify/callback</code>, and add the exact same redirect URL to your Spotify developer app. No client secret is needed.</div>':''}<div class="actions">${statusInfo.role==='owner'?`<button class="primary" data-action="connect">${statusInfo.spotify_connected?'Reconnect Spotify':'Connect Spotify'}</button>${statusInfo.spotify_connected?'<button class="quiet" data-action="disconnect">Disconnect</button>':''}`:''}<button class="quiet" data-action="refresh-status">Refresh connection status</button></div><p class="muted">Catalogue market: ${escapeHtml(statusInfo.market || 'GB')}. Turn Autoplay off in Spotify if you want silence when the album finishes. AudioShelf switches Shuffle and Repeat off before starting an album.</p></section>${statusInfo.role==='owner'?'<section class="settings-block"><h2>Security</h2><p>Manage two-factor authentication, trusted browsers and temporary support logins.</p><button class="secondary" data-action="security">Open Security settings</button></section>':'<div class="note">Temporary support login. Access is limited and expires automatically.</div>'}${playbackSettings()}${themeSettings()}${releaseFilterSettings()}${artworkCacheSection()}${offlineShelfSection()}<section class="settings-block"><h2>Your collection</h2><p>Your shelf belongs to AudioShelf. Adding or removing a record here does not change your saved Spotify albums.</p>${statusInfo.role==='owner'?'<div class="actions"><a class="secondary" href="api/export" download>Export collection</a><button class="secondary" data-action="backup">Download database backup</button></div>':''}<p class="muted">Library: <code>${escapeHtml(statusInfo.data_directory)}</code>. Back up this folder as well as your add-on data.</p><p class="muted">Replaceable artwork and metadata cache: <code>${escapeHtml(statusInfo.cache_directory)}</code>. You can exclude this separate folder from backups. It rebuilds automatically.</p></section><section class="settings-block"><h2>About AudioShelf</h2><p>Albums, in their original order. No singles, compilation appearances or anniversary clutter.</p><p class="muted">Version ${escapeHtml(statusInfo.build?.version)} · ${escapeHtml(statusInfo.build?.channel)} · ${escapeHtml(statusInfo.build?.revision)}</p><p class="footer-note">Install AudioShelf from your phone browser using Add to Home Screen at your standalone HTTPS address.</p></section>`;}
 async function route(){
   cancelPendingPlayback();
   const generation=++routeGeneration;
@@ -426,7 +536,7 @@ async function route(){
   document.querySelectorAll('[data-nav]').forEach(el=>el.classList.toggle('active',el.dataset.nav===document.documentElement.dataset.room));
   content.innerHTML=loading(view==='album'?'Finding the original album tracklist…':'Opening your collection…');
   try {
-    const latest=await api('status');if(accountChanged(latest)){await clearArtworkCaches();window.location.reload();return;}statusInfo=latest;await syncArtworkCacheAccount(latest.authenticated?latest.account?.id:null);if(statusInfo.authenticated){applyTheme(statusInfo.theme);applyInterface(statusInfo.interface);}renderTurntable();
+    const latest=await api('status');if(accountChanged(latest)){await clearArtworkCaches();await clearOfflineShelf();window.location.reload();return;}statusInfo=latest;document.querySelector('#offline-status').hidden=!offlineReadOnly;await syncArtworkCacheAccount(latest.authenticated?latest.account?.id:null);if(statusInfo.authenticated){applyTheme(statusInfo.theme);applyInterface(statusInfo.interface);}renderTurntable();
     if(generation!==routeGeneration)return;
     document.querySelector('#account-name').textContent=statusInfo.authenticated?statusInfo.account?.username||'owner':'';
     if(!statusInfo.authenticated){content.innerHTML=loginView();return;}
@@ -472,8 +582,8 @@ async function route(){
   }catch(error){if(generation===routeGeneration)content.innerHTML=`<div class="error-panel"><h2>Couldn’t open this page.</h2><p>${escapeHtml(error.message)}</p><button class="secondary" data-action="retry">Try again</button> <a class="quiet" href="#settings">Settings</a>${view==='album'?` <a class="secondary" href="api/albums/${id(key)}/diagnostics" download>Download diagnostic report</a>`:''}</div>`;}
 }
 function applyPermissions(root){
-  if(statusInfo.role!=='view')return;
-  const allowed=new Set(['flip-artwork','retry','refresh-status','search-kind','shelf-view','shelf-expand-all','shelf-artist','load-releases','logout','artwork-cache-refresh','artwork-cache-preload','artwork-cache-clear']);
+  if(statusInfo.role!=='view'&&!offlineReadOnly)return;
+  const allowed=new Set(['flip-artwork','retry','refresh-status','search-kind','shelf-view','shelf-expand-all','shelf-artist','artwork-cache-refresh','offline-save','offline-clear']);
   root.querySelectorAll('button[data-action]').forEach(button=>{if(!allowed.has(button.dataset.action))button.disabled=true;});
   root.querySelectorAll('form').forEach(form=>{if(form.id!=='search-form')form.querySelectorAll('input,select,button').forEach(control=>control.disabled=true);});
 }
@@ -830,6 +940,10 @@ document.addEventListener('click',async event=>{
       }
     }
     if(action==='spotify-control')await controlSpotify(button.dataset.command);
+    if(action==='native-settings'&&nativeAudioShelf())window.AudioShelfAndroid.postMessage(JSON.stringify({type:'settings'}));
+    if(action==='native-wake'&&pendingPlayback){nativeWake(pendingPlayback);pendingPlayback.helperLaunched=true;}
+    if(action==='offline-save')await saveOfflineShelf();
+    if(action==='offline-clear'){await clearOfflineShelf();toast('Offline shelf cleared.');}
     if(action==='artwork-cache-refresh')await refreshArtworkCacheSettings();
     if(action==='artwork-cache-preload')await preloadShelfArtwork();
     if(action==='artwork-cache-clear'){await caches.delete(artworkCacheName());await refreshArtworkCacheSettings();toast('Downloaded artwork cleared on this device.');}
@@ -978,13 +1092,18 @@ document.addEventListener('click',async event=>{
       try{const result=await api('spotify/connect','POST');if(popup)popup.location.replace(result.url);else showModal(`<h2>Connect Spotify</h2><a class="primary" href="${escapeHtml(result.url)}" target="_blank" rel="noopener">Continue to Spotify</a>`);}catch(error){if(popup)popup.close();throw error;}
     }
     if(action==='disconnect'){await api('spotify/disconnect','POST');await route();toast('Spotify disconnected. Your shelf is unchanged.');}
-    if(action==='logout'){await api('logout','POST');await clearArtworkCaches();location.hash='shelf';window.location.reload();}
+    if(action==='logout'){await api('logout','POST');await clearArtworkCaches();await clearOfflineShelf();location.hash='shelf';window.location.reload();}
     if(action==='backup'){
       const response=await api('backup','POST');const blob=await response.blob();const url=URL.createObjectURL(blob);
       const link=document.createElement('a');link.href=url;link.download='audioshelf-backup.db';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Database backup downloaded.');
     }
   }catch(error){toast(error.message);}
   finally{button.disabled=false;}
+});
+let lastNativeMediaAt=0;
+if(typeof window!=='undefined')window.addEventListener('audioshelf-native-playback',()=>{
+  const now=Date.now();if(now-lastNativeMediaAt<300)return;
+  lastNativeMediaAt=now;if(!offlineReadOnly)refreshPlayback(true);
 });
 route();
 if('serviceWorker' in navigator && !document.baseURI.includes('/hassio_ingress/')) {

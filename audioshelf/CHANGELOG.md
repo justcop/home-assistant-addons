@@ -1,3 +1,11 @@
+# 0.6.28 — Optional Android integration and saved offline shelf
+
+- Keep the standalone PWA and self-hosted server authoritative for albums, accounts and Spotify playback.
+- Detect the secure integrated Android bridge and wake Spotify within the same Android activity without opening the separate helper screen.
+- Use optional Spotify media-session events to refresh Now Playing promptly; Android notification settings and launcher shortcuts are managed natively.
+- Add an explicit, per-account offline shelf download with read-only artist, album and tracklist browsing, backed by the existing artwork cache. Clear saved data on sign-out or switching accounts; never cache credentials, Spotify playback or record-store searches.
+- Keep the browser helper fallback unchanged when not running in the Android wrapper.
+
 # 0.6.27 — Flip album sleeves to see back-cover artwork
 
 - Tap the large album cover in Classic or Vinyl album view to flip to its reverse; tap again to see the front. Record-rack covers still open albums.

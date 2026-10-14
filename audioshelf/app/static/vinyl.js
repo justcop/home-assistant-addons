@@ -240,7 +240,7 @@ async function controlSpotify(command){
 async function refreshPlayback(force=false){
   const position=trackProgress();
   const interval=playbackStart?500:position!==null&&playbackState.playing&&position>=playbackState.duration_ms-500?1000:15000;
-  if(playbackStart?.awaiting||!isVinyl()||!statusInfo.authenticated||!statusInfo.spotify_connected||document.hidden||(!force&&Date.now()-playbackChecked<interval))return;
+  if(offlineReadOnly||playbackStart?.awaiting||!isVinyl()||!statusInfo.authenticated||!statusInfo.spotify_connected||document.hidden||(!force&&Date.now()-playbackChecked<interval))return;
   if(playbackBusy&&!force)return;
   const epoch=++playbackEpoch;playbackBusy=true;playbackChecked=Date.now();
   try{
