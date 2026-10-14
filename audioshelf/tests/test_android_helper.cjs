@@ -28,6 +28,9 @@ const context = vm.createContext({
   navigator:{userAgent:'Mozilla/5.0 Android'},
   location:{protocol:'https:',origin:'https://audioshelf.example',href:'https://audioshelf.example/#album/saved'},
   localStorage:{getItem:key=>preferences.get(key)},
+  // The focused legacy PWA harness excludes the earlier native bridge functions.
+  // The separate integrated-Android test exercises the real native bridge.
+  nativeAudioShelf:()=>false, nativeWake:()=>false,
   statusInfo:{account:{id:'owner'},spotify_client_id:'c'.repeat(32),preferred_device:{id:'phone',type:'Smartphone'}}
 });
 vm.runInContext(functions,context);
