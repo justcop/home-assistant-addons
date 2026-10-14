@@ -38,7 +38,7 @@ final class HelperScreen {
     private boolean diagnosticsOpen;
 
     HelperScreen(Activity activity, boolean waking, Runnable pairAction, Runnable updateAction,
-                 Runnable returnAction, Consumer<Boolean> holdChange) {
+                 Runnable returnAction, Consumer<Boolean> holdChange, Runnable integratedModeAction) {
         LinearLayout root = new LinearLayout(activity);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Color.rgb(250, 248, 245));
@@ -112,6 +112,8 @@ final class HelperScreen {
         branding.addView(message, messageParams);
 
         pairButton = action(activity, "Connect Spotify", branding, pairAction);
+        Button integratedButton = action(activity, "Use AudioShelf as full Android app", branding, integratedModeAction);
+        integratedButton.setVisibility(waking ? View.GONE : View.VISIBLE);
         pairButton.setVisibility(waking ? View.GONE : View.VISIBLE);
         stage.addView(branding, new FrameLayout.LayoutParams(-1, -1));
         home = branding;

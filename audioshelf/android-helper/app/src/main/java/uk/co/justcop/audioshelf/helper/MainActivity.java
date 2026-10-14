@@ -65,6 +65,11 @@ public final class MainActivity extends Activity {
         super.onCreate(state);
         diagnosticStartedAt = SystemClock.elapsedRealtime();
         Uri data = getIntent().getData();
+        if (data == null && getPreferences(MODE_PRIVATE).getBoolean("integrated_mode", false)) {
+            startActivity(new Intent(this, ShelfActivity.class));
+            finish();
+            return;
+        }
         screen = new HelperScreen(this, data != null, this::pairSpotifyRemote,
             () -> { if (updater != null) updater.check(); },
             () -> { if (returnUri != null) returnToAudioShelf(); else screen.showHome(); },
@@ -73,6 +78,16 @@ public final class MainActivity extends Activity {
                 if (wakeRequest) record(checked
                     ? "Diagnostic hold enabled for this wake." : "Diagnostic hold disabled.");
                 if (!checked) returnWhenVisible();
+            }, () -> {
+                if (wakeRequest) return;
+                String trusted = getPreferences(MODE_PRIVATE).getString("trusted_origin", "");
+                if (!ShelfActivity.isTrustedOrigin(trusted)) {
+                    android.widget.Toast.makeText(this, "Start playback from AudioShelf once to trust its HTTPS address.", android.widget.Toast.LENGTH_LONG).show();
+                    return;
+                }
+                getPreferences(MODE_PRIVATE).edit().putBoolean("integrated_mode",true).apply();
+                startActivity(new Intent(this, ShelfActivity.class));
+                finish();
             });
         message = screen.message;
         diagnostics = screen.wakeLog;

@@ -1,5 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <queries><package android:name="com.spotify.music" /></queries>
     <application android:label="AudioShelf Spotify Helper" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher"
@@ -24,5 +25,11 @@
                 <data android:scheme="audioshelf-helper" android:host="wake" />
             </intent-filter>
         </activity>
+        <activity android:name=".ShelfActivity" android:exported="false"
+            android:launchMode="singleTop" android:configChanges="orientation|screenSize" />
+        <service android:name=".SpotifyMediaListener" android:exported="true"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter>
+        </service>
     </application>
 </manifest>

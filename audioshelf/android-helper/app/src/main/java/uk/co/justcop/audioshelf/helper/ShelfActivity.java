@@ -1,0 +1,284 @@
+package uk.co.justcop.audioshelf.helper;
+
+import android.Manifest;
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.app.PendingIntent;
+import android.content.ActivityNotFoundException;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.graphics.Color;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.provider.Settings;
+import android.view.Gravity;
+import android.view.MenuItem;
+import android.view.View;
+import android.view.ViewGroup;
+import android.webkit.CookieManager;
+import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import android.widget.FrameLayout;
+import android.widget.PopupMenu;
+import android.widget.TextView;
+import android.widget.Toast;
+import androidx.webkit.JavaScriptReplyProxy;
+import androidx.webkit.WebMessageCompat;
+import androidx.webkit.WebViewCompat;
+import androidx.webkit.WebViewFeature;
+import com.spotify.android.appremote.api.ConnectionParams;
+import com.spotify.android.appremote.api.Connector;
+import com.spotify.android.appremote.api.SpotifyAppRemote;
+import java.io.IOException;
+import java.util.Collections;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import org.json.JSONObject;
+
+/** Optional full AudioShelf app: remote web UI + local Spotify wake only.
+ * The AudioShelf server remains the sole playback/tracklist authority. */
+public final class ShelfActivity extends Activity {
+    static final String ACTION_SHELF = "uk.co.justcop.audioshelf.SHELF";
+    static final String ACTION_NOW_PLAYING = "uk.co.justcop.audioshelf.NOW_PLAYING";
+    static final String PREFS = "MainActivity";
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private WebView web;
+    private TextView options;
+    private String trustedOrigin;
+    private SpotifyAppRemote remote;
+    private int sequence;
+    private boolean wakeConnecting;
+    private boolean loaded;
+    private String jobId, accountId, token;
+    private long wakeDeadline;
+    private final Runnable poll = this::pollWake;
+
+    @Override public void onCreate(Bundle state) {
+        super.onCreate(state);
+        trustedOrigin = getSharedPreferences(PREFS, MODE_PRIVATE).getString("trusted_origin", "");
+        if (!isTrustedOrigin(trustedOrigin)) {
+            Toast.makeText(this, "Trust your AudioShelf server in companion mode first.", Toast.LENGTH_LONG).show();
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean("integrated_mode", false).apply();
+            startActivity(new Intent(this, MainActivity.class));
+            finish();
+            return;
+        }
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+            Toast.makeText(this, "Update Android System WebView to use integrated AudioShelf.", Toast.LENGTH_LONG).show();
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean("integrated_mode", false).apply();
+            startActivity(new Intent(this, MainActivity.class));
+            finish();
+            return;
+        }
+
+        FrameLayout root = new FrameLayout(this);
+        web = new WebView(this);
+        web.setBackgroundColor(Color.rgb(250,248,245));
+        web.getSettings().setJavaScriptEnabled(true);
+        web.getSettings().setDomStorageEnabled(true);
+        web.getSettings().setCacheMode(WebSettings.LOAD_DEFAULT);
+        web.getSettings().setAllowFileAccess(false);
+        web.getSettings().setAllowContentAccess(false);
+        web.getSettings().setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        web.getSettings().setSupportMultipleWindows(false);
+        CookieManager.getInstance().setAcceptCookie(true);
+        CookieManager.getInstance().setAcceptThirdPartyCookies(web, false);
+        web.setWebChromeClient(new WebChromeClient());
+        web.setWebViewClient(new WebViewClient() {
+            @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                Uri url = request.getUrl();
+                if (sameOrigin(url)) return false;
+                if (request.isForMainFrame()) {
+                    try { startActivity(new Intent(Intent.ACTION_VIEW, url)); }
+                    catch (ActivityNotFoundException ignored) { Toast.makeText(ShelfActivity.this, "No app can open this link.", Toast.LENGTH_SHORT).show(); }
+                }
+                return true;
+            }
+            @Override public void onPageFinished(WebView view, String url) {
+                loaded = sameOrigin(Uri.parse(url));
+            }
+        });
+        WebViewCompat.addWebMessageListener(web, "AudioShelfAndroid", Collections.singleton(trustedOrigin),
+            (view, message, sourceOrigin, isMainFrame, replyProxy) -> {
+                if (!isMainFrame || !sameOrigin(sourceOrigin) || !sameOrigin(Uri.parse(view.getUrl() == null ? "" : view.getUrl()))) return;
+                final String raw = message.getData();
+                if (raw == null || raw.length() > 2048) return;
+                try {
+                    JSONObject cmd = new JSONObject(raw);
+                    if ("wake".equals(cmd.optString("type"))) startWake(cmd);
+                    else if ("settings".equals(cmd.optString("type"))) showNativeMenu();
+                    else if ("media-permission".equals(cmd.optString("type"))) openMediaPermission();
+                } catch (Exception ignored) { }
+            });
+        root.addView(web, new FrameLayout.LayoutParams(-1,-1));
+        options = new TextView(this);
+        options.setText("⋮");
+        options.setTextSize(25);
+        options.setTextColor(Color.rgb(116,47,56));
+        options.setGravity(Gravity.CENTER);
+        options.setContentDescription("AudioShelf Android options");
+        options.setOnClickListener(v -> showNativeMenu());
+        FrameLayout.LayoutParams button = new FrameLayout.LayoutParams(dp(34),dp(42),Gravity.TOP|Gravity.RIGHT);
+        button.topMargin = dp(3);
+        button.rightMargin = dp(4);
+        root.addView(options,button);
+        setContentView(root);
+        SpotifyMediaListener.attach(this);
+        ShelfShortcuts.install(this);
+        web.loadUrl(trustedOrigin + (ACTION_NOW_PLAYING.equals(getIntent().getAction()) ? "/#shelf" : "/#shelf"));
+    }
+
+    static boolean isTrustedOrigin(String origin) {
+        if (origin == null || origin.length() > 2048) return false;
+        Uri uri=Uri.parse(origin);
+        return "https".equals(uri.getScheme()) && uri.getHost()!=null && uri.getUserInfo()==null &&
+            (uri.getPath()==null || uri.getPath().isEmpty()) && uri.getQuery()==null &&
+            uri.getFragment()==null;
+    }
+    private boolean sameOrigin(Uri uri) {
+        if (uri==null || !"https".equals(uri.getScheme()) || uri.getHost()==null) return false;
+        Uri base=Uri.parse(trustedOrigin);
+        return uri.getHost().equalsIgnoreCase(base.getHost()) && uri.getPort()==base.getPort() &&
+            uri.getUserInfo()==null;
+    }
+    private int dp(int size) {return Math.round(getResources().getDisplayMetrics().density*size);}
+
+    private void startWake(JSONObject cmd) {
+        String clientId=cmd.optString("client_id","");
+        String account=cmd.optString("account_id","");
+        String job=cmd.optString("job_id","");
+        String bearer=cmd.optString("helper_token","");
+        String registered=getSharedPreferences(PREFS,MODE_PRIVATE).getString("trusted_client","");
+        if (!clientId.matches("[a-fA-F0-9]{32}") || !clientId.equals(registered) ||
+            !(account.equals("owner")||account.matches("[a-f0-9]{32}")) ||
+            !job.matches("[A-Za-z0-9_-]{20,128}") || !bearer.matches("[A-Za-z0-9_-]{32,128}")) return;
+        stopWake();
+        jobId=job; accountId=account; token=bearer;
+        wakeDeadline=android.os.SystemClock.elapsedRealtime()+20000;
+        final int ticket=sequence;
+        wakeConnecting=true;
+        handler.postDelayed(() -> {if(ticket==sequence)stopWake();},20000);
+        pollWake();
+        if (!SpotifyAppRemote.isSpotifyInstalled(this)) {
+            Toast.makeText(this,"Spotify is not installed.",Toast.LENGTH_SHORT).show();
+            return;
+        }
+        ConnectionParams params = new ConnectionParams.Builder(clientId)
+            .setRedirectUri(SpotifyRemoteAuthPolicy.REDIRECT_URI).showAuthView(false).build();
+        try {
+            SpotifyAppRemote.connect(this,params,new Connector.ConnectionListener() {
+                @Override public void onConnected(SpotifyAppRemote appRemote) {
+                    handler.post(() -> {
+                        if(ticket!=sequence) {SpotifyAppRemote.disconnect(appRemote);return;}
+                        remote=appRemote;
+                        wakeConnecting=false;
+                    });
+                }
+                @Override public void onFailure(Throwable error) {
+                    handler.post(() -> {
+                        if(ticket!=sequence)return;
+                        wakeConnecting=false; // Server still polls and may succeed independently.
+                    });
+                }
+            });
+        } catch (RuntimeException ignored) {wakeConnecting=false;}
+    }
+
+    private void pollWake() {
+        if(jobId==null || android.os.SystemClock.elapsedRealtime()>=wakeDeadline) {stopWake();return;}
+        final int ticket=sequence;
+        final String job=jobId, account=accountId, bearer=token, origin=trustedOrigin;
+        executor.execute(() -> {
+            PlaybackStatusClient.Result state=null;
+            try { state=PlaybackStatusClient.poll(origin,account,job,bearer,stage -> {}); }
+            catch(IOException ignored) {}
+            final PlaybackStatusClient.Result result=state;
+            handler.post(() -> {
+                if(ticket!=sequence)return;
+                if(result!=null && (result.playAccepted || !"waiting".equals(result.state))) {
+                    // Keep Spotify's service alive until the server has accepted Play.
+                    // The server independently confirms device + track afterwards.
+                    stopWake();
+                } else handler.postDelayed(poll, 500);
+            });
+        });
+    }
+    private void stopWake() {
+        sequence++; jobId=null; accountId=null; token=null; wakeConnecting=false;
+        handler.removeCallbacks(poll);
+        if(remote!=null){SpotifyAppRemote.disconnect(remote);remote=null;}
+    }
+
+    void onSpotifyMediaChanged(String title,String artist,boolean playing) {
+        if(web==null || !loaded) return;
+        // A signal to refresh authoritative server state, not a source of track truth.
+        web.evaluateJavascript("window.dispatchEvent(new CustomEvent('audioshelf-native-playback'));",null);
+    }
+
+    private void openMediaPermission() {
+        new AlertDialog.Builder(this).setTitle("Spotify playback awareness")
+            .setMessage("Optionally allow AudioShelf to observe Spotify's Android media session so it can refresh Now Playing quickly. This permission grants notification access. AudioShelf reads only Spotify media-session status.")
+            .setPositiveButton("Open Android settings",(d,w)->{
+                Intent intent=new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
+                try {startActivity(intent);}catch(ActivityNotFoundException ignored){}
+            }).setNegativeButton("Cancel",null).show();
+    }
+
+    private void showNativeMenu() {
+        PopupMenu menu=new PopupMenu(this,options);
+        boolean enabled=getSharedPreferences(PREFS,MODE_PRIVATE).getBoolean("playback_notifications",false);
+        menu.getMenu().add("Refresh AudioShelf");
+        menu.getMenu().add("Enable Spotify playback awareness…");
+        menu.getMenu().add(enabled?"Disable playback notifications":"Enable playback notifications");
+        menu.getMenu().add("Use companion mode");
+        menu.setOnMenuItemClickListener(item -> {
+            String choice=String.valueOf(item.getTitle());
+            if(choice.equals("Refresh AudioShelf")) web.reload();
+            else if(choice.startsWith("Enable Spotify playback awareness")) openMediaPermission();
+            else if(choice.contains("playback notifications")) changeNotifications(!enabled);
+            else if(choice.equals("Use companion mode")) {
+                getSharedPreferences(PREFS,MODE_PRIVATE).edit().putBoolean("integrated_mode",false).apply();
+                stopWake();startActivity(new Intent(this,MainActivity.class));finish();
+            }
+            return true;
+        });
+        menu.show();
+    }
+    private void changeNotifications(boolean enabled) {
+        if(enabled && Build.VERSION.SDK_INT>=33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED){
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},19);
+            return;
+        }
+        getSharedPreferences(PREFS,MODE_PRIVATE).edit().putBoolean("playback_notifications",enabled).apply();
+        if(!enabled) SpotifyMediaListener.dismiss(this);
+        Toast.makeText(this,enabled?"Playback notifications enabled":"Playback notifications disabled",Toast.LENGTH_SHORT).show();
+    }
+    @Override public void onRequestPermissionsResult(int request,String[] names,int[] results){
+        super.onRequestPermissionsResult(request,names,results);
+        if(request==19 && results.length>0 && results[0]==PackageManager.PERMISSION_GRANTED) changeNotifications(true);
+    }
+    @Override public void onBackPressed() {
+        if(web!=null && web.canGoBack())web.goBack();
+        else if(web!=null)web.evaluateJavascript("location.hash='#shelf'",null);
+        else super.onBackPressed();
+    }
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);setIntent(intent);
+        if(web!=null && ACTION_SHELF.equals(intent.getAction()))web.evaluateJavascript("location.hash='#shelf'",null);
+        if(web!=null && ACTION_NOW_PLAYING.equals(intent.getAction()))
+            web.evaluateJavascript("location.hash='#shelf';window.dispatchEvent(new CustomEvent('audioshelf-native-playback'));",null);
+    }
+    @Override protected void onDestroy() {
+        stopWake();SpotifyMediaListener.detach(this);
+        executor.shutdownNow();
+        if(web!=null){web.destroy();web=null;}
+        super.onDestroy();
+    }
+}
