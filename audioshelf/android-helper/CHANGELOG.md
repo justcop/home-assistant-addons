@@ -1,3 +1,8 @@
+# 0.2.1 — Keep integrated AudioShelf in Android Recents
+
+- Give the integrated WebView its own normal Android task so the full AudioShelf application remains in Recents; keep the original transient Spotify companion excluded from Recents.
+- Preserve the independent Spotify SDK wake connection, permissions, notification and offline web behaviour.
+
 # 0.2.0 — Optional integrated AudioShelf Android app
 
 - Add opt-in full AudioShelf interface using a trusted HTTPS WebView. Keep the existing working companion mode unchanged as the default and accessible in one tap.
