@@ -14,7 +14,8 @@ assert(android.includes('result.playAccepted') && android.includes('stopWake()')
 assert(!android.includes('.play('),'No native SDK playback/queue command');
 assert(manifest.includes('android.permission.BIND_NOTIFICATION_LISTENER_SERVICE'));
 assert(media.includes('com.spotify.music') && media.includes('onPlaybackStateChanged'));
-assert(gradle.includes("versionName '0.2.0'"));
+const versionCode=Number((gradle.match(/versionCode\\s+(\\d+)/)||[])[1]);
+assert(versionCode>=28,'Integrated mode requires Android helper versionCode 28 or newer');
 const selected=source.slice(source.indexOf('function nativeAudioShelf()'),source.indexOf('/* Local, account-partitioned PWA cache'));
 const calls=[];
 const sandbox=vm.createContext({
