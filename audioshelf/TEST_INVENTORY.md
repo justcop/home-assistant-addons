@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-14T10:57:00+01:00 (Europe/London).
+Reviewed: 2026-10-14T11:00:00+01:00 (Europe/London).
 
-Reviewed native Android integration smoke tests after bump to helper 0.2.1. The test validates origin restrictions, server-owned Spotify handoff, Spotify-only media event access and offline route allowlisting without hardcoding a patch version. Reviewed the separate legacy PWA fallback fixture. The 332 collected backend test names are unchanged, and Android build/lint passed; on-device use still needs manual verification.
+Reviewed updated Playwright album-cover assertions after the previously released front/back sleeve flip, selecting the front image explicitly and verifying its requested thumbnail size. Integrated Android bridge and offline route tests remain present and included in CI, with the legacy PWA helper fallback independently exercised.
 
-<!-- inventory: {"reviewed_at":"2026-10-14T10:57:00+01:00","review_note":"Reviewed native Android integration smoke tests after bump to helper 0.2.1. The test validates origin restrictions, server-owned Spotify handoff, Spotify-only media event access and offline route allowlisting without hardcoding a patch version. Reviewed the separate legacy PWA fallback fixture. The 332 collected backend test names are unchanged, and Android build/lint passed; on-device use still needs manual verification.","source_sha256":"bc50cba74fa3e5be31f7870ea2de22973b9ed39281e98a56264f3d745d08e087"} -->
+<!-- inventory: {"reviewed_at":"2026-10-14T11:00:00+01:00","review_note":"Reviewed updated Playwright album-cover assertions after the previously released front/back sleeve flip, selecting the front image explicitly and verifying its requested thumbnail size. Integrated Android bridge and offline route tests remain present and included in CI, with the legacy PWA helper fallback independently exercised.","source_sha256":"b4a85f1c7bcf4782a52a842395ee625518a63552fca6500431349af46737414e"} -->
 
 ## Backend cases (340)
 
