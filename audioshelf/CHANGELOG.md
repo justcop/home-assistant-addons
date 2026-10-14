@@ -1,3 +1,9 @@
+# 0.6.29 — Integrated OAuth handoff and offline artwork
+
+- Keep Spotify account linking usable from Android's embedded WebView by opening OAuth in the system browser rather than depending on an unsupported popup.
+- When browsing saved album details without the server, allow large album artwork requests to fall back to the matching account's cached 320px thumbnail.
+- Preserve independent PWA use, existing Spotify server-owned playback and the older Android companion fallback.
+
 # 0.6.28 — Optional Android integration and saved offline shelf
 
 - Keep the standalone PWA and self-hosted server authoritative for albums, accounts and Spotify playback.

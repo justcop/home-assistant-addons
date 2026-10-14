@@ -1087,8 +1087,8 @@ document.addEventListener('click',async event=>{
       await api(`albums/${id(currentAlbum.id)}/shelf`,'DELETE');await invalidateCachedCover(currentAlbum.id);if(generation!==routeGeneration)return;currentAlbum.on_shelf=0;markCollected(currentAlbum.id,false);modal.close();content.innerHTML=albumPage(currentAlbum);toast('Removed from your shelf. The mapping is kept if you add it again.');
     }
     if(action==='connect'){
-      const popup=window.open('about:blank','_blank');
-      try{const result=await api('spotify/connect','POST');if(popup)popup.location.replace(result.url);else showModal(`<h2>Connect Spotify</h2><a class="primary" href="${escapeHtml(result.url)}" target="_blank" rel="noopener">Continue to Spotify</a>`);}catch(error){if(popup)popup.close();throw error;}
+      const popup=nativeAudioShelf()?null:window.open('about:blank','_blank');
+      try{const result=await api('spotify/connect','POST');if(nativeAudioShelf())location.href=result.url;else if(popup)popup.location.replace(result.url);else showModal(`<h2>Connect Spotify</h2><a class="primary" href="${escapeHtml(result.url)}" target="_blank" rel="noopener">Continue to Spotify</a>`);}catch(error){if(popup)popup.close();throw error;}
     }
     if(action==='disconnect'){await api('spotify/disconnect','POST');await route();toast('Spotify disconnected. Your shelf is unchanged.');}
     if(action==='logout'){await api('logout','POST');await clearArtworkCaches();await clearOfflineShelf();location.hash='shelf';window.location.reload();}

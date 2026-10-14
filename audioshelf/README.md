@@ -256,3 +256,5 @@ An optional [Android companion helper](android-helper/README.md) can wake Spotif
 The standalone PWA remains complete and independent. The optional Android 0.2.1 companion can now open the same HTTPS AudioShelf interface in a WebView and wake Spotify without switching activities. The existing transient companion mode remains available. Android media-session awareness requires optional notification-listener approval; playback notifications can be enabled separately, with launcher shortcuts for quick access.
 
 On the PWA or Android WebView, **Settings → Offline shelf → Save my shelf offline** stores a read-only copy of your shelf, artist pages, album tracklists and available cover thumbnails on that device. Spotify controls, record-store searches and editing still require the server. The saved snapshot is local to that browser's storage and should be cleared on sign-out or when no longer needed.
+
+Version 0.6.29 uses saved 320px covers as a fallback for offline album pages. In integrated Android mode, linking the Spotify account opens the system browser for OAuth; return to AudioShelf after authorising.

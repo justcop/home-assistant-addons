@@ -60,7 +60,7 @@ async function loadArtwork(event,account) {
     const last=Number(stored.headers.get('X-AudioShelf-Cached-At'))||0;
     if(Date.now()-last>ARTWORK_REFRESH_MS){
       event.waitUntil((async()=>{
-        try {
+        try{
           const response=await fetch(request,{cache:'no-store'});
           if(eligibleArtwork(response))await storeArtwork(cache,request,response);
           else if(response.status===403||response.status===401)await cache.delete(request);
@@ -69,18 +69,30 @@ async function loadArtwork(event,account) {
     }
     return stored;
   }
-  const response=await fetch(request);
-  // Complete the cache write before the fetch resolves, so Settings can report
-  // exact sizes and Clear cannot race a pending image write.
-  if(eligibleArtwork(response))await storeArtwork(cache,request,response);
-  return response;
+  try {
+    const response=await fetch(request);
+    // Complete caching before resolving, so settings report exact artwork size.
+    if(eligibleArtwork(response))await storeArtwork(cache,request,response);
+    return response;
+  } catch(error) {
+    // Offline snapshots prefetch 320px thumbnails. Album pages request 640px.
+    // Fall back only within this account's cache, preserving artwork isolation.
+    const fallback=new URL(request.url);
+    if(['128','640'].includes(fallback.searchParams.get('size'))){
+      fallback.searchParams.set('size','320');
+      const thumbnail=await cache.match(fallback.href);
+      if(thumbnail)return thumbnail;
+    }
+    throw error;
+  }
 }
+
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   if(event.request.method !== 'GET' || url.origin !== self.location.origin)return;
   const artwork=shelfArtwork(url);
   if(artwork){
-    event.respondWith(loadArtwork(event,artwork.account).catch(()=>fetch(event.request)));
+    event.respondWith(loadArtwork(event,artwork.account).catch(()=>Response.error()));
     return;
   }
   if(url.pathname.includes('/api/') || url.pathname.includes('/auth/') || url.pathname.endsWith('/health'))return;
