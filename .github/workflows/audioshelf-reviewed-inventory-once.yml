@@ -19,7 +19,7 @@ jobs:
       - run: pip install -r audioshelf/requirements.txt pytest PyYAML
       - name: Review and regenerate test inventory
         run: |
-          python audioshelf/scripts/test_inventory.py --update --review-note "Reviewed integrated Android origin-scoped bridge smoke tests, short-lived server-owned Spotify jobs, unchanged standalone PWA behaviour and account-partitioned, read-only offline snapshot allowlist. Android JVM tests and lint passed in the build workflow. The new JavaScript smoke test is executed in AudioShelf CI; end-to-end device wake, notifications and offline storage still require manual device verification."
+          python audioshelf/scripts/test_inventory.py --update --review-note "Reviewed integrated Android origin-scoped bridge smoke tests, short-lived server-owned Spotify jobs, unchanged standalone PWA behaviour and account-partitioned, read-only offline snapshot allowlist. Android JVM tests and lint passed in the build workflow. Reviewed legacy PWA harness native-bridge stubbing alongside the new Android integration smoke test. The server retains canonical Play control, and Android device operation still needs manual verification."
       - name: Commit reviewed inventory only
         run: |
           git config user.name "github-actions[bot]"
