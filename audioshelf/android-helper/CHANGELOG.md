@@ -1,3 +1,11 @@
+# 0.2.10 — Initial status clearance that scrolls away
+
+- The logo and Settings begin below the clock and notification icons, while the status-bar area belongs to the scrolling page rather than a permanently reserved blank strip.
+- Move the measured Android top inset from fixed native root padding into the webpage's **scrollable body**. As you swipe up, the header and record shelves can pass behind the status bar.
+- Remove the integrated-mode sticky masthead override. Keep the native ⋮ menu clear of status icons, and preserve bottom gesture/keyboard insets.
+- Do not remove the temporary native inset until measuring both the real logo and Settings elements inside the running WebView confirms sufficient top clearance.
+- The independent browser PWA, server, Spotify wake and offline catalogue are unchanged.
+
 # 0.2.9 — Native status-bar boundary on every frame
 
 - Fix the Pixel screenshot regression: the status bar was still drawn on top of AudioShelf branding after native edge-to-edge mode became active.

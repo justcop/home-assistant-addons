@@ -18,19 +18,23 @@ assert(android.includes('WindowInsetsCompat.Type.systemBars()') &&
   android.includes('WindowInsetsCompat.Type.displayCutout()') &&
   android.includes('WindowInsetsCompat.Type.ime()'));
 assert(android.includes('Math.max(safe.bottom, keyboard.bottom)'));
-assert(android.includes('shelfRoot.setPadding(leftSafePx, statusBarPx, rightSafePx, bottomSafePx)'),
-  'WebView must remain physically below Android status bar on every frame');
-assert(!android.includes('edgeToEdgeHeaderReady') &&
-  !android.includes('setPadding(leftSafePx, 0,'),
-  'JavaScript must never remove the physical status-bar safety boundary');
-assert(android.includes('applyStickyHeader();') &&
-  android.includes('position:sticky !important;top:0 !important;') &&
-  android.includes('background:var(--paper,#f5f0e6) !important;') &&
-  android.includes('padding-top:8px !important;padding-bottom:12px !important;'),
-  'Keep the masthead sticky and compact *within* the natively safe viewport');
-assert(!android.includes('android-status-bar-height') &&
-  !android.includes('applyEdgeToEdgeHeader()'),
-  'Never rely on a JS CSS variable or callback to provide physical status-bar clearance');
+assert(android.includes('scrollSafeHeaderReady ? 0 : statusBarPx'),
+  'Native inset is only the temporary loading fallback; full WebView uses status-bar area');
+assert(android.includes('scrollSafeHeaderReady ? statusBarPx : 0'),
+  'Native overflow control remains below status icons after edge-to-edge');
+assert(android.includes('onPageStarted(WebView view, String url') &&
+  android.includes('scrollSafeHeaderReady = false;'),
+  'Navigations restore native safety before recalculating page spacer');
+assert(android.includes('applyScrollableHeader();') &&
+  android.includes("b.style.setProperty('padding-top'") &&
+  android.includes("h.style.setProperty('position','relative','important')"),
+  'Top inset belongs to scrollable body, not a sticky or fixed header');
+assert(android.includes('logo.getBoundingClientRect()') &&
+  android.includes('settings.getBoundingClientRect()') &&
+  android.includes('!"\\\\"safe\\\\"".equals(result)'),
+  'Both header controls must be measured safe before releasing native inset');
+assert(!android.includes('applyStickyHeader()') && !android.includes('position:sticky !important'),
+  'The header must scroll behind Android status icons instead of staying pinned');
 assert(android.includes('return WindowInsetsCompat.CONSUMED'));
 assert(android.includes('ViewCompat.requestApplyInsets(root)'));
 assert(manifest.includes('android:windowSoftInputMode="adjustResize"'));
@@ -129,58 +133,48 @@ async function testAtomicOfflineRefresh(){
 // small scroll, and where a malformed JS string prevented native edge-to-edge.
 async function testStickyMobileHeader(){
   const {chromium}=require('playwright');
-  const beginning=android.indexOf('String script = ',android.indexOf('private void applyStickyHeader()'));
-  const ending=android.indexOf(';\n        web.evaluateJavascript(script, null);',beginning);
-  assert(beginning>=0&&ending>beginning,'Find the real native sticky-header JS payload');
+  const beginning=android.indexOf('String script = ',android.indexOf('private void applyScrollableHeader()'));
+  const ending=android.indexOf(';\n        final WebView target = web;',beginning);
+  assert(beginning>=0&&ending>beginning,'Find the actual Android document-spacer JS');
   const expression=android.slice(beginning+'String script = '.length,ending);
-  const script=vm.runInNewContext(expression,{});
+  const script=vm.runInNewContext(expression,{cssTop:50});
   const style=fs.readFileSync(path.join(directory,'app/static/style.css'),'utf8');
   const vinyl=fs.readFileSync(path.join(directory,'app/static/vinyl.css'),'utf8');
   const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
   try{
     const page=await browser.newPage({viewport:{width:393,height:852},deviceScaleFactor:2});
-    // Android keeps the viewport below a measured 50 CSS px status bar.
-    // This mock models the PHYSICAL viewport boundary, not just padding
-    // injected into an otherwise edge-to-edge website.
     const pageHtml=`<!doctype html><html lang="en" data-interface="vinyl" class="native-android">
       <head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
       <style>${style}</style><style>${vinyl}</style>
-      <style>
-        #system-status{height:50px;position:fixed;inset:0 0 auto;background:#f5f0e6;z-index:80}
-        #android-webview{position:absolute;top:50px;bottom:0;left:0;right:0;overflow-y:auto}
-      </style></head><body>
-      <div id="system-status" aria-label="Android system status area"></div>
-      <div id="android-webview">
-        <header class="masthead">
-          <a class="brand" href="#shelf"><span>AudioShelf<small>Good records. Your collection.</small></span></a>
-          <a class="settings-link" href="#settings">Settings ↗</a>
-        </header>
-        <main style="height:1800px"><h1>My shelf</h1><p>Records</p></main>
-      </div>
+      <style>#system-status{height:50px;position:fixed;inset:0 0 auto;
+        background:#f5f0e6dd;z-index:80;pointer-events:none}</style></head><body>
+      <div id="system-status" aria-label="Android status bar overlay"></div>
+      <header class="masthead">
+        <a class="brand" href="#shelf"><span>AudioShelf<small>Good records. Your collection.</small></span></a>
+        <a class="settings-link" href="#settings">Settings ↗</a>
+      </header>
+      <main style="height:1800px"><h1>My shelf</h1><p>Records</p></main>
       </body></html>`;
     await page.setContent(pageHtml);
     for(const mode of ['vinyl','classic']){
       await page.evaluate(mode=>{
         document.documentElement.dataset.interface=mode;
-        document.getElementById('android-webview').scrollTop=0;
+        window.scrollTo(0,0);
       },mode);
-      assert.equal(await page.evaluate(script),'ready','Actual Java-generated script installs successfully');
+      assert.equal(await page.evaluate(script),'safe',
+        'Native script installs measured status-bar spacer and verifies real header geometry');
       const initial=await page.locator('.brand').boundingBox();
-      const firstSettings=await page.locator('.settings-link').boundingBox();
-      assert(initial.y>=50,'AudioShelf logo cannot overlap the physically reserved status bar');
-      assert(firstSettings.y>=50,'Settings cannot overlap system icons');
-      const headerStyle=await page.locator('.masthead').evaluate(el=>({
-        sticky:getComputedStyle(el).position,
-        background:getComputedStyle(el).backgroundColor
-      }));
-      assert.equal(headerStyle.sticky,'sticky');
-      assert.notEqual(headerStyle.background,'rgba(0, 0, 0, 0)','Header masks scrolled content');
-      await page.evaluate(()=>{document.getElementById('android-webview').scrollTop=165});
-      const scrolled=await page.locator('.brand').boundingBox();
       const settings=await page.locator('.settings-link').boundingBox();
-      assert(scrolled.y>=50,'Scrolling cannot move AudioShelf logo into status bar');
-      assert(settings.y>=50,'Scrolling cannot move Settings into status bar');
-      assert(Math.abs(scrolled.y-initial.y)<2,'Sticky header stays visible on scrolling');
+      assert(initial.y>=50,'Initial logo starts below status bar icons');
+      assert(settings.y>=50,'Initial Settings starts below status bar icons');
+      const styleInfo=await page.locator('.masthead').evaluate(el=>getComputedStyle(el).position);
+      assert.notEqual(styleInfo,'sticky','Branding must scroll away, not stay pinned');
+      await page.evaluate(()=>window.scrollTo(0,120));
+      const scrolled=await page.locator('.brand').boundingBox();
+      const scrolledSettings=await page.locator('.settings-link').boundingBox();
+      assert(scrolled.y<50 && scrolledSettings.y<50,
+        'After scrolling the logo and Settings move behind the status bar');
+      assert(scrolled.y < initial.y-100,'Header actually moves upward with the page');
     }
   }finally{await browser.close();}
 }

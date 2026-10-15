@@ -61,3 +61,5 @@ Android 0.2.7 uses a sticky masthead in integrated mode. The Android WebView ini
 Android 0.2.8 keeps the sticky edge-to-edge interface from 0.2.7 unchanged and lowers the logo/Settings row by 36 CSS pixels, correcting the Pixel status-icon overlap. The separate native ⋮ menu, remainder of the page and standalone PWA are unchanged.
 
 **0.2.9:** The integrated WebView is now permanently inset below Android's real status icons. An opaque background fills the status-bar strip; the logo, Settings, and native menu share a compact sticky header inside the safe content area. Unlike previous versions, successful JavaScript injection cannot lift the web page into the clock/battery icons. The standalone PWA is unchanged.
+
+In Android **0.2.10**, AudioShelf's initial logo and Settings remain below system icons but the area above them is scrollable: the measured status-height spacer is in the webpage's flow, so the page moves behind the status bar as it scrolls. The WebView starts natively inset until the real page is verified safe. The header is no longer sticky in integrated mode.

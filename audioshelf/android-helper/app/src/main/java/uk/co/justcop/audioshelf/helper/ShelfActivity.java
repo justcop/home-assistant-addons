@@ -62,6 +62,7 @@ public final class ShelfActivity extends Activity {
     private int sequence;
     private boolean wakeConnecting;
     private boolean loaded;
+    private boolean scrollSafeHeaderReady;
     private FrameLayout shelfRoot;
     private int statusBarPx;
     private int bottomSafePx;
@@ -88,11 +89,9 @@ public final class ShelfActivity extends Activity {
             return;
         }
 
-        // Never place the WebView in the status-icon area. The 0.2.7/0.2.8
-        // handshake removed the physical inset after JS injection, but actual
-        // Pixels still rendered the brand underneath the clock. Retain the
-        // exact Android status inset permanently, including during scrolling.
-        // Paint the exposed OS bar with the same masthead background.
+        // Load with native clearance, then put the measured status inset into
+        // scrollable document space. After verifying the logo and Settings are
+        // clear of system icons, let the WebView draw behind the status bar.
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         FrameLayout root = new FrameLayout(this);
         shelfRoot = root;
@@ -106,6 +105,7 @@ public final class ShelfActivity extends Activity {
             rightSafePx = safe.right;
             bottomSafePx = Math.max(safe.bottom, keyboard.bottom);
             updateNativeSafeArea();
+            if (scrollSafeHeaderReady) applyScrollableHeader();
             return WindowInsetsCompat.CONSUMED;
         });
         web = new WebView(this);
@@ -123,6 +123,8 @@ public final class ShelfActivity extends Activity {
         web.setWebViewClient(new WebViewClient() {
             @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 loaded = false;
+                scrollSafeHeaderReady = false;
+                updateNativeSafeArea();
             }
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri url = request.getUrl();
@@ -135,7 +137,7 @@ public final class ShelfActivity extends Activity {
             }
             @Override public void onPageFinished(WebView view, String url) {
                 loaded = sameOrigin(Uri.parse(url));
-                applyStickyHeader();
+                applyScrollableHeader();
                 if (loaded && ACTION_NOW_PLAYING.equals(getIntent().getAction()))
                     view.evaluateJavascript("window.dispatchEvent(new CustomEvent(\'audioshelf-native-playback\'));", null);
             }
@@ -193,39 +195,60 @@ public final class ShelfActivity extends Activity {
     private int dp(int size) {return Math.round(getResources().getDisplayMetrics().density*size);}
 
     /**
-     * Keep the actual WebView *below* Android's status bar at all times.
-     * The status strip is painted by the native root background, never by
-     * overlapping live web content. Neither JS success nor scrolling may
-     * change this boundary.
+     * The native status inset is a loading fallback, not permanent empty
+     * space. After verifying a real scrollable spacer inside the page,
+     * content can pass behind the status icons as the user scrolls.
      */
     private void updateNativeSafeArea() {
         if (shelfRoot == null) return;
-        shelfRoot.setPadding(leftSafePx, statusBarPx, rightSafePx, bottomSafePx);
+        shelfRoot.setPadding(leftSafePx, scrollSafeHeaderReady ? 0 : statusBarPx,
+            rightSafePx, bottomSafePx);
+        if (options != null) {
+            FrameLayout.LayoutParams params =
+                (FrameLayout.LayoutParams) options.getLayoutParams();
+            int top = dp(3) + (scrollSafeHeaderReady ? statusBarPx : 0);
+            if (params.topMargin != top) {
+                params.topMargin = top;
+                options.setLayoutParams(params);
+            }
+        }
     }
 
     /**
-     * Only the masthead's sticky behaviour is web-specific. Its top padding
-     * is compact because Android already guarantees safe placement; we must
-     * never add statusBarPx to the web header *and* native WebView.
-     * This is visual styling only; Spotify integration remains untouched.
+     * The top spacer belongs to the scrollable document body. The masthead
+     * is NOT sticky: logo, Settings and shelf can scroll underneath the
+     * Android status icons. Measure BOTH controls before dropping the
+     * temporary native inset; never trust a mere 'ready' response.
      */
-    private void applyStickyHeader() {
-        if (!loaded || web == null || !sameOrigin(Uri.parse(web.getUrl() == null ? "" : web.getUrl())))
+    private void applyScrollableHeader() {
+        if (!loaded || web == null ||
+            !sameOrigin(Uri.parse(web.getUrl() == null ? "" : web.getUrl())))
             return;
+        int cssTop = Math.max(0, (int) Math.ceil(
+            statusBarPx / getResources().getDisplayMetrics().density));
         String script = "(function(){" +
-            "var h=document.querySelector('.masthead');if(!h)return 'missing';" +
-            "var st=document.getElementById('audioshelf-android-header');" +
-            "if(!st){st=document.createElement('style');" +
-            "st.id='audioshelf-android-header';" +
-            "st.textContent=" +
-              "'html .masthead{position:sticky !important;top:0 !important;" +
-              "z-index:20 !important;background:var(--paper,#f5f0e6) !important;" +
-              "padding-top:8px !important;padding-bottom:12px !important;}' +" +
-              "'html .masthead .brand,html .masthead .settings-link{" +
-              "position:relative;z-index:1;}';" +
-            "document.head.appendChild(st);}" +
-            "return 'ready';})()";
-        web.evaluateJavascript(script, null);
+            "var b=document.body,h=document.querySelector('.masthead');" +
+            "if(!b||!h)return 'missing';" +
+            "b.style.setProperty('padding-top','" + cssTop + "px','important');" +
+            "h.style.setProperty('position','relative','important');" +
+            "h.style.setProperty('top','auto','important');" +
+            "h.style.setProperty('padding-top','8px','important');" +
+            "h.style.setProperty('padding-bottom','12px','important');" +
+            "var logo=h.querySelector('.brand');" +
+            "var settings=h.querySelector('.settings-link');" +
+            "if(!logo||!settings)return 'missing-controls';" +
+            "var a=logo.getBoundingClientRect(),s=settings.getBoundingClientRect();" +
+            "return (a.top>=" + cssTop + "&&s.top>=" + cssTop + ")?" +
+                "'safe':'unsafe';})()";
+        final WebView target = web;
+        web.evaluateJavascript(script, result -> {
+            if (!loaded || web != target || shelfRoot == null ||
+                !"\"safe\"".equals(result)) return;
+            if (!scrollSafeHeaderReady) {
+                scrollSafeHeaderReady = true;
+                updateNativeSafeArea();
+            }
+        });
     }
 
     private void startWake(JSONObject cmd) {
