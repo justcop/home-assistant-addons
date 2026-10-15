@@ -128,6 +128,52 @@ async function testAtomicOfflineRefresh(){
   await vm.runInContext('clearOfflineShelf()',context);
   assert.equal(blobs.size,0);
 }
-testAtomicOfflineRefresh().then(()=>
-  console.log('Integrated Android native wake and atomic offline snapshot tests passed')
-).catch(error=>{console.error(error);process.exitCode=1;});
+// Execute the Android-generated header script in a real mobile-sized browser.
+// Static source assertions missed the regression where the logo clipped on a
+// small scroll, and where a malformed JS string prevented native edge-to-edge.
+async function testStickyMobileHeader(){
+  const {chromium}=require('playwright');
+  const beginning=android.indexOf('String script = ',android.indexOf('private void applyEdgeToEdgeHeader()'));
+  const ending=android.indexOf(';\n        web.evaluateJavascript(script, result ->',beginning);
+  assert(beginning>=0&&ending>beginning,'Find the real native header JS payload');
+  const expression=android.slice(beginning+'String script = '.length,ending);
+  const script=vm.runInNewContext(expression,{cssTop:50});
+  const style=fs.readFileSync(path.join(directory,'app/static/style.css'),'utf8');
+  const vinyl=fs.readFileSync(path.join(directory,'app/static/vinyl.css'),'utf8');
+  const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
+  try{
+    const page=await browser.newPage({viewport:{width:393,height:852},deviceScaleFactor:2});
+    const pageHtml=`<!doctype html><html lang="en" data-interface="vinyl" class="native-android">
+      <head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+      <style>${style}</style><style>${vinyl}</style></head><body>
+      <header class="masthead">
+        <a class="brand" href="#shelf"><span>AudioShelf<small>Good records. Your collection.</small></span></a>
+        <a class="settings-link" href="#settings">Settings ↗</a>
+      </header>
+      <main style="height:1800px"><h1>My shelf</h1><p>Records</p></main>
+      </body></html>`;
+    await page.setContent(pageHtml);
+    for(const mode of ['vinyl','classic']){
+      await page.evaluate(mode=>{document.documentElement.dataset.interface=mode;window.scrollTo(0,0);},mode);
+      assert.equal(await page.evaluate(script),'ready','Actual Java-generated script installs successfully');
+      const initial=await page.locator('.brand').boundingBox();
+      assert(initial.y>=50,'AudioShelf logo begins below the simulated 50px status bar');
+      const headerStyle=await page.locator('.masthead').evaluate(el=>({
+        sticky:getComputedStyle(el).position,
+        background:getComputedStyle(el).backgroundColor
+      }));
+      assert.equal(headerStyle.sticky,'sticky');
+      assert.notEqual(headerStyle.background,'rgba(0, 0, 0, 0)','Header masks content scrolling beneath status icons');
+      await page.evaluate(()=>window.scrollTo(0,165));
+      const scrolled=await page.locator('.brand').boundingBox();
+      const settings=await page.locator('.settings-link').boundingBox();
+      assert(scrolled.y>=50,'Slight upward scroll does not clip AudioShelf logo behind status icons');
+      assert(settings.y>=50,'Settings remains below status icons when scrolled');
+      assert(Math.abs(scrolled.y-initial.y)<2,'The header remains visible rather than being cut in half');
+    }
+  }finally{await browser.close();}
+}
+testAtomicOfflineRefresh()
+  .then(testStickyMobileHeader)
+  .then(()=>console.log('Integrated Android native wake, offline snapshot and real-browser sticky header checks passed'))
+  .catch(error=>{console.error(error);process.exitCode=1;});
