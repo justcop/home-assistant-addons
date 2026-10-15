@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-15T11:32:00+01:00 (Europe/London).
+Reviewed: 2026-10-15T11:40:00+01:00 (Europe/London).
 
-Reviewed the Android 0.2.7 sticky-header regression: native root remains status-inset until the real web page acknowledges installation of an opaque, scroll-sticky masthead using the measured Android inset. A new Playwright mobile-width test executes the actual Java-generated injection script against AudioShelf's existing vinyl/classic CSS, checks logo and Settings stay below a simulated 50px status bar and visible after scrolling, and verifies nontransparent header background. Native APK build succeeded; physical-device visual confirmation is still needed.
+Reviewed Android 0.2.8 narrowly scoped masthead-clearance change and the actual mobile-browser regression. Unlike the previous weak test that checked only 50px and still allowed overlap on the user's Pixel screenshot, the Vinyl and Classic browser checks now require logo and Settings positions at least 32 CSS px below a simulated 50px status inset both before and after scrolling. Sticky behaviour, opaque background, native overflow placement, Spotify, and unrelated layout remain unchanged. Android APK and user-device visual verification remain separate.
 
-<!-- inventory: {"reviewed_at":"2026-10-15T11:32:00+01:00","review_note":"Reviewed the Android 0.2.7 sticky-header regression: native root remains status-inset until the real web page acknowledges installation of an opaque, scroll-sticky masthead using the measured Android inset. A new Playwright mobile-width test executes the actual Java-generated injection script against AudioShelf's existing vinyl/classic CSS, checks logo and Settings stay below a simulated 50px status bar and visible after scrolling, and verifies nontransparent header background. Native APK build succeeded; physical-device visual confirmation is still needed.","source_sha256":"764b877fce3b459f52516a474abd62ddc1bdc83c8a8bc7b59fe8abd675086380"} -->
+<!-- inventory: {"reviewed_at":"2026-10-15T11:40:00+01:00","review_note":"Reviewed Android 0.2.8 narrowly scoped masthead-clearance change and the actual mobile-browser regression. Unlike the previous weak test that checked only 50px and still allowed overlap on the user's Pixel screenshot, the Vinyl and Classic browser checks now require logo and Settings positions at least 32 CSS px below a simulated 50px status inset both before and after scrolling. Sticky behaviour, opaque background, native overflow placement, Spotify, and unrelated layout remain unchanged. Android APK and user-device visual verification remain separate.","source_sha256":"9bb9582cc81e50cc98703ef16dcfbf876d05181e34eb9fe0045c85458a5532fe"} -->
 
 ## Backend cases (340)
 
