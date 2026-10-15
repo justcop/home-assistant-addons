@@ -26,7 +26,17 @@ assert(!android.includes('view.setPadding(safe.left, safe.top'),'No double top p
 assert(android.includes('return WindowInsetsCompat.CONSUMED'));
 assert(android.includes('ViewCompat.requestApplyInsets(root)'));
 assert(manifest.includes('android:windowSoftInputMode="adjustResize"'));
-assert(workflow.includes('audioshelf-spotify-helper-0.2.4'));
+const currentVersion=gradle.match(/versionName '([0-9]+\\.[0-9]+\\.[0-9]+)'/)[1];
+assert(workflow.includes('audioshelf-spotify-helper-'+currentVersion),
+  'APK workflow artifact follows the Android version rather than an obsolete patch number');
+const updater=fs.readFileSync(path.join(directory,
+  'android-helper/app/src/main/java/uk/co/justcop/audioshelf/helper/HelperUpdater.java'),'utf8');
+assert(android.includes('updater.check((version, action) ->') &&
+  android.includes('download.setEnabled(false)') && android.includes('dialog.dismiss();'),
+  'Integrated app must offer a direct Download button and dismiss before installation');
+assert(updater.includes('check(BiConsumer<String, Runnable> offerDownload)') &&
+  updater.includes('offerDownload.accept(update.versionName'),
+  'Updater sends a validated version to the same integrated dialog');
 assert(!android.includes('.play('),'No native SDK playback/queue command');
 assert(manifest.includes('android.permission.BIND_NOTIFICATION_LISTENER_SERVICE'));
 assert(media.includes('com.spotify.music') && media.includes('onPlaybackStateChanged'));
