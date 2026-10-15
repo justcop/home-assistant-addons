@@ -18,11 +18,17 @@ assert(android.includes('WindowInsetsCompat.Type.systemBars()') &&
   android.includes('WindowInsetsCompat.Type.displayCutout()') &&
   android.includes('WindowInsetsCompat.Type.ime()'));
 assert(android.includes('Math.max(safe.bottom, keyboard.bottom)'));
-assert(android.includes('view.setPadding(safe.left, 0, safe.right,'),'WebView must extend under status bar');
-assert(android.includes('button.topMargin = desiredTop'),'Menu must clear the status icons');
-assert(android.includes('applyWebStatusInset()'),'Apply status inset to header, not native root');
-assert(android.includes('padding-top:max(12px,var(--audioshelf-native-status-top,32px)) !important;'),'Status inset replaces header padding');
-assert(!android.includes('view.setPadding(safe.left, safe.top'),'No double top padding');
+assert(android.includes('view.setPadding(safe.left, safe.top, safe.right,'),
+  'Android must physically protect the logo from status-bar icons even before website JS runs');
+assert(android.includes('button.topMargin = dp(3)') &&
+  !android.includes('button.topMargin = desiredTop'),
+  'Overflow menu must not add the system-bar inset twice');
+assert(android.includes('compactWebMasthead();') &&
+  android.includes("header.style.setProperty('padding-top','8px','important')") &&
+  android.includes("header.style.setProperty('padding-bottom','12px','important')"),
+  'Reduce existing web header padding inside the safe area, never replace the native safety inset');
+assert(!android.includes('applyWebStatusInset') && !android.includes('statusBarInsetPx'),
+  'Remove the unreliable after-load-only native inset mechanism');
 assert(android.includes('return WindowInsetsCompat.CONSUMED'));
 assert(android.includes('ViewCompat.requestApplyInsets(root)'));
 assert(manifest.includes('android:windowSoftInputMode="adjustResize"'));

@@ -1,3 +1,10 @@
+# 0.2.6 — Ensure AudioShelf logo clears the status bar
+
+- Restore Android's **physical** top safe inset for the integrated WebView; status icons can never cover the shelf logo, even before the website loads or if JavaScript fails.
+- Eliminate the unwanted second row by reducing AudioShelf's own top and bottom masthead padding inside the safe area to a compact 8px/12px, instead of subtracting system insets through a page-injected CSS variable.
+- Keep the native ⋮ button within the same safely inset layout (not offset twice), retain bottom gesture/keyboard protection, and preserve the full standalone PWA and Spotify functions.
+- Android-only release; no Home Assistant add-on update required.
+
 # 0.2.5 — One-step Android updater confirmation
 
 - Show a working Download button inside the integrated app's own update dialog instead of trying to open a second focus-gated confirmation behind it.

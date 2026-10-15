@@ -53,3 +53,5 @@ Integrated mode 0.2.3 also respects Android's status-bar, camera-cutout, gesture
 Android 0.2.4 restores edge-to-edge drawing behind the status bar. The wrapper uses the actual Android top inset as the masthead padding instead of stacking two rows of top spacing. Branding, Settings and the native menu stay below the status icons. The standalone PWA does not change, and no Home Assistant add-on update is required.
 
 In integrated Android 0.2.5, **⋮ → Check for Android updates** opens a single update dialog. When a newer signed APK is available, its **Download** button becomes active; after tapping it, the dialog closes and Android handles the verified installation. This fixes the previous focus-dependent prompt that could show an update without offering installation. The original companion-mode updater remains unchanged.
+
+Android 0.2.6 corrects the remaining top-logo overlap: the WebView now has Android-enforced status-bar clearance even if the page has not finished loading. The separate AudioShelf masthead uses compact 8px/12px padding, so this protection does not add an entire second blank row. No Home Assistant update is required.

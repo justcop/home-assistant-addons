@@ -62,7 +62,6 @@ public final class ShelfActivity extends Activity {
     private int sequence;
     private boolean wakeConnecting;
     private boolean loaded;
-    private int statusBarInsetPx;
     private String jobId, accountId, token;
     private long wakeDeadline;
     private final Runnable poll = this::pollWake;
@@ -85,26 +84,20 @@ public final class ShelfActivity extends Activity {
             return;
         }
 
-        // Draw the website behind the status bar. The original top padding plus
-        // the website's own masthead padding created two unnecessary rows.
+        // The previous edge-to-edge header relied on post-load JavaScript for
+        // safety. On some phones the logo could still sit behind status icons.
+        // Reserve only the real system inset natively; compact the existing
+        // web masthead *inside* that safe rectangle to avoid the double row.
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         FrameLayout root = new FrameLayout(this);
-        root.setBackgroundColor(Color.rgb(250, 248, 245));
+        root.setBackgroundColor(Color.rgb(245, 240, 230));
         ViewCompat.setOnApplyWindowInsetsListener(root, (view, windowInsets) -> {
             Insets safe = windowInsets.getInsets(
                 WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
             Insets keyboard = windowInsets.getInsets(WindowInsetsCompat.Type.ime());
-            view.setPadding(safe.left, 0, safe.right, Math.max(safe.bottom, keyboard.bottom));
-            statusBarInsetPx = safe.top;
-            if (options != null) {
-                FrameLayout.LayoutParams button = (FrameLayout.LayoutParams) options.getLayoutParams();
-                int desiredTop = safe.top + dp(3);
-                if (button.topMargin != desiredTop) {
-                    button.topMargin = desiredTop;
-                    options.setLayoutParams(button);
-                }
-            }
-            applyWebStatusInset();
+            view.setPadding(safe.left, safe.top, safe.right, Math.max(safe.bottom, keyboard.bottom));
+            // The native overflow control sits inside the already-inset root.
+            // Do not add safe.top again or reserve a second status-bar row.
             return WindowInsetsCompat.CONSUMED;
         });
         web = new WebView(this);
@@ -131,7 +124,7 @@ public final class ShelfActivity extends Activity {
             }
             @Override public void onPageFinished(WebView view, String url) {
                 loaded = sameOrigin(Uri.parse(url));
-                applyWebStatusInset();
+                compactWebMasthead();
                 if (loaded && ACTION_NOW_PLAYING.equals(getIntent().getAction()))
                     view.evaluateJavascript("window.dispatchEvent(new CustomEvent(\'audioshelf-native-playback\'));", null);
             }
@@ -188,25 +181,16 @@ public final class ShelfActivity extends Activity {
     }
     private int dp(int size) {return Math.round(getResources().getDisplayMetrics().density*size);}
 
-    /** Use the measured status-bar inset as the masthead's top padding, rather
-     * than adding a blank native strip. The web app remains standalone. */
-    private void applyWebStatusInset() {
+    /** Cosmetic only: all important content is already below Android's real
+     * status-bar inset. If JavaScript fails, the logo is still never covered.
+     * Reduce AudioShelf's usual 20px mobile padding, not the system inset. */
+    private void compactWebMasthead() {
         if (!loaded || web == null) return;
-        int cssPx = Math.max(0, Math.round(
-            statusBarInsetPx / getResources().getDisplayMetrics().density));
         String script = "(function(){" +
-            "var root=document.documentElement;" +
-            "var style=document.getElementById('audioshelf-native-status-style');" +
-            "if(!style){style=document.createElement('style');" +
-            "style.id='audioshelf-native-status-style';" +
-            "style.textContent=" +
-            "'html.native-android .masthead{" +
-            "padding-top:max(12px,var(--audioshelf-native-status-top,32px)) !important;" +
-            "padding-bottom:14px !important;}' +" +
-            "'html.native-android #offline-status:not([hidden]){" +
-            "padding-top:max(12px,var(--audioshelf-native-status-top,32px)) !important;}';" +
-            "document.head.appendChild(style);}" +
-            "root.style.setProperty('--audioshelf-native-status-top','" + cssPx + "px');" +
+            "var header=document.querySelector('.masthead');" +
+            "if(!header)return;" +
+            "header.style.setProperty('padding-top','8px','important');" +
+            "header.style.setProperty('padding-bottom','12px','important');" +
             "})()";
         web.evaluateJavascript(script, null);
     }

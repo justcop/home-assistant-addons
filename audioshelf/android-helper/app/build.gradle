@@ -7,8 +7,8 @@ android {
         applicationId 'uk.co.justcop.audioshelf.helper'
         minSdk 26
         targetSdk 35
-        versionCode 33
-        versionName '0.2.5'
+        versionCode 34
+        versionName '0.2.6'
     }
     signingConfigs {
         prototype {
