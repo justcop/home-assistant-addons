@@ -1,3 +1,11 @@
+# 0.2.7 — Sticky edge-to-edge Android masthead
+
+- Use the entire status-bar background area while keeping the AudioShelf logo and Settings below Android's actual system icons.
+- Keep the header sticky when scrolling, so slightly scrolling the page never leaves a clipped slice of the logo or account controls.
+- Start with a natively safe WebView and only extend it behind Android's status bar after the header's protective CSS has been installed successfully; failure cannot expose the header under the system icons.
+- An opaque, theme-aware header hides scrolling content underneath the status-bar icons. Keep the native overflow menu aligned with the same bar, plus bottom/keyboard insets.
+- The browser PWA and server remain unchanged; this is an Android-only release.
+
 # 0.2.6 — Ensure AudioShelf logo clears the status bar
 
 - Restore Android's **physical** top safe inset for the integrated WebView; status icons can never cover the shelf logo, even before the website loads or if JavaScript fails.

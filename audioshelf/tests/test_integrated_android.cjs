@@ -18,17 +18,23 @@ assert(android.includes('WindowInsetsCompat.Type.systemBars()') &&
   android.includes('WindowInsetsCompat.Type.displayCutout()') &&
   android.includes('WindowInsetsCompat.Type.ime()'));
 assert(android.includes('Math.max(safe.bottom, keyboard.bottom)'));
-assert(android.includes('view.setPadding(safe.left, safe.top, safe.right,'),
-  'Android must physically protect the logo from status-bar icons even before website JS runs');
-assert(android.includes('button.topMargin = dp(3)') &&
-  !android.includes('button.topMargin = desiredTop'),
-  'Overflow menu must not add the system-bar inset twice');
-assert(android.includes('compactWebMasthead();') &&
-  android.includes("header.style.setProperty('padding-top','8px','important')") &&
-  android.includes("header.style.setProperty('padding-bottom','12px','important')"),
-  'Reduce existing web header padding inside the safe area, never replace the native safety inset');
-assert(!android.includes('applyWebStatusInset') && !android.includes('statusBarInsetPx'),
-  'Remove the unreliable after-load-only native inset mechanism');
+assert(android.includes('edgeToEdgeHeaderReady ? 0 : statusBarPx'),
+  'WebView must remain natively status-inset until protective CSS has loaded');
+assert(android.includes('edgeToEdgeHeaderReady ? statusBarPx : 0'),
+  'Android overflow menu must align under the physical status bar');
+assert(android.includes('onPageStarted(WebView view, String url') &&
+  android.includes('edgeToEdgeHeaderReady = false;'),
+  'Page reload returns to safe native insets before drawing new content');
+assert(android.includes('applyEdgeToEdgeHeader()') &&
+  android.includes('position:sticky !important;top:0 !important;') &&
+  android.includes('background:var(--paper,#f5f0e6) !important;') &&
+  android.includes('padding-top:calc(var(--android-status-bar-height) + 8px) !important;'),
+  'Sticky, opaque masthead uses actual Android status-bar height, not static padding');
+assert(android.includes('web.evaluateJavascript(script, result -> {') &&
+  android.includes('edgeToEdgeHeaderReady = true;'),
+  'Expand edge-to-edge only after actual page confirms the header is protected');
+assert(!android.includes('compactWebMasthead()'),
+  'Remove old scrolling/cropped header layout');
 assert(android.includes('return WindowInsetsCompat.CONSUMED'));
 assert(android.includes('ViewCompat.requestApplyInsets(root)'));
 assert(manifest.includes('android:windowSoftInputMode="adjustResize"'));
