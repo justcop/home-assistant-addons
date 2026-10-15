@@ -6,6 +6,7 @@ let offlineReadOnly=false, offlineSaving=false;
 let statusInfo = {}, shelfView = 'artists', searchKind = 'artist', currentAlbum = null, routeGeneration = 0, toastTimer, artworkRevision = 0, releasePicker = null, settingsDirty = false;
 const loadedAssets = document.documentElement.dataset.assetVersion;
 let workerRegistration, pendingChanges = 0;
+let lastfmRows=[], lastfmSelected=new Set(), lastfmPeriod='overall', lastfmFilter='', lastfmPollHandle=null;
 function noticeUpdate(build){
   if(build?.asset_version && build.asset_version!==loadedAssets)document.querySelector('#app-update').hidden=false;
 }
@@ -559,8 +560,81 @@ async function accountSettings(){
   const result=await api('accounts');
   showModal(`<h2>AudioShelf accounts</h2><p>Every account has a separate library, Spotify connection, artwork and settings. Disabling an account revokes access and keeps its collection.</p><h3>Create account</h3><form data-account-form data-operation="create">${reauthFields()}<label>Username<input name="username" autocomplete="off" maxlength="32" pattern="[a-zA-Z0-9][a-zA-Z0-9_.\\-]{0,31}" required></label><label>New account password<input type="password" name="new_password" autocomplete="new-password" minlength="12" required></label><button class="primary">Create account</button></form>${result.accounts.map(account=>`<section class="settings-block"><h3>${escapeHtml(account.username)}</h3>${account.id==='owner'?'<p>The existing library and Spotify connection belong to owner. Its password is set in Home Assistant configuration.</p>':`<p>${account.disabled?'Disabled':'Enabled'}</p><form data-account-form data-operation="status" data-id="${escapeHtml(account.id)}" data-disabled="${account.disabled?'false':'true'}">${reauthFields()}<button class="secondary">${account.disabled?'Enable':'Disable'} account</button></form><form data-account-form data-operation="reset" data-id="${escapeHtml(account.id)}">${reauthFields()}<label>Replacement password<input type="password" name="new_password" autocomplete="new-password" minlength="12" required></label><label class="check-option"><input type="checkbox" name="reset_two_factor"> Also reset this account’s authenticator and recovery codes</label><p class="muted">Changing the password signs this account out on every device.</p><button class="secondary">Reset password</button></form>`}</section>`).join('')}`);
 }
+
+/* Opt-in Last.fm album import. The server verifies every MusicBrainz identity
+   and keeps the import running independently of this page or Android WebView. */
+function lastfmSettings(){return '<section class="settings-block"><h2>Last.fm import</h2><p>Fill your shelf from albums you already listen to, ranked by Last.fm plays. Review hundreds at once; existing records are skipped.</p><div id="lastfm-settings" aria-live="polite">Checking Last.fm connection…</div></section>';}
+function lastfmJobSummary(job){
+  if(!job)return '';
+  const done=Number(job.processed||0),total=Number(job.total||0);
+  const issues=(job.issues||[]).map(issue=>'<li><strong>'+escapeHtml(issue.artist)+' — '+escapeHtml(issue.title)+'</strong>: '+escapeHtml(issue.reason)+'</li>').join('');
+  return '<p><strong>'+escapeHtml(job.state==='running'?'Import running':job.state==='complete'?'Import complete':'Import interrupted')+'</strong>: '+done+' / '+total+' processed · '+(job.added||0)+' added · '+(job.skipped||0)+' already owned · '+(job.failed||0)+' needing review.</p>'+
+    '<progress max="'+Math.max(1,total)+'" value="'+done+'" style="width:100%"></progress>'+
+    (issues?'<details><summary>Albums requiring manual review ('+job.issues.length+')</summary><ul>'+issues+'</ul></details>':'')+
+    (job.state==='running'?'<p class="muted">This continues on the server when you leave AudioShelf. You can return here to check progress.</p>':'');
+}
+async function loadLastfmSettings(){
+  const element=document.querySelector('#lastfm-settings');if(!element)return;
+  try{
+    const result=await api('lastfm/status');
+    if(!element.isConnected)return;
+    element.innerHTML=result.connected?
+      '<p>Connected to <strong>'+escapeHtml(result.username)+'</strong>. Last.fm will not change your scrobbles.</p>'+
+      '<div class="actions"><button class="primary" data-action="lastfm-browse">Choose albums to add</button><button class="secondary" data-action="lastfm-reconnect">Change connection</button><button class="quiet" data-action="lastfm-disconnect">Disconnect</button></div>':
+      '<form id="lastfm-connect-form"><label>Last.fm username<input name="username" autocomplete="username" maxlength="32" required></label>'+
+      '<label>Last.fm API key<input name="api_key" autocomplete="off" maxlength="32" minlength="32" spellcheck="false" required></label>'+
+      '<p class="muted">Use your own Last.fm API key (or the one used by Listening Analytics). Public listening history needs a key but not your Last.fm password. Your key stays on your AudioShelf server and is never returned to the browser.</p>'+
+      '<button class="primary">Connect Last.fm</button></form>';
+    if(result.job)element.insertAdjacentHTML('beforeend','<div class="lastfm-progress">'+lastfmJobSummary(result.job)+'</div>');
+    if(result.job?.state==='running')pollLastfm();
+  }catch(error){element.textContent='Could not load Last.fm settings: '+error.message;}
+}
+function lastfmVisible(){return lastfmRows.filter(row=>!lastfmFilter||(row.artist+' '+row.title).toLowerCase().includes(lastfmFilter.toLowerCase()));}
+function updateLastfmList(){
+  const list=document.querySelector('#lastfm-results');if(!list)return;
+  const visible=lastfmVisible();
+  list.innerHTML=visible.map(a=>'<label class="lastfm-row"><input type="checkbox" data-lastfm-id="'+escapeHtml(a.id)+'" '+
+    (lastfmSelected.has(a.id)?'checked ':'')+(a.on_shelf?'disabled ':'')+'><span><strong>'+escapeHtml(a.title)+'</strong><small>'+escapeHtml(a.artist)+' · '+a.plays+' plays'+(a.on_shelf?' · Already on shelf':'')+'</small></span></label>').join('')||'<p class="muted">No albums match this filter.</p>';
+  const counter=document.querySelector('#lastfm-count');
+  if(counter)counter.textContent=lastfmSelected.size+' selected · '+lastfmRows.filter(a=>a.on_shelf).length+' already collected · up to 250 per batch';
+  const add=document.querySelector('[data-action="lastfm-import"]');
+  if(add)add.disabled=lastfmSelected.size===0||lastfmSelected.size>250;
+}
+async function openLastfmBrowse(period='overall'){
+  lastfmPeriod=period;lastfmFilter='';
+  showModal('<h2>Import your Last.fm albums</h2><p>Loading listening history…</p>');
+  const response=await api('lastfm/albums?period='+encodeURIComponent(period));
+  lastfmRows=response.albums;
+  lastfmSelected=new Set(lastfmRows.filter(a=>!a.on_shelf).slice(0,100).map(a=>a.id));
+  if(!modal.open)return;
+  modalContent.innerHTML='<h2>Your familiar albums</h2><p>Select up to 250 at a time. Only exact, unambiguous MusicBrainz studio albums will be imported; editions still require review before first playback.</p>'+
+    '<label>Listening period <select id="lastfm-period"><option value="overall">All time</option><option value="12month">Last 12 months</option><option value="6month">Last 6 months</option><option value="3month">Last 3 months</option></select></label>'+
+    '<label>Filter albums<input type="search" id="lastfm-filter" placeholder="Artist or album" autocomplete="off"></label>'+
+    '<div class="actions"><button class="secondary" data-action="lastfm-pick" data-count="50">Top 50</button><button class="secondary" data-action="lastfm-pick" data-count="100">Top 100</button><button class="secondary" data-action="lastfm-pick" data-count="250">Top 250</button><button class="quiet" data-action="lastfm-pick" data-count="0">Clear</button></div>'+
+    '<p id="lastfm-count" aria-live="polite"></p><div class="lastfm-list" id="lastfm-results"></div>'+
+    '<div class="actions"><button class="primary" data-action="lastfm-import">Import selected albums</button></div>';
+  document.querySelector('#lastfm-period').value=period;
+  updateLastfmList();
+}
+function pollLastfm(){
+  if(lastfmPollHandle)return;
+  async function tick(){
+    lastfmPollHandle=null;
+    try{
+      const response=await api('lastfm/status');
+      const progress=document.querySelector('#lastfm-progress');
+      if(progress)progress.innerHTML=lastfmJobSummary(response.job);
+      const settings=document.querySelector('#lastfm-settings .lastfm-progress');
+      if(settings)settings.innerHTML=lastfmJobSummary(response.job);
+      if(response.job?.state==='running'){lastfmPollHandle=setTimeout(tick,2500);return;}
+      if(document.querySelector('#lastfm-settings'))loadLastfmSettings();
+    }catch{lastfmPollHandle=setTimeout(tick,5000);}
+  }
+  lastfmPollHandle=setTimeout(tick,1200);
+}
+
 function accountSection(){return `<section class="settings-block"><h2>Your account</h2><p>Signed in as <strong>${escapeHtml(statusInfo.account?.username||'owner')}</strong>. Your shelf, Spotify connection and preferences belong to this account.</p><div class="actions"><button class="secondary" data-action="logout">Switch account / Sign out</button>${statusInfo.account?.admin?'<button class="secondary" data-action="accounts">Manage accounts</button>':''}</div></section>`;}
-function settingsPage(){return `<div class="eyebrow">Make yourself at home</div><h1>Settings.</h1>${accountSection()}<section class="settings-block"><h2>Spotify</h2><p>${statusInfo.spotify_connected?'Your Spotify account is connected. Playback uses your chosen device. Unavailable devices are never replaced automatically.':'Connect your Spotify Premium account to match and play albums.'}</p>${!statusInfo.spotify_configured?'<div class="note">In Home Assistant, open AudioShelf configuration and set <code>spotify_client_id</code> and <code>spotify_redirect_uri</code>. Use your HTTPS address followed by <code>/auth/spotify/callback</code>, and add the exact same redirect URL to your Spotify developer app. No client secret is needed.</div>':''}<div class="actions">${statusInfo.role==='owner'?`<button class="primary" data-action="connect">${statusInfo.spotify_connected?'Reconnect Spotify':'Connect Spotify'}</button>${statusInfo.spotify_connected?'<button class="quiet" data-action="disconnect">Disconnect</button>':''}`:''}<button class="quiet" data-action="refresh-status">Refresh connection status</button></div><p class="muted">Catalogue market: ${escapeHtml(statusInfo.market || 'GB')}. Turn Autoplay off in Spotify if you want silence when the album finishes. AudioShelf switches Shuffle and Repeat off before starting an album.</p></section>${statusInfo.role==='owner'?'<section class="settings-block"><h2>Security</h2><p>Manage two-factor authentication, trusted browsers and temporary support logins.</p><button class="secondary" data-action="security">Open Security settings</button></section>':'<div class="note">Temporary support login. Access is limited and expires automatically.</div>'}${playbackSettings()}${themeSettings()}${releaseFilterSettings()}${artworkCacheSection()}${offlineShelfSection()}<section class="settings-block"><h2>Your collection</h2><p>Your shelf belongs to AudioShelf. Adding or removing a record here does not change your saved Spotify albums.</p>${statusInfo.role==='owner'?'<div class="actions"><a class="secondary" href="api/export" download>Export collection</a><button class="secondary" data-action="backup">Download database backup</button></div>':''}<p class="muted">Library: <code>${escapeHtml(statusInfo.data_directory)}</code>. Back up this folder as well as your add-on data.</p><p class="muted">Replaceable artwork and metadata cache: <code>${escapeHtml(statusInfo.cache_directory)}</code>. You can exclude this separate folder from backups. It rebuilds automatically.</p></section><section class="settings-block"><h2>About AudioShelf</h2><p>Albums, in their original order. No singles, compilation appearances or anniversary clutter.</p><p class="muted">Version ${escapeHtml(statusInfo.build?.version)} · ${escapeHtml(statusInfo.build?.channel)} · ${escapeHtml(statusInfo.build?.revision)}</p><p class="footer-note">Install AudioShelf from your phone browser using Add to Home Screen at your standalone HTTPS address.</p></section>`;}
+function settingsPage(){return `<div class="eyebrow">Make yourself at home</div><h1>Settings.</h1>${accountSection()}<section class="settings-block"><h2>Spotify</h2><p>${statusInfo.spotify_connected?'Your Spotify account is connected. Playback uses your chosen device. Unavailable devices are never replaced automatically.':'Connect your Spotify Premium account to match and play albums.'}</p>${!statusInfo.spotify_configured?'<div class="note">In Home Assistant, open AudioShelf configuration and set <code>spotify_client_id</code> and <code>spotify_redirect_uri</code>. Use your HTTPS address followed by <code>/auth/spotify/callback</code>, and add the exact same redirect URL to your Spotify developer app. No client secret is needed.</div>':''}<div class="actions">${statusInfo.role==='owner'?`<button class="primary" data-action="connect">${statusInfo.spotify_connected?'Reconnect Spotify':'Connect Spotify'}</button>${statusInfo.spotify_connected?'<button class="quiet" data-action="disconnect">Disconnect</button>':''}`:''}<button class="quiet" data-action="refresh-status">Refresh connection status</button></div><p class="muted">Catalogue market: ${escapeHtml(statusInfo.market || 'GB')}. Turn Autoplay off in Spotify if you want silence when the album finishes. AudioShelf switches Shuffle and Repeat off before starting an album.</p></section>${statusInfo.role==='owner'?'<section class="settings-block"><h2>Security</h2><p>Manage two-factor authentication, trusted browsers and temporary support logins.</p><button class="secondary" data-action="security">Open Security settings</button></section>':'<div class="note">Temporary support login. Access is limited and expires automatically.</div>'}${lastfmSettings()}${playbackSettings()}${themeSettings()}${releaseFilterSettings()}${artworkCacheSection()}${offlineShelfSection()}<section class="settings-block"><h2>Your collection</h2><p>Your shelf belongs to AudioShelf. Adding or removing a record here does not change your saved Spotify albums.</p>${statusInfo.role==='owner'?'<div class="actions"><a class="secondary" href="api/export" download>Export collection</a><button class="secondary" data-action="backup">Download database backup</button></div>':''}<p class="muted">Library: <code>${escapeHtml(statusInfo.data_directory)}</code>. Back up this folder as well as your add-on data.</p><p class="muted">Replaceable artwork and metadata cache: <code>${escapeHtml(statusInfo.cache_directory)}</code>. You can exclude this separate folder from backups. It rebuilds automatically.</p></section><section class="settings-block"><h2>About AudioShelf</h2><p>Albums, in their original order. No singles, compilation appearances or anniversary clutter.</p><p class="muted">Version ${escapeHtml(statusInfo.build?.version)} · ${escapeHtml(statusInfo.build?.channel)} · ${escapeHtml(statusInfo.build?.revision)}</p><p class="footer-note">Install AudioShelf from your phone browser using Add to Home Screen at your standalone HTTPS address.</p></section>`;}
 async function route(){
   cancelPendingPlayback();
   const generation=++routeGeneration;
@@ -608,7 +682,7 @@ async function route(){
     else if(view==='settings')html=settingsPage();
     else {location.hash='shelf';return;}
     if(generation!==routeGeneration)return;
-    content.innerHTML=(statusInfo.role==='view'?'<div class="note">View-only temporary access. Changes and playback are disabled.</div>':'')+html;applyPermissions(content);settingsDirty=false;restoreBrowsing(generation);if(view==='settings')refreshArtworkCacheSettings();refreshPlayback();
+    content.innerHTML=(statusInfo.role==='view'?'<div class="note">View-only temporary access. Changes and playback are disabled.</div>':'')+html;applyPermissions(content);settingsDirty=false;restoreBrowsing(generation);if(view==='settings'){refreshArtworkCacheSettings();loadLastfmSettings();}refreshPlayback();
     if(view==='store'&&['artist','album'].includes(key)&&mode&&!isVinyl()){
       const results=document.querySelector('#search-results');
       results.innerHTML=searchKind==='album'?cards(storeSearch.results):storeSearch.results.map(a=>`<a class="search-result" href="#artist/${id(a.id)}/store"><strong>${escapeHtml(a.name)}</strong></a>`).join('');
@@ -842,7 +916,7 @@ document.addEventListener('change',async event=>{
   catch(error){toast(error.message);}finally{select.disabled=false;}
 });
 window.addEventListener('hashchange',event=>{saveBrowsing(new URL(event.oldURL).hash);modal.close();route();});
-window.addEventListener('focus',async()=>{if(statusInfo.authenticated){try{const previousInterface=statusInfo.interface;const latest=await api('status');if(accountChanged(latest)){await clearArtworkCaches();window.location.reload();return;}statusInfo=latest;applyTheme(statusInfo.theme);applyInterface(statusInfo.interface);renderTurntable();refreshPlayback(true);if(previousInterface!==statusInfo.interface&&!unsavedChanges()){await route();return;}if(location.hash==='#settings'&&!settingsDirty){content.innerHTML=settingsPage();applyPermissions(content);refreshArtworkCacheSettings();}}catch{}}});
+window.addEventListener('focus',async()=>{if(statusInfo.authenticated){try{const previousInterface=statusInfo.interface;const latest=await api('status');if(accountChanged(latest)){await clearArtworkCaches();window.location.reload();return;}statusInfo=latest;applyTheme(statusInfo.theme);applyInterface(statusInfo.interface);renderTurntable();refreshPlayback(true);if(previousInterface!==statusInfo.interface&&!unsavedChanges()){await route();return;}if(location.hash==='#settings'&&!settingsDirty){content.innerHTML=settingsPage();applyPermissions(content);refreshArtworkCacheSettings();loadLastfmSettings();}}catch{}}});
 document.addEventListener('change',event=>{
   if(!event.target.matches('input[name="variant-layout"]'))return;
   const state=releasePicker;
@@ -858,13 +932,23 @@ document.addEventListener('change',event=>{
     :'No reliable A/B side numbering for this release. Discs remain individually playable.';
 });
 document.addEventListener('input',event=>{if(event.target.closest('#release-filters-form'))settingsDirty=true;});
+document.addEventListener('input',event=>{if(event.target.id==='lastfm-filter'){lastfmFilter=event.target.value;updateLastfmList();}});
+document.addEventListener('change',event=>{
+  const element=event.target;
+  if(element.id==='lastfm-period'){openLastfmBrowse(element.value).catch(error=>toast(error.message));return;}
+  if(element.matches('[data-lastfm-id]')){if(element.checked)lastfmSelected.add(element.dataset.lastfmId);else lastfmSelected.delete(element.dataset.lastfmId);updateLastfmList();}
+});
 document.addEventListener('input',event=>{if(event.target.id==='artist-filter')document.querySelectorAll('.artist-row').forEach(el=>el.hidden=!el.dataset.filter.includes(event.target.value.toLowerCase()));});
 document.addEventListener('submit',async event=>{
-  const form=event.target;if(!['search-form','login-form','mapping-form','track-form','artwork-form','release-filters-form','album-countries-form','catalogue-series-form','catalogue-search-form','security-form'].includes(form.id)&&!form.matches('[data-security-form], [data-account-form]'))return;
+  const form=event.target;if(!['search-form','login-form','mapping-form','track-form','artwork-form','release-filters-form','album-countries-form','catalogue-series-form','catalogue-search-form','security-form','lastfm-connect-form'].includes(form.id)&&!form.matches('[data-security-form], [data-account-form]'))return;
   event.preventDefault();const button=form.querySelector('button');button.disabled=true;
   const generation=routeGeneration;
   try {
     const data=new FormData(form);
+    if(form.id==='lastfm-connect-form'){
+      await api('lastfm/connect','POST',{username:String(data.get('username')).trim(),api_key:String(data.get('api_key')).trim()});
+      await loadLastfmSettings();toast('Last.fm connected.');return;
+    }
     if(form.matches('[data-account-form]')){
       const body={password:data.get('password')||'',code:data.get('code')||''};
       if(form.dataset.operation==='create')Object.assign(body,{username:data.get('username'),new_password:data.get('new_password')});
@@ -985,6 +1069,20 @@ document.addEventListener('click',async event=>{
     if(action==='search-kind'){searchKind=button.dataset.kind;storeSearch={kind:searchKind,query:'',results:null};await route();}
     if(action==='add'){
       await openPlayableReleasePicker(button.dataset.id,'add');
+    }
+    if(action==='lastfm-reconnect'){
+      const panel=document.querySelector('#lastfm-settings');if(panel)panel.innerHTML=
+      '<form id="lastfm-connect-form"><label>Last.fm username<input name="username" maxlength="32" required></label><label>Last.fm API key<input name="api_key" minlength="32" maxlength="32" required></label><button class="primary">Connect Last.fm</button></form>';
+    }
+    if(action==='lastfm-disconnect'){if(confirm('Disconnect Last.fm? Albums already on your shelf will stay.')){await api('lastfm/disconnect','POST');await loadLastfmSettings();}}
+    if(action==='lastfm-browse')await openLastfmBrowse(lastfmPeriod);
+    if(action==='lastfm-pick'){lastfmSelected=new Set(lastfmVisible().filter(a=>!a.on_shelf).slice(0,Number(button.dataset.count)).map(a=>a.id));updateLastfmList();}
+    if(action==='lastfm-import'){
+      const chosen=[...lastfmSelected];
+      if(!chosen.length||chosen.length>250)throw new Error('Choose 1 to 250 albums per batch.');
+      const result=await api('lastfm/import','POST',{ids:chosen,period:lastfmPeriod});
+      modalContent.innerHTML='<h2>Adding familiar albums</h2><div id="lastfm-progress">'+lastfmJobSummary(result.job)+'</div><p>Unambiguous albums will appear on your shelf as they are processed. Check editions and Spotify matches later.</p>';
+      pollLastfm();
     }
     if(action==='security')await securitySettings();
     if(action==='accounts')await accountSettings();
