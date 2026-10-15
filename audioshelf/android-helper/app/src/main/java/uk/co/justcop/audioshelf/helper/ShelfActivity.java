@@ -62,6 +62,7 @@ public final class ShelfActivity extends Activity {
     private int sequence;
     private boolean wakeConnecting;
     private boolean loaded;
+    private int statusBarInsetPx;
     private String jobId, accountId, token;
     private long wakeDeadline;
     private final Runnable poll = this::pollWake;
@@ -84,8 +85,8 @@ public final class ShelfActivity extends Activity {
             return;
         }
 
-        // Android 15+ targeting SDK 35 draws behind the system bars. Constrain
-        // both the website and native menu to the safe rectangle instead.
+        // Draw the website behind the status bar. The original top padding plus
+        // the website's own masthead padding created two unnecessary rows.
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.rgb(250, 248, 245));
@@ -93,8 +94,17 @@ public final class ShelfActivity extends Activity {
             Insets safe = windowInsets.getInsets(
                 WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
             Insets keyboard = windowInsets.getInsets(WindowInsetsCompat.Type.ime());
-            view.setPadding(safe.left, safe.top, safe.right, Math.max(safe.bottom, keyboard.bottom));
-            // Insets already shrink the WebView, so children must not add them again.
+            view.setPadding(safe.left, 0, safe.right, Math.max(safe.bottom, keyboard.bottom));
+            statusBarInsetPx = safe.top;
+            if (options != null) {
+                FrameLayout.LayoutParams button = (FrameLayout.LayoutParams) options.getLayoutParams();
+                int desiredTop = safe.top + dp(3);
+                if (button.topMargin != desiredTop) {
+                    button.topMargin = desiredTop;
+                    options.setLayoutParams(button);
+                }
+            }
+            applyWebStatusInset();
             return WindowInsetsCompat.CONSUMED;
         });
         web = new WebView(this);
@@ -121,6 +131,7 @@ public final class ShelfActivity extends Activity {
             }
             @Override public void onPageFinished(WebView view, String url) {
                 loaded = sameOrigin(Uri.parse(url));
+                applyWebStatusInset();
                 if (loaded && ACTION_NOW_PLAYING.equals(getIntent().getAction()))
                     view.evaluateJavascript("window.dispatchEvent(new CustomEvent(\'audioshelf-native-playback\'));", null);
             }
@@ -176,6 +187,29 @@ public final class ShelfActivity extends Activity {
             uri.getUserInfo()==null;
     }
     private int dp(int size) {return Math.round(getResources().getDisplayMetrics().density*size);}
+
+    /** Use the measured status-bar inset as the masthead's top padding, rather
+     * than adding a blank native strip. The web app remains standalone. */
+    private void applyWebStatusInset() {
+        if (!loaded || web == null) return;
+        int cssPx = Math.max(0, Math.round(
+            statusBarInsetPx / getResources().getDisplayMetrics().density));
+        String script = "(function(){" +
+            "var root=document.documentElement;" +
+            "var style=document.getElementById('audioshelf-native-status-style');" +
+            "if(!style){style=document.createElement('style');" +
+            "style.id='audioshelf-native-status-style';" +
+            "style.textContent=" +
+            "'html.native-android .masthead{" +
+            "padding-top:max(12px,var(--audioshelf-native-status-top,32px)) !important;" +
+            "padding-bottom:14px !important;}' +" +
+            "'html.native-android #offline-status:not([hidden]){" +
+            "padding-top:max(12px,var(--audioshelf-native-status-top,32px)) !important;}';" +
+            "document.head.appendChild(style);}" +
+            "root.style.setProperty('--audioshelf-native-status-top','" + cssPx + "px');" +
+            "})()";
+        web.evaluateJavascript(script, null);
+    }
 
     private void startWake(JSONObject cmd) {
         String clientId=cmd.optString("client_id","");

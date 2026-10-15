@@ -1,3 +1,9 @@
+# 0.2.4 — Edge-to-edge status bar without the double top row
+
+- Restore the full-height WebView behind Android's status bar rather than reserving a separate blank strip.
+- Replace the existing web masthead's top padding with the actual status inset, keeping the AudioShelf branding, Settings and native menu clear of system icons.
+- Preserve bottom gesture, camera cutout and keyboard clearance, offline banner, and the independent PWA. No Home Assistant add-on update required.
+
 # 0.2.3 — Respect Android status and navigation bars
 
 - Keep the integrated WebView and native menu clear of the phone's status icons, cutout and gesture-navigation area on Android 15 and later.

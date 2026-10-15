@@ -18,10 +18,15 @@ assert(android.includes('WindowInsetsCompat.Type.systemBars()') &&
   android.includes('WindowInsetsCompat.Type.displayCutout()') &&
   android.includes('WindowInsetsCompat.Type.ime()'));
 assert(android.includes('Math.max(safe.bottom, keyboard.bottom)'));
+assert(android.includes('view.setPadding(safe.left, 0, safe.right,'),'WebView must extend under status bar');
+assert(android.includes('button.topMargin = desiredTop'),'Menu must clear the status icons');
+assert(android.includes('applyWebStatusInset()'),'Apply status inset to header, not native root');
+assert(android.includes('padding-top:max(12px,var(--audioshelf-native-status-top,32px)) !important;'),'Status inset replaces header padding');
+assert(!android.includes('view.setPadding(safe.left, safe.top'),'No double top padding');
 assert(android.includes('return WindowInsetsCompat.CONSUMED'));
 assert(android.includes('ViewCompat.requestApplyInsets(root)'));
 assert(manifest.includes('android:windowSoftInputMode="adjustResize"'));
-assert(workflow.includes('audioshelf-spotify-helper-0.2.3'));
+assert(workflow.includes('audioshelf-spotify-helper-0.2.4'));
 assert(!android.includes('.play('),'No native SDK playback/queue command');
 assert(manifest.includes('android.permission.BIND_NOTIFICATION_LISTENER_SERVICE'));
 assert(media.includes('com.spotify.music') && media.includes('onPlaybackStateChanged'));
