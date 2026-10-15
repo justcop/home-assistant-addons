@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-15T11:04:00+01:00 (Europe/London).
+Reviewed: 2026-10-15T11:16:01+01:00 (Europe/London).
 
-Reviewed Android integrated update regression assertions after 0.2.5: derive the APK workflow artifact version directly from Gradle rather than pinning an obsolete patch version, require a disabled-while-checking Download button in the same update dialog and dismissal before signed installation, and require a validated update callback from HelperUpdater. Android unit build and lint passed; physical-device installer confirmation remains to be verified.
+Reviewed Android 0.2.6 status-bar regression: unlike the unsafe edge-to-edge JavaScript-only adjustment, the root WebView physically applies the status-bar/display-cutout top inset; any JavaScript failure leaves branding safely below system icons. The webpage's own masthead gets compact 8px/12px padding within the safe root. The native overflow button does not apply the inset twice, and navigation/IME insets remain protected. This structural regression check cannot substitute for visual verification on the phone.
 
-<!-- inventory: {"reviewed_at":"2026-10-15T11:04:00+01:00","review_note":"Reviewed Android integrated update regression assertions after 0.2.5: derive the APK workflow artifact version directly from Gradle rather than pinning an obsolete patch version, require a disabled-while-checking Download button in the same update dialog and dismissal before signed installation, and require a validated update callback from HelperUpdater. Android unit build and lint passed; physical-device installer confirmation remains to be verified.","source_sha256":"40871220a375c66c762e45c8ca40e963c131bfe93992bfa8714632933c9f4c81"} -->
+<!-- inventory: {"reviewed_at":"2026-10-15T11:16:01+01:00","review_note":"Reviewed Android 0.2.6 status-bar regression: unlike the unsafe edge-to-edge JavaScript-only adjustment, the root WebView physically applies the status-bar/display-cutout top inset; any JavaScript failure leaves branding safely below system icons. The webpage's own masthead gets compact 8px/12px padding within the safe root. The native overflow button does not apply the inset twice, and navigation/IME insets remain protected. This structural regression check cannot substitute for visual verification on the phone.","source_sha256":"de3a9086efb853fe0446c100644292c251d717aed98f5fad657c556be2044b02"} -->
 
 ## Backend cases (340)
 
