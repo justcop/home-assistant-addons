@@ -80,3 +80,14 @@ input[type="checkbox"],dialog input[type="checkbox"]{width:18px;height:18px;padd
 
 /* Embedded Android keeps its native overflow button separate from web Settings. */
 .native-android .masthead{padding-right:max(58px,calc(env(safe-area-inset-right) + 58px))}
+
+/* Last.fm batch chooser: compact, scrollable and useful on mobile. */
+.lastfm-list{max-height:min(53vh,540px);overflow-y:auto;border:1px solid var(--line);border-radius:5px;background:var(--cream);margin:12px 0;overscroll-behavior:contain}
+.lastfm-row{display:flex;align-items:center;gap:12px;padding:12px 10px;margin:0!important;border-bottom:1px solid var(--line);cursor:pointer;font-size:13px!important}
+.lastfm-row:last-child{border-bottom:0}
+.lastfm-row:has(input:disabled){opacity:.55;cursor:default}
+.lastfm-row input[type=checkbox]{width:18px!important;height:18px;min-width:18px;margin:0!important;accent-color:var(--wine)}
+.lastfm-row span{display:block;min-width:0;overflow-wrap:anywhere}
+.lastfm-row strong,.lastfm-row small{display:block}
+.lastfm-row small{margin-top:3px;font-size:11px;color:var(--muted)}
+.lastfm-progress progress,#lastfm-progress progress{accent-color:var(--wine)}

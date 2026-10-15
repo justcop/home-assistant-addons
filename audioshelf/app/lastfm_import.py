@@ -63,7 +63,7 @@ class LastFmImporter:
             raise AppError('Last.fm could not be reached. Please try again.', 502) from None
         if response.status_code == 429:
             raise AppError('Last.fm is rate limiting requests. Try again later.', 429)
-        if not response.ok or response.is_redirect:
+        if not response.ok or response.status_code in {301, 302, 303, 307, 308}:
             raise AppError('Last.fm is temporarily unavailable.', 502)
         try:
             body = response.json()
