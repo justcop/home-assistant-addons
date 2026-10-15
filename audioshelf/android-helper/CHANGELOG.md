@@ -1,3 +1,10 @@
+# 0.2.8 — Lower logo and Settings without changing the layout
+
+- Keep Android 0.2.7's sticky edge-to-edge header, scroll behaviour, background, navigation and playback untouched.
+- Increase the masthead's top clearance from 8px to 44px **below the measured Android status-bar inset**. This moves the AudioShelf logo and Settings away from notification icons instead of moving the whole WebView or adding a separate blank strip.
+- Strengthen the mobile browser regression to require a meaningful gap below the system icons for *both* the brand and Settings, including after scrolling, in both Vinyl and Classic layouts.
+- No web-app or Home Assistant add-on update required.
+
 # 0.2.7 — Sticky edge-to-edge Android masthead
 
 - Use the entire status-bar background area while keeping the AudioShelf logo and Settings below Android's actual system icons.

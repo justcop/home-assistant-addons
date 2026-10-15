@@ -28,7 +28,7 @@ assert(android.includes('onPageStarted(WebView view, String url') &&
 assert(android.includes('applyEdgeToEdgeHeader()') &&
   android.includes('position:sticky !important;top:0 !important;') &&
   android.includes('background:var(--paper,#f5f0e6) !important;') &&
-  android.includes('padding-top:calc(var(--android-status-bar-height) + 8px) !important;'),
+  android.includes('padding-top:calc(var(--android-status-bar-height, 0px) + 44px) !important;'),
   'Sticky, opaque masthead uses actual Android status-bar height, not static padding');
 assert(android.includes('web.evaluateJavascript(script, result -> {') &&
   android.includes('edgeToEdgeHeaderReady = true;'),
@@ -157,7 +157,9 @@ async function testStickyMobileHeader(){
       await page.evaluate(mode=>{document.documentElement.dataset.interface=mode;window.scrollTo(0,0);},mode);
       assert.equal(await page.evaluate(script),'ready','Actual Java-generated script installs successfully');
       const initial=await page.locator('.brand').boundingBox();
-      assert(initial.y>=50,'AudioShelf logo begins below the simulated 50px status bar');
+      const initialSettings=await page.locator('.settings-link').boundingBox();
+      assert(initial.y>=82,'AudioShelf logo must sit at least 32 CSS px below the status bar');
+      assert(initialSettings.y>=82,'Settings must also sit below Android notification icons');
       const headerStyle=await page.locator('.masthead').evaluate(el=>({
         sticky:getComputedStyle(el).position,
         background:getComputedStyle(el).backgroundColor
@@ -167,8 +169,8 @@ async function testStickyMobileHeader(){
       await page.evaluate(()=>window.scrollTo(0,165));
       const scrolled=await page.locator('.brand').boundingBox();
       const settings=await page.locator('.settings-link').boundingBox();
-      assert(scrolled.y>=50,'Slight upward scroll does not clip AudioShelf logo behind status icons');
-      assert(settings.y>=50,'Settings remains below status icons when scrolled');
+      assert(scrolled.y>=82,'Slight upward scroll must keep the logo clear of status icons');
+      assert(settings.y>=82,'Settings must retain full top safe clearance when scrolled');
       assert(Math.abs(scrolled.y-initial.y)<2,'The header remains visible rather than being cut in half');
     }
   }finally{await browser.close();}

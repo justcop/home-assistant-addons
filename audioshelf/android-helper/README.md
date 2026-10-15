@@ -57,3 +57,5 @@ In integrated Android 0.2.5, **⋮ → Check for Android updates** opens a singl
 Android 0.2.6 corrects the remaining top-logo overlap: the WebView now has Android-enforced status-bar clearance even if the page has not finished loading. The separate AudioShelf masthead uses compact 8px/12px padding, so this protection does not add an entire second blank row. No Home Assistant update is required.
 
 Android 0.2.7 uses a sticky masthead in integrated mode. The Android WebView initially loads beneath the system icons, then expands behind the status bar only after a padded, opaque, sticky header is installed. This keeps the complete logo and Settings visible even after a small scroll without sacrificing the screen's top area. The web PWA retains its existing independent header.
+
+Android 0.2.8 keeps the sticky edge-to-edge interface from 0.2.7 unchanged and lowers the logo/Settings row by 36 CSS pixels, correcting the Pixel status-icon overlap. The separate native ⋮ menu, remainder of the page and standalone PWA are unchanged.

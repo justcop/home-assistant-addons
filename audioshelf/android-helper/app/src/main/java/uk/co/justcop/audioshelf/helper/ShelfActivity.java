@@ -215,8 +215,13 @@ public final class ShelfActivity extends Activity {
 
     /**
      * Fill the system-bar area with the web page's real theme background.
-     * A sticky, opaque masthead keeps the complete logo visible when scrolling,
-     * and hides scrolled contents behind the OS icons. A failed JS injection
+     * Keep the sticky header as-is but give its logo AND Settings one full
+     * additional row of breathing room (44px instead of 8px) beneath the
+     * measured status bar. The former 8px looked adequate in Chromium but
+     * actually overlapped the Pixel status icons. Never shift the entire
+     * WebView or the rest of the app down a second time.
+     * A sticky, opaque masthead hides scrolled contents behind the OS icons.
+     * A failed JS injection
      * leaves the original *natively inset* WebView safely in place.
      */
     private void applyEdgeToEdgeHeader() {
@@ -232,7 +237,7 @@ public final class ShelfActivity extends Activity {
             "st.textContent=" +
               "'html .masthead{position:sticky !important;top:0 !important;" +
               "z-index:20 !important;background:var(--paper,#f5f0e6) !important;" +
-              "padding-top:calc(var(--android-status-bar-height) + 8px) !important;" +
+              "padding-top:calc(var(--android-status-bar-height, 0px) + 44px) !important;" +
               "padding-bottom:12px !important;}' +" +
               "'html .masthead .brand,html .masthead .settings-link{" +
               "position:relative;z-index:1;}';" +
