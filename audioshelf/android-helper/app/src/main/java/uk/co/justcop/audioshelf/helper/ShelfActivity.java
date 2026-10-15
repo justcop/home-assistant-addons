@@ -62,7 +62,6 @@ public final class ShelfActivity extends Activity {
     private int sequence;
     private boolean wakeConnecting;
     private boolean loaded;
-    private boolean edgeToEdgeHeaderReady;
     private FrameLayout shelfRoot;
     private int statusBarPx;
     private int bottomSafePx;
@@ -89,9 +88,11 @@ public final class ShelfActivity extends Activity {
             return;
         }
 
-        // Begin safely below Android's status bar. Once the *actual* page has
-        // installed its sticky, padded masthead, extend the WebView behind the
-        // system icons. Never expose a naked/unprotected header while loading.
+        // Never place the WebView in the status-icon area. The 0.2.7/0.2.8
+        // handshake removed the physical inset after JS injection, but actual
+        // Pixels still rendered the brand underneath the clock. Retain the
+        // exact Android status inset permanently, including during scrolling.
+        // Paint the exposed OS bar with the same masthead background.
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         FrameLayout root = new FrameLayout(this);
         shelfRoot = root;
@@ -105,7 +106,6 @@ public final class ShelfActivity extends Activity {
             rightSafePx = safe.right;
             bottomSafePx = Math.max(safe.bottom, keyboard.bottom);
             updateNativeSafeArea();
-            if (edgeToEdgeHeaderReady) applyEdgeToEdgeHeader();
             return WindowInsetsCompat.CONSUMED;
         });
         web = new WebView(this);
@@ -123,8 +123,6 @@ public final class ShelfActivity extends Activity {
         web.setWebViewClient(new WebViewClient() {
             @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 loaded = false;
-                edgeToEdgeHeaderReady = false;
-                updateNativeSafeArea();
             }
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri url = request.getUrl();
@@ -137,7 +135,7 @@ public final class ShelfActivity extends Activity {
             }
             @Override public void onPageFinished(WebView view, String url) {
                 loaded = sameOrigin(Uri.parse(url));
-                applyEdgeToEdgeHeader();
+                applyStickyHeader();
                 if (loaded && ACTION_NOW_PLAYING.equals(getIntent().getAction()))
                     view.evaluateJavascript("window.dispatchEvent(new CustomEvent(\'audioshelf-native-playback\'));", null);
             }
@@ -195,40 +193,25 @@ public final class ShelfActivity extends Activity {
     private int dp(int size) {return Math.round(getResources().getDisplayMetrics().density*size);}
 
     /**
-     * Root starts status-inset (safe even while the site is loading). When the
-     * native-only sticky header CSS is installed, the WebView fills that top
-     * area, too; only the floating Android overflow icon needs a physical inset.
+     * Keep the actual WebView *below* Android's status bar at all times.
+     * The status strip is painted by the native root background, never by
+     * overlapping live web content. Neither JS success nor scrolling may
+     * change this boundary.
      */
     private void updateNativeSafeArea() {
         if (shelfRoot == null) return;
-        shelfRoot.setPadding(leftSafePx, edgeToEdgeHeaderReady ? 0 : statusBarPx,
-            rightSafePx, bottomSafePx);
-        if (options != null) {
-            FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) options.getLayoutParams();
-            int top = dp(3) + (edgeToEdgeHeaderReady ? statusBarPx : 0);
-            if (params.topMargin != top) {
-                params.topMargin = top;
-                options.setLayoutParams(params);
-            }
-        }
+        shelfRoot.setPadding(leftSafePx, statusBarPx, rightSafePx, bottomSafePx);
     }
 
     /**
-     * Fill the system-bar area with the web page's real theme background.
-     * Keep the sticky header as-is but give its logo AND Settings one full
-     * additional row of breathing room (44px instead of 8px) beneath the
-     * measured status bar. The former 8px looked adequate in Chromium but
-     * actually overlapped the Pixel status icons. Never shift the entire
-     * WebView or the rest of the app down a second time.
-     * A sticky, opaque masthead hides scrolled contents behind the OS icons.
-     * A failed JS injection
-     * leaves the original *natively inset* WebView safely in place.
+     * Only the masthead's sticky behaviour is web-specific. Its top padding
+     * is compact because Android already guarantees safe placement; we must
+     * never add statusBarPx to the web header *and* native WebView.
+     * This is visual styling only; Spotify integration remains untouched.
      */
-    private void applyEdgeToEdgeHeader() {
+    private void applyStickyHeader() {
         if (!loaded || web == null || !sameOrigin(Uri.parse(web.getUrl() == null ? "" : web.getUrl())))
             return;
-        int cssTop = Math.max(0, Math.round(
-            statusBarPx / getResources().getDisplayMetrics().density));
         String script = "(function(){" +
             "var h=document.querySelector('.masthead');if(!h)return 'missing';" +
             "var st=document.getElementById('audioshelf-android-header');" +
@@ -237,20 +220,12 @@ public final class ShelfActivity extends Activity {
             "st.textContent=" +
               "'html .masthead{position:sticky !important;top:0 !important;" +
               "z-index:20 !important;background:var(--paper,#f5f0e6) !important;" +
-              "padding-top:calc(var(--android-status-bar-height, 0px) + 44px) !important;" +
-              "padding-bottom:12px !important;}' +" +
+              "padding-top:8px !important;padding-bottom:12px !important;}' +" +
               "'html .masthead .brand,html .masthead .settings-link{" +
               "position:relative;z-index:1;}';" +
             "document.head.appendChild(st);}" +
-            "document.documentElement.style.setProperty('--android-status-bar-height','" + cssTop + "px');" +
             "return 'ready';})()";
-        web.evaluateJavascript(script, result -> {
-            if (!loaded || shelfRoot == null || !"\"ready\"".equals(result)) return;
-            if (!edgeToEdgeHeaderReady) {
-                edgeToEdgeHeaderReady = true;
-                updateNativeSafeArea();
-            }
-        });
+        web.evaluateJavascript(script, null);
     }
 
     private void startWake(JSONObject cmd) {

@@ -1,3 +1,11 @@
+# 0.2.9 — Native status-bar boundary on every frame
+
+- Fix the Pixel screenshot regression: the status bar was still drawn on top of AudioShelf branding after native edge-to-edge mode became active.
+- Keep the complete WebView permanently below Android's measured status bar, including during loading, page navigation, and scrolling. Colour the native status-bar area to match the app so it is not a separate contrasting blank strip.
+- Preserve the sticky masthead, but give it only 8px compact internal top padding; stop mixing the measured Android inset into web CSS and never remove the native inset after JavaScript completes.
+- The logo, Settings, and native ⋮ menu all remain inside the same safe Android content area; scrolling and bottom/keyboard protection remain intact. Web/PWA and Spotify playback are untouched.
+- Add tests for the physical viewport boundary, including after scrolling, rather than evaluating a web-only CSS offset against imaginary system icons.
+
 # 0.2.8 — Lower logo and Settings without changing the layout
 
 - Keep Android 0.2.7's sticky edge-to-edge header, scroll behaviour, background, navigation and playback untouched.
