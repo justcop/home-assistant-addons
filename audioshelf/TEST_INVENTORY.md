@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-15T10:52:23+01:00 (Europe/London).
+Reviewed: 2026-10-15T11:04:00+01:00 (Europe/London).
 
-Reviewed Android 0.2.4's updated integration assertions: the WebView remains edge-to-edge, the measured system-bar inset replaces (rather than adds to) the masthead top padding, the native overflow menu stays below status icons, and bottom gesture/keyboard clearance is retained. The companion's Spotify queue authority is unaffected. These structural checks do not replace visual testing on a physical Android device.
+Reviewed Android integrated update regression assertions after 0.2.5: derive the APK workflow artifact version directly from Gradle rather than pinning an obsolete patch version, require a disabled-while-checking Download button in the same update dialog and dismissal before signed installation, and require a validated update callback from HelperUpdater. Android unit build and lint passed; physical-device installer confirmation remains to be verified.
 
-<!-- inventory: {"reviewed_at":"2026-10-15T10:52:23+01:00","review_note":"Reviewed Android 0.2.4's updated integration assertions: the WebView remains edge-to-edge, the measured system-bar inset replaces (rather than adds to) the masthead top padding, the native overflow menu stays below status icons, and bottom gesture/keyboard clearance is retained. The companion's Spotify queue authority is unaffected. These structural checks do not replace visual testing on a physical Android device.","source_sha256":"3e17c654c414b72ce92efe8795489ac3b0c99b123da8eac7325d487e176f1c4a"} -->
+<!-- inventory: {"reviewed_at":"2026-10-15T11:04:00+01:00","review_note":"Reviewed Android integrated update regression assertions after 0.2.5: derive the APK workflow artifact version directly from Gradle rather than pinning an obsolete patch version, require a disabled-while-checking Download button in the same update dialog and dismissal before signed installation, and require a validated update callback from HelperUpdater. Android unit build and lint passed; physical-device installer confirmation remains to be verified.","source_sha256":"40871220a375c66c762e45c8ca40e963c131bfe93992bfa8714632933c9f4c81"} -->
 
 ## Backend cases (340)
 
