@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-15T11:16:01+01:00 (Europe/London).
+Reviewed: 2026-10-15T11:32:00+01:00 (Europe/London).
 
-Reviewed Android 0.2.6 status-bar regression: unlike the unsafe edge-to-edge JavaScript-only adjustment, the root WebView physically applies the status-bar/display-cutout top inset; any JavaScript failure leaves branding safely below system icons. The webpage's own masthead gets compact 8px/12px padding within the safe root. The native overflow button does not apply the inset twice, and navigation/IME insets remain protected. This structural regression check cannot substitute for visual verification on the phone.
+Reviewed the Android 0.2.7 sticky-header regression: native root remains status-inset until the real web page acknowledges installation of an opaque, scroll-sticky masthead using the measured Android inset. A new Playwright mobile-width test executes the actual Java-generated injection script against AudioShelf's existing vinyl/classic CSS, checks logo and Settings stay below a simulated 50px status bar and visible after scrolling, and verifies nontransparent header background. Native APK build succeeded; physical-device visual confirmation is still needed.
 
-<!-- inventory: {"reviewed_at":"2026-10-15T11:16:01+01:00","review_note":"Reviewed Android 0.2.6 status-bar regression: unlike the unsafe edge-to-edge JavaScript-only adjustment, the root WebView physically applies the status-bar/display-cutout top inset; any JavaScript failure leaves branding safely below system icons. The webpage's own masthead gets compact 8px/12px padding within the safe root. The native overflow button does not apply the inset twice, and navigation/IME insets remain protected. This structural regression check cannot substitute for visual verification on the phone.","source_sha256":"de3a9086efb853fe0446c100644292c251d717aed98f5fad657c556be2044b02"} -->
+<!-- inventory: {"reviewed_at":"2026-10-15T11:32:00+01:00","review_note":"Reviewed the Android 0.2.7 sticky-header regression: native root remains status-inset until the real web page acknowledges installation of an opaque, scroll-sticky masthead using the measured Android inset. A new Playwright mobile-width test executes the actual Java-generated injection script against AudioShelf's existing vinyl/classic CSS, checks logo and Settings stay below a simulated 50px status bar and visible after scrolling, and verifies nontransparent header background. Native APK build succeeded; physical-device visual confirmation is still needed.","source_sha256":"764b877fce3b459f52516a474abd62ddc1bdc83c8a8bc7b59fe8abd675086380"} -->
 
 ## Backend cases (340)
 
