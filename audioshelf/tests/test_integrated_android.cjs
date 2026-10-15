@@ -31,8 +31,8 @@ assert(android.includes('applyScrollableHeader();') &&
   'Top inset belongs to scrollable body, not a sticky or fixed header');
 assert(android.includes('logo.getBoundingClientRect()') &&
   android.includes('settings.getBoundingClientRect()') &&
-  android.includes('!"\\\\"safe\\\\"".equals(result)'),
-  'Both header controls must be measured safe before releasing native inset');
+  android.includes("return (a.top>=") && android.includes("&&s.top>="),
+  'Both rendered header controls must be measured clear of the status bar before edge-to-edge');
 assert(!android.includes('applyStickyHeader()') && !android.includes('position:sticky !important'),
   'The header must scroll behind Android status icons instead of staying pinned');
 assert(android.includes('return WindowInsetsCompat.CONSUMED'));
