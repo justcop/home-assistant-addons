@@ -18,6 +18,7 @@ from types import SimpleNamespace
 
 from .accounts import Accounts
 from .listening_links import shelf_matches
+from .lastfm_import import LastFmImporter
 
 from .artwork import Artwork
 from .errors import AppError
@@ -88,6 +89,8 @@ def create_app(options=None):
                                     playable_releases=playable_releases)
     accounts = Accounts(collection, cache, private_dir, options, owner_context)
     app.extensions['accounts'] = accounts
+    lastfm_import = LastFmImporter()
+    app.extensions['lastfm_import'] = lastfm_import
     # Every request resolves its own context. No global current-user mutation.
     store = LocalProxy(lambda: g.context.store)
     spotify = LocalProxy(lambda: g.context.spotify)
@@ -430,6 +433,43 @@ def create_app(options=None):
         albums = request.args.getlist('album')[:10]
         return jsonify(matches=shelf_matches(store, kind, artist, name, albums),
                        account=g.account['username'])
+
+    def lastfm_owner():
+        if not g.identity or g.identity['role'] != 'owner':
+            raise AppError('Owner access is required to connect or import Last.fm.', 403)
+
+    @app.get('/api/lastfm/status')
+    def lastfm_status():
+        lastfm_owner()
+        return jsonify(lastfm_import.status(store, g.account['id']))
+
+    @app.post('/api/lastfm/connect')
+    def lastfm_connect():
+        lastfm_owner()
+        body = request.json
+        return jsonify(lastfm_import.connect(store, body.get('username'), body.get('api_key')))
+
+    @app.post('/api/lastfm/disconnect')
+    def lastfm_disconnect():
+        lastfm_owner()
+        lastfm_import.disconnect(store, g.account['id'])
+        return jsonify(lastfm_import.status(store, g.account['id']))
+
+    @app.get('/api/lastfm/albums')
+    def lastfm_albums():
+        lastfm_owner()
+        period = request.args.get('period', 'overall')
+        albums = lastfm_import.preview(store, period)
+        return jsonify(albums=albums, total=len(albums), period=period)
+
+    @app.post('/api/lastfm/import')
+    def lastfm_start_import():
+        lastfm_owner()
+        payload = request.json
+        result = lastfm_import.start(
+            g.account['id'], g.context.store, g.context.musicbrainz,
+            payload.get('ids'), payload.get('period', 'overall'), accounts.enabled)
+        return jsonify(job=result), 202
 
     @app.get('/api/shelf')
     def shelf():
