@@ -26,7 +26,7 @@ assert(!android.includes('view.setPadding(safe.left, safe.top'),'No double top p
 assert(android.includes('return WindowInsetsCompat.CONSUMED'));
 assert(android.includes('ViewCompat.requestApplyInsets(root)'));
 assert(manifest.includes('android:windowSoftInputMode="adjustResize"'));
-const currentVersion=gradle.match(/versionName '([0-9]+\\.[0-9]+\\.[0-9]+)'/)[1];
+const currentVersion=gradle.match(/versionName '([0-9]+[.][0-9]+[.][0-9]+)'/)[1];
 assert(workflow.includes('audioshelf-spotify-helper-'+currentVersion),
   'APK workflow artifact follows the Android version rather than an obsolete patch number');
 const updater=fs.readFileSync(path.join(directory,
