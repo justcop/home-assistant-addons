@@ -240,7 +240,7 @@ public final class ShelfActivity extends Activity {
             "document.documentElement.style.setProperty('--android-status-bar-height','" + cssTop + "px');" +
             "return 'ready';})()";
         web.evaluateJavascript(script, result -> {
-            if (!loaded || shelfRoot == null || !"\\\"ready\\\"".equals(result)) return;
+            if (!loaded || shelfRoot == null || !"\"ready\"".equals(result)) return;
             if (!edgeToEdgeHeaderReady) {
                 edgeToEdgeHeaderReady = true;
                 updateNativeSafeArea();
