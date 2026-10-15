@@ -25,6 +25,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.function.BiConsumer;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -40,7 +41,11 @@ final class HelperUpdater {
 
     HelperUpdater(Activity activity, TextView status) { this.activity = activity; this.status = status; }
 
-    void check() {
+    void check() { check(null); }
+
+    /** The integrated screen supplies its own Download button. Using its
+     * dialog's focused window avoids an invisible second confirmation. */
+    void check(BiConsumer<String, Runnable> offerDownload) {
         if (busy || closed) return;
         busy = true;
         status.setText("Checking for helper updates…");
@@ -63,8 +68,10 @@ final class HelperUpdater {
                     busy = false;
                     if (update == null) status.setText("Helper " + installed.versionName + " is up to date.");
                     else {
-                        status.setText("Helper " + update.versionName + " is available. Tap Check for updates to install.");
-                        if (activity.hasWindowFocus()) new AlertDialog.Builder(activity)
+                        status.setText("AudioShelf " + update.versionName + " is available. Choose Download to install.");
+                        if (offerDownload != null) {
+                            offerDownload.accept(update.versionName, () -> download(update));
+                        } else if (activity.hasWindowFocus()) new AlertDialog.Builder(activity)
                             .setTitle("Update AudioShelf helper?")
                             .setMessage("Download version " + update.versionName + "? Android will ask you to confirm installation.")
                             .setPositiveButton("Download", (dialog, which) -> download(update))

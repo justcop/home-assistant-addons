@@ -321,12 +321,30 @@ public final class ShelfActivity extends Activity {
         if (updater == null || updaterStatus == null) return;
         if (updaterStatus.getParent() instanceof ViewGroup)
             ((ViewGroup) updaterStatus.getParent()).removeView(updaterStatus);
-        new AlertDialog.Builder(this)
+        // Use one focused dialog throughout the check. The older implementation
+        // opened a status dialog, then tried to open a second confirmation only
+        // if Activity.hasWindowFocus() was true. Dialog focus made that false.
+        AlertDialog dialog = new AlertDialog.Builder(this)
             .setTitle("AudioShelf Android update")
             .setView(updaterStatus)
-            .setPositiveButton("Close", null)
-            .show();
-        updater.check();
+            .setPositiveButton("Download", null)
+            .setNegativeButton("Close", null)
+            .create();
+        dialog.show();
+        android.widget.Button download = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+        download.setEnabled(false);
+        updater.check((version, action) -> {
+            // A check may finish after the user has closed this dialog.
+            if (!dialog.isShowing() || isFinishing() || isDestroyed()) return;
+            download.setText("Download " + version);
+            download.setEnabled(true);
+            download.setOnClickListener(button -> {
+                // Dismiss before downloading so the Activity regains focus
+                // and the existing signed-APK installer can open normally.
+                dialog.dismiss();
+                action.run();
+            });
+        });
     }
 
     private void changeNotifications(boolean enabled) {

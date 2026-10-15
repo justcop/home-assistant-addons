@@ -1,3 +1,9 @@
+# 0.2.5 — One-step Android updater confirmation
+
+- Show a working Download button inside the integrated app's own update dialog instead of trying to open a second focus-gated confirmation behind it.
+- Keep the button disabled during checking, enable it only for a validated newer release, and dismiss the dialog before downloading so the existing verified installer handoff regains Android window focus.
+- Preserve signed APK digest/package/certificate checks, user-approved installation, companion mode, native Spotify playback and the edge-to-edge header.
+
 # 0.2.4 — Edge-to-edge status bar without the double top row
 
 - Restore the full-height WebView behind Android's status bar rather than reserving a separate blank strip.

@@ -51,3 +51,5 @@ In integrated mode 0.2.2, the Android ⋮ menu also provides Check for Android u
 Integrated mode 0.2.3 also respects Android's status-bar, camera-cutout, gesture-navigation and keyboard insets, keeping web content below the system icons and above the gesture area.
 
 Android 0.2.4 restores edge-to-edge drawing behind the status bar. The wrapper uses the actual Android top inset as the masthead padding instead of stacking two rows of top spacing. Branding, Settings and the native menu stay below the status icons. The standalone PWA does not change, and no Home Assistant add-on update is required.
+
+In integrated Android 0.2.5, **⋮ → Check for Android updates** opens a single update dialog. When a newer signed APK is available, its **Download** button becomes active; after tapping it, the dialog closes and Android handles the verified installation. This fixes the previous focus-dependent prompt that could show an update without offering installation. The original companion-mode updater remains unchanged.
