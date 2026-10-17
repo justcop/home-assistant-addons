@@ -20,6 +20,7 @@ from .errors import AppError
 LOG = logging.getLogger('audioshelf')
 MAX_BYTES = 5 * 1024 * 1024
 Image.MAX_IMAGE_PIXELS = 16000000
+ARTWORK_RULES = 'digital-first-v2'
 PLACEHOLDER = b'<svg xmlns="http://www.w3.org/2000/svg" width="500" height="500"><rect width="500" height="500" fill="#e2dece"/><circle cx="250" cy="250" r="170" fill="#282b27"/><circle cx="250" cy="250" r="50" fill="#c9b883"/></svg>'
 
 
@@ -153,25 +154,38 @@ class Artwork:
                 path.unlink(missing_ok=True)
                 total -= stat.st_size
 
+    def _candidate_releases(self, album_id, *, back=False):
+        """Digital-first alternatives from the SAME album, with bounded lookup."""
+        if not self.musicbrainz:
+            return []
+        try:
+            releases = self.musicbrainz.release_page(album_id)['releases']
+        except (AppError, requests.RequestException, KeyError, ValueError):
+            return []
+        def eligible(item):
+            formats = [str(m.get('format') or '').lower() for m in item.get('media', [])]
+            archive = item.get('cover-art-archive') or {}
+            return (formats and not any('cassette' in f for f in formats)
+                    and archive.get('back' if back else 'front') is not False)
+        def digital(item):
+            return any('digital' in str(m.get('format') or '').lower()
+                       for m in item.get('media', []))
+        candidates = sorted((item for item in releases if eligible(item)),
+                            key=lambda r: (not digital(r), r.get('preference_rank', [])))
+        return [r['id'] for r in candidates[:12] if r.get('id')]
+
     def _sources(self, album, chosen_release):
+        # The user's deliberate cover selection always takes precedence.
         if chosen_release:
             yield 'cover-art-archive', f'https://coverartarchive.org/release/{chosen_release}/front-500'
-        yield 'cover-art-archive', f'https://coverartarchive.org/release-group/{album["id"]}/front-500'
-        # Only look up edition alternatives if the album-level cover is missing.
-        cover_release = album.get('release_id')
-        if ('cassette' in (album.get('release_label') or '').lower()
-                and 'cassette' not in self.store.release_filters(album['id'])['formats']):
-            cover_release = None
-            if self.musicbrainz:
-                try:
-                    page = self.musicbrainz.release_page(album['id'])
-                    if page['releases']:
-                        cover_release = page['releases'][0]['id']
-                except AppError:
-                    pass
-        if cover_release and cover_release != chosen_release:
-            yield 'cover-art-archive', f'https://coverartarchive.org/release/{cover_release}/front-500'
+            return
+        # Digitally prepared Spotify artwork before scanned CD/vinyl sleeves.
         yield 'spotify', None
+        for release in self._candidate_releases(album['id']):
+            yield 'cover-art-archive', f'https://coverartarchive.org/release/{release}/front-500'
+        yield 'cover-art-archive', f'https://coverartarchive.org/release-group/{album["id"]}/front-500'
+        if album.get('release_id'):
+            yield 'cover-art-archive', f'https://coverartarchive.org/release/{album["release_id"]}/front-500'
 
     def get(self, album_id):
         with self.locks[hash(album_id)%len(self.locks)]:
@@ -188,7 +202,7 @@ class Artwork:
             key = 'artwork:'+album_id
             metadata = self.store.cache_get(key)
             chosen_release = self.store.setting('artwork_release:'+album_id)
-            identity = {'release': album.get('release_id'), 'chosen': chosen_release, 'default': 'release-group'}
+            identity = {'release': album.get('release_id'), 'chosen': chosen_release, 'default': ARTWORK_RULES}
             if metadata and metadata.get('identity') == identity and path.exists():
                 try:
                     data = path.read_bytes()
@@ -224,7 +238,7 @@ class Artwork:
             album = self.store.album(album_id)
             chosen = self.store.setting('artwork_release:'+album_id)
             releases = list(dict.fromkeys(r for r in (chosen, album.get('release_id')) if r))
-            identity = {'chosen': chosen, 'release': album.get('release_id')}
+            identity = {'chosen': chosen, 'release': album.get('release_id'), 'rule': ARTWORK_RULES}
             key = 'artwork:'+album_id+':back'
             path = self.directory/(album_id+'-back.img')
             metadata = self.store.cache_get(key)
@@ -238,8 +252,13 @@ class Artwork:
             if self.store.cache_get(negative):
                 raise AppError('No back cover is available for this edition.', 404)
             transient = False
+            # The reverse can come from any official pressing of the album,
+            # including vinyl or CD even when the front is digital.
+            if album['on_shelf']:
+                releases.extend(r for r in self._candidate_releases(album_id, back=True)
+                                if r not in releases)
             with self.download_slots:
-                for release in releases:
+                for release in releases[:14]:
                     for resolution in ('1200', '500'):
                         url = f'https://coverartarchive.org/release/{release}/back-{resolution}'
                         try:
@@ -252,7 +271,7 @@ class Artwork:
                                 finally:
                                     temporary.unlink(missing_ok=True)
                                 self.store.cache_put(key, {'source':'cover-art-archive',
-                                    'identity':identity, 'release':release}, ttl=30*86400)
+                                    'identity':identity, 'release':release}, ttl=10*365*86400)
                                 self._prune()
                             return data, mime, 'cover-art-archive'
                         except requests.HTTPError as error:
@@ -362,6 +381,6 @@ class Artwork:
             self.store.set_setting('artwork_release:'+album_id, release_id)
             album = self.store.album(album_id)
             self._save(album_id, data, {'source': 'cover-art-archive',
-                'identity': {'release': album.get('release_id'), 'chosen': release_id, 'default': 'release-group'},
+                'identity': {'release': album.get('release_id'), 'chosen': release_id, 'default': ARTWORK_RULES},
                 'url': f'https://coverartarchive.org/release/{release_id}/front-500'})
         return mime
