@@ -141,8 +141,13 @@ def track_assessment(canonical, spotify, artist_names):
     # Alternate names are evidence only for this linked recording. An alias must
     # never erase a live/demo/edit distinction present in either canonical title.
     versions = set(VERSION.findall(left)) | set(VERSION.findall(recording_title))
-    if versions != set(VERSION.findall(right)):
-        return {'score': 0, 'verified': False, 'reason': 'recording_version_mismatch'}
+    spotify_versions = set(VERSION.findall(right))
+    if versions != spotify_versions:
+        duration, actual = canonical.get('duration_ms'), spotify.get('duration_ms')
+        return {'score': 0, 'verified': False, 'reason': 'recording_version_mismatch',
+                'canonical_version_labels': sorted(versions),
+                'spotify_version_labels': sorted(spotify_versions),
+                'duration_delta_ms': abs(actual-duration) if actual and duration else None}
     exact = left == right
     subtitle = not exact and printed_subtitle_match(canonical['title'], spotify['name'])
     parody_credit = not exact and spotify_parody_credit_match(canonical['title'], spotify['name'])
