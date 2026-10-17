@@ -149,6 +149,7 @@ class ShelfEditionAudit:
     def _run(self, account_id, store, musicbrainz, album_ids, enabled, job_id):
         results = []
         for album_id in album_ids:
+            album = None
             if enabled is not None and not enabled(account_id):
                 self._finish(account_id, store, 'interrupted',
                              'Account disabled during audit.')
@@ -165,9 +166,9 @@ class ShelfEditionAudit:
                     item = inspect_album(album, [])
             except (AppError, OSError, KeyError) as exc:
                 item = {'album_id':album_id,
-                        'artist': ', '.join(a['name'] for a in album.get('artists', [])) if 'album' in locals() else '',
+                        'artist': ', '.join(a['name'] for a in album.get('artists', [])) if album is not None else '',
                         'title': album.get('title','') if 'album' in locals() else '',
-                        'saved_tracks':len(album.get('tracks',[])) if 'album' in locals() else 0,
+                        'saved_tracks':len(album.get('tracks',[])) if album is not None else 0,
                         'fully_spotify_verified':False, 'canonical_reviewed':False,
                         'classification':'error', 'explanation':str(exc)}
             results.append(item)
@@ -176,7 +177,8 @@ class ShelfEditionAudit:
                 if not job or job.get('id') != job_id:
                     return
                 job['processed'] += 1
-                job[item['classification']] += 1
+                category = 'errors' if item['classification'] == 'error' else item['classification']
+                job[category] += 1
                 store.set_setting(RESULTS, results)
                 store.set_setting(STATUS, job)
         self._finish(account_id, store, 'complete')
