@@ -240,6 +240,7 @@ class LastFmImporter:
                             # A shelf entry is not an approved tracklist. The
                             # independent Spotify worker must first locate a
                             # completely verified original MusicBrainz edition.
+                            store.clear_unverified_edition(group['id'])
                             store.shelf(group['id'], True)
                             owned.add(pair)
                             outcome = 'added'
