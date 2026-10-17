@@ -302,3 +302,14 @@ def test_digital_candidates_are_ranked_before_cd_and_cassette(application, monke
     monkeypatch.setattr(art.musicbrainz, 'release_page',
                         lambda album_id: {'releases':[cd,cassette,digital]})
     assert art._candidate_releases(ALBUM) == [digital['id'],cd['id']]
+
+
+def test_forced_refresh_preserves_cached_cover_when_download_fails(application, monkeypatch):
+    art=application.extensions['artwork']
+    store=application.extensions['store']
+    store.shelf(ALBUM,True)
+    monkeypatch.setattr(art,'download',lambda url:(png(),'image/png'))
+    before=art.get(ALBUM)
+    monkeypatch.setattr(art,'download',lambda url:(_ for _ in ()).throw(requests.HTTPError('offline')))
+    assert art.get(ALBUM,force=True)[2]=='placeholder'
+    assert art.get(ALBUM)==before  # No destructive eviction on failed refresh.

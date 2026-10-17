@@ -211,7 +211,7 @@ async function invalidateCachedCover(albumId){
   if(!artworkCacheSupported())return;
   const cache=await caches.open(artworkCacheName());
   for(const request of await cache.keys()){
-    if(new URL(request.url).pathname.endsWith('/api/albums/'+encodeURIComponent(albumId)+'/artwork'))
+    if(new URL(request.url).pathname.includes('/api/albums/'+encodeURIComponent(albumId)+'/artwork'))
       await cache.delete(request);
   }
 }

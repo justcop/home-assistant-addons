@@ -100,7 +100,7 @@ class Artwork:
         temporary = path.with_suffix('.tmp')
         temporary.write_bytes(data)
         os.replace(temporary, path)
-        self.store.cache_put('artwork:'+album_id, metadata, ttl=86400 if metadata['source']=='spotify' else 30*86400)
+        self.store.cache_put('artwork:'+album_id, metadata, ttl=365*86400)
         self._prune()
 
     def download(self, url):
@@ -187,7 +187,7 @@ class Artwork:
         if album.get('release_id'):
             yield 'cover-art-archive', f'https://coverartarchive.org/release/{album["release_id"]}/front-500'
 
-    def get(self, album_id):
+    def get(self, album_id, *, force=False):
         with self.locks[hash(album_id)%len(self.locks)]:
             album = self.store.album(album_id)
             if not album['on_shelf']:
@@ -203,7 +203,7 @@ class Artwork:
             metadata = self.store.cache_get(key)
             chosen_release = self.store.setting('artwork_release:'+album_id)
             identity = {'release': album.get('release_id'), 'chosen': chosen_release, 'default': ARTWORK_RULES}
-            if metadata and metadata.get('identity') == identity and path.exists():
+            if not force and metadata and metadata.get('identity') == identity and path.exists():
                 try:
                     data = path.read_bytes()
                     return data, image_type(data), metadata['source']
@@ -211,7 +211,7 @@ class Artwork:
                     path.unlink(missing_ok=True)
             # A later Spotify connection/mapping must be able to resolve an earlier missing cover.
             negative = key+':missing:'+str(identity)+':'+str(self.spotify.connected)+':'+str(album.get('spotify_album_id'))
-            if self.store.cache_get(negative):
+            if not force and self.store.cache_get(negative):
                 return PLACEHOLDER, 'image/svg+xml', 'placeholder'
             with self.download_slots:
                 for source,url in self._sources(album, chosen_release):
@@ -228,7 +228,7 @@ class Artwork:
                     self.store.cache_put(negative,True,ttl=300)
                 return PLACEHOLDER, 'image/svg+xml', 'placeholder'
 
-    def back(self, album_id):
+    def back(self, album_id, *, force=False):
         """Fetch and persist any legitimate back from this album's editions.
 
         The back need not correspond to the front edition; the chosen/canonical
@@ -242,14 +242,14 @@ class Artwork:
             key = 'artwork:'+album_id+':back'
             path = self.directory/(album_id+'-back.img')
             metadata = self.store.cache_get(key)
-            if metadata and metadata.get('identity') == identity and path.exists():
+            if not force and metadata and metadata.get('identity') == identity and path.exists():
                 try:
                     data = path.read_bytes()
                     return data, image_type(data), metadata['source']
                 except (AppError, OSError):
                     path.unlink(missing_ok=True)
             negative = key+':missing:'+str(identity)
-            if self.store.cache_get(negative):
+            if not force and self.store.cache_get(negative):
                 raise AppError('No back cover is available for this edition.', 404)
             transient = False
             # Only query alternative releases when chosen/canonical back art

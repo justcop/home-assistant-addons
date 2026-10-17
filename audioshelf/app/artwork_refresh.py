@@ -44,14 +44,22 @@ class ArtworkRefresh:
                 return
             results = {'fronts':0,'backs':0,'missing_fronts':0,'missing_backs':0,'failed':0}
             try:
-                # Never change custom uploads or an explicit edition choice.
-                artwork.evict(album_id)
+                # Download fresh art atomically: do not delete the working
+                # images before the replacement has been validated and saved.
+                # Explicitly selected and uploaded fronts stay untouched.
+                manual = bool(store.artwork_override(album_id) or
+                              store.setting('artwork_release:'+album_id))
                 try:
-                    data, mime, _ = artwork.sized(album_id,320)
-                    results['missing_fronts' if mime=='image/svg+xml' else 'fronts'] += 1
+                    data, mime, _ = artwork.get(album_id,force=not manual)
+                    if mime == 'image/svg+xml':
+                        results['missing_fronts'] += 1
+                    else:
+                        artwork.sized(album_id,320)
+                        results['fronts'] += 1
                 except Exception:
                     results['failed'] += 1
                 try:
+                    artwork.back(album_id,force=True)
                     artwork.back_sized(album_id,320)
                     artwork.back_sized(album_id,640)
                     results['backs'] += 1
