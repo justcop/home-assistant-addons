@@ -365,7 +365,81 @@ function loadAlbumBackCover(button){
     image.src=backCoverUrl(button.dataset.album,640);
   });
 }
-function cover(album,large=false){return `<a class="cover-wrap" href="#album/${id(album.id)}" aria-label="Open ${escapeHtml(album.title)}"><img class="cover" src="${coverUrl(album.id,large?640:320)}" srcset="${[128,320,640].map(size=>`${coverUrl(album.id,size)} ${size}w`).join(', ')}" sizes="${large?'(max-width: 700px) 85vw, 480px':'(max-width: 700px) 44vw, 260px'}" decoding="async" alt="${escapeHtml(album.title)} album cover" ${large?'fetchpriority="high"':'loading="lazy"'}></a>`;}
+/* Browsers may request every cover in a large horizontally scrolling shelf
+   at once. A bounded, visibility-driven queue keeps missing artwork fetches
+   from exhausting Waitress while other requests (navigation/playback) run. */
+const COVER_REQUEST_LIMIT=3;
+let coverRequestsActive=0;
+const coverRequestQueue=[];
+function pumpCoverRequests(){
+  while(coverRequestsActive<COVER_REQUEST_LIMIT&&coverRequestQueue.length){
+    const image=coverRequestQueue.shift();
+    if(!image.isConnected||!image.dataset.coverSrc)continue;
+    coverRequestsActive++;
+    const source=image.dataset.coverSrc;
+    const sources=image.dataset.coverSrcset||'';
+    delete image.dataset.coverSrc;
+    delete image.dataset.coverSrcset;
+    let finished=false;
+    const settle=()=>{
+      if(finished)return;
+      finished=true;
+      image.removeEventListener('load',settle);
+      image.removeEventListener('error',failed);
+      coverRequestsActive--;
+      pumpCoverRequests();
+    };
+    const failed=()=>{
+      // A brief 503 while all background artwork download slots are busy
+      // should not permanently blank a sleeve. Requeue at most twice.
+      const attempts=Number(image.dataset.coverRetries||0);
+      settle();
+      if(attempts>=2||!image.isConnected)return;
+      image.dataset.coverRetries=String(attempts+1);
+      setTimeout(()=>{
+        if(!image.isConnected)return;
+        image.removeAttribute('src');
+        image.removeAttribute('srcset');
+        image.dataset.coverSrc=source;
+        image.dataset.coverSrcset=sources;
+        watchCover(image);
+      },5000*(attempts+1));
+    };
+    image.addEventListener('load',settle,{once:true});
+    image.addEventListener('error',failed,{once:true});
+    // Retain native responsive srcset and service-worker caching.
+    if(sources)image.srcset=sources;
+    image.src=source;
+  }
+}
+function enqueueCover(image){
+  if(!image.dataset.coverSrc||image.dataset.coverQueued)return;
+  image.dataset.coverQueued='1';
+  coverRequestQueue.push(image);
+  pumpCoverRequests();
+}
+const coverViewportObserver=typeof IntersectionObserver==='undefined'?null:
+  new IntersectionObserver(entries=>{
+    for(const entry of entries)if(entry.isIntersecting){
+      coverViewportObserver.unobserve(entry.target);
+      enqueueCover(entry.target);
+    }
+  },{rootMargin:'250px'});
+function watchCover(image){
+  delete image.dataset.coverQueued;
+  if(coverViewportObserver)coverViewportObserver.observe(image);
+  else enqueueCover(image);
+}
+function observeNewCovers(node){
+  if(node.nodeType!==1)return;
+  if(node.matches?.('img[data-cover-src]'))watchCover(node);
+  node.querySelectorAll?.('img[data-cover-src]').forEach(watchCover);
+}
+new MutationObserver(records=>{
+  for(const record of records)for(const node of record.addedNodes)observeNewCovers(node);
+}).observe(content,{childList:true,subtree:true});
+
+function cover(album,large=false){return `<a class="cover-wrap" href="#album/${id(album.id)}" aria-label="Open ${escapeHtml(album.title)}"><img class="cover" data-cover-src="${coverUrl(album.id,large?640:320)}" data-cover-srcset="${[128,320,640].map(size=>`${coverUrl(album.id,size)} ${size}w`).join(', ')}" sizes="${large?'(max-width: 700px) 85vw, 480px':'(max-width: 700px) 44vw, 260px'}" decoding="async" alt="${escapeHtml(album.title)} album cover" ${large?'fetchpriority="high"':'loading="lazy"'}></a>`;}
 
 function cards(albums){if(isVinyl())return vinylCards(albums);return `<div class="album-grid">${albums.map(a=>`<article class="album-card">${cover(a)}${a.on_shelf?'<span class="badge">On your shelf</span>':''}<a class="album-title" href="#album/${id(a.id)}">${escapeHtml(a.title)}</a><div class="album-meta">${artistNames(a)}<br>${year(a)}</div>${a.on_shelf?'':`<button class="card-action" data-action="add" data-id="${escapeHtml(a.id)}">+ Add to shelf</button>`}</article>`).join('')}</div>`;}
 function empty(title,message){return `<div class="empty"><div class="vinyl" aria-hidden="true"></div><h2>${title}</h2><p>${message}</p><a class="primary" href="#store">Visit the record store ↗</a></div>`;}
