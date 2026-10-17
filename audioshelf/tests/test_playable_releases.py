@@ -178,3 +178,58 @@ def test_original_musicbrainz_tracklist_ignores_spotify_bonus_tracks_even_in_lab
     # Other MusicBrainz editions of the same album use cached Spotify IDs.
     assert len(playable.labelled_sources(album))==1
     assert spotify.calls==1
+
+
+def test_matching_original_album_uses_isrc_for_unlabelled_version_not_shortcuts(
+        application,monkeypatch):
+    from app.matching import candidate
+    from conftest import spotify_track
+    store=application.extensions['store']
+    playable=application.extensions['playable_releases']
+    album=store.album(ALBUM)
+    canonical=[{'position':i,'title':f'Song {i}','duration_ms':180000}
+               for i in range(1,11)]
+    canonical[5].update(title='I Can Talk',
+                        recording_title='I Can Talk (radio edit)',
+                        isrcs=['GBABC0100123'])
+    probe=dict(album,tracks=canonical)
+    tracks=[spotify_track(t['title'],f'{i:02d}'*11,180000)
+            for i,t in enumerate(canonical,1)]
+    bonus=[spotify_track(f'Bonus Remix {i}',f'{i+10:02d}'*11)
+           for i in range(1,12)]
+    full={'id':'p'*22,'name':'The Album (Deluxe Edition)',
+          'release_date':'2007','all_tracks':tracks+bonus}
+    class SpotifyFixture:
+        connected=True
+        market='GB'
+        calls=0
+        evidence='GBABC0100123'
+        def candidates(self,album,broad=False):
+            return [candidate(album,full)]
+        def album(self,identifier):
+            return full
+        def track(self,identifier):
+            self.calls+=1
+            return {**tracks[5], 'external_ids': {'isrc': self.evidence}}
+        def labelled_editions(self,album):
+            return []
+    spotify=SpotifyFixture()
+    playable.spotify=spotify
+    monkeypatch.setattr(playable,'enrich_probe',lambda a,b:a)
+    assert candidate(probe,full)['verified']==9
+    matches,_=playable.verified_choices(probe,album)
+    assert matches and matches[0]['verified']==10
+    assert matches[0]['mappings'][5]['assessment']['reason']=='isrc_verified_version_label'
+    assert [m['spotify_id'] for m in matches[0]['mappings']]==[t['id'] for t in tracks]
+    assert spotify.calls>=1
+    spotify.evidence='DIFFERENTISRC'
+    matches,_=playable.verified_choices(probe,album)
+    assert matches==[], 'Similar title and duration without shared ISRC are insufficient'
+    spotify.evidence='GBABC0100123'
+    tracks[5]['name']='I Can Talk - Live'
+    matches,_=playable.verified_choices(probe,album)
+    assert matches==[], 'Spotify-labelled live recordings remain incompatible'
+    tracks[5]['name']='I Can Talk'
+    tracks[5]['duration_ms']=184000
+    matches,_=playable.verified_choices(probe,album)
+    assert matches==[], 'Different duration cannot be rescued by source ISRC'
