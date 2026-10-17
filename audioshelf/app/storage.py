@@ -201,6 +201,7 @@ class Store:
             if row is None:
                 raise KeyError(album_id)
             result = dict(row)
+            result['on_shelf'] = bool(result['on_shelf'])
             result['artists'] = self._credits(db, album_id)
             result['tracks'] = [dict(row) for row in db.execute('SELECT * FROM tracks WHERE album_id=? ORDER BY position', (album_id,))]
             for track in result['tracks']:
