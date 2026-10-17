@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-17T15:10:00+01:00 (Europe/London).
+Reviewed: 2026-10-17T15:13:00+01:00 (Europe/London).
 
-Reviewed vinyl browser test's updated original album flow: it now resolves and fully verifies Spotify tracks before allowing a user to confirm the canonical tracklist. The existing playback and startup assertions remain unchanged. Test inventory is 374 backend cases plus reviewed browser/CI sources.
+Reviewed small correction to the vinyl browser verification-first workflow: the local assertion variable is spotifyReady rather than the previously declared ready; the verification and review behavior remains identical. Backend inventory stays at 374 cases.
 
-<!-- inventory: {"reviewed_at":"2026-10-17T15:10:00+01:00","review_note":"Reviewed vinyl browser test's updated original album flow: it now resolves and fully verifies Spotify tracks before allowing a user to confirm the canonical tracklist. The existing playback and startup assertions remain unchanged. Test inventory is 374 backend cases plus reviewed browser/CI sources.","source_sha256":"e3dda91c6d2c1e55ecf255a66acf26d76376b1f7ece2c8c5ff9b089f7f4df1e3"} -->
+<!-- inventory: {"reviewed_at":"2026-10-17T15:13:00+01:00","review_note":"Reviewed small correction to the vinyl browser verification-first workflow: the local assertion variable is spotifyReady rather than the previously declared ready; the verification and review behavior remains identical. Backend inventory stays at 374 cases.","source_sha256":"99c935f61f5ca482920a2e9a4481a19b8c23e3470f46c3ed6b1b46b06865fcef"} -->
 
 ## Backend cases (374)
 
