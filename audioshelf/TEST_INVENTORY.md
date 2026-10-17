@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-17T16:14:00+01:00 (Europe/London).
+Reviewed: 2026-10-17T16:17:00+01:00 (Europe/London).
 
-Reviewed new test_artwork regression showing that busy download slots return 503 promptly rather than consuming HTTP workers, while the health endpoint stays responsive. Reviewed test_vinyl_ui browser regression that inserts 12 simultaneously visible slow cover images, verifies all load, and asserts at most three artwork requests run concurrently; the test also checks regular vinyl browsing remains functional. Waitress worker/timeout changes are deliberate defensive controls, not the primary concurrency solution.
+Reviewed the vinyl browser assertion after introducing visibility-based artwork hydration: scroll the chosen sleeve into view, then wait for its currentSrc to finish loading with a nonzero intrinsic width instead of calling decode before any network source has been assigned. Also reviewed the slow-cover burst probe and API download-slot 503 regression test; all remain in the 377-case backend inventory.
 
-<!-- inventory: {"reviewed_at":"2026-10-17T16:14:00+01:00","review_note":"Reviewed new test_artwork regression showing that busy download slots return 503 promptly rather than consuming HTTP workers, while the health endpoint stays responsive. Reviewed test_vinyl_ui browser regression that inserts 12 simultaneously visible slow cover images, verifies all load, and asserts at most three artwork requests run concurrently; the test also checks regular vinyl browsing remains functional. Waitress worker/timeout changes are deliberate defensive controls, not the primary concurrency solution.","source_sha256":"92498a93eeb4d1b52ff7a78dda17b6ec2435c7c2b6489a3aadaed17ddb30f687"} -->
+<!-- inventory: {"reviewed_at":"2026-10-17T16:17:00+01:00","review_note":"Reviewed the vinyl browser assertion after introducing visibility-based artwork hydration: scroll the chosen sleeve into view, then wait for its currentSrc to finish loading with a nonzero intrinsic width instead of calling decode before any network source has been assigned. Also reviewed the slow-cover burst probe and API download-slot 503 regression test; all remain in the 377-case backend inventory.","source_sha256":"9fe0377c8e02077ace6e4ca5aa69d7f45f235554392d70c0271ca85ca6086a3e"} -->
 
 ## Backend cases (377)
 
