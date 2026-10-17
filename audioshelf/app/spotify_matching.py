@@ -17,6 +17,7 @@ LOG = logging.getLogger('audioshelf.spotify_matching')
 ATTEMPTS = 'spotify_matching_attempts_v1'
 FAILURES = 'spotify_matching_failures_v1'
 STATUS = 'spotify_matching_status_v1'
+PAUSE_UNTIL = 'spotify_matching_pause_until_v1'
 
 
 def eligible(album):
@@ -63,6 +64,7 @@ def report_text(store, job):
              'Generated: ' + time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime()),
              'Market: ' + str(job.get('market', 'unknown') if job else 'unknown'),
              'Background job: ' + str((job or {}).get('state', 'not started')),
+             'Job interruption: ' + str((job or {}).get('reason', 'none')),
              'Albums still requiring review: ' + str(len(failures)), '']
     for issue in sorted(failures.values(), key=lambda x: (x.get('artist', '').casefold(),
                                                           x.get('title', '').casefold())):
@@ -129,7 +131,7 @@ class SpotifyMatching:
         return {'job': job, 'failures': len(current_failures(store))}
 
     def ensure_started(self, account_id, store, spotify, playable, enabled=None):
-        if not spotify.connected:
+        if not spotify.connected or time.time() < (store.setting(PAUSE_UNTIL, 0) or 0):
             return None
         with self.lock:
             if self.jobs.get(account_id, {}).get('state') == 'running':
@@ -148,6 +150,8 @@ class SpotifyMatching:
                 return None
             raise AppError('Connect Spotify before matching your shelf.', 409)
         with self.lock:
+            if not automatic:
+                store.set_setting(PAUSE_UNTIL, 0)
             if self.jobs.get(account_id, {}).get('state') == 'running':
                 if automatic:
                     return None
@@ -169,6 +173,7 @@ class SpotifyMatching:
             return dict(job)
 
     def _run(self, account_id, store, spotify, playable, albums, enabled, job_id):
+        consecutive_outages = 0
         for album_id in albums:
             if enabled is not None and not enabled(account_id):
                 self._finish(account_id, store, job_id, 'interrupted', 'Account disabled.')
@@ -203,21 +208,37 @@ class SpotifyMatching:
                 attempted = store.setting(ATTEMPTS, {}) or {}
                 attempted[album_id] = signature(store.album(album_id), spotify.market)
                 store.set_setting(ATTEMPTS, attempted)
+                consecutive_outages = 0
             except AppError as error:
                 if error.status in (401, 403, 429):
+                    store.set_setting(PAUSE_UNTIL, time.time() + (3600 if error.status in (401, 403) else 1800))
                     self._finish(account_id, store, job_id, 'interrupted', str(error))
                     return
+                if error.status >= 500:
+                    consecutive_outages += 1
+                    if consecutive_outages >= 3:
+                        store.set_setting(PAUSE_UNTIL, time.time() + 900)
+                        self._finish(account_id, store, job_id, 'interrupted', 'Spotify temporarily unavailable after three consecutive errors.')
+                        return
+                else:
+                    consecutive_outages = 0
                 try:
                     album = store.album(album_id)
                     issue = failure(album, str(error))
                 except KeyError:
                     issue = None
                 outcome = 'errors'
+                attempted = store.setting(ATTEMPTS, {}) or {}
+                attempted[album_id] = signature(album, spotify.market)
+                store.set_setting(ATTEMPTS, attempted)
             except Exception:
                 LOG.exception('Unexpected error matching Spotify album %s', album_id)
                 album = store.album(album_id)
                 issue = failure(album, 'Unexpected matcher error. Check the AudioShelf add-on log.')
                 outcome = 'errors'
+                attempted = store.setting(ATTEMPTS, {}) or {}
+                attempted[album_id] = signature(album, spotify.market)
+                store.set_setting(ATTEMPTS, attempted)
             with self.lock:
                 job = self.jobs.get(account_id)
                 if not job or job['id'] != job_id:
