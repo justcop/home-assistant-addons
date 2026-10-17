@@ -12,7 +12,7 @@ from urllib.parse import urlencode, urlsplit
 import requests
 
 from .errors import AppError
-from .matching import candidate
+from .matching import candidate, normalize
 
 
 def spotify_id(value, kind):
@@ -217,10 +217,23 @@ class Spotify:
         if not sources and not broad:
             sources = search_pages(f'{title} {artist}')
         candidates, seen = [], set()
-        for source in sources:
-            if source['id'] not in seen:
-                seen.add(source['id'])
-                candidates.append(candidate(album, self.album(source['id'])))
+        def consider(options):
+            for source in options:
+                if source['id'] not in seen:
+                    seen.add(source['id'])
+                    candidates.append(candidate(album, self.album(source['id'])))
+        consider(sources)
+        # Spotify sometimes credits joint acts as individual performers or
+        # uses a different album-artist identity. When ordinary search fails
+        # to verify a complete album, search the *album title alone* and
+        # require an exact normalised title before checking all performers.
+        # A matching name alone is never sufficient to save a recording.
+        if broad and not any(c['verified'] == len(album['tracks']) and album['tracks']
+                             for c in candidates):
+            bare = normalize(album['title'])
+            title_options = [item for item in search_pages(f'album:"{title}"')
+                             if normalize(item.get('name', '')) == bare]
+            consider(title_options)
         return sorted(candidates, key=lambda c:c['score'], reverse=True)
 
     def devices(self):
