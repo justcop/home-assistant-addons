@@ -364,7 +364,7 @@ def test_full_length_hidden_track_composites_never_substitute_the_short_single()
         titles=[f'Other Song {i}' for i in range(1,11)]+[canonical_title]
         tracks=[{'title':t,'position':i,'duration_ms':duration if i==11 else 180000}
                 for i,t in enumerate(titles,1)]
-        spotify=[spotify_track(t,str(i%10)*22,duration if i==11 else 180000)
+        spotify=[spotify_track(t,f'{i:02d}'*11,duration if i==11 else 180000)
                  for i,t in enumerate(titles[:-1]+[spotify_title],1)]
         album={'title':'The Album','release_date':'2001',
                'artists':[{'name':'The Artist'}],'tracks':tracks}
@@ -388,7 +388,7 @@ def test_short_original_song_prefix_is_only_verifiable_in_strict_album_context()
     canonical=[{'position':i,'title':f'Other {i}','duration_ms':180000}
                for i in range(1,11)]
     canonical.append({'position':11,'title':'This Song','duration_ms':265000})
-    tracks=[spotify_track(t['title'],str(i%10)*22,t['duration_ms'])
+    tracks=[spotify_track(t['title'],f'{i:02d}'*11,t['duration_ms'])
             for i,t in enumerate(canonical,1)]
     tracks[-1]['name']='This Song Is About You'
     album={'title':"We'll Live and Die in These Towns", 'release_date':'2007',
@@ -411,7 +411,7 @@ def test_album_version_with_interlude_needs_same_full_audio_and_independent_albu
     from app.matching import candidate,track_assessment
     canonical=[{'position':i,'title':f'Song {i}','duration_ms':180000}
                for i in range(1,14)]
-    spotify=[spotify_track(t['title'],str(i%10)*22,180000)
+    spotify=[spotify_track(t['title'],f'{i:02d}'*11,180000)
              for i,t in enumerate(canonical,1)]
     spotify[0]['name']='Song 1 - Album Version (With Interlude)'
     album={'title':'Songs for the Deaf','release_date':'2002',
@@ -431,7 +431,7 @@ def test_hidden_label_can_match_contiguous_recording_but_not_erase_separate_musi
     from app.matching import candidate
     canonical=[{'position':i,'title':f'Song {i}','duration_ms':180000}
                for i in range(1,14)]
-    spotify=[spotify_track(t['title'],str(i%10)*22,180000)
+    spotify=[spotify_track(t['title'],f'{i:02d}'*11,180000)
              for i,t in enumerate(canonical,1)]
     canonical[3]['title']='As Dust Dances'
     canonical[3]['duration_ms']=262000
