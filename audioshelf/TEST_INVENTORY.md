@@ -1,12 +1,12 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-17T18:22:00+01:00 (Europe/London).
+Reviewed: 2026-10-17T18:55:00+01:00 (Europe/London).
 
-Reviewed five new Spotify edition discovery and original-album matching cases, plus updating the shared browser-picker fixture to mock all Spotify discovery paths. Album-family discovery accepts standard release qualifiers such as explicit version, UK edition and deluxe during SEARCH only, excluding unrelated title expansions. A canonical 14-track original can use a Spotify 16-track edition and a canonical 10-track original can use a 21-track deluxe edition without saving or playing bonus tracks. Song order and all canonical mappings must be completely Spotify verified. A MusicBrainz-linked recording carrying a disputed radio-edit label can only corroborate a normally printed Spotify track with identical ISRC, original track title, artist, album position and close duration; wrong ISRC, live recordings or different duration remain blocked. A bulk-import regression proves the standard MusicBrainz release wins when the Spotify album includes eleven extras.
+Reviewed general Spotify edition discovery and strict ISRC corroboration tests, with the existing browser-picker offline fixture updated for alternate edition search. Added seven independent read-only shelf integrity audit tests covering corroborated excess tracks, standard double albums, conflicting original pressings, explicitly expanded albums, insufficient evidence, unresolved shelves, and the owner API scanning without changing canonical tracks or mappings. Added a bulk Spotify import regression proving that a fully playable deluxe tracklist is NOT automatically selected when two original-era official pressings corroborate a shorter canonical edition. Ambiguous releases remain untouched; no existing album is silently modified.
 
-<!-- inventory: {"reviewed_at":"2026-10-17T18:22:00+01:00","review_note":"Reviewed five new Spotify edition discovery and original-album matching cases. Album-family discovery accepts standard release qualifiers such as explicit version, UK edition and deluxe during SEARCH only, excluding unrelated title expansions. A canonical 14-track original can use a Spotify 16-track edition and a canonical 10-track original can use a 21-track deluxe edition without saving or playing bonus tracks. Song order and all canonical mappings must be completely Spotify verified. A MusicBrainz-linked recording carrying a disputed radio-edit label can only corroborate a normally printed Spotify track with identical ISRC, original track title, artist, album position and close duration; wrong ISRC, live recordings or different duration remain blocked. A bulk-import regression proves the standard MusicBrainz release wins when the Spotify album includes eleven extras.","source_sha256":"da2c41cfd7a5538331c97434deb3b30f144e37639be54905cfc84fc2f0ff3df7"} -->
+<!-- inventory: {"reviewed_at":"2026-10-17T18:55:00+01:00","review_note":"Reviewed general Spotify edition discovery and strict ISRC corroboration tests, with the existing browser-picker offline fixture updated for alternate edition search. Added seven independent read-only shelf integrity audit tests covering corroborated excess tracks, standard double albums, conflicting original pressings, explicitly expanded albums, insufficient evidence, unresolved shelves, and the owner API scanning without changing canonical tracks or mappings. Added a bulk Spotify import regression proving that a fully playable deluxe tracklist is NOT automatically selected when two original-era official pressings corroborate a shorter canonical edition. Ambiguous releases remain untouched; no existing album is silently modified.","source_sha256":"PENDING_SHELF_AUDIT_TEST_FINGERPRINT"} -->
 
-## Backend cases (396)
+## Backend cases (404)
 
 1. `audioshelf/tests/test_accounts.py::test_account_creation_and_management_require_admin_and_fresh_password`
 2. `audioshelf/tests/test_accounts.py::test_background_playback_is_account_and_session_scoped`
@@ -330,80 +330,88 @@ Reviewed five new Spotify edition discovery and original-album matching cases, p
 320. `audioshelf/tests/test_security.py::test_totp_requires_factor_rejects_replay_and_recovery_is_single_use`
 321. `audioshelf/tests/test_security.py::test_trusted_browser_credential_is_revoked_on_logout`
 322. `audioshelf/tests/test_security.py::test_trusted_browser_still_needs_password_and_is_revocable`
-323. `audioshelf/tests/test_spotify_auth_playback.py::test_album_tracks_pagination_is_complete`
-324. `audioshelf/tests/test_spotify_auth_playback.py::test_api_401_refreshes_once`
-325. `audioshelf/tests/test_spotify_auth_playback.py::test_candidate_search_reaches_new_remaster_on_next_page`
-326. `audioshelf/tests/test_spotify_auth_playback.py::test_disc_playback_excludes_other_discs_and_allows_unmapped_other_disc`
-327. `audioshelf/tests/test_spotify_auth_playback.py::test_expired_oauth_is_consumed_without_exchange`
-328. `audioshelf/tests/test_spotify_auth_playback.py::test_fallback_candidate_search_paginates_when_structured_search_is_empty`
-329. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[-1]`
-330. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[0]`
-331. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[1.5]`
-332. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[1]`
-333. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[3]`
-334. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[True]`
-335. `audioshelf/tests/test_spotify_auth_playback.py::test_labelled_album_search_finds_explicit_and_regional_editions_without_special_cases`
-336. `audioshelf/tests/test_spotify_auth_playback.py::test_no_active_device_has_actionable_error`
-337. `audioshelf/tests/test_spotify_auth_playback.py::test_no_active_player_with_multiple_or_restricted_devices_never_guesses[devices0]`
-338. `audioshelf/tests/test_spotify_auth_playback.py::test_no_active_player_with_multiple_or_restricted_devices_never_guesses[devices1]`
-339. `audioshelf/tests/test_spotify_auth_playback.py::test_no_active_player_with_multiple_or_restricted_devices_never_guesses[devices2]`
-340. `audioshelf/tests/test_spotify_auth_playback.py::test_partial_mapping_cannot_play`
-341. `audioshelf/tests/test_spotify_auth_playback.py::test_pkce_and_single_use_oauth_state`
-342. `audioshelf/tests/test_spotify_auth_playback.py::test_play_route_requires_choice_even_when_a_speaker_is_active`
-343. `audioshelf/tests/test_spotify_auth_playback.py::test_playback_sends_only_exact_track_uris_and_turns_off_shuffle_repeat`
-344. `audioshelf/tests/test_spotify_auth_playback.py::test_preferred_device_transfer_preserves_exact_disc_queue`
-345. `audioshelf/tests/test_spotify_auth_playback.py::test_preferred_device_transfer_timeout_never_starts_tracks`
-346. `audioshelf/tests/test_spotify_auth_playback.py::test_refresh_preserves_old_refresh_token_and_survives_restart`
-347. `audioshelf/tests/test_spotify_auth_playback.py::test_shuffle_not_acknowledged_does_not_start_album`
-348. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_album_link_formats[aaaaaaaaaaaaaaaaaaaaaa]`
-349. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_album_link_formats[https://open.spotify.com/album/aaaaaaaaaaaaaaaaaaaaaa?si=hello]`
-350. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_album_link_formats[https://open.spotify.com/intl-de/album/aaaaaaaaaaaaaaaaaaaaaa]`
-351. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_album_link_formats[spotify:album:aaaaaaaaaaaaaaaaaaaaaa]`
-352. `audioshelf/tests/test_spotify_auth_playback.py::test_unavailable_or_ambiguous_preference_never_plays_elsewhere[devices0]`
-353. `audioshelf/tests/test_spotify_auth_playback.py::test_unavailable_or_ambiguous_preference_never_plays_elsewhere[devices1]`
-354. `audioshelf/tests/test_spotify_auth_playback.py::test_unavailable_or_ambiguous_preference_never_plays_elsewhere[devices2]`
-355. `audioshelf/tests/test_spotify_auth_playback.py::test_unreviewed_tracklist_cannot_play`
-356. `audioshelf/tests/test_spotify_auth_playback.py::test_untrusted_spotify_urls_not_fetched`
-357. `audioshelf/tests/test_spotify_matching.py::test_background_import_prefers_original_tracklist_even_with_spotify_deluxe_bonus_tracks`
-358. `audioshelf/tests/test_spotify_matching.py::test_background_verifies_alternate_release_after_unplayable_first_release`
-359. `audioshelf/tests/test_spotify_matching.py::test_bulk_routes_restrict_access_and_expose_copyable_report`
-360. `audioshelf/tests/test_spotify_matching.py::test_invalid_manual_track_choices_are_replaced_with_complete_edition`
-361. `audioshelf/tests/test_spotify_matching.py::test_partial_candidates_are_reported_and_never_persisted`
-362. `audioshelf/tests/test_spotify_matching.py::test_removed_or_fixed_album_drops_from_failure_report`
-363. `audioshelf/tests/test_spotify_matching.py::test_report_distinguishes_out_of_order_track_from_arbitrary_fallback`
-364. `audioshelf/tests/test_spotify_matching.py::test_reviewed_canonical_edition_remains_reviewed_when_fully_matched`
-365. `audioshelf/tests/test_spotify_matching.py::test_reviewed_manual_edition_without_spotify_match_is_wiped`
-366. `audioshelf/tests/test_spotify_matching.py::test_reviewed_replacement_edition_requires_new_confirmation`
-367. `audioshelf/tests/test_spotify_matching.py::test_spotify_album_title_only_search_recovers_split_artist_credits`
-368. `audioshelf/tests/test_spotify_matching.py::test_unresolved_album_stays_on_shelf_without_repopulating_unverified_tracks`
-369. `audioshelf/tests/test_spotify_matching.py::test_unresolved_report_shows_spotify_album_and_musicbrainz_version_evidence`
-370. `audioshelf/tests/test_spotify_matching.py::test_verified_bulk_match_saves_tracks_but_does_not_review_album`
-371. `audioshelf/tests/test_track_artist_credits.py::test_artist_safeguard_stays_strict_for_uncredited_and_wrong_credit`
-372. `audioshelf/tests/test_track_artist_credits.py::test_complete_soundtrack_matches_without_special_cases`
-373. `audioshelf/tests/test_track_artist_credits.py::test_musicbrainz_track_performers_are_extracted_from_each_medium`
-374. `audioshelf/tests/test_track_artist_credits.py::test_performer_credits_are_general_for_any_collaborative_album`
-375. `audioshelf/tests/test_track_artist_credits.py::test_selecting_soundtrack_maps_every_track_and_keeps_review`
-376. `audioshelf/tests/test_track_artist_credits.py::test_store_migration_keeps_shelf_and_hand_mappings`
-377. `audioshelf/tests/test_tracklist_variants.py::test_browse_only_shows_spotify_verified_grouped_tracklists`
-378. `audioshelf/tests/test_tracklist_variants.py::test_edition_picker_only_counts_gb_worldwide_and_us_releases`
-379. `audioshelf/tests/test_tracklist_variants.py::test_equivalent_layout_tries_later_pressing_if_first_cannot_match`
-380. `audioshelf/tests/test_tracklist_variants.py::test_equivalent_pressings_collapse_despite_remaster_and_recording_ids`
-381. `audioshelf/tests/test_tracklist_variants.py::test_invalid_tracklist_page_is_rejected`
-382. `audioshelf/tests/test_tracklist_variants.py::test_long_unplayable_editions_do_not_trigger_many_recording_requests`
-383. `audioshelf/tests/test_tracklist_variants.py::test_matching_fallback_when_structured_search_has_no_complete_album`
-384. `audioshelf/tests/test_tracklist_variants.py::test_multidisc_layout_kept_independent_of_same_song_sequence`
-385. `audioshelf/tests/test_tracklist_variants.py::test_scanning_continues_across_all_eligible_pages`
-386. `audioshelf/tests/test_tracklist_variants.py::test_select_vinyl_sides_preserves_disc_and_canonical_mapping`
-387. `audioshelf/tests/test_tracklist_variants.py::test_side_choice_validation_and_stored_album_intact_on_failure`
-388. `audioshelf/tests/test_tracklist_variants.py::test_successful_page_cached_for_retry_without_refetching`
-389. `audioshelf/tests/test_tracklist_variants.py::test_unconnected_account_cannot_see_unverified_tracklists`
-390. `audioshelf/tests/test_tracklist_variants.py::test_unknown_or_inconsistent_vinyl_numbers_do_not_create_fictitious_sides`
-391. `audioshelf/tests/test_tracklist_variants.py::test_unmatched_album_has_reasons_and_no_selectable_tracklists`
-392. `audioshelf/tests/test_tracklist_variants.py::test_unverified_disc_layout_not_offered_even_with_same_song_sequence`
-393. `audioshelf/tests/test_vinyl.py::test_interface_persists_and_invalid_choice_is_atomic`
-394. `audioshelf/tests/test_vinyl.py::test_playback_does_not_misidentify_shared_or_uncollected_tracks`
-395. `audioshelf/tests/test_vinyl.py::test_playback_tracks_spotify_pause_and_relinked_library_track`
-396. `audioshelf/tests/test_vinyl.py::test_shelf_furniture_persists_and_rejects_invalid_choices`
+323. `audioshelf/tests/test_shelf_edition_audit.py::test_audit_abstains_on_conflicting_origins_instead_of_shortest_guess`
+324. `audioshelf/tests/test_shelf_edition_audit.py::test_audit_accepts_genuine_standard_double_album`
+325. `audioshelf/tests/test_shelf_edition_audit.py::test_audit_does_not_infer_count_from_single_original_or_later_editions`
+326. `audioshelf/tests/test_shelf_edition_audit.py::test_audit_flags_bonus_editions_without_modifying_original`
+327. `audioshelf/tests/test_shelf_edition_audit.py::test_audit_flags_deluxe_label_even_without_reference_and_preserves_original`
+328. `audioshelf/tests/test_shelf_edition_audit.py::test_audit_marks_albums_without_selected_tracklists_as_unresolved`
+329. `audioshelf/tests/test_shelf_edition_audit.py::test_edition_audit_api_runs_across_entire_shelf_without_mutating`
+330. `audioshelf/tests/test_spotify_auth_playback.py::test_album_tracks_pagination_is_complete`
+331. `audioshelf/tests/test_spotify_auth_playback.py::test_api_401_refreshes_once`
+332. `audioshelf/tests/test_spotify_auth_playback.py::test_candidate_search_reaches_new_remaster_on_next_page`
+333. `audioshelf/tests/test_spotify_auth_playback.py::test_disc_playback_excludes_other_discs_and_allows_unmapped_other_disc`
+334. `audioshelf/tests/test_spotify_auth_playback.py::test_expired_oauth_is_consumed_without_exchange`
+335. `audioshelf/tests/test_spotify_auth_playback.py::test_fallback_candidate_search_paginates_when_structured_search_is_empty`
+336. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[-1]`
+337. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[0]`
+338. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[1.5]`
+339. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[1]`
+340. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[3]`
+341. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[True]`
+342. `audioshelf/tests/test_spotify_auth_playback.py::test_labelled_album_search_finds_explicit_and_regional_editions_without_special_cases`
+343. `audioshelf/tests/test_spotify_auth_playback.py::test_no_active_device_has_actionable_error`
+344. `audioshelf/tests/test_spotify_auth_playback.py::test_no_active_player_with_multiple_or_restricted_devices_never_guesses[devices0]`
+345. `audioshelf/tests/test_spotify_auth_playback.py::test_no_active_player_with_multiple_or_restricted_devices_never_guesses[devices1]`
+346. `audioshelf/tests/test_spotify_auth_playback.py::test_no_active_player_with_multiple_or_restricted_devices_never_guesses[devices2]`
+347. `audioshelf/tests/test_spotify_auth_playback.py::test_partial_mapping_cannot_play`
+348. `audioshelf/tests/test_spotify_auth_playback.py::test_pkce_and_single_use_oauth_state`
+349. `audioshelf/tests/test_spotify_auth_playback.py::test_play_route_requires_choice_even_when_a_speaker_is_active`
+350. `audioshelf/tests/test_spotify_auth_playback.py::test_playback_sends_only_exact_track_uris_and_turns_off_shuffle_repeat`
+351. `audioshelf/tests/test_spotify_auth_playback.py::test_preferred_device_transfer_preserves_exact_disc_queue`
+352. `audioshelf/tests/test_spotify_auth_playback.py::test_preferred_device_transfer_timeout_never_starts_tracks`
+353. `audioshelf/tests/test_spotify_auth_playback.py::test_refresh_preserves_old_refresh_token_and_survives_restart`
+354. `audioshelf/tests/test_spotify_auth_playback.py::test_shuffle_not_acknowledged_does_not_start_album`
+355. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_album_link_formats[aaaaaaaaaaaaaaaaaaaaaa]`
+356. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_album_link_formats[https://open.spotify.com/album/aaaaaaaaaaaaaaaaaaaaaa?si=hello]`
+357. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_album_link_formats[https://open.spotify.com/intl-de/album/aaaaaaaaaaaaaaaaaaaaaa]`
+358. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_album_link_formats[spotify:album:aaaaaaaaaaaaaaaaaaaaaa]`
+359. `audioshelf/tests/test_spotify_auth_playback.py::test_unavailable_or_ambiguous_preference_never_plays_elsewhere[devices0]`
+360. `audioshelf/tests/test_spotify_auth_playback.py::test_unavailable_or_ambiguous_preference_never_plays_elsewhere[devices1]`
+361. `audioshelf/tests/test_spotify_auth_playback.py::test_unavailable_or_ambiguous_preference_never_plays_elsewhere[devices2]`
+362. `audioshelf/tests/test_spotify_auth_playback.py::test_unreviewed_tracklist_cannot_play`
+363. `audioshelf/tests/test_spotify_auth_playback.py::test_untrusted_spotify_urls_not_fetched`
+364. `audioshelf/tests/test_spotify_matching.py::test_background_import_prefers_original_tracklist_even_with_spotify_deluxe_bonus_tracks`
+365. `audioshelf/tests/test_spotify_matching.py::test_background_verifies_alternate_release_after_unplayable_first_release`
+366. `audioshelf/tests/test_spotify_matching.py::test_bulk_import_rejects_fully_playable_deluxe_if_two_originals_disagree`
+367. `audioshelf/tests/test_spotify_matching.py::test_bulk_routes_restrict_access_and_expose_copyable_report`
+368. `audioshelf/tests/test_spotify_matching.py::test_invalid_manual_track_choices_are_replaced_with_complete_edition`
+369. `audioshelf/tests/test_spotify_matching.py::test_partial_candidates_are_reported_and_never_persisted`
+370. `audioshelf/tests/test_spotify_matching.py::test_removed_or_fixed_album_drops_from_failure_report`
+371. `audioshelf/tests/test_spotify_matching.py::test_report_distinguishes_out_of_order_track_from_arbitrary_fallback`
+372. `audioshelf/tests/test_spotify_matching.py::test_reviewed_canonical_edition_remains_reviewed_when_fully_matched`
+373. `audioshelf/tests/test_spotify_matching.py::test_reviewed_manual_edition_without_spotify_match_is_wiped`
+374. `audioshelf/tests/test_spotify_matching.py::test_reviewed_replacement_edition_requires_new_confirmation`
+375. `audioshelf/tests/test_spotify_matching.py::test_spotify_album_title_only_search_recovers_split_artist_credits`
+376. `audioshelf/tests/test_spotify_matching.py::test_unresolved_album_stays_on_shelf_without_repopulating_unverified_tracks`
+377. `audioshelf/tests/test_spotify_matching.py::test_unresolved_report_shows_spotify_album_and_musicbrainz_version_evidence`
+378. `audioshelf/tests/test_spotify_matching.py::test_verified_bulk_match_saves_tracks_but_does_not_review_album`
+379. `audioshelf/tests/test_track_artist_credits.py::test_artist_safeguard_stays_strict_for_uncredited_and_wrong_credit`
+380. `audioshelf/tests/test_track_artist_credits.py::test_complete_soundtrack_matches_without_special_cases`
+381. `audioshelf/tests/test_track_artist_credits.py::test_musicbrainz_track_performers_are_extracted_from_each_medium`
+382. `audioshelf/tests/test_track_artist_credits.py::test_performer_credits_are_general_for_any_collaborative_album`
+383. `audioshelf/tests/test_track_artist_credits.py::test_selecting_soundtrack_maps_every_track_and_keeps_review`
+384. `audioshelf/tests/test_track_artist_credits.py::test_store_migration_keeps_shelf_and_hand_mappings`
+385. `audioshelf/tests/test_tracklist_variants.py::test_browse_only_shows_spotify_verified_grouped_tracklists`
+386. `audioshelf/tests/test_tracklist_variants.py::test_edition_picker_only_counts_gb_worldwide_and_us_releases`
+387. `audioshelf/tests/test_tracklist_variants.py::test_equivalent_layout_tries_later_pressing_if_first_cannot_match`
+388. `audioshelf/tests/test_tracklist_variants.py::test_equivalent_pressings_collapse_despite_remaster_and_recording_ids`
+389. `audioshelf/tests/test_tracklist_variants.py::test_invalid_tracklist_page_is_rejected`
+390. `audioshelf/tests/test_tracklist_variants.py::test_long_unplayable_editions_do_not_trigger_many_recording_requests`
+391. `audioshelf/tests/test_tracklist_variants.py::test_matching_fallback_when_structured_search_has_no_complete_album`
+392. `audioshelf/tests/test_tracklist_variants.py::test_multidisc_layout_kept_independent_of_same_song_sequence`
+393. `audioshelf/tests/test_tracklist_variants.py::test_scanning_continues_across_all_eligible_pages`
+394. `audioshelf/tests/test_tracklist_variants.py::test_select_vinyl_sides_preserves_disc_and_canonical_mapping`
+395. `audioshelf/tests/test_tracklist_variants.py::test_side_choice_validation_and_stored_album_intact_on_failure`
+396. `audioshelf/tests/test_tracklist_variants.py::test_successful_page_cached_for_retry_without_refetching`
+397. `audioshelf/tests/test_tracklist_variants.py::test_unconnected_account_cannot_see_unverified_tracklists`
+398. `audioshelf/tests/test_tracklist_variants.py::test_unknown_or_inconsistent_vinyl_numbers_do_not_create_fictitious_sides`
+399. `audioshelf/tests/test_tracklist_variants.py::test_unmatched_album_has_reasons_and_no_selectable_tracklists`
+400. `audioshelf/tests/test_tracklist_variants.py::test_unverified_disc_layout_not_offered_even_with_same_song_sequence`
+401. `audioshelf/tests/test_vinyl.py::test_interface_persists_and_invalid_choice_is_atomic`
+402. `audioshelf/tests/test_vinyl.py::test_playback_does_not_misidentify_shared_or_uncollected_tracks`
+403. `audioshelf/tests/test_vinyl.py::test_playback_tracks_spotify_pause_and_relinked_library_track`
+404. `audioshelf/tests/test_vinyl.py::test_shelf_furniture_persists_and_rejects_invalid_choices`
 
 ## Other release checks
 
