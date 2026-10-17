@@ -187,3 +187,44 @@ def test_mono_stereo_labels_do_not_erase_live_or_remix_identity():
     track={'title':'Pet Sounds','duration_ms':180000}
     assert not track_score(track,spotify_track('Pet Sounds - Live - Mono','s'*22),['The Artist'])[1]
     assert not track_score(track,spotify_track('Pet Sounds - Club Remix - Mono','s'*22),['The Artist'])[1]
+
+
+def test_compact_track_titles_accept_spacing_but_not_reordered_words():
+    from app.matching import track_assessment
+    from conftest import spotify_track
+    for left,right in [('Cliffdiving','Cliff Diving'),
+                       ('11am','11 am'),
+                       ("If It Wasn't For Hate", "IF IT WASNT FOR HATE")]:
+        assessment=track_assessment({'title':left,'duration_ms':185000},
+                                    spotify_track(right,'x'*22,185500),['The Artist'])
+        assert assessment['verified'],(left,right,assessment)
+    assert not track_assessment({'title':'Different Song','duration_ms':185000},
+                               spotify_track('Song Different','z'*22,185000),
+                               ['The Artist'])['verified']
+
+
+def test_contextual_minor_title_change_must_have_unique_position_duration_and_artist():
+    from app.matching import candidate
+    from conftest import spotify_track
+    names=['One','Two','Three','Four','Five','Six','Seven','Eight']
+    canonical=[{'position':i,'title':name,'duration_ms':180000}
+               for i,name in enumerate(names,1)]
+    album={'title':'Example','release_date':'2001','artists':[{'name':'The Artist'}],
+           'tracks':canonical}
+    tracks=[spotify_track(name,str(i)*22,180000)
+            for i,name in enumerate(names,1)]
+    tracks[5]['name']='Six - Another Name'
+    spotify={'id':'s'*22,'name':'Example','release_date':'2001','all_tracks':tracks}
+    assert candidate(album,spotify)['verified'] == 7
+    tracks[5]['name']='Sixx'
+    # Too weak a title change must not be silently certified.
+    assert candidate(album,spotify)['verified'] == 7
+    tracks[5]['name']='Sixe'
+    # Near-perfect typo: one unique expected slot and corroborating duration.
+    assert candidate(album,spotify)['verified'] == 8
+    tracks[5]['duration_ms']=190000
+    assert candidate(album,spotify)['verified'] == 7
+    tracks[5]['duration_ms']=180000
+    tracks[5]['artists']=[{'name':'Tribute Band'}]
+    assert candidate(album,spotify)['verified'] == 7
+
