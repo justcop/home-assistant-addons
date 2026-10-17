@@ -216,7 +216,7 @@ def test_contextual_minor_title_change_must_have_unique_position_duration_and_ar
     tracks[5]['name']='Six - Another Name'
     spotify={'id':'s'*22,'name':'Example','release_date':'2001','all_tracks':tracks}
     assert candidate(album,spotify)['verified'] == 7
-    tracks[5]['name']='Sixx'
+    tracks[5]['name']='Sixty'
     # Too weak a title change must not be silently certified.
     assert candidate(album,spotify)['verified'] == 7
     tracks[5]['name']='Sixe'
