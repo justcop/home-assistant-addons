@@ -23,6 +23,7 @@ from .lastfm_import import LastFmImporter
 from .artwork import Artwork
 from .artwork_refresh import ArtworkRefresh
 from .spotify_matching import SpotifyMatching, report_text, PAUSE_UNTIL
+from .shelf_edition_audit import ShelfEditionAudit, audit_report
 from .errors import AppError
 from .matching import candidate, track_score
 from .musicbrainz import MusicBrainz, mbid
