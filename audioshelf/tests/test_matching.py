@@ -136,15 +136,16 @@ def test_single_duration_discrepancy_can_be_corroborated_by_entire_album():
     assert candidate(album,source)['verified']==9, 'Large timing differences cannot be excused'
 
 
-@pytest.mark.parametrize('canonical,spotify_name', [
-    ('Another Brick in the Wall, Part 1', 'Another Brick in the Wall, Pt. 1'),
-    ('Another Brick in the Wall, Part 2', 'Another Brick in the Wall, Pt. 2'),
-    ('You Still Believe In Me', 'You Still Believe In Me - Mono / Remastered 2012'),
-    ('Pet Sounds', 'Pet Sounds - Stereo'),
-])
-def test_edition_labels_and_part_abbreviations_are_same_recording(canonical, spotify_name):
-    source=spotify_track(spotify_name,'s'*22,180000)
-    assert track_score({'title':canonical,'duration_ms':180000},source,['The Artist'])[1]
+def test_edition_labels_and_part_abbreviations_are_same_recording():
+    examples=[
+        ('Another Brick in the Wall, Part 1', 'Another Brick in the Wall, Pt. 1'),
+        ('Another Brick in the Wall, Part 2', 'Another Brick in the Wall, Pt. 2'),
+        ('You Still Believe In Me', 'You Still Believe In Me - Mono / Remastered 2012'),
+        ('Pet Sounds', 'Pet Sounds - Stereo'),
+    ]
+    for canonical, spotify_name in examples:
+        source=spotify_track(spotify_name,'s'*22,180000)
+        assert track_score({'title':canonical,'duration_ms':180000},source,['The Artist'])[1]
 
 
 def test_two_spotify_performers_satisfy_a_joint_musicbrainz_artist_but_not_solo():
