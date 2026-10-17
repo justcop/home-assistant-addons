@@ -57,7 +57,12 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert.equal(await page.locator('#search-form input').inputValue(),'The Artist');
     await page.goto(base+'/#shelf');
     await page.locator('.shelf-rack').first().waitFor();
-    await page.locator('.cover').first().evaluate(img=>img.decode());
+    // Deferred covers begin loading only when the sleeve enters view.
+    await page.locator('.cover').first().scrollIntoViewIfNeeded();
+    await page.waitForFunction(()=>{
+      const img=document.querySelector('.cover');
+      return !!img?.currentSrc&&img.complete&&img.naturalWidth>0;
+    });
     // Many nearby shelves must not generate 90 simultaneous slow requests.
     // Simulate 12 visible covers with artificially slow image responses.
     let activeCoverProbes=0,maxCoverProbes=0,servedCoverProbes=0;
