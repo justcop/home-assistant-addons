@@ -206,7 +206,9 @@ def candidate(album, source):
             considered = sorted(({'id': t['id'], 'title': t['name'], 'spotify_position': n+1,
                                    **track_assessment(track, t, artists)}
                                 for n,t in enumerate(source['all_tracks'])),
-                                key=lambda t: (t['verified'], t['score']), reverse=True)
+                                key=lambda t: (t['verified'], t['score'],
+                                    SequenceMatcher(None, normalize(track['title'], True),
+                                                    normalize(t['title'], True)).ratio()), reverse=True)
             mapping.update(assessment={'reason': 'no_ordered_match'}, alternatives=considered[:3])
     _rescue_ordered_medley_prefix(album, source, mappings)
     # An album with at least five tracks and every other song independently
