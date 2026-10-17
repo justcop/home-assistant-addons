@@ -64,7 +64,9 @@ def test_audit_does_not_infer_count_from_single_original_or_later_editions():
               edition('d'*36,21,label='The Album (Deluxe Edition)'),
               edition('c'*36,10,year='2023')]
     assert standard_release_reference(releases,'2007-04-17') is None
-    assert inspect_album(saved(21),releases)['classification']=='inconclusive'
+    result=inspect_album(saved(21),releases)
+    assert result['classification']=='review_edition'
+    assert result['reference_count'] is None
 
 
 def test_audit_marks_albums_without_selected_tracklists_as_unresolved():
