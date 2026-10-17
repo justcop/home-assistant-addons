@@ -561,7 +561,10 @@ def create_app(options=None):
                 store.album(album_id)
             except KeyError:
                 musicbrainz.ensure_group(album_id)
-            return jsonify(musicbrainz.ensure_tracks(album_id))
+            existing = store.album(album_id)
+            # An unresolved shelf album must not accidentally regain the
+            # first unverified MusicBrainz pressing when its page is opened.
+            return jsonify(existing if existing['on_shelf'] else musicbrainz.ensure_tracks(album_id))
 
     @app.post('/api/artwork/refresh')
     def begin_artwork_refresh():
