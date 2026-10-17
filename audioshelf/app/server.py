@@ -479,8 +479,9 @@ def create_app(options=None):
         result = lastfm_import.start(
             g.account['id'], g.context.store, g.context.musicbrainz,
             payload.get('ids'), payload.get('period', 'overall'), accounts.enabled,
-            on_complete=lambda: spotify_matching.ensure_started(account_id, context.store,
-                context.spotify, context.playable_releases, enabled=accounts.enabled))
+            on_complete=lambda: spotify_matching.start(account_id, context.store,
+                context.spotify, context.playable_releases, enabled=accounts.enabled,
+                automatic=True))
         return jsonify(job=result), 202
 
     @app.get('/api/shelf')
