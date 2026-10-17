@@ -228,3 +228,38 @@ def test_contextual_minor_title_change_must_have_unique_position_duration_and_ar
     tracks[5]['artists']=[{'name':'Tribute Band'}]
     assert candidate(album,spotify)['verified'] == 7
 
+
+
+
+def test_numbered_part_roman_numerals_match_arabic_spotify_titles():
+    from app.matching import normalize, track_assessment
+    from conftest import spotify_track
+    cases = [
+        ('Earth to Bella, Part I', 'Earth to Bella, Pt. 1'),
+        ('Earth to Bella, Part II', 'Earth to Bella, Pt. 2'),
+        ('Age of Anxiety, Pt. IV', 'Age of Anxiety, Part 4'),
+    ]
+    for original, spotify_title in cases:
+        matched = track_assessment({'title': original, 'duration_ms': 180000},
+                                   spotify_track(spotify_title, 'a'*22, 180500),
+                                   ['The Artist'])
+        assert matched['verified'], (original, spotify_title, matched)
+    assert normalize('I Am the Walrus', True) == 'i am the walrus'
+    assert normalize('Part of Me', True) == 'part of me'
+
+
+def test_acoustic_version_label_matches_same_acoustic_recording_but_not_studio():
+    from app.matching import track_assessment
+    from conftest import spotify_track
+    canonical = {'title': 'Weatherman (acoustic)', 'duration_ms': 180000}
+    same = spotify_track('Weatherman - Acoustic Version', 'a'*22, 180254)
+    assert track_assessment(canonical, same, ['The Artist'])['verified']
+    studio = spotify_track('Weatherman', 'b'*22, 180000)
+    assert not track_assessment(canonical, studio, ['The Artist'])['verified']
+    nonalbum = spotify_track('Weatherman - Non Album Version', 'c'*22, 180000)
+    assert not track_assessment(canonical, nonalbum, ['The Artist'])['verified']
+    bad_artist = spotify_track('Weatherman - Acoustic Version', 'd'*22, 180000)
+    bad_artist['artists'] = [{'name': 'Cover Band'}]
+    assert not track_assessment(canonical, bad_artist, ['The Artist'])['verified']
+    bad_duration = spotify_track('Weatherman - Acoustic Version', 'e'*22, 230000)
+    assert not track_assessment(canonical, bad_duration, ['The Artist'])['verified']
