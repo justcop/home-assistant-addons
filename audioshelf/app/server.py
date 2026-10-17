@@ -98,6 +98,8 @@ def create_app(options=None):
     app.extensions['artwork_refresh'] = artwork_refresh
     spotify_matching = SpotifyMatching()
     app.extensions['spotify_matching'] = spotify_matching
+    shelf_edition_audit = ShelfEditionAudit()
+    app.extensions['shelf_edition_audit'] = shelf_edition_audit
     # Every request resolves its own context. No global current-user mutation.
     store = LocalProxy(lambda: g.context.store)
     spotify = LocalProxy(lambda: g.context.spotify)
