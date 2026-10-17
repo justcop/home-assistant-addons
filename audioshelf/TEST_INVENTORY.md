@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-17T15:03:00+01:00 (Europe/London).
+Reviewed: 2026-10-17T15:10:00+01:00 (Europe/London).
 
-Reviewed updates to existing Last.fm importer integration test: new imports may retain album identity only, must not invoke unverified MusicBrainz ensure_tracks, and must discard previously browsed speculative tracks. Reviewed 374 backend tests covering verified-first release selection, unresolved shelf behavior, and preservation of manual corrections.
+Reviewed vinyl browser test's updated original album flow: it now resolves and fully verifies Spotify tracks before allowing a user to confirm the canonical tracklist. The existing playback and startup assertions remain unchanged. Test inventory is 374 backend cases plus reviewed browser/CI sources.
 
-<!-- inventory: {"reviewed_at":"2026-10-17T15:03:00+01:00","review_note":"Reviewed updates to existing Last.fm importer integration test: new imports may retain album identity only, must not invoke unverified MusicBrainz ensure_tracks, and must discard previously browsed speculative tracks. Reviewed 374 backend tests covering verified-first release selection, unresolved shelf behavior, and preservation of manual corrections.","source_sha256":"f7d3f1e2c867a5ed5c52bc5706eaf10466f0682a95eb66bf3550889b0367a68d"} -->
+<!-- inventory: {"reviewed_at":"2026-10-17T15:10:00+01:00","review_note":"Reviewed vinyl browser test's updated original album flow: it now resolves and fully verifies Spotify tracks before allowing a user to confirm the canonical tracklist. The existing playback and startup assertions remain unchanged. Test inventory is 374 backend cases plus reviewed browser/CI sources.","source_sha256":"e3dda91c6d2c1e55ecf255a66acf26d76376b1f7ece2c8c5ff9b089f7f4df1e3"} -->
 
 ## Backend cases (374)
 
