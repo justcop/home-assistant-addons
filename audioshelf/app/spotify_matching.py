@@ -256,6 +256,10 @@ class SpotifyMatching:
             # Give regular user requests priority and avoid spiky API activity.
             time.sleep(0.2)
         self._finish(account_id, store, job_id, 'complete')
+        # New Last.fm imports can arrive while this pass is running. Pick up
+        # newly collected albums without needing another browser visit.
+        self.start(account_id, store, spotify, playable,
+                   enabled=enabled, automatic=True)
 
     @staticmethod
     def _match(album, spotify, playable):
