@@ -14,7 +14,7 @@ from .errors import AppError
 from .matching import candidate
 
 LOG = logging.getLogger('audioshelf.spotify_matching')
-ATTEMPTS = 'spotify_matching_attempts_v1'
+ATTEMPTS = 'spotify_matching_attempts_v2'
 FAILURES = 'spotify_matching_failures_v1'
 STATUS = 'spotify_matching_status_v1'
 PAUSE_UNTIL = 'spotify_matching_pause_until_v1'
