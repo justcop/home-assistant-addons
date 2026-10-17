@@ -65,17 +65,14 @@ def printed_subtitle_match(canonical_title, spotify_title):
     Never erase a mix/version, collaborator, disc number, part or track name.
     Require independent artist, duration, and position checks downstream.
     """
-    for long_title, short_title in ((canonical_title, spotify_title),
-                                    (spotify_title, canonical_title)):
-        match = PRINTED_SUBTITLE.match(long_title.strip())
-        if not match:
-            continue
-        primary, detail = match.groups()
-        if len(detail.strip()) < 8 or PRINTED_VERSION.search(detail):
-            continue
-        if len(normalize(primary, True)) >= 4 and normalize(primary, True) == normalize(short_title, True):
-            return True
-    return False
+    match = PRINTED_SUBTITLE.match(canonical_title.strip())
+    if not match:
+        return False
+    primary, detail = match.groups()
+    if len(detail.strip()) < 8 or PRINTED_VERSION.search(detail):
+        return False
+    return (len(normalize(primary, True)) >= 4
+            and normalize(primary, True) == normalize(spotify_title, True))
 
 
 def credited_guest_matches(allowed_names, spotify, album_artist_names):
