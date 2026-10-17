@@ -263,3 +263,80 @@ def test_acoustic_version_label_matches_same_acoustic_recording_but_not_studio()
     assert not track_assessment(canonical, bad_artist, ['The Artist'])['verified']
     bad_duration = spotify_track('Weatherman - Acoustic Version', 'e'*22, 230000)
     assert not track_assessment(canonical, bad_duration, ['The Artist'])['verified']
+
+
+def test_editorial_subtitles_use_main_title_and_duration_but_not_versions():
+    from app.matching import track_assessment
+    from conftest import spotify_track
+    cases=[
+        ('2 + 2 = 5 (The Lukewarm.)','2 + 2 = 5'),
+        ('Sail to the Moon. (Brush the Cobwebs Out of the Sky.)','Sail to the Moon'),
+        ('Where I End and You Begin. (The Sky Is Falling In.)','Where I End and You Begin'),
+        ('A Wolf at the Door. (It Girl. Rag Doll.)','A Wolf At the Door'),
+        ('Always All Ways (Apologies, Glances and Messed Up Chances)','Always All Ways'),
+    ]
+    for mb_title, spotify_title in cases:
+        good=track_assessment({'title':mb_title,'duration_ms':180000},
+                              spotify_track(spotify_title,'s'*22,180700),['The Artist'])
+        assert good['verified'] and good['reason']=='printed_subtitle', (mb_title,good)
+        large=track_assessment({'title':mb_title,'duration_ms':180000},
+                               spotify_track(spotify_title,'s'*22,215000),['The Artist'])
+        assert not large['verified'], (mb_title,large)
+    for mb_title in ['F.O.D. (Hidden Track)','Smash (Reprise)',
+                     'The Song (Live Acoustic Version)','Song (Alternate Take)']:
+        bad=track_assessment({'title':mb_title,'duration_ms':180000},
+                             spotify_track(mb_title.split(' (')[0],'s'*22,180000),
+                             ['The Artist'])
+        assert not bad['verified'], mb_title
+
+
+def test_full_album_with_editorial_subtitles_is_verified_in_canonical_order():
+    from app.matching import candidate
+    from conftest import spotify_track
+    titles=['2 + 2 = 5 (The Lukewarm.)',
+        'Sit Down. Stand Up. (Snakes & Ladders.)',
+        'Sail to the Moon. (Brush the Cobwebs Out of the Sky.)',
+        'Backdrifts. (Honeymoon Is Over.)',
+        'Go to Sleep. (Little Man Being Erased.)',
+        'Where I End and You Begin. (The Sky Is Falling In.)',
+        'We Suck Young Blood. (Your Time Is Up.)',
+        'The Gloaming. (Softly Open Our Mouths in the Cold.)',
+        'There There. (The Boney King of Nowhere.)',
+        'I Will. (No Man’s Land.)',
+        'A Punchup at a Wedding. (No No No No No No No No.)',
+        'Myxomatosis. (Judge, Jury & Executioner.)',
+        'Scatterbrain. (As Dead as Leaves.)',
+        'A Wolf at the Door. (It Girl. Rag Doll.)']
+    canonical=[{'position':i,'title':title,'duration_ms':180000}
+               for i,title in enumerate(titles,1)]
+    spotify_tracks=[spotify_track(title.split('. (')[0].split(' (')[0],
+                    str(i%10)*22,180000) for i,title in enumerate(titles,1)]
+    album={'title':'Hail to the Thief','release_date':'2003',
+           'artists':[{'name':'The Artist'}],'tracks':canonical}
+    source={'id':'h'*22,'name':'Hail to the Thief','release_date':'2003',
+            'all_tracks':spotify_tracks}
+    verified=candidate(album,source)
+    assert verified['verified']==14
+    assert all(m['verified'] for m in verified['mappings'])
+    # Order cannot be silently repaired, even when titles and durations match.
+    source['all_tracks'][3],source['all_tracks'][4]=source['all_tracks'][4],source['all_tracks'][3]
+    assert candidate(album,source)['verified']<14
+
+
+def test_featured_artist_credit_requires_primary_artist_and_guest_evidence():
+    from app.matching import track_assessment
+    from conftest import spotify_track
+    canonical={'title':'We Belong Together','duration_ms':180000,
+               'artist_names':['Vampire Weekend feat. Danielle Haim']}
+    source=spotify_track('We Belong Together (feat. Danielle Haim)','s'*22,180350)
+    source['artists']=[{'name':'Vampire Weekend'}]
+    assert track_assessment(canonical,source,['Vampire Weekend'])['verified']
+    source['name']='We Belong Together'
+    assert not track_assessment(canonical,source,['Vampire Weekend'])['verified']
+    source['artists']=[{'name':'Vampire Weekend'},{'name':'Danielle Haim'}]
+    assert track_assessment(canonical,source,['Vampire Weekend'])['verified']
+    source['artists']=[{'name':'Danielle Haim'}]
+    assert not track_assessment(canonical,source,['Vampire Weekend'])['verified']
+    source['artists']=[{'name':'Vampire Weekend'}]
+    source['name']='We Belong Together (feat. Danielle Haim)'
+    assert not track_assessment(canonical,source,['Different Group'])['verified']

@@ -10,6 +10,10 @@ VERSION = re.compile(r'\b(live|demo|acoustic|instrumental|remix|radio edit|singl
 MIX_FORMAT = re.compile(r'\s*[-–—/]\s*(?:original\s+)?(?:mono|stereo)\s*$', re.I)
 PART_NUMBER = re.compile(r'\bpt\.?\s*(?=(?:[0-9]+|[ivx]+)\b)', re.I)
 MEDLEY_LABEL = re.compile(r'\s*[-–—/]\s*medley\s*$', re.I)
+PRINTED_SUBTITLE = re.compile(r'^(.+?)\s*\(([^()]*)\)\s*$')
+PRINTED_VERSION = re.compile(r'\b(?:feat\.?|featuring|ft\.?|live|demo|acoustic|instrumental|remix|edit|remaster|mix|version|take|radio|mono|stereo|part|pt\.?|bonus|hidden|reprise|alternate|alternative|unplugged|session|clean|explicit|extended|acapella)\b', re.I)
+FEATURED_TITLE = re.compile(r'\s*[\[(]\s*(?:feat\.?|featuring|ft\.?)\s+[^\])]+[\])]\s*$', re.I)
+FEATURED_ARTISTS = re.compile(r'\s+(?:feat\.?|featuring|ft\.?)\s+', re.I)
 VERSION_QUALIFIER = re.compile(r'\b(acoustic|live|demo|instrumental)\s+version\b', re.I)
 ROMAN_PART = re.compile(r'\bpart\s+(i|ii|iii|iv|v|vi|vii|viii|ix|x)\b', re.I)
 ROMAN_PARTS = {'i': 1, 'ii': 2, 'iii': 3, 'iv': 4, 'v': 5,
@@ -55,6 +59,45 @@ def artist_credit_matches(allowed_names, credited_names):
     return False
 
 
+def printed_subtitle_match(canonical_title, spotify_title):
+    """Long editorial subtitles can be absent from the Spotify display title.
+
+    Never erase a mix/version, collaborator, disc number, part or track name.
+    Require independent artist, duration, and position checks downstream.
+    """
+    match = PRINTED_SUBTITLE.match(canonical_title.strip())
+    if not match:
+        return False
+    primary, detail = match.groups()
+    if len(detail.strip()) < 8 or PRINTED_VERSION.search(detail):
+        return False
+    return (len(normalize(primary, True)) >= 4
+            and normalize(primary, True) == normalize(spotify_title, True))
+
+
+def credited_guest_matches(allowed_names, spotify, album_artist_names):
+    """Corroborate a MusicBrainz 'Artist feat. Guest' credit printed as one name.
+
+    Spotify may list the principal act with the guest separately or in the
+    printed feature credit. Mere substring matching is never enough.
+    """
+    credited = {normalize(a['name']) for a in spotify.get('artists', [])
+                if a.get('name')}
+    album = {normalize(name) for name in album_artist_names}
+    printed = normalize(spotify.get('name') or '')
+    for artist in allowed_names:
+        members = FEATURED_ARTISTS.split(artist, maxsplit=1)
+        if len(members) != 2:
+            continue
+        lead, guest = (normalize(x) for x in members)
+        if not lead or not guest or lead not in credited or lead not in album:
+            continue
+        if guest in credited or (FEATURED_TITLE.search(spotify.get('name') or '')
+                                 and guest in printed):
+            return True
+    return False
+
+
 def compact_title(value):
     """Space and punctuation differences cannot change the printed word sequence."""
     return ''.join(normalize(value, True).split())
@@ -68,7 +111,8 @@ def track_assessment(canonical, spotify, artist_names):
     # Without per-track credits, fall back to the release-group artist.
     allowed = canonical.get('artist_names') or artist_names
     credited = [a['name'] for a in spotify.get('artists', []) if a.get('name')]
-    if not artist_credit_matches(allowed, credited):
+    if not (artist_credit_matches(allowed, credited) or
+            credited_guest_matches(allowed, spotify, artist_names)):
         return {'score': 0, 'verified': False, 'reason': 'artist_mismatch'}
     left, right = normalize(canonical['title'], True), normalize(spotify['name'], True)
     recording_title = normalize(canonical.get('recording_title') or '', True)
@@ -78,6 +122,15 @@ def track_assessment(canonical, spotify, artist_names):
     if versions != set(VERSION.findall(right)):
         return {'score': 0, 'verified': False, 'reason': 'recording_version_mismatch'}
     exact = left == right
+    subtitle = not exact and printed_subtitle_match(canonical['title'], spotify['name'])
+    feature = FEATURED_TITLE.search(spotify['name'])
+    named_guests = {normalize(name) for name in allowed}
+    printed_guest = normalize(feature.group(0).strip(' ()[]')) if feature else ''
+    matched_guest = (credited_guest_matches(allowed, spotify, artist_names)
+                     or any(guest and guest in printed_guest for guest in named_guests
+                            if guest not in {normalize(name) for name in artist_names}))
+    feature_title = (not exact and bool(feature) and matched_guest
+                     and normalize(spotify['name'][:feature.start()], True) == left)
     # Spaced numerals and run-together words: 11am/11 am,
     # Cliffdiving/Cliff Diving, and punctuation-only contractions.
     compact = (not exact and len(left.replace(' ', '')) >= 4 and
@@ -97,7 +150,7 @@ def track_assessment(canonical, spotify, artist_names):
     similarity = SequenceMatcher(None, left, right).ratio()
     isrc = spotify.get('external_ids', {}).get('isrc')
     same_isrc = bool(isrc and isrc in canonical.get('isrcs', []))
-    if not exact and not compact and not recording_match and not same_isrc and not expanded_title and similarity < .85:
+    if not exact and not compact and not subtitle and not feature_title and not recording_match and not same_isrc and not expanded_title and similarity < .85:
         return {'score': 0, 'verified': False, 'reason': 'title_mismatch', 'canonical_title': left, 'spotify_title': right}
     duration = canonical.get('duration_ms')
     actual = spotify.get('duration_ms')
@@ -105,13 +158,14 @@ def track_assessment(canonical, spotify, artist_names):
     plausible_duration = delta is None or delta <= max(8000, duration*.04)
     if delta is not None and delta > max(30000, duration*.18):
         return {'score': 0, 'verified': False, 'reason': 'duration_mismatch', 'duration_delta_ms': delta}
-    score = (95 if exact or compact or recording_match or same_isrc or expanded_title else similarity*80) + (5 if delta is not None and delta<2000 else 0)
+    score = (95 if exact or compact or subtitle or feature_title or recording_match or same_isrc or expanded_title else similarity*80) + (5 if delta is not None and delta<2000 else 0)
     # A trailing-title expansion is only verified with independent duration
     # agreement. A similarly named edit/remix is still rejected above.
     verified = (exact or compact or same_isrc or (recording_match and delta is not None)
-                or (expanded_title and delta is not None)) and plausible_duration
+                or (expanded_title and delta is not None)
+                or ((subtitle or feature_title) and delta is not None and delta <= max(5000, duration*.025))) and plausible_duration
     return {'score': score, 'verified': verified,
-            'reason': ('exact_title' if exact else 'compact_title' if compact else 'same_recording_title' if recording_match else 'same_isrc' if same_isrc else 'extended_title') if verified else 'needs_review',
+            'reason': ('exact_title' if exact else 'compact_title' if compact else 'printed_subtitle' if subtitle else 'credited_feature' if feature_title else 'same_recording_title' if recording_match else 'same_isrc' if same_isrc else 'extended_title') if verified else 'needs_review',
             'duration_delta_ms': delta, 'canonical_title': left, 'spotify_title': right}
 
 
