@@ -55,6 +55,10 @@ class PlayableReleases:
             if enriched is not album:
                 assessment = candidate(enriched, source)
         if not self.fully_verified(assessment, len(album['tracks'])):
+            confirmed = self.isrc_corroborated(enriched, [source], [assessment])
+            if confirmed:
+                assessment = confirmed[0]
+        if not self.fully_verified(assessment, len(album['tracks'])):
             missing = len(album['tracks']) - assessment['verified']
             raise AppError(f'This MusicBrainz edition has {missing} track(s) without a verified Spotify match. Choose another edition.')
         return assessment
