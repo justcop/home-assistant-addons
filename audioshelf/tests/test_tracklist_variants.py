@@ -97,6 +97,7 @@ def variants(application,monkeypatch):
         calls['candidates']+=1
         return [{'id':SPOTIFY_ID}]
     monkeypatch.setattr(spotify,'candidates',candidates)
+    monkeypatch.setattr(spotify,'labelled_editions',lambda album:[])
     def album(identifier):
         calls['albums']+=1
         return {'id':identifier,'name':'The Album (2024 Remaster)','release_date':'2024',
