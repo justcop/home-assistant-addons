@@ -11,7 +11,9 @@ import threading
 import time
 
 from .errors import AppError
-from .matching import candidate
+from difflib import SequenceMatcher
+
+from .matching import candidate, normalize
 
 LOG = logging.getLogger('audioshelf.spotify_matching')
 ATTEMPTS = 'spotify_matching_attempts_v2'
@@ -55,6 +57,13 @@ def failure(album, reason, best=None):
                     reason = 'matching_track_out_of_order'
                 else:
                     alternative = next((a for a in alternatives if a.get('score', 0) > 0), None)
+                    if alternative is None:
+                        # A zero-score live/demo/cover can still be a useful
+                        # diagnostic, but a random unrelated title is not.
+                        possible = next(iter(alternatives), None)
+                        if possible and SequenceMatcher(None, normalize(track['title'], True),
+                                        normalize(possible.get('title', ''), True)).ratio() >= .65:
+                            alternative = possible
                     reason = (alternative.get('reason', 'no_ordered_match') if alternative
                               else 'no_compatible_track_in_this_spotify_edition')
             else:
