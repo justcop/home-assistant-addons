@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import pytest
 
 from app.errors import AppError
-from app.lastfm_import import LastFmImporter, album_key
+from app.lastfm_import import LastFmImporter, album_key, album_title_variants
 from conftest import ALBUM, ARTIST, post
 
 
@@ -75,7 +75,7 @@ def test_import_adds_existing_group_without_duplicates_and_reports_skips(applica
     monkeypatch.setattr(musicbrainz, 'ensure_group', ensure_group)
     monkeypatch.setattr(musicbrainz, 'ensure_tracks',
                         lambda group_id: musicbrainz.store.album(group_id))
-    monkeypatch.setattr(musicbrainz, 'search', lambda query, kind: [])
+    monkeypatch.setattr(musicbrainz, 'search', lambda query, kind, album_artist=None: [])
     albums = client.get('/api/lastfm/albums').json['albums']
     selected = [a['id'] for a in albums]
     result = post(client, '/api/lastfm/import', {'ids': selected})
@@ -113,10 +113,10 @@ def test_lastfm_exact_match_rejects_ambiguity_and_wrong_artist():
     client = Mock()
     client.search.return_value = [one, two]
     item = {'artist': 'The Artist', 'title': 'The Album', 'mbid': ''}
-    with pytest.raises(AppError, match='unambiguous'):
+    with pytest.raises(AppError, match='Several'):
         importer._match_group(client, item)
     client.search.return_value = [dict(one, artists=[{'name': 'Another Artist'}])]
-    with pytest.raises(AppError, match='unambiguous'):
+    with pytest.raises(AppError, match='No matching'):
         importer._match_group(client, item)
     client.search.return_value = [one]
     assert importer._match_group(client, item)['id'] == ALBUM
@@ -133,3 +133,53 @@ def test_lastfm_import_separated_per_collection(application, tmp_path, monkeypat
     assert second.setting('lastfm_account') is None
     assert caller.status(first, 'owner')['username'] == 'Alice'
     assert 'api_key' not in str(caller.status(first, 'owner'))
+
+
+
+def test_lastfm_edition_and_artist_aliases():
+    assert album_title_variants('Revolver (Super Deluxe)', 'The Beatles')[0] == 'Revolver'
+    assert album_title_variants('Concrete Love (Deluxe Version)', 'The Courteeners')[0] == 'Concrete Love'
+    assert album_title_variants('St. Jude (15th Anniversary Edition)', 'Courteeners')[0] == 'St. Jude'
+    assert album_title_variants('Physical Graffiti (disc 1)', 'Led Zeppelin')[0] == 'Physical Graffiti'
+    assert album_title_variants('All Things Must Pass CD1', 'George Harrison')[0] == 'All Things Must Pass'
+    assert album_title_variants('Tourist History [Promo]', 'Two Door Cinema Club')[0] == 'Tourist History'
+    assert album_title_variants('The Beatles (The White Album)', 'The Beatles')[0] == 'The Beatles'
+    assert album_title_variants('Led Zeppelin I', 'Led Zeppelin')[0] == 'Led Zeppelin'
+    # Do not erase a distinct artistic subtitle or turn a remix into its parent.
+    assert album_title_variants('St. Jude Re:Wired', 'Courteeners') == ['St. Jude Re:Wired']
+    assert album_title_variants('Let It Be... Naked', 'The Beatles') == ['Let It Be... Naked']
+
+
+def test_lastfm_looks_up_edition_by_artist_instead_of_title_only():
+    from app.musicbrainz import MusicBrainz
+    importer = LastFmImporter()
+    group = {'id': ALBUM, 'title': 'Revolver',
+             'artists': [{'name': 'The Beatles'}], 'on_shelf': False}
+    calls = []
+
+    class FakeMusicBrainz:
+        def search(self, title, kind, album_artist=None):
+            calls.append((title, kind, album_artist))
+            return [group] if title == 'Revolver' and album_artist == 'The Beatles' else []
+
+    result = importer._match_group(FakeMusicBrainz(),
+                  {'artist': 'The Beatles', 'title': 'Revolver (Super Deluxe)', 'mbid': ''})
+    assert result['id'] == ALBUM
+    assert calls == [('Revolver', 'album', 'The Beatles')]
+
+    captured = []
+    mb = MusicBrainz(Mock())
+    mb.get = lambda entity, params: (captured.append((entity, params)) or {'release-groups': []})
+    mb.search('Babel', 'album', album_artist='Mumford & Sons')
+    assert 'artist:' in captured[0][1]['query']
+    assert captured[0][1]['limit'] == 100
+
+
+def test_lastfm_self_titled_album_remains_ambiguous():
+    one = {'id': ALBUM, 'title': 'Weezer',
+           'artists': [{'name': 'Weezer'}], 'on_shelf': False}
+    two = dict(one, id='ad8af025-cb51-457b-8d36-c54d018e3f11')
+    mb = Mock()
+    mb.search.return_value = [one, two]
+    with pytest.raises(AppError, match='Several'):
+        LastFmImporter._match_group(mb, {'artist': 'Weezer', 'title': 'Weezer', 'mbid': ''})
