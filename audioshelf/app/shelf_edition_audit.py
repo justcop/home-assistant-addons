@@ -167,7 +167,7 @@ class ShelfEditionAudit:
             except (AppError, OSError, KeyError) as exc:
                 item = {'album_id':album_id,
                         'artist': ', '.join(a['name'] for a in album.get('artists', [])) if album is not None else '',
-                        'title': album.get('title','') if 'album' in locals() else '',
+                        'title': album.get('title','') if album is not None else '',
                         'saved_tracks':len(album.get('tracks',[])) if album is not None else 0,
                         'fully_spotify_verified':False, 'canonical_reviewed':False,
                         'classification':'error', 'explanation':str(exc)}
