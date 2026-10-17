@@ -100,6 +100,23 @@ class PlayableReleases:
             self.store.cache_put(key, identifiers, ttl=900)
         return [self.spotify.album(identifier) for identifier in identifiers]
 
+    def labelled_sources(self, album):
+        """Fetch edition-labelled Spotify variants only after normal discovery fails.
+
+        Cache album IDs independently of the MusicBrainz pressing being tried,
+        so scanning dozens of eligible releases doesn't multiply Spotify
+        search calls. Every returned track is checked against the current
+        original MusicBrainz edition; no bonus material is added to it.
+        """
+        if not hasattr(self.spotify, 'labelled_editions'):
+            return []
+        key = 'playable-labelled-editions:' + self.spotify.market + ':' + album['id']
+        identifiers = self.store.cache_get(key)
+        if identifiers is None:
+            identifiers = self.spotify.labelled_editions(album)
+            self.store.cache_put(key, identifiers, ttl=900)
+        return [self.spotify.album(identifier) for identifier in identifiers]
+
     def page(self, album_id, offset=0):
         if not self.spotify.connected:
             raise AppError('Connect Spotify in Settings to find playable MusicBrainz editions.', 409)
@@ -140,6 +157,13 @@ class PlayableReleases:
                      if source['id'] not in existing]
             assessments.extend(candidate(probe, source) for source in extra)
             matches = [c for c in assessments if self.fully_verified(c, len(probe['tracks']))]
+        labelled = []
+        if not matches:
+            seen = {source['id'] for source in sources + extra}
+            labelled = [source for source in self.labelled_sources(album)
+                        if source['id'] not in seen]
+            assessments.extend(candidate(probe, source) for source in labelled)
+            matches = [c for c in assessments if self.fully_verified(c, len(probe['tracks']))]
         if not matches and assessments:
             # Recording aliases/ISRCs can rescue an otherwise good, differently
             # printed title. Do this ONLY for near matches, and never mutate the DB.
@@ -154,7 +178,7 @@ class PlayableReleases:
                 enriched = self.enrich_probe(probe, best)
                 if enriched is not probe:
                     sources_by_id = {s['id']: s for s in sources}
-                    sources_by_id.update({s['id']: s for s in extra})
+                    sources_by_id.update({s['id']: s for s in extra + labelled})
                     assessments = [candidate(enriched, source) for source in sources_by_id.values()]
                     matches = [c for c in assessments if self.fully_verified(c, len(probe['tracks']))]
         matches.sort(key=lambda c: c['score'], reverse=True)
