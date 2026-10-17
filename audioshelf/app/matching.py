@@ -46,6 +46,11 @@ def artist_credit_matches(allowed_names, credited_names):
     return False
 
 
+def compact_title(value):
+    """Space and punctuation differences cannot change the printed word sequence."""
+    return ''.join(normalize(value, True).split())
+
+
 def track_assessment(canonical, spotify, artist_names):
     if spotify.get('is_playable') is False or spotify.get('restrictions'):
         return {'score': 0, 'verified': False, 'reason': 'unavailable'}
@@ -64,6 +69,10 @@ def track_assessment(canonical, spotify, artist_names):
     if versions != set(VERSION.findall(right)):
         return {'score': 0, 'verified': False, 'reason': 'recording_version_mismatch'}
     exact = left == right
+    # Spaced numerals and run-together words: 11am/11 am,
+    # Cliffdiving/Cliff Diving, and punctuation-only contractions.
+    compact = (not exact and len(left.replace(' ', '')) >= 5 and
+               left.replace(' ', '') == right.replace(' ', ''))
     # A printed track title may omit a short trailing subtitle, such as the
     # end of a combined medley title. This is NOT a general fuzzy match: the
     # shorter title must be a four-word prefix, with at most three additional
@@ -79,7 +88,7 @@ def track_assessment(canonical, spotify, artist_names):
     similarity = SequenceMatcher(None, left, right).ratio()
     isrc = spotify.get('external_ids', {}).get('isrc')
     same_isrc = bool(isrc and isrc in canonical.get('isrcs', []))
-    if not exact and not recording_match and not same_isrc and not expanded_title and similarity < .85:
+    if not exact and not compact and not recording_match and not same_isrc and not expanded_title and similarity < .85:
         return {'score': 0, 'verified': False, 'reason': 'title_mismatch', 'canonical_title': left, 'spotify_title': right}
     duration = canonical.get('duration_ms')
     actual = spotify.get('duration_ms')
@@ -87,13 +96,13 @@ def track_assessment(canonical, spotify, artist_names):
     plausible_duration = delta is None or delta <= max(8000, duration*.04)
     if delta is not None and delta > max(30000, duration*.18):
         return {'score': 0, 'verified': False, 'reason': 'duration_mismatch', 'duration_delta_ms': delta}
-    score = (95 if exact or recording_match or same_isrc or expanded_title else similarity*80) + (5 if delta is not None and delta<2000 else 0)
+    score = (95 if exact or compact or recording_match or same_isrc or expanded_title else similarity*80) + (5 if delta is not None and delta<2000 else 0)
     # A trailing-title expansion is only verified with independent duration
     # agreement. A similarly named edit/remix is still rejected above.
-    verified = (exact or same_isrc or (recording_match and delta is not None)
+    verified = (exact or compact or same_isrc or (recording_match and delta is not None)
                 or (expanded_title and delta is not None)) and plausible_duration
     return {'score': score, 'verified': verified,
-            'reason': ('exact_title' if exact else 'same_recording_title' if recording_match else 'same_isrc' if same_isrc else 'extended_title') if verified else 'needs_review',
+            'reason': ('exact_title' if exact else 'compact_title' if compact else 'same_recording_title' if recording_match else 'same_isrc' if same_isrc else 'extended_title') if verified else 'needs_review',
             'duration_delta_ms': delta, 'canonical_title': left, 'spotify_title': right}
 
 
@@ -183,6 +192,66 @@ def _rescue_ordered_medley_prefix(album, source, mappings):
             used.add(item['id'])
 
 
+def _rescue_contextual_title_variants(album, source, mappings):
+    """Resolve minor print-title differences only within an independently matched album.
+
+    A unique compatible Spotify track must occupy the expected gap between
+    verified neighbours, match all credited performers and recording versions,
+    and have a near-identical duration. Never reorder tracks or accept edits.
+    """
+    missing = [i for i, mapping in enumerate(mappings) if not mapping['verified']]
+    if not missing or len(missing) > 3 or len(album['tracks']) < 6:
+        return
+    if sum(m['verified'] for m in mappings) < 5:
+        return
+    source_tracks = source['all_tracks']
+    by_id = {track['id']: i for i, track in enumerate(source_tracks)}
+    used = {m['spotify_id'] for m in mappings if m['spotify_id']}
+    artist_names = [a['name'] for a in album['artists']]
+    for index in missing:
+        mapping, canonical = mappings[index], album['tracks'][index]
+        if mapping['verified'] or mapping['spotify_id']:
+            continue
+        earlier = [by_id[m['spotify_id']] for m in mappings[:index]
+                   if m['verified'] and m['spotify_id'] in by_id]
+        later = [by_id[m['spotify_id']] for m in mappings[index+1:]
+                 if m['verified'] and m['spotify_id'] in by_id]
+        if not earlier and not later:
+            continue
+        low = max(earlier, default=-1)
+        high = min(later, default=len(source_tracks))
+        if high-low > 4 or high <= low+1:
+            continue
+        options = []
+        for position in range(low+1, high):
+            track = source_tracks[position]
+            if track.get('id') in used or track.get('is_playable') is False or track.get('restrictions'):
+                continue
+            allowed = canonical.get('artist_names') or artist_names
+            if not artist_credit_matches(allowed, [a['name'] for a in track.get('artists', [])
+                                                   if a.get('name')]):
+                continue
+            left, right = normalize(canonical['title'], True), normalize(track['name'], True)
+            recording = normalize(canonical.get('recording_title') or '', True)
+            if set(VERSION.findall(left)) | set(VERSION.findall(recording)) != set(VERSION.findall(right)):
+                continue
+            likeness = SequenceMatcher(None, left, right).ratio()
+            if likeness < .84:
+                continue
+            duration, actual = canonical.get('duration_ms'), track.get('duration_ms')
+            if not duration or not actual or abs(actual-duration) > min(3000, max(1000, duration*.012)):
+                continue
+            options.append((track, likeness, abs(actual-duration)))
+        if len(options) != 1:
+            continue
+        track, likeness, delta = options[0]
+        mapping.update(spotify_id=track['id'], score=90*likeness, verified=True,
+                       spotify_title=track['name'], assessment={
+                           'verified': True, 'reason': 'album_context_printed_title',
+                           'duration_delta_ms': delta})
+        used.add(track['id'])
+
+
 def edition_year(source, mappings=None):
     selected = {m['spotify_id'] for m in mappings if m['spotify_id']} if mappings is not None else None
     labels = [source.get('name','')] + [t.get('name','') for t in source.get('all_tracks',[]) if selected is None or t.get('id') in selected]
@@ -211,6 +280,7 @@ def candidate(album, source):
                                                     normalize(t['title'], True)).ratio()), reverse=True)
             mapping.update(assessment={'reason': 'no_ordered_match'}, alternatives=considered[:3])
     _rescue_ordered_medley_prefix(album, source, mappings)
+    _rescue_contextual_title_variants(album, source, mappings)
     # An album with at least five tracks and every other song independently
     # verified provides useful context for one exactly named recording whose
     # boundary duration differs slightly between editions. Do not weaken the
