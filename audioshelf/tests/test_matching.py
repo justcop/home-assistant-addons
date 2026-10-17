@@ -446,3 +446,64 @@ def test_hidden_label_can_match_contiguous_recording_but_not_erase_separate_musi
     canonical.insert(4,{'position':5,'title':'2/15ths','duration_ms':30000})
     for i,t in enumerate(canonical,1):t['position']=i
     assert candidate(album,source)['verified']<14
+
+
+def test_descriptive_spotify_parody_source_credits_preserve_full_album():
+    from app.matching import candidate, track_assessment
+    canonical_titles = [
+        'The Saga Begins', "My Baby's in Love With Eddie Vedder",
+        'Pretty Fly for a Rabbi', 'The Weird Al Show Theme', 'Jerry Springer',
+        'Germs', 'Polka Power!', 'Your Horoscope for Today',
+        "It's All About the Pentiums", "Truck Drivin' Song",
+        'Grapefruit Diet', 'Albuquerque']
+    spotify_titles = [
+        'The Saga Begins (Lyrical Adaption of "American Pie")',
+        "My Baby's in Love With Eddie Vedder",
+        'Pretty Fly for a Rabbi (Parody of "Pretty Fly (For a White Guy)" by Offspring)',
+        'The Weird Al Show Theme',
+        'Jerry Springer (Parody of "One Week" by BareNaked Ladies)',
+        'Germs', 'Polka Power!', 'Your Horoscope for Today',
+        'It\'s All About the Pentiums (An adaptation of "It\'s All About the Benjamins" by Puff Daddy)',
+        "Truck Drivin' Song",
+        'Grapefruit Diet (Parody of "Zoot Suit Riot" by Cherry Poppin\' Daddies)',
+        'Albuquerque']
+    durations=[328000,206000,182000,73000,166000,278000,
+               261000,239000,214000,147000,210000,682000]
+    canonical=[{'position':i,'title':title,'duration_ms':duration}
+               for i,(title,duration) in enumerate(zip(canonical_titles,durations),1)]
+    tracks=[spotify_track(title,f'{i:02}'*11,duration+400)
+            for i,(title,duration) in enumerate(zip(spotify_titles,durations),1)]
+    album={'title':'Running With Scissors','release_date':'1999',
+           'artists':[{'name':'The Artist'}],'tracks':canonical}
+    source={'id':'s'*22,'name':'Running With Scissors','release_date':'1999',
+            'all_tracks':tracks}
+    assert candidate(album,source)['verified']==12
+    for i in [0,2,4,8,10]:
+        evidence=track_assessment(canonical[i],tracks[i],['The Artist'])
+        assert evidence['verified'] and evidence['reason']=='parody_source_credit'
+    tracks[2]['name']='Pretty Fly for a Different Rabbi (Parody of "Pretty Fly" by Offspring)'
+    assert candidate(album,source)['verified']==11
+    tracks[2]['name']=spotify_titles[2]
+    tracks[2]['duration_ms']+=12000
+    assert candidate(album,source)['verified']==11
+    tracks[2]['duration_ms']-=12000
+    tracks[2]['name']='Pretty Fly for a Rabbi - Live'
+    assert candidate(album,source)['verified']==11
+    tracks[2]['name']=spotify_titles[2]
+    tracks[2]['artists']=[{'name':'Tribute Act'}]
+    assert candidate(album,source)['verified']==11
+
+
+def test_parody_annotation_does_not_erase_recording_versions_or_unplayable():
+    from app.matching import track_assessment
+    base={'title':'Jerry Springer','duration_ms':166000}
+    name='Jerry Springer (Parody of "One Week" by BareNaked Ladies)'
+    song=spotify_track(name,'p'*22,166100)
+    assert track_assessment(base,song,['The Artist'])['verified']
+    song['name']='Jerry Springer (Live at the Apollo)'
+    assert not track_assessment(base,song,['The Artist'])['verified']
+    song['name']='Jerry Springer (Parody of "One Week" by BareNaked Ladies) - Live'
+    assert not track_assessment(base,song,['The Artist'])['verified']
+    song['name']=name
+    song['is_playable']=False
+    assert not track_assessment(base,song,['The Artist'])['verified']
