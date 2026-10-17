@@ -1177,7 +1177,7 @@ document.addEventListener('click',async event=>{
       const chosen=[...lastfmSelected];
       if(!chosen.length||chosen.length>250)throw new Error('Choose 1 to 250 albums per batch.');
       const result=await api('lastfm/import','POST',{ids:chosen,period:lastfmPeriod});
-      modalContent.innerHTML='<h2>Adding familiar albums</h2><div id="lastfm-progress">'+lastfmJobSummary(result.job)+'</div><p>Unambiguous albums will appear on your shelf as they are processed. Check editions and Spotify matches later.</p>';
+      modalContent.innerHTML='<h2>Adding familiar albums</h2><div id="lastfm-progress">'+lastfmJobSummary(result.job)+'</div><p>Unambiguous albums will appear on your shelf as they are processed. Background Spotify matching follows automatically once the import finishes. Review the original tracklist before first playback.</p>';
       pollLastfm();
     }
     if(action==='security')await securitySettings();
