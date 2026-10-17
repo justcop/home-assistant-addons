@@ -31,6 +31,26 @@ def spotify_id(value, kind):
     raise AppError('Enter a Spotify '+kind+' link, URI or ID.')
 
 
+def same_album_family_title(candidate_title, original_title):
+    """Permit release/edition labels during DISCOVERY, never in track verification.
+
+    These album suffixes don't establish recording equivalence. Matching still
+    requires every original track in the correct order with verified audio.
+    """
+    original, offered = normalize(original_title), normalize(candidate_title)
+    if offered == original:
+        return True
+    if not offered.startswith(original + ' '):
+        return False
+    suffix = offered[len(original)+1:]
+    return bool(re.fullmatch(
+        r'(?:explicit|clean|standard|original|uk|us|deluxe|expanded|extended|digital|special)'
+        r'(?: (?:edition|version|release|album))?|'
+        r'(?:remastered|remaster)(?: (?:edition|version))?|'
+        r'\d{4} (?:remastered|remaster)(?: (?:edition|version))?',
+        suffix))
+
+
 def atomic_private_json(path, data):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -232,9 +252,36 @@ class Spotify:
                              for c in candidates):
             bare = normalize(album['title'])
             title_options = [item for item in search_pages(f'album:"{title}"')
-                             if normalize(item.get('name', '')) == bare]
+                             if same_album_family_title(item.get('name', ''), album['title'])]
             consider(title_options)
         return sorted(candidates, key=lambda c:c['score'], reverse=True)
+
+    def labelled_editions(self, album):
+        """Discover alternate Spotify edition labels once per unresolved album.
+
+        Album searches can rank a 16-track release before a standard 14-track
+        Explicit Version. Exact fielded title + artist search also misses
+        region-labelled UK editions. Probe the general labels, not album IDs,
+        and let the full recording verifier decide whether any are suitable.
+        """
+        name = album['title'].replace('"', '')
+        queries = [
+            f'album:"{name} (Explicit Version)"',
+            f'album:"{name} (UK edition)"',
+            f'album:"{name} (Deluxe Edition)"',
+        ]
+        items, seen = [], set()
+        for query in queries:
+            page = self.api('GET', 'search', {
+                'q': query, 'type': 'album', 'market': self.market,
+                'limit': 20, 'offset': 0}).get('albums', {})
+            for source in page.get('items', []):
+                identifier = source.get('id')
+                if (identifier and identifier not in seen and
+                        same_album_family_title(source.get('name', ''), album['title'])):
+                    seen.add(identifier)
+                    items.append(identifier)
+        return items
 
     def devices(self):
         return [{k: d.get(k) for k in ('id', 'name', 'type', 'is_active', 'is_restricted')}
