@@ -408,3 +408,57 @@ def test_background_import_prefers_original_tracklist_even_with_spotify_deluxe_b
         t['id'] for t in all_spotify[:10]]
     assert all(t['verified'] for t in saved['tracks'])
     assert not saved['canonical_reviewed']
+
+
+def test_bulk_import_rejects_fully_playable_deluxe_if_two_originals_disagree(
+        application, monkeypatch):
+    from conftest import spotify_track
+    store=application.extensions['store']
+    store.shelf(ALBUM,True)
+    assert store.clear_unverified_edition(ALBUM)
+    musicbrainz=application.extensions['musicbrainz']
+    playable=application.extensions['playable_releases']
+    from conftest import RELEASE
+    ids=[RELEASE,'11111111-1111-4111-8111-111111111111',
+         '22222222-2222-4222-8222-222222222222']
+    def release(identifier,titles,deluxe=False):
+        return {'id':identifier,'title':'The Album (Deluxe Edition)' if deluxe else 'The Album',
+                'status':'Official','date':'2007-04-18','country':'GB',
+                'release-group':{'id':ALBUM},
+                'media':[{'position':1,'format':'CD','track-count':len(titles),
+                          'tracks':[{'position':i,'title':name,'length':180000,
+                                     'recording':{'title':name,'id':f'rec-{i}'}}
+                                    for i,name in enumerate(titles,1)]}]}
+    sources=[release(ids[0],['Opening','Original Closer']),
+             release(ids[1],['Opening','Original Closer']),
+             release(ids[2],['Opening','Bonus Remix','Closing'],True)]
+    monkeypatch.setattr(musicbrainz,'releases',lambda identifier:sources)
+    monkeypatch.setattr(musicbrainz,'get',lambda entity,params=None:
+                        next(r for r in sources if entity=='release/'+r['id']))
+    from app.matching import candidate
+    spotify_album={'id':'z'*22,'name':'The Album (Deluxe Edition)',
+                   'release_date':'2007',
+                   'all_tracks':[spotify_track(name,f'{i:02d}'*11,180000)
+                                 for i,name in enumerate(['Opening','Bonus Remix','Closing'],1)]}
+    class SpotifyFixture:
+        connected=True
+        market='GB'
+        def candidates(self,album,broad=False):
+            return [candidate(album,spotify_album)]
+        def album(self,identifier):
+            return spotify_album
+    spotify=SpotifyFixture()
+    playable.spotify=spotify
+    monkeypatch.setattr(playable,'enrich_probe',lambda a,b:a)
+    assert candidate({'title':'The Album','release_date':'2007',
+                      'artists':[{'name':'The Artist'}],
+                      'tracks':[{'position':i,'title':name,'duration_ms':180000}
+                                for i,name in enumerate(['Opening','Bonus Remix','Closing'],1)]},
+                     spotify_album)['verified']==3
+    manager=SpotifyMatching()
+    manager.start('owner',store,spotify,playable)
+    job=completed(manager,store)
+    assert job['unmatched']==1
+    still=store.album(ALBUM)
+    assert still['on_shelf'] and still['tracks']==[]
+    assert still['spotify_album_id'] is None
