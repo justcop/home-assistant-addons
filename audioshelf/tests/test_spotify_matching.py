@@ -191,3 +191,54 @@ def test_spotify_album_title_only_search_recovers_split_artist_credits(applicati
     assert choices[0]['id']=='h'*22
     assert choices[0]['verified']==2
     assert any(q.startswith('album:"Heat, Dust & Dreams"') and 'artist:' not in q for q in calls)
+
+
+
+def test_background_verifies_alternate_release_after_unplayable_first_release(application, monkeypatch):
+    from conftest import RELEASE
+    store=application.extensions['store']
+    store.shelf(ALBUM,True)
+    assert store.clear_unverified_edition(ALBUM)
+    spotify=FakeSpotify(source_album())
+    playable=application.extensions['playable_releases']
+    playable.spotify=spotify
+    mb=application.extensions['musicbrainz']
+    bonus='11111111-1111-4111-8111-111111111111'
+    def release(identifier,bonus_track=False):
+        tracks=[{'position':1,'title':'Opening','length':180000,
+                 'recording':{'title':'Opening','id':'rec-1'}},
+                {'position':2,'title':'Closing','length':240000,
+                 'recording':{'title':'Closing','id':'rec-2'}}]
+        if bonus_track:
+            tracks.append({'position':3,'title':'Unreleased Demo','length':240000,
+                           'recording':{'title':'Unreleased Demo','id':'rec-3'}})
+        return {'id':identifier, 'title':'The Album','status':'Official',
+                'date':'2007-04-18' if bonus_track else '2007-04-19',
+                'country':'GB','release-group':{'id':ALBUM},
+                'media':[{'position':1,'format':'CD','track-count':len(tracks),'tracks':tracks}]}
+    variants=[release(bonus,True),release(RELEASE)]
+    monkeypatch.setattr(mb,'releases',lambda album_id:variants)
+    monkeypatch.setattr(mb,'get',lambda entity,params=None:
+                        next(release for release in variants if entity=='release/'+release['id']))
+    matcher=SpotifyMatching()
+    matcher.start('owner',store,spotify,playable)
+    job=completed(matcher,store)
+    assert job['matched']==1
+    saved=store.album(ALBUM)
+    assert saved['release_id']==RELEASE
+    assert len(saved['tracks'])==2
+    assert saved['playable'] and not saved['canonical_reviewed']
+
+
+def test_unresolved_album_stays_on_shelf_without_repopulating_unverified_tracks(application,client,monkeypatch):
+    store=application.extensions['store']
+    store.shelf(ALBUM,True)
+    assert store.clear_unverified_edition(ALBUM)
+    mb=application.extensions['musicbrainz']
+    monkeypatch.setattr(mb,'ensure_tracks',lambda _id: (_ for _ in ()).throw(
+        AssertionError('Must not repopulate unresolved shelf editions')))
+    saved=client.get('/api/albums/'+ALBUM)
+    assert saved.status_code==200
+    assert saved.json['on_shelf'] is True
+    assert saved.json['tracks']==[]
+    assert saved.json['release_id'] is None
