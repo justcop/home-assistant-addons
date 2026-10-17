@@ -355,33 +355,32 @@ def test_punchup_editorial_subtitle_accepts_compound_spacing_not_different_song(
                                 'p'*22,297000),['The Artist'])['verified']
 
 
-@pytest.mark.parametrize('canonical_title,spotify_title,duration',[
-    ('El Borracho / [untitled]','El Borracho',1056000),
-    ('Smash / Come Out and Play (reprise)','Smash',640000),
-])
-def test_hidden_reprise_in_one_long_audio_track_needs_full_duration_and_order(
-        canonical_title,spotify_title,duration):
+
+def test_full_length_hidden_track_composites_never_substitute_the_short_single():
     from app.matching import candidate,track_assessment
-    titles=[f'Other Song {i}' for i in range(1,11)]+[canonical_title]
-    tracks=[{'title':t,'position':i,'duration_ms':duration if i==11 else 180000}
-            for i,t in enumerate(titles,1)]
-    spotify=[spotify_track(t,str(i%10)*22,duration if i==11 else 180000)
-             for i,t in enumerate(titles[:-1]+[spotify_title],1)]
-    album={'title':'The Album','release_date':'2001',
-           'artists':[{'name':'The Artist'}],'tracks':tracks}
-    source={'id':'s'*22,'name':'The Album','release_date':'2001','all_tracks':spotify}
-    assert not track_assessment(tracks[-1],spotify[-1],['The Artist'])['verified']
-    full=candidate(album,source)
-    assert full['verified']==11
-    assert full['mappings'][-1]['assessment']['reason']=='album_context_full_hidden_track'
-    spotify[-1]['duration_ms']-=30000
-    assert candidate(album,source)['verified']==10, 'Short single must not replace a hidden-track composite'
-    spotify[-1]['duration_ms']+=30000
-    spotify[-1]['artists']=[{'name':'A Tribute Band'}]
-    assert candidate(album,source)['verified']==10
-    spotify[-1]['artists']=[{'name':'The Artist'}]
-    spotify[-1],spotify[-2]=spotify[-2],spotify[-1]
-    assert candidate(album,source)['verified']<11, 'Song order must be preserved'
+    cases=[('El Borracho / [untitled]','El Borracho',1056000),
+           ('Smash / Come Out and Play (reprise)','Smash',640000)]
+    for canonical_title,spotify_title,duration in cases:
+        titles=[f'Other Song {i}' for i in range(1,11)]+[canonical_title]
+        tracks=[{'title':t,'position':i,'duration_ms':duration if i==11 else 180000}
+                for i,t in enumerate(titles,1)]
+        spotify=[spotify_track(t,str(i%10)*22,duration if i==11 else 180000)
+                 for i,t in enumerate(titles[:-1]+[spotify_title],1)]
+        album={'title':'The Album','release_date':'2001',
+               'artists':[{'name':'The Artist'}],'tracks':tracks}
+        source={'id':'s'*22,'name':'The Album','release_date':'2001','all_tracks':spotify}
+        assert not track_assessment(tracks[-1],spotify[-1],['The Artist'])['verified']
+        full=candidate(album,source)
+        assert full['verified']==11
+        assert full['mappings'][-1]['assessment']['reason']=='album_context_full_hidden_track'
+        spotify[-1]['duration_ms']-=30000
+        assert candidate(album,source)['verified']==10, 'A short single is not a hidden-track composite'
+        spotify[-1]['duration_ms']+=30000
+        spotify[-1]['artists']=[{'name':'A Tribute Band'}]
+        assert candidate(album,source)['verified']==10
+        spotify[-1]['artists']=[{'name':'The Artist'}]
+        spotify[-1],spotify[-2]=spotify[-2],spotify[-1]
+        assert candidate(album,source)['verified']<11, 'Song order must be preserved'
 
 
 def test_short_original_song_prefix_is_only_verifiable_in_strict_album_context():
