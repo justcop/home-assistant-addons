@@ -50,6 +50,7 @@ def failure(album, reason, best=None):
               'disc_count': len({t.get('disc_number') or 1 for t in album['tracks']})}
     if best is not None:
         result['spotify_candidate'] = best.get('name', '')
+        result['spotify_candidate_id'] = best.get('id', '')
         result['verified_tracks'] = best.get('verified', 0)
         for track, mapping in zip(album['tracks'], best.get('mappings', [])):
             if mapping.get('verified'):
@@ -77,6 +78,11 @@ def failure(album, reason, best=None):
                 'title': track['title'], 'reason': reason,
                 'spotify_title': mapping.get('spotify_title') or (alternative or {}).get('title', ''),
                 'spotify_position': (alternative or {}).get('spotify_position'),
+                'musicbrainz_recording_title': track.get('recording_title') or '',
+                'canonical_version_labels': (assessment if mapping.get('spotify_id')
+                                            else (alternative or {})).get('canonical_version_labels', []),
+                'spotify_version_labels': (assessment if mapping.get('spotify_id')
+                                           else (alternative or {})).get('spotify_version_labels', []),
                 'duration_delta_ms': (assessment.get('duration_delta_ms') if mapping.get('spotify_id')
                                       else (alternative or {}).get('duration_delta_ms'))})
     return result
@@ -115,8 +121,19 @@ def report_text(store, job):
             lines.append('  Best Spotify candidate: ' + plain(issue['spotify_candidate'])
                          + ' (' + str(issue.get('verified_tracks', 0))
                          + '/' + str(issue.get('total_tracks', 0)) + ' verified)')
+            spotify_id = issue.get('spotify_candidate_id', '')
+            if isinstance(spotify_id, str) and len(spotify_id) == 22 and spotify_id.isalnum():
+                lines.append('  Spotify candidate URL: https://open.spotify.com/album/' + spotify_id)
         for track in issue.get('tracks', []):
             details = track.get('reason', 'unknown')
+            if track.get('musicbrainz_recording_title') and (
+                    track.get('reason') == 'recording_version_mismatch' or
+                    plain(track['musicbrainz_recording_title']).casefold() != plain(track.get('title')).casefold()):
+                details += '; MusicBrainz recording: ' + plain(track['musicbrainz_recording_title'])
+            if track.get('reason') == 'recording_version_mismatch':
+                canonical = ', '.join(track.get('canonical_version_labels') or []) or 'unspecified'
+                spotify_version = ', '.join(track.get('spotify_version_labels') or []) or 'unspecified'
+                details += '; version labels: MusicBrainz=' + canonical + ', Spotify=' + spotify_version
             if track.get('spotify_title'):
                 details += '; Spotify: ' + plain(track['spotify_title'])
             if track.get('duration_delta_ms') is not None:
