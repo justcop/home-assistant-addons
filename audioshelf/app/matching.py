@@ -142,8 +142,19 @@ def track_assessment(canonical, spotify, artist_names):
     # never erase a live/demo/edit distinction present in either canonical title.
     versions = set(VERSION.findall(left)) | set(VERSION.findall(recording_title))
     spotify_versions = set(VERSION.findall(right))
-    if versions != spotify_versions:
-        duration, actual = canonical.get('duration_ms'), spotify.get('duration_ms')
+    # A MusicBrainz recording may be labelled "radio edit" despite the release
+    # printing an ordinary title. Only an exact cross-catalogue ISRC AND a
+    # matching printed title and duration can resolve such metadata conflicts.
+    # A Spotify track explicitly labelled live/demo/edit remains incompatible.
+    source_isrc = (spotify.get('external_ids') or {}).get('isrc')
+    duration, actual = canonical.get('duration_ms'), spotify.get('duration_ms')
+    same_isrc = bool(source_isrc and source_isrc in canonical.get('isrcs', []))
+    isrc_label_equivalent = bool(
+        versions != spotify_versions and versions and not spotify_versions
+        and left == right and same_isrc and duration and actual
+        and abs(duration-actual) <= 2000
+        and not set(VERSION.findall(left)))
+    if versions != spotify_versions and not isrc_label_equivalent:
         return {'score': 0, 'verified': False, 'reason': 'recording_version_mismatch',
                 'canonical_version_labels': sorted(versions),
                 'spotify_version_labels': sorted(spotify_versions),
@@ -176,8 +187,6 @@ def track_assessment(canonical, spotify, artist_names):
                         [recording_title, *canonical.get('recording_aliases', [])] if title}
     recording_match = bool(canonical.get('recording_id') and right in alternate_titles)
     similarity = SequenceMatcher(None, left, right).ratio()
-    isrc = spotify.get('external_ids', {}).get('isrc')
-    same_isrc = bool(isrc and isrc in canonical.get('isrcs', []))
     if not exact and not compact and not subtitle and not parody_credit and not feature_title and not recording_match and not same_isrc and not expanded_title and similarity < .85:
         return {'score': 0, 'verified': False, 'reason': 'title_mismatch', 'canonical_title': left, 'spotify_title': right}
     duration = canonical.get('duration_ms')
@@ -193,7 +202,7 @@ def track_assessment(canonical, spotify, artist_names):
                 or (expanded_title and delta is not None)
                 or ((subtitle or feature_title or parody_credit) and delta is not None and delta <= max(5000, duration*.025))) and plausible_duration
     return {'score': score, 'verified': verified,
-            'reason': ('exact_title' if exact else 'compact_title' if compact else 'printed_subtitle' if subtitle else 'parody_source_credit' if parody_credit else 'credited_feature' if feature_title else 'same_recording_title' if recording_match else 'same_isrc' if same_isrc else 'extended_title') if verified else 'needs_review',
+            'reason': ('isrc_verified_version_label' if isrc_label_equivalent else 'exact_title' if exact else 'compact_title' if compact else 'printed_subtitle' if subtitle else 'parody_source_credit' if parody_credit else 'credited_feature' if feature_title else 'same_recording_title' if recording_match else 'same_isrc' if same_isrc else 'extended_title') if verified else 'needs_review',
             'duration_delta_ms': delta, 'canonical_title': left, 'spotify_title': right}
 
 
