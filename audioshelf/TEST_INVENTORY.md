@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-15T13:00:00+01:00 (Europe/London).
+Reviewed: 2026-10-17T11:00:00+01:00 (Europe/London).
 
-Reviewed four new Last.fm importer test cases for explicit API-key opt-in, safe public-history retrieval, album deduplication, prevention of arbitrary imports, exact artist and MusicBrainz album identity, ambiguity rejection, independently stored per-account credentials and background worker progress. Browser regression tests for the existing Spotify playback flow remain unchanged. External Last.fm requests are mocked; production access requires the user's own key and username.
+Reviewed digital-first front-cover precedence tests, explicit artwork choices and uploaded overrides, independent back-cover fallback from another release of the same album, persisted server-side source and resized copies, non-destructive retry on download failure, and background artwork refresh worker progress, active-job rejection and API access controls. Existing standalone PWA tests continue to cover account-partitioned cache and Spotify canonical playback. Physical album artwork downloads are mocked; real external archive availability is not asserted.
 
-<!-- inventory: {"reviewed_at":"2026-10-15T13:00:00+01:00","review_note":"Reviewed four new Last.fm importer test cases for explicit API-key opt-in, safe public-history retrieval, album deduplication, prevention of arbitrary imports, exact artist and MusicBrainz album identity, ambiguity rejection, independently stored per-account credentials and background worker progress. Browser regression tests for the existing Spotify playback flow remain unchanged. External Last.fm requests are mocked; production access requires the user's own key and username.","source_sha256":"aeb98b902ec74933ff34901645d3eb6c0ed7e3e647551b81ad910da8cff14664"} -->
+<!-- inventory: {"reviewed_at":"2026-10-17T11:00:00+01:00","review_note":"Reviewed digital-first front-cover precedence tests, explicit artwork choices and uploaded overrides, independent back-cover fallback from another release of the same album, persisted server-side source and resized copies, non-destructive retry on download failure, and background artwork refresh worker progress, active-job rejection and API access controls. Existing standalone PWA tests continue to cover account-partitioned cache and Spotify canonical playback. Physical album artwork downloads are mocked; real external archive availability is not asserted.","source_sha256":"2494bba1ff407c32aa55644a4d2bb2e1e166b29fc54ba9e6515eb569e3a84946"} -->
 
 ## Backend cases (344)
 
