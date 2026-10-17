@@ -130,3 +130,51 @@ def test_later_batched_editions_can_be_discovered(application,client,editions,mo
     second=client.get('/api/albums/'+ALBUM+'/releases?playable=1&offset=4')
     assert second.status_code==200
     assert [r['id'] for r in second.json['releases']]==[GOOD]
+
+
+@pytest.mark.parametrize('original_count,bonus_count,edition_label',[
+    (14,2,'Explicit Version'),(10,11,'Deluxe Edition')])
+def test_original_musicbrainz_tracklist_ignores_spotify_bonus_tracks_even_in_labelled_editions(
+        application,monkeypatch,original_count,bonus_count,edition_label):
+    from app.matching import candidate
+    from conftest import spotify_track
+    store=application.extensions['store']
+    playable=application.extensions['playable_releases']
+    album=store.album(ALBUM)
+    probe=dict(album,tracks=[
+        {'title':f'Song {i}','position':i,'duration_ms':180000}
+        for i in range(1,original_count+1)])
+    playable_id='p'*22
+    partial_id='q'*22
+    original=[spotify_track(f'Song {i}',f'{i:02d}'*11,180000)
+              for i in range(1,original_count+1)]
+    bonus=[spotify_track(f'Bonus Remix {i}',f'{i+original_count:02d}'*11,260000)
+           for i in range(1,bonus_count+1)]
+    full={'id':playable_id,'name':'The Album ('+edition_label+')',
+          'release_date':'2007', 'all_tracks':original+bonus}
+    partial={'id':partial_id,'name':'The Album','release_date':'2007',
+             'all_tracks':original[:-1]+[spotify_track('Wrong live take','w'*22)]}
+    class SpotifyFixture:
+        connected=True
+        market='GB'
+        calls=0
+        def candidates(self,album,broad=False):
+            return [candidate(album,partial)]
+        def labelled_editions(self,album):
+            self.calls+=1
+            return [playable_id]
+        def album(self,identifier):
+            return full if identifier==playable_id else partial
+    spotify=SpotifyFixture()
+    playable.spotify=spotify
+    matches,_=playable.verified_choices(probe,album)
+    assert matches and matches[0]['id']==playable_id
+    assert matches[0]['verified']==original_count
+    assert [m['spotify_id'] for m in matches[0]['mappings']]==[
+        t['id'] for t in original]
+    assert all(t['id'] not in [m['spotify_id'] for m in matches[0]['mappings']]
+               for t in bonus)
+    assert len(probe['tracks'])==original_count
+    # Other MusicBrainz editions of the same album use cached Spotify IDs.
+    assert len(playable.labelled_sources(album))==1
+    assert spotify.calls==1
