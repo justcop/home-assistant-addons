@@ -103,6 +103,11 @@ def report_text(store, job):
             lines.append('  Canonical tracks: ' + str(issue.get('total_tracks', 0))
                          + ' across ' + str(issue.get('disc_count', 0)) + ' disc(s)'
                          + '; ' + ('reviewed' if issue['canonical_reviewed'] else 'not yet reviewed'))
+        if 'examined_releases' in issue:
+            lines.append('  MusicBrainz search: ' + str(issue['examined_releases'])
+                         + ' editions assessed; ' + str(issue.get('skipped_releases', 0))
+                         + ' filtered or unusable; ' + str(issue.get('total_releases', 0))
+                         + ' eligible editions found')
         lines.append('  Reason: ' + plain(issue.get('reason')))
         if issue.get('spotify_candidate'):
             lines.append('  Best Spotify candidate: ' + plain(issue['spotify_candidate'])
