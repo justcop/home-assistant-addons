@@ -11,10 +11,12 @@ import threading
 import time
 
 from .errors import AppError
-from .matching import candidate
+from difflib import SequenceMatcher
+
+from .matching import candidate, normalize
 
 LOG = logging.getLogger('audioshelf.spotify_matching')
-ATTEMPTS = 'spotify_matching_attempts_v1'
+ATTEMPTS = 'spotify_matching_attempts_v2'
 FAILURES = 'spotify_matching_failures_v1'
 STATUS = 'spotify_matching_status_v1'
 PAUSE_UNTIL = 'spotify_matching_pause_until_v1'
@@ -48,13 +50,30 @@ def failure(album, reason, best=None):
             if mapping.get('verified'):
                 continue
             assessment = mapping.get('assessment') or {}
-            alternative = (mapping.get('alternatives') or [{}])[0] if mapping.get('alternatives') else {}
+            alternatives = mapping.get('alternatives') or []
+            alternative = next((a for a in alternatives if a.get('verified')), None)
+            if assessment.get('reason') == 'no_ordered_match':
+                if alternative:
+                    reason = 'matching_track_out_of_order'
+                else:
+                    alternative = next((a for a in alternatives if a.get('score', 0) > 0), None)
+                    if alternative is None:
+                        # A zero-score live/demo/cover can still be a useful
+                        # diagnostic, but a random unrelated title is not.
+                        possible = next(iter(alternatives), None)
+                        if possible and SequenceMatcher(None, normalize(track['title'], True),
+                                        normalize(possible.get('title', ''), True)).ratio() >= .65:
+                            alternative = possible
+                    reason = (alternative.get('reason', 'no_ordered_match') if alternative
+                              else 'no_compatible_track_in_this_spotify_edition')
+            else:
+                reason = assessment.get('reason') or 'no_verified_match'
             result['tracks'].append({
-                'title': track['title'],
-                'reason': assessment.get('reason') if assessment.get('reason') not in (None, 'no_ordered_match')
-                          else alternative.get('reason', 'no_ordered_match'),
-                'spotify_title': mapping.get('spotify_title') or alternative.get('title', ''),
-                'duration_delta_ms': assessment.get('duration_delta_ms')})
+                'title': track['title'], 'reason': reason,
+                'spotify_title': mapping.get('spotify_title') or (alternative or {}).get('title', ''),
+                'spotify_position': (alternative or {}).get('spotify_position'),
+                'duration_delta_ms': (assessment.get('duration_delta_ms') if mapping.get('spotify_id')
+                                      else (alternative or {}).get('duration_delta_ms'))})
     return result
 
 
@@ -83,6 +102,8 @@ def report_text(store, job):
                 details += '; Spotify: ' + plain(track['spotify_title'])
             if track.get('duration_delta_ms') is not None:
                 details += '; duration difference: ' + str(track['duration_delta_ms']) + ' ms'
+            if track.get('spotify_position'):
+                details += '; Spotify position: ' + str(track['spotify_position'])
             lines.append('    • ' + plain(track.get('title')) + ': ' + details)
         lines.append('')
     if not failures:

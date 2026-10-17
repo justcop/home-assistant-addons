@@ -3,19 +3,47 @@ import unicodedata
 from difflib import SequenceMatcher
 
 # Remaster labels change editions, while live/acoustic/demo/edit labels change recordings.
-REMASTER = re.compile(r'\s*(?:[-–—]\s*|[\[(])(?:(?:\d{4})\s+)?(?:re-?master(?:ed)?)(?:\s+\d{4})?(?:\s+version)?[\])]?\s*$', re.I)
+REMASTER = re.compile(r'\s*(?:[-–—/]\s*|[\[(])(?:(?:\d{4})\s+)?(?:re-?master(?:ed)?)(?:\s+\d{4})?(?:\s+version)?[\])]?\s*$', re.I)
 PRODUCTION_MIX = re.compile(r'\s*(?:[-–—]\s*|[\[(])(?:(?:new|stereo|mono)\s+)?(?:\d{4}\s+(?:(?:stereo|mono)\s+)?mix|(?:stereo|mono)\s+mix(?:\s+\d{4})?)[\])]?\s*$', re.I)
 EDITION_YEAR = re.compile(r'(?:\b(19\d{2}|20\d{2})\s+(?:(?:stereo|mono)\s+)?(?:re-?master(?:ed)?|mix)\b|\b(?:re-?master(?:ed)?|mix)\s+(19\d{2}|20\d{2})\b)', re.I)
 VERSION = re.compile(r'\b(live|demo|acoustic|instrumental|remix|radio edit|single edit|rerecord(?:ed|ing)|re-record(?:ed|ing))\b', re.I)
+MIX_FORMAT = re.compile(r'\s*[-–—/]\s*(?:original\s+)?(?:mono|stereo)\s*$', re.I)
+PART_NUMBER = re.compile(r'\bpt\.?\s*(?=(?:[0-9]+|[ivx]+)\b)', re.I)
+MEDLEY_LABEL = re.compile(r'\s*[-–—/]\s*medley\s*$', re.I)
 
 
 def normalize(value, track=False):
     value = value.strip()
     if track:
-        value = PRODUCTION_MIX.sub('', REMASTER.sub('', value))
+        for _ in range(3):
+            reduced = MIX_FORMAT.sub('', PRODUCTION_MIX.sub('', REMASTER.sub('', value)))
+            if reduced == value:
+                break
+            value = reduced
+        if '/' in value:
+            value = MEDLEY_LABEL.sub('', value)
+        value = PART_NUMBER.sub('part ', value)
     value = unicodedata.normalize('NFKD', value).casefold().replace('&', ' and ')
     value = ''.join(c for c in value if not unicodedata.combining(c))
     return ' '.join(re.findall(r'\w+', value))
+
+
+def artist_credit_matches(allowed_names, credited_names):
+    """Handle a jointly credited act printed as one name or two Spotify artists.
+
+    All components must be present. Substring matching or one-member matching
+    would incorrectly admit solo versions and unrelated cover recordings.
+    """
+    allowed = {normalize(name) for name in allowed_names if name}
+    credited = {normalize(name) for name in credited_names if name}
+    if allowed.intersection(credited):
+        return True
+    for name in allowed_names:
+        members = re.split(r'\s+(?:and|&)\s+', name.strip(), flags=re.I)
+        if len(members) == 2 and all(len(normalize(member)) >= 3 for member in members):
+            if {normalize(member) for member in members}.issubset(credited):
+                return True
+    return False
 
 
 def track_assessment(canonical, spotify, artist_names):
@@ -25,8 +53,8 @@ def track_assessment(canonical, spotify, artist_names):
     # singer/conductor on one track is not a different edition of the album.
     # Without per-track credits, fall back to the release-group artist.
     allowed = canonical.get('artist_names') or artist_names
-    credited = {normalize(a['name']) for a in spotify.get('artists', []) if a.get('name')}
-    if not credited.intersection({normalize(name) for name in allowed if name}):
+    credited = [a['name'] for a in spotify.get('artists', []) if a.get('name')]
+    if not artist_credit_matches(allowed, credited):
         return {'score': 0, 'verified': False, 'reason': 'artist_mismatch'}
     left, right = normalize(canonical['title'], True), normalize(spotify['name'], True)
     recording_title = normalize(canonical.get('recording_title') or '', True)
@@ -104,6 +132,57 @@ def align(canonical, spotify_tracks, artist_names):
     return result
 
 
+def _rescue_ordered_medley_prefix(album, source, mappings):
+    """Verify an abbreviated medley only with matching artist, duration and order.
+
+    A short first-title prefix alone is not evidence of recording identity.
+    Require at least five independently verified neighbouring album tracks.
+    """
+    if sum(m['verified'] for m in mappings) < 5:
+        return
+    tracks = source['all_tracks']
+    used = {m['spotify_id'] for m in mappings if m['spotify_id']}
+    by_id = {track['id']: index for index, track in enumerate(tracks)}
+    for index, (canonical, mapping) in enumerate(zip(album['tracks'], mappings)):
+        if mapping['verified'] or mapping['spotify_id']:
+            continue
+        short = normalize(canonical['title'], True)
+        if len(short.split()) < 2 or '/' in canonical['title']:
+            continue
+        options = []
+        for position, spotify in enumerate(tracks):
+            if spotify['id'] in used or spotify.get('is_playable') is False or spotify.get('restrictions'):
+                continue
+            name = spotify.get('name', '')
+            if '/' not in name:
+                continue
+            first, _, remainder = name.partition('/')
+            if not remainder or normalize(first, True) != short:
+                continue
+            if set(VERSION.findall(normalize(canonical['title'], True))) != set(
+                    VERSION.findall(normalize(spotify['name'], True))):
+                continue
+            credited = [a['name'] for a in spotify.get('artists', []) if a.get('name')]
+            if not artist_credit_matches([a['name'] for a in album['artists']], credited):
+                continue
+            duration, actual = canonical.get('duration_ms'), spotify.get('duration_ms')
+            if not duration or not actual or abs(actual-duration) > max(8000, duration*.04):
+                continue
+            earlier = [by_id[m['spotify_id']] for m in mappings[:index]
+                       if m['verified'] and m['spotify_id'] in by_id]
+            later = [by_id[m['spotify_id']] for m in mappings[index+1:]
+                     if m['verified'] and m['spotify_id'] in by_id]
+            if (not earlier or position > max(earlier)) and (not later or position < min(later)):
+                options.append(spotify)
+        if len(options) == 1:
+            item = options[0]
+            mapping.update(spotify_id=item['id'], verified=True, score=95,
+                           spotify_title=item['name'], assessment={
+                               'reason': 'album_context_medley_prefix', 'verified': True,
+                               'duration_delta_ms': abs(item['duration_ms']-canonical['duration_ms'])})
+            used.add(item['id'])
+
+
 def edition_year(source, mappings=None):
     selected = {m['spotify_id'] for m in mappings if m['spotify_id']} if mappings is not None else None
     labels = [source.get('name','')] + [t.get('name','') for t in source.get('all_tracks',[]) if selected is None or t.get('id') in selected]
@@ -124,9 +203,14 @@ def candidate(album, source):
             item = by_id[mapping['spotify_id']]
             mapping.update(spotify_title=item['name'], assessment=track_assessment(track, item, artists))
         else:
-            considered = sorted(({'id': t['id'], 'title': t['name'], **track_assessment(track, t, artists)}
-                                for t in source['all_tracks']), key=lambda t: t['score'], reverse=True)
+            considered = sorted(({'id': t['id'], 'title': t['name'], 'spotify_position': n+1,
+                                   **track_assessment(track, t, artists)}
+                                for n,t in enumerate(source['all_tracks'])),
+                                key=lambda t: (t['verified'], t['score'],
+                                    SequenceMatcher(None, normalize(track['title'], True),
+                                                    normalize(t['title'], True)).ratio()), reverse=True)
             mapping.update(assessment={'reason': 'no_ordered_match'}, alternatives=considered[:3])
+    _rescue_ordered_medley_prefix(album, source, mappings)
     # An album with at least five tracks and every other song independently
     # verified provides useful context for one exactly named recording whose
     # boundary duration differs slightly between editions. Do not weaken the

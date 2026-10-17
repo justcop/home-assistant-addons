@@ -134,3 +134,56 @@ def test_single_duration_discrepancy_can_be_corroborated_by_entire_album():
     originals[6]['duration_ms']=180000
     originals[3]['duration_ms']=210000
     assert candidate(album,source)['verified']==9, 'Large timing differences cannot be excused'
+
+
+def test_edition_labels_and_part_abbreviations_are_same_recording():
+    examples=[
+        ('Another Brick in the Wall, Part 1', 'Another Brick in the Wall, Pt. 1'),
+        ('Another Brick in the Wall, Part 2', 'Another Brick in the Wall, Pt. 2'),
+        ('You Still Believe In Me', 'You Still Believe In Me - Mono / Remastered 2012'),
+        ('Pet Sounds', 'Pet Sounds - Stereo'),
+    ]
+    for canonical, spotify_name in examples:
+        source=spotify_track(spotify_name,'s'*22,180000)
+        assert track_score({'title':canonical,'duration_ms':180000},source,['The Artist'])[1]
+
+
+def test_two_spotify_performers_satisfy_a_joint_musicbrainz_artist_but_not_solo():
+    track={'title':'The Crossing','duration_ms':180000}
+    source=spotify_track('The Crossing','s'*22,180000)
+    source['artists']=[{'name':'Johnny Clegg'},{'name':'Savuka'}]
+    assert track_score(track,source,['Johnny Clegg and Savuka'])[1]
+    source['artists']=[{'name':'Johnny Clegg'}]
+    assert not track_score(track,source,['Johnny Clegg and Savuka'])[1]
+    source['artists']=[{'name':'Savuka Tribute'},{'name':'Johnny Clegg'}]
+    assert not track_score(track,source,['Johnny Clegg and Savuka'])[1]
+
+
+def test_shortened_album_medley_requires_matching_artist_duration_and_position():
+    names=['No Reply','Im A Loser','Babys In Black','Rock And Roll Music',
+           'Ill Follow The Sun','Mr Moonlight','Kansas City',
+           'Eight Days A Week','Words Of Love','Honey Dont']
+    canonical=[{'position':i,'title':title,'duration_ms':158000 if i==7 else 180000}
+               for i,title in enumerate(names,1)]
+    source_tracks=[spotify_track(title,str(i)*22,158000 if i==7 else 180000)
+                   for i,title in enumerate(names,1)]
+    source_tracks[6]['name']='Kansas City / Hey-Hey-Hey-Hey - Medley / Remastered 2009'
+    source={'id':'z'*22,'name':'Beatles For Sale','release_date':'1964',
+            'all_tracks':source_tracks}
+    album={'title':'Beatles For Sale','release_date':'1964',
+           'artists':[{'name':'The Artist'}],'tracks':canonical}
+    assert not track_score(canonical[6],source_tracks[6],['The Artist'])[1]
+    result=candidate(album,source)
+    assert result['verified']==len(names)
+    assert result['mappings'][6]['assessment']['reason']=='album_context_medley_prefix'
+    source_tracks[6]['duration_ms']=200000
+    assert candidate(album,source)['verified']==len(names)-1
+    source_tracks[6]['duration_ms']=158000
+    source_tracks[6]['name']='Kansas City / Hey-Hey-Hey-Hey - Live / Remastered 2009'
+    assert candidate(album,source)['verified']==len(names)-1
+
+
+def test_mono_stereo_labels_do_not_erase_live_or_remix_identity():
+    track={'title':'Pet Sounds','duration_ms':180000}
+    assert not track_score(track,spotify_track('Pet Sounds - Live - Mono','s'*22),['The Artist'])[1]
+    assert not track_score(track,spotify_track('Pet Sounds - Club Remix - Mono','s'*22),['The Artist'])[1]

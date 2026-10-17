@@ -114,3 +114,58 @@ def test_bulk_routes_restrict_access_and_expose_copyable_report(application, cli
     assert result.status_code == 200
     assert 'text' in result.json
     assert post(client, '/api/spotify/matching', {}).status_code == 409
+
+
+
+def test_report_distinguishes_out_of_order_track_from_arbitrary_fallback():
+    from app.spotify_matching import failure
+    from conftest import spotify_track
+    titles=['Out of the Blue', 'Second', 'Third', 'Fourth', 'Fifth', 'Sixth']
+    canonical=[{'position':i,'title':title,'duration_ms':180000}
+               for i,title in enumerate(titles,1)]
+    tracks=[spotify_track(title,str(i)*22,180000) for i,title in enumerate(titles,1)]
+    source={'id':'x'*22,'name':'The Album','release_date':'1970',
+            'all_tracks':tracks[1:]+tracks[:1]}
+    album={'id':ALBUM,'title':'The Album','release_date':'1970',
+           'artists':[{'name':'The Artist'}], 'tracks':canonical, 'on_shelf':True}
+    best=candidate(album,source)
+    assert best['verified']==5
+    issue=failure(album,'Incomplete ordered album',best)
+    assert issue['tracks'][0]['title']=='Out of the Blue'
+    assert issue['tracks'][0]['reason']=='matching_track_out_of_order'
+    assert issue['tracks'][0]['spotify_title']=='Out of the Blue'
+    assert issue['tracks'][0]['spotify_position']==6
+    unrelated=[spotify_track('Time to Relax','t'*22)]
+    source['all_tracks']=unrelated
+    issue=failure(album,'Incomplete ordered album',candidate(album,source))
+    assert issue['tracks'][0]['reason']=='no_compatible_track_in_this_spotify_edition'
+    assert not issue['tracks'][0]['spotify_title']
+
+
+def test_spotify_album_title_only_search_recovers_split_artist_credits(application,monkeypatch):
+    from conftest import spotify_track
+    spotify=application.extensions['spotify']
+    tracks=[{'position':i,'title':t,'duration_ms':180000} for i,t in
+            enumerate(['These Days','The Crossing'],1)]
+    album={'id':ALBUM,'title':'Heat, Dust & Dreams','release_date':'1993',
+           'artists':[{'name':'Johnny Clegg and Savuka'}], 'tracks':tracks}
+    joint=[spotify_track(t,str(i)*22) for i,t in enumerate(['These Days','The Crossing'],1)]
+    for track in joint:
+        track['artists']=[{'name':'Johnny Clegg'},{'name':'Savuka'}]
+    source={'id':'h'*22,'name':'Heat Dust & Dreams',
+            'release_date':'1993','all_tracks':joint}
+    wrong={'id':'z'*22,'name':'Shadow Man'}
+    calls=[]
+    def api(method,path,params=None,body=None):
+        assert path=='search'
+        calls.append(params['q'])
+        items=[{'id':'h'*22,'name':'Heat Dust & Dreams'}] if params['q'].startswith('album:"Heat, Dust & Dreams"') and 'artist:' not in params['q'] else [wrong]
+        return {'albums':{'items':items,'next':None}}
+    monkeypatch.setattr(spotify,'api',api)
+    monkeypatch.setattr(spotify,'album',lambda identifier: source if identifier=='h'*22
+                        else {'id':'z'*22,'name':'Shadow Man','release_date':'1993',
+                              'all_tracks':[spotify_track('Unrelated','u'*22)]})
+    choices=spotify.candidates(album,broad=True)
+    assert choices[0]['id']=='h'*22
+    assert choices[0]['verified']==2
+    assert any(q.startswith('album:"Heat, Dust & Dreams"') and 'artist:' not in q for q in calls)
