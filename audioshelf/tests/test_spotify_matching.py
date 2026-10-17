@@ -349,3 +349,62 @@ def test_unresolved_report_shows_spotify_album_and_musicbrainz_version_evidence(
     assert 'MusicBrainz recording: Opening (live)' in report
     assert 'version labels: MusicBrainz=live, Spotify=unspecified' in report
     assert 'duration difference: 0 ms' in report
+
+
+def test_background_import_prefers_original_tracklist_even_with_spotify_deluxe_bonus_tracks(
+        application,monkeypatch):
+    from conftest import spotify_track
+    from app.matching import candidate
+    from conftest import RELEASE
+    store=application.extensions['store']
+    store.shelf(ALBUM,True)
+    assert store.clear_unverified_edition(ALBUM)
+    musicbrainz=application.extensions['musicbrainz']
+    playable=application.extensions['playable_releases']
+    bonus_id='11111111-1111-4111-8111-111111111111'
+    standard_names=[f'Song {i}' for i in range(1,11)]
+    def make_release(identifier,deluxe=False):
+        titles=standard_names+([f'Bonus {i}' for i in range(1,12)] if deluxe else [])
+        return {'id':identifier,'title':'The Album'+(' (Deluxe Edition)' if deluxe else ''),
+                'status':'Official','date':'2007-04-18','country':'GB',
+                'release-group':{'id':ALBUM},
+                'media':[{'position':1,'format':'CD','track-count':10,
+                          'tracks':[{'position':i,'title':name,'length':180000,
+                                     'recording':{'id':f'recording-{i}', 'title':name}}
+                                    for i,name in enumerate(standard_names,1)]}]
+                + ([{'position':2,'format':'CD','track-count':11,'tracks':[
+                    {'position':i,'title':f'Bonus {i}','length':260000,
+                     'recording':{'id':f'bonus-{i}','title':f'Bonus {i}'}}
+                    for i in range(1,12)]}] if deluxe else [])}
+    releases=[make_release(RELEASE),make_release(bonus_id,True)]
+    monkeypatch.setattr(musicbrainz,'releases',lambda album_id:releases)
+    monkeypatch.setattr(musicbrainz,'get',lambda entity,params=None:
+                        next(r for r in releases if entity=='release/'+r['id']))
+    all_spotify=[spotify_track(name,f'{i:02d}'*11,180000)
+                 for i,name in enumerate(standard_names,1)]
+    all_spotify += [spotify_track(f'Bonus {i}',f'{i+10:02d}'*11,260000)
+                    for i in range(1,12)]
+    spotify_source={'id':'s'*22,'name':'The Album (Deluxe Edition)',
+                    'release_date':'2007','all_tracks':all_spotify}
+    class SpotifyFixture:
+        connected=True
+        market='GB'
+        def candidates(self,album,broad=False):
+            return [candidate(album,spotify_source)]
+        def album(self,identifier):
+            return spotify_source
+    spotify=SpotifyFixture()
+    playable.spotify=spotify
+    matcher=SpotifyMatching()
+    matcher.start('owner',store,spotify,playable)
+    job=completed(matcher,store)
+    assert job['matched']==1 and job['unmatched']==0
+    saved=store.album(ALBUM)
+    assert saved['release_id']==RELEASE
+    assert saved['spotify_album_id']==spotify_source['id']
+    assert len(saved['tracks'])==10
+    assert [t['title'] for t in saved['tracks']]==standard_names
+    assert [t['spotify_id'] for t in saved['tracks']]==[
+        t['id'] for t in all_spotify[:10]]
+    assert all(t['verified'] for t in saved['tracks'])
+    assert not saved['canonical_reviewed']
