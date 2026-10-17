@@ -1,6 +1,7 @@
 """Reproducible cover downloads stay outside the collection; uploaded covers are durable."""
 import base64
 import binascii
+from contextlib import contextmanager
 import io
 import hashlib
 import logging
@@ -67,6 +68,17 @@ class Artwork:
         self.session.headers['User-Agent'] = 'AudioShelf/0.5.5 (https://github.com/justcop/home-assistant-addons)'
         self.prune_uncollected()
 
+    @contextmanager
+    def download_slot(self):
+        # Never queue HTTP request workers indefinitely behind the shared
+        # artwork download semaphore. The browser retries temporary overload.
+        if not self.download_slots.acquire(timeout=1.5):
+            raise AppError('Artwork downloads are busy. Try this cover again shortly.', 503)
+        try:
+            yield
+        finally:
+            self.download_slots.release()
+
     def evict(self, album_id):
         with self.locks[hash(album_id)%len(self.locks)]:
             (self.directory/(album_id+'.img')).unlink(missing_ok=True)
@@ -88,7 +100,7 @@ class Artwork:
     def preview(self, release_id):
         # Preview requests never write images or metadata to disk.
         try:
-            with self.download_slots:
+            with self.download_slot():
                 data, mime = self.download(f'https://coverartarchive.org/release/{release_id}/front-250')
                 return data, mime, 'cover-art-archive'
         except (requests.RequestException, AppError, OSError):
@@ -232,7 +244,7 @@ class Artwork:
             negative = key+':missing:'+str(identity)+':'+str(self.spotify.connected)+':'+str(album.get('spotify_album_id'))
             if not force and self.store.cache_get(negative):
                 return PLACEHOLDER, 'image/svg+xml', 'placeholder'
-            with self.download_slots:
+            with self.download_slot():
                 for source,url in self._sources(album, chosen_release):
                     try:
                         url = url or self._spotify_url(album)
@@ -284,7 +296,7 @@ class Artwork:
                         if release not in seen:
                             seen.add(release)
                             yield release
-            with self.download_slots:
+            with self.download_slot():
                 for index, release in enumerate(candidates()):
                     if index >= 14:
                         break
