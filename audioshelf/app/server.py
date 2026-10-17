@@ -22,7 +22,7 @@ from .lastfm_import import LastFmImporter
 
 from .artwork import Artwork
 from .artwork_refresh import ArtworkRefresh
-from .spotify_matching import SpotifyMatching, report_text
+from .spotify_matching import SpotifyMatching, report_text, PAUSE_UNTIL
 from .errors import AppError
 from .matching import candidate, track_score
 from .musicbrainz import MusicBrainz, mbid
@@ -923,6 +923,7 @@ def create_app(options=None):
             identifier = accounts.oauth_account(request.args.get('state',''))
             g.context = accounts.context(identifier)
             spotify.callback(request.args.get('code',''),request.args.get('state',''),bool(request.args.get('error')))
+            g.context.store.set_setting(PAUSE_UNTIL, 0)  # A new authorization clears old outage backoff.
             spotify_matching.ensure_started(identifier, g.context.store, g.context.spotify,
                 g.context.playable_releases, enabled=accounts.enabled)
             message = 'Spotify is connected for '+accounts.get(identifier)['username']+'. Return to that AudioShelf account and play an album.'
