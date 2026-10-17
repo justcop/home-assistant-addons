@@ -332,3 +332,20 @@ def test_unresolved_album_stays_on_shelf_without_repopulating_unverified_tracks(
     assert saved.json['on_shelf'] is True
     assert saved.json['tracks']==[]
     assert saved.json['release_id'] is None
+
+
+def test_unresolved_report_shows_spotify_album_and_musicbrainz_version_evidence(application):
+    from app.spotify_matching import failure, FAILURES
+    store=application.extensions['store']
+    store.shelf(ALBUM,True)
+    album=store.album(ALBUM)
+    album['tracks'][0]['recording_title']='Opening (live)'
+    choice=candidate(album,source_album())
+    assert choice['verified']==1
+    issue=failure(album,'No fully verified edition.',choice)
+    store.set_setting(FAILURES,{ALBUM:issue})
+    report=report_text(store,{'market':'GB','state':'complete'})
+    assert 'Spotify candidate URL: https://open.spotify.com/album/' + 's'*22 in report
+    assert 'MusicBrainz recording: Opening (live)' in report
+    assert 'version labels: MusicBrainz=live, Spotify=unspecified' in report
+    assert 'duration difference: 0 ms' in report
