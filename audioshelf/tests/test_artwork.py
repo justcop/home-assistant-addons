@@ -323,3 +323,22 @@ def test_spotify_search_cannot_attach_wrong_artists_digital_cover(application,mo
         'albums':{'items':[{'name':'The Album','artists':[{'name':'Another Artist'}],
                             'images':[{'url':'https://i.scdn.co/image/wrong','width':500}]}]}})
     assert art._spotify_url(application.extensions['store'].album(ALBUM)) is None
+
+
+def test_busy_artwork_downloads_return_fast_503_without_blocking_health(application, client, monkeypatch):
+    artwork=application.extensions['artwork']
+    class FullyBusy:
+        calls=0
+        def acquire(self, timeout=None):
+            self.calls+=1
+            assert timeout is not None and timeout<=2, 'Never block an HTTP worker indefinitely'
+            return False
+        def release(self):
+            raise AssertionError('No slot was acquired')
+    busy=FullyBusy()
+    monkeypatch.setattr(artwork,'download_slots',busy)
+    response=client.get(f'/api/albums/{ALBUM}/artwork?size=320')
+    assert response.status_code==503
+    assert b'busy' in response.data.lower()
+    assert busy.calls==1
+    assert client.get('/health').status_code==200
