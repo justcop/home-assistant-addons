@@ -16,7 +16,7 @@ from difflib import SequenceMatcher
 from .matching import candidate, normalize
 
 LOG = logging.getLogger('audioshelf.spotify_matching')
-ATTEMPTS = 'spotify_matching_attempts_v2'
+ATTEMPTS = 'spotify_matching_attempts_v3'
 FAILURES = 'spotify_matching_failures_v1'
 STATUS = 'spotify_matching_status_v1'
 PAUSE_UNTIL = 'spotify_matching_pause_until_v1'
@@ -42,7 +42,11 @@ def signature(album, market):
 def failure(album, reason, best=None):
     result = {'album_id': album['id'], 'artist': ', '.join(a['name'] for a in album['artists']),
               'title': album['title'], 'reason': reason, 'total_tracks': len(album['tracks']),
-              'verified_tracks': 0, 'spotify_candidate': '', 'tracks': []}
+              'verified_tracks': 0, 'spotify_candidate': '', 'tracks': [],
+              'musicbrainz_release_id': album.get('release_id'),
+              'musicbrainz_release_label': album.get('release_label', ''),
+              'canonical_reviewed': bool(album.get('canonical_reviewed')),
+              'disc_count': len({t.get('disc_number') or 1 for t in album['tracks']})}
     if best is not None:
         result['spotify_candidate'] = best.get('name', '')
         result['verified_tracks'] = best.get('verified', 0)
@@ -91,6 +95,13 @@ def report_text(store, job):
             return ' '.join(str(value or '').split())
         lines.append(plain(issue.get('artist')) + ' — ' + plain(issue.get('title')))
         lines.append('  Album ID: ' + plain(issue.get('album_id')))
+        if issue.get('musicbrainz_release_id'):
+            lines.append('  Canonical MusicBrainz edition: ' + plain(issue.get('musicbrainz_release_label'))
+                         + ' (' + plain(issue['musicbrainz_release_id']) + ')')
+        if 'canonical_reviewed' in issue:
+            lines.append('  Canonical tracks: ' + str(issue.get('total_tracks', 0))
+                         + ' across ' + str(issue.get('disc_count', 0)) + ' disc(s)'
+                         + '; ' + ('reviewed' if issue['canonical_reviewed'] else 'not yet reviewed'))
         lines.append('  Reason: ' + plain(issue.get('reason')))
         if issue.get('spotify_candidate'):
             lines.append('  Best Spotify candidate: ' + plain(issue['spotify_candidate'])
@@ -304,8 +315,14 @@ class SpotifyMatching:
         if matches:
             return max(matches, key=lambda c: c['score']), None
         best = max(by_id.values(), key=lambda c: (c['verified'], c['matched'], c['score'])) if by_id else None
-        reason = ('No Spotify album candidates found in this market.' if not best
-                  else 'No candidate verified every canonical track in the correct order.')
+        if best and len(album['tracks']) > best.get('track_count', 0) and (
+                best['verified'] >= 6 and best['verified'] >= best.get('track_count', 0) * .7):
+            reason = ('The saved MusicBrainz canonical edition has more tracks than the '
+                      'closest Spotify album; check whether a bonus/deluxe release was '
+                      'mistakenly selected. The stored edition was not changed.')
+        else:
+            reason = ('No Spotify album candidates found in this market.' if not best
+                      else 'No candidate verified every canonical track in the correct order.')
         return None, failure(album, reason, best)
 
     def _finish(self, account_id, store, job_id, state, reason=None):
