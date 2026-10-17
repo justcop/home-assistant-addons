@@ -202,7 +202,7 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
       return result.ok;
     });
     assert(spotifyReady,'Original album Spotify tracklist must verify before review');
-    await page.reload();
+    await page.evaluate(()=>route()); // preserve the previous browsing origin
     await page.getByRole('button',{name:'This tracklist is correct'}).click();
     await page.getByRole('button',{name:'This tracklist is correct'}).waitFor({state:'hidden'});
     // Spotify can briefly return the old song after accepting a new queue.
