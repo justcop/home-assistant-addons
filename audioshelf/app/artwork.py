@@ -159,7 +159,15 @@ class Artwork:
         if not self.musicbrainz:
             return []
         try:
-            releases = self.musicbrainz.release_page(album_id)['releases']
+            if back:
+                # Sleeve backs are independent of playback edition filters.
+                # Include CD, vinyl and digital releases from any country.
+                releases = self.musicbrainz.get('release', {
+                    'release-group': album_id, 'status': 'official',
+                    'inc': 'media', 'limit': 100, 'offset': 0
+                }).get('releases', [])
+            else:
+                releases = self.musicbrainz.release_page(album_id)['releases']
         except (AppError, requests.RequestException, KeyError, ValueError):
             return []
         def eligible(item):

@@ -69,6 +69,7 @@ def test_missing_back_cover_returns_404_not_front_placeholder(application, clien
     store.shelf(ALBUM, True)
     download = Mock(side_effect=lambda url: no_cover())
     monkeypatch.setattr(artwork, 'download', download)
+    monkeypatch.setattr(artwork, '_candidate_releases', lambda album_id, **kwargs: [])
     path = f'/api/albums/{ALBUM}/artwork/back?size=640'
     first = client.get(path)
     second = client.get(path)
@@ -108,6 +109,7 @@ def test_missing_back_does_not_cache_store_preview(application, client, monkeypa
     artwork = application.extensions['artwork']
     store = application.extensions['store']
     monkeypatch.setattr(artwork, 'download', lambda url: no_cover())
+    monkeypatch.setattr(artwork, '_candidate_releases', lambda album_id, **kwargs: [])
     assert client.get(f'/api/albums/{ALBUM}/artwork/back').status_code == 404
     assert not store.cache_get('artwork:' + ALBUM + ':back')
     with store.cache_connect() as db:
@@ -155,3 +157,19 @@ def test_back_artwork_falls_back_to_other_album_release_and_stores_sized_copies(
     assert len(calls)==3
     assert len(list(art.directory.glob(ALBUM+'-back-320-*.webp')))==1
     assert (art.directory/(ALBUM+'-back.img')).exists()
+
+
+def test_back_candidates_ignore_playback_format_filters(application, monkeypatch):
+    art=application.extensions['artwork']
+    physical={'id':OTHER_RELEASE,'media':[{'format':'CD'}]}
+    digital={'id':'22222222-2222-4222-8222-222222222222',
+             'media':[{'format':'Digital Media'}]}
+    calls=[]
+    def get(entity, params):
+        calls.append((entity, params))
+        return {'releases':[physical,digital]}
+    monkeypatch.setattr(art.musicbrainz,'get',get)
+    candidates=art._candidate_releases(ALBUM,back=True)
+    assert candidates==[digital['id'],physical['id']]
+    assert calls[0][0]=='release'
+    assert calls[0][1]['release-group']==ALBUM
