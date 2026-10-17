@@ -58,7 +58,7 @@ def failure(album, reason, best=None):
 
 
 def report_text(store, job):
-    failures = store.setting(FAILURES, {}) or {}
+    failures = current_failures(store)
     lines = ['AudioShelf bulk Spotify matching report',
              'Generated: ' + time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime()),
              'Market: ' + str(job.get('market', 'unknown') if job else 'unknown'),
@@ -88,6 +88,20 @@ def report_text(store, job):
     return '\n'.join(lines)
 
 
+def current_failures(store):
+    saved = store.setting(FAILURES, {}) or {}
+    active = {}
+    for album_id, issue in saved.items():
+        try:
+            if eligible(store.album(album_id)):
+                active[album_id] = issue
+        except KeyError:
+            pass
+    if len(active) != len(saved):
+        store.set_setting(FAILURES, active)
+    return active
+
+
 class SpotifyMatching:
     def __init__(self):
         self.lock = threading.RLock()
@@ -99,9 +113,9 @@ class SpotifyMatching:
         attempted = store.setting(ATTEMPTS, {}) or {}
         result = []
         for row in store.albums(owned=True):
-            if not eligible(row):
-                continue
             album = store.album(row['id'])
+            if not eligible(album):
+                continue
             if force or attempted.get(album['id']) != signature(album, spotify.market):
                 result.append(album['id'])
         return result
@@ -112,7 +126,7 @@ class SpotifyMatching:
             job = dict(active) if active else store.setting(STATUS)
         if job and job.get('state') == 'running' and not active:
             job = dict(job, state='interrupted')
-        return {'job': job, 'failures': len(store.setting(FAILURES, {}) or {})}
+        return {'job': job, 'failures': len(current_failures(store))}
 
     def ensure_started(self, account_id, store, spotify, playable, enabled=None):
         if not spotify.connected:
