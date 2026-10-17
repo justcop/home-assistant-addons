@@ -57,7 +57,43 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert.equal(await page.locator('#search-form input').inputValue(),'The Artist');
     await page.goto(base+'/#shelf');
     await page.locator('.shelf-rack').first().waitFor();
-    await page.locator('.cover').first().evaluate(img=>img.decode());
+    // Deferred covers begin loading only when the sleeve enters view.
+    await page.locator('.cover').first().scrollIntoViewIfNeeded();
+    await page.waitForFunction(()=>{
+      const img=document.querySelector('.cover');
+      return !!img?.currentSrc&&img.complete&&img.naturalWidth>0;
+    });
+    // Many nearby shelves must not generate 90 simultaneous slow requests.
+    // Simulate 12 visible covers with artificially slow image responses.
+    let activeCoverProbes=0,maxCoverProbes=0,servedCoverProbes=0;
+    await page.route('**/api/cover-queue-probe/**',async route=>{
+      activeCoverProbes++;
+      maxCoverProbes=Math.max(maxCoverProbes,activeCoverProbes);
+      await wait(120);
+      servedCoverProbes++;
+      activeCoverProbes--;
+      await route.fulfill({contentType:'image/svg+xml',
+        body:'<svg xmlns="http://www.w3.org/2000/svg" width="3" height="3"></svg>'});
+    });
+    await page.evaluate(()=>{
+      const container=document.createElement('div');
+      container.id='artwork-concurrency-test';
+      container.style.cssText='position:fixed;top:40px;left:40px;width:120px;height:120px;display:grid;grid-template-columns:repeat(4,1fr);z-index:9999';
+      for(let n=0;n<12;n++){
+        const img=document.createElement('img');
+        img.width=20;img.height=20;
+        img.dataset.coverSrc='api/cover-queue-probe/'+n;
+        container.append(img);
+      }
+      document.querySelector('#content').append(container);
+    });
+    await page.waitForFunction(()=>{
+      const images=[...document.querySelectorAll('#artwork-concurrency-test img')];
+      return images.length===12&&images.every(img=>img.complete&&img.naturalWidth>0);
+    });
+    assert.equal(servedCoverProbes,12,'Visible cover queue must drain');
+    assert(maxCoverProbes<=3,'Concurrent cover requests must stay within the three-slot budget');
+    await page.locator('#artwork-concurrency-test').evaluate(node=>node.remove());
     await noOverflow();await shot('shelf-desktop');
     await page.getByRole('searchbox',{name:'Find a record'}).fill('does not exist');
     assert.equal(await page.locator('.sleeve:visible').count(),0);
