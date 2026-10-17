@@ -48,13 +48,23 @@ def failure(album, reason, best=None):
             if mapping.get('verified'):
                 continue
             assessment = mapping.get('assessment') or {}
-            alternative = (mapping.get('alternatives') or [{}])[0] if mapping.get('alternatives') else {}
+            alternatives = mapping.get('alternatives') or []
+            alternative = next((a for a in alternatives if a.get('verified')), None)
+            if assessment.get('reason') == 'no_ordered_match':
+                if alternative:
+                    reason = 'matching_track_out_of_order'
+                else:
+                    alternative = next((a for a in alternatives if a.get('score', 0) > 0), None)
+                    reason = (alternative.get('reason', 'no_ordered_match') if alternative
+                              else 'no_compatible_track_in_this_spotify_edition')
+            else:
+                reason = assessment.get('reason') or 'no_verified_match'
             result['tracks'].append({
-                'title': track['title'],
-                'reason': assessment.get('reason') if assessment.get('reason') not in (None, 'no_ordered_match')
-                          else alternative.get('reason', 'no_ordered_match'),
-                'spotify_title': mapping.get('spotify_title') or alternative.get('title', ''),
-                'duration_delta_ms': assessment.get('duration_delta_ms')})
+                'title': track['title'], 'reason': reason,
+                'spotify_title': mapping.get('spotify_title') or (alternative or {}).get('title', ''),
+                'spotify_position': (alternative or {}).get('spotify_position'),
+                'duration_delta_ms': (assessment.get('duration_delta_ms') if mapping.get('spotify_id')
+                                      else (alternative or {}).get('duration_delta_ms'))})
     return result
 
 
@@ -83,6 +93,8 @@ def report_text(store, job):
                 details += '; Spotify: ' + plain(track['spotify_title'])
             if track.get('duration_delta_ms') is not None:
                 details += '; duration difference: ' + str(track['duration_delta_ms']) + ' ms'
+            if track.get('spotify_position'):
+                details += '; Spotify position: ' + str(track['spotify_position'])
             lines.append('    • ' + plain(track.get('title')) + ': ' + details)
         lines.append('')
     if not failures:
