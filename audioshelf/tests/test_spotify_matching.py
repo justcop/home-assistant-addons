@@ -154,6 +154,7 @@ def test_reviewed_manual_edition_without_spotify_match_is_wiped(application,monk
 
 
 def test_reviewed_canonical_edition_remains_reviewed_when_fully_matched(application,monkeypatch):
+    from conftest import RELEASE
     store=application.extensions['store']
     store.shelf(ALBUM,True)
     with store.connect() as db:
@@ -170,12 +171,7 @@ def test_reviewed_canonical_edition_remains_reviewed_when_fully_matched(applicat
     reviewed=store.album(ALBUM)
     assert reviewed['on_shelf'] and reviewed['playable']
     assert reviewed['canonical_reviewed']==1
-    assert reviewed['release_id']==before_release_id(application)
-
-
-def before_release_id(application):
-    from conftest import RELEASE
-    return RELEASE
+    assert reviewed['release_id']==RELEASE
 
 
 def test_reviewed_replacement_edition_requires_new_confirmation(application,monkeypatch):
@@ -187,17 +183,18 @@ def test_reviewed_replacement_edition_requires_new_confirmation(application,monk
     store.mapping(ALBUM,candidate(store.album(ALBUM),source_album(first='Opening - Live')),manual=True)
     mb=application.extensions['musicbrainz']
     alternative='77777777-7777-4777-8777-777777777777'
-    old=fake_original_releases(application,monkeypatch)
-    new={**old,'id':alternative,'date':'2007-04-19'}
+    base=fake_original_releases(application,monkeypatch)
+    new={**base,'id':alternative,'date':'2007-04-19'}
+    old={**base,'media':[dict(base['media'][0],
+        **{'track-count':3,'tracks':base['media'][0]['tracks']+[
+            {'position':3,'title':'Unreleased Demo','length':180000,
+             'recording':{'title':'Unreleased Demo','id':'rec-3'}}]})]}
     monkeypatch.setattr(mb,'releases',lambda album_id:[old,new])
     monkeypatch.setattr(mb,'get',lambda entity,params=None:
                         old if entity=='release/'+old['id'] else new)
     spotify=FakeSpotify(source_album())
     playable=application.extensions['playable_releases']
     playable.spotify=spotify
-    monkeypatch.setattr(playable,'verified_choices',
-                        lambda probe, album: ([],[]) if probe['release_id']==RELEASE
-                        else ([candidate(probe,source_album())],[]))
     matcher=SpotifyMatching()
     matcher.start('owner',store,spotify,playable)
     job=completed(matcher,store)
