@@ -159,7 +159,8 @@ def test_legacy_cassette_cover_uses_allowed_edition_without_changing_tracklist(a
         db.execute("UPDATE albums SET release_label='GB · 2001 · Cassette' WHERE id=?", (ALBUM,))
     before = store.album(ALBUM)['tracks']
     allowed = '11111111-1111-4111-8111-111111111111'
-    monkeypatch.setattr(application.extensions['musicbrainz'], 'release_page', lambda album_id: {'releases': [{'id': allowed}]})
+    monkeypatch.setattr(application.extensions['musicbrainz'], 'release_page', lambda album_id: {
+        'releases': [{'id': allowed, 'media': [{'format': 'Digital Media'}]}]})
     def download(url):
         calls.append(url)
         if '/release-group/' in url:
@@ -167,8 +168,7 @@ def test_legacy_cassette_cover_uses_allowed_edition_without_changing_tracklist(a
         return png(), 'image/png'
     monkeypatch.setattr(artwork, 'download', download)
     assert artwork.get(ALBUM)[2] == 'cover-art-archive'
-    assert '/release-group/' in calls[0]
-    assert '/release/'+allowed+'/' in calls[1]
+    assert '/release/'+allowed+'/' in calls[0]  # Prefer a digital sleeve to an old cassette scan
     assert store.album(ALBUM)['tracks'] == before
 
 

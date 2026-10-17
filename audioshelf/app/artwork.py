@@ -229,10 +229,10 @@ class Artwork:
                 return PLACEHOLDER, 'image/svg+xml', 'placeholder'
 
     def back(self, album_id):
-        """Fetch the back of the selected sleeve or canonical release on demand.
+        """Fetch and persist any legitimate back from this album's editions.
 
-        Never use an arbitrary release-group/Spotify image: another edition's
-        reverse may show different tracks or bonus material.
+        The back need not correspond to the front edition; the chosen/canonical
+        sleeve is tried first for speed and other official pressings follow.
         """
         with self.locks[hash(album_id)%len(self.locks)]:
             album = self.store.album(album_id)
@@ -252,13 +252,23 @@ class Artwork:
             if self.store.cache_get(negative):
                 raise AppError('No back cover is available for this edition.', 404)
             transient = False
-            # The reverse can come from any official pressing of the album,
-            # including vinyl or CD even when the front is digital.
-            if album['on_shelf']:
-                releases.extend(r for r in self._candidate_releases(album_id, back=True)
-                                if r not in releases)
+            # Only query alternative releases when chosen/canonical back art
+            # was absent. Most existing albums avoid a MusicBrainz round trip.
+            def candidates():
+                seen = set()
+                for release in releases:
+                    if release not in seen:
+                        seen.add(release)
+                        yield release
+                if album['on_shelf']:
+                    for release in self._candidate_releases(album_id, back=True):
+                        if release not in seen:
+                            seen.add(release)
+                            yield release
             with self.download_slots:
-                for release in releases[:14]:
+                for index, release in enumerate(candidates()):
+                    if index >= 14:
+                        break
                     for resolution in ('1200', '500'):
                         url = f'https://coverartarchive.org/release/{release}/back-{resolution}'
                         try:

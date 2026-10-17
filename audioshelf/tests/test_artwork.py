@@ -41,8 +41,7 @@ def test_album_cover_then_edition_then_spotify_fallback(application,monkeypatch)
         raise requests.HTTPError('404')
     monkeypatch.setattr(artwork,'download',download)
     assert artwork.get(ALBUM)[2]=='spotify'
-    assert '/release-group/' in calls[0] and '/release/' in calls[1]
-    assert calls[2]=='https://i.scdn.co/image/test'
+    assert calls == ['https://i.scdn.co/image/test']  # Digital front before any physical scan
 
 
 def test_missing_cover_retries_after_spotify_connects(application,monkeypatch):
@@ -271,3 +270,35 @@ def test_invalid_cover_size_never_downloads(application,client,monkeypatch):
     download=Mock();monkeypatch.setattr(application.extensions['artwork'],'download',download)
     assert client.get(f'/api/albums/{ALBUM}/artwork?size=99999').status_code==400
     download.assert_not_called()
+
+
+def test_digital_front_cover_precedes_scans_and_preserves_manual_choice(application, monkeypatch):
+    from conftest import RELEASE
+    art = application.extensions['artwork']
+    store = application.extensions['store']
+    store.shelf(ALBUM, True)
+    calls = []
+    monkeypatch.setattr(art, '_candidate_releases', lambda album_id, **kwargs:
+                        ['11111111-1111-4111-8111-111111111111'])
+    monkeypatch.setattr(art, '_spotify_url', lambda album: 'https://i.scdn.co/image/digital')
+    monkeypatch.setattr(art, 'download', lambda url: (calls.append(url) or (png(), 'image/png')))
+    assert art.get(ALBUM)[2] == 'spotify'
+    assert calls == ['https://i.scdn.co/image/digital']
+    assert store.cache_get('artwork:'+ALBUM)['identity']['default'] == 'digital-first-v2'
+    store.set_setting('artwork_release:'+ALBUM, RELEASE)
+    calls.clear()
+    assert art.get(ALBUM)[2] == 'cover-art-archive'
+    assert calls == [f'https://coverartarchive.org/release/{RELEASE}/front-500']
+
+
+def test_digital_candidates_are_ranked_before_cd_and_cassette(application, monkeypatch):
+    art = application.extensions['artwork']
+    cd = {'id':'11111111-1111-4111-8111-111111111111',
+          'media':[{'format':'CD'}], 'preference_rank':[0]}
+    digital = {'id':'22222222-2222-4222-8222-222222222222',
+               'media':[{'format':'Digital Media'}], 'preference_rank':[5]}
+    cassette = {'id':'33333333-3333-4333-8333-333333333333',
+                'media':[{'format':'Cassette'}], 'preference_rank':[0]}
+    monkeypatch.setattr(art.musicbrainz, 'release_page',
+                        lambda album_id: {'releases':[cd,cassette,digital]})
+    assert art._candidate_releases(ALBUM) == [digital['id'],cd['id']]

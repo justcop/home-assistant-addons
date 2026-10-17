@@ -131,3 +131,27 @@ def test_reset_clears_back_images_and_metadata(application, client, monkeypatch)
     artwork.reset(ALBUM)
     assert not list(artwork.directory.glob(ALBUM + '-back*'))
     assert not store.cache_get('artwork:' + ALBUM + ':back')
+
+
+def test_back_artwork_falls_back_to_other_album_release_and_stores_sized_copies(application, client, monkeypatch):
+    art = application.extensions['artwork']
+    store = application.extensions['store']
+    store.shelf(ALBUM, True)
+    calls = []
+    monkeypatch.setattr(art, '_candidate_releases',
+                        lambda album_id, **kwargs: [OTHER_RELEASE])
+    def download(url):
+        calls.append(url)
+        if OTHER_RELEASE not in url:
+            no_cover()
+        return png(), 'image/png'
+    monkeypatch.setattr(art, 'download', download)
+    url=f'/api/albums/{ALBUM}/artwork/back?size=320'
+    first=client.get(url)
+    assert first.status_code == 200
+    assert any(OTHER_RELEASE in value for value in calls)
+    assert store.cache_get('artwork:'+ALBUM+':back')['release'] == OTHER_RELEASE
+    assert client.get(url).data == first.data
+    assert len(calls)==3
+    assert len(list(art.directory.glob(ALBUM+'-back-320-*.webp')))==1
+    assert (art.directory/(ALBUM+'-back.img')).exists()
