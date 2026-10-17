@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-17T15:13:00+01:00 (Europe/London).
+Reviewed: 2026-10-17T15:21:00+01:00 (Europe/London).
 
-Reviewed small correction to the vinyl browser verification-first workflow: the local assertion variable is spotifyReady rather than the previously declared ready; the verification and review behavior remains identical. Backend inventory stays at 374 cases.
+Reviewed vinyl browser regression adjustment: after successfully verifying the original album against Spotify, route() refreshes its on-screen album without discarding the browsing origin, preserving the subsequent late playback response and store navigation tests. All 374 backend cases remain included.
 
-<!-- inventory: {"reviewed_at":"2026-10-17T15:13:00+01:00","review_note":"Reviewed small correction to the vinyl browser verification-first workflow: the local assertion variable is spotifyReady rather than the previously declared ready; the verification and review behavior remains identical. Backend inventory stays at 374 cases.","source_sha256":"99c935f61f5ca482920a2e9a4481a19b8c23e3470f46c3ed6b1b46b06865fcef"} -->
+<!-- inventory: {"reviewed_at":"2026-10-17T15:21:00+01:00","review_note":"Reviewed vinyl browser regression adjustment: after successfully verifying the original album against Spotify, route() refreshes its on-screen album without discarding the browsing origin, preserving the subsequent late playback response and store navigation tests. All 374 backend cases remain included.","source_sha256":"bd7f3363caae28d80495a6bb232ddfde3f01aacf7634937761fdb6b3782d460b"} -->
 
 ## Backend cases (374)
 
