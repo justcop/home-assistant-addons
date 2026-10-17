@@ -34,7 +34,8 @@ def test_downloaded_artwork_is_cached_outside_collection(application,client,monk
 def test_album_cover_then_edition_then_spotify_fallback(application,monkeypatch):
     artwork=application.extensions['artwork'];spotify=application.extensions['spotify'];calls=[]
     spotify.tokens={'refresh_token':'test'}
-    monkeypatch.setattr(spotify,'api',lambda *args:{'albums':{'items':[{'images':[{'url':'https://i.scdn.co/image/test','width':640}]}]}})
+    monkeypatch.setattr(spotify,'api',lambda *args:{'albums':{'items':[{'name':'The Album','artists':[{'name':'The Artist'}],
+                               'images':[{'url':'https://i.scdn.co/image/test','width':640}]}]}})
     def download(url):
         calls.append(url)
         if 'scdn.co' in url:return png(),'image/png'
@@ -313,3 +314,12 @@ def test_forced_refresh_preserves_cached_cover_when_download_fails(application, 
     monkeypatch.setattr(art,'download',lambda url:(_ for _ in ()).throw(requests.HTTPError('offline')))
     assert art.get(ALBUM,force=True)[2]=='placeholder'
     assert art.get(ALBUM)==before  # No destructive eviction on failed refresh.
+
+
+def test_spotify_search_cannot_attach_wrong_artists_digital_cover(application,monkeypatch):
+    art=application.extensions['artwork'];spotify=application.extensions['spotify']
+    spotify.tokens={'refresh_token':'test'}
+    monkeypatch.setattr(spotify,'api',lambda *args:{
+        'albums':{'items':[{'name':'The Album','artists':[{'name':'Another Artist'}],
+                            'images':[{'url':'https://i.scdn.co/image/wrong','width':500}]}]}})
+    assert art._spotify_url(application.extensions['store'].album(ALBUM)) is None

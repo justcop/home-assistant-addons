@@ -16,6 +16,7 @@ import requests
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from .errors import AppError
+from .matching import normalize
 
 LOG = logging.getLogger('audioshelf')
 MAX_BYTES = 5 * 1024 * 1024
@@ -135,7 +136,17 @@ class Artwork:
             sources = result.get('albums',{}).get('items',[])
             if not sources:
                 return None
-            source = sources[0]
+            # Search ranking is not a verified album identity. A common album
+            # title can belong to an entirely different artist.
+            wanted_title = normalize(album['title'])
+            wanted_artists = {normalize(a['name']) for a in album['artists']}
+            source = next((candidate for candidate in sources
+                           if normalize(candidate.get('name') or '') == wanted_title
+                           and wanted_artists.intersection(
+                               normalize(a.get('name') or '')
+                               for a in candidate.get('artists', []) if isinstance(a, dict))), None)
+            if source is None:
+                return None
         images = sorted(source.get('images',[]),key=lambda image:abs((image.get('width') or 500)-500))
         return images[0]['url'] if images else None
 
