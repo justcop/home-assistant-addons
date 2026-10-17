@@ -239,9 +239,9 @@ def create_app(options=None):
 
     @app.get('/api/status')
     def status():
-        if authenticated() and identity()['role'] == 'owner':
-            spotify_matching.ensure_started(g.account['id'], g.context.store,
-                g.context.spotify, g.context.playable_releases, enabled=accounts.enabled)
+        # Do not launch expensive catalogue scans from ordinary navigation or
+        # playback-status requests. Imports, OAuth and Matching Settings kick
+        # the independent worker instead.
         result = {'build':build,'authenticated':authenticated(),'password_required':not bool((identity() or {}).get('ingress')), 'password_configured':bool(password) or len(accounts.listing()) > 1, 'two_factor_enabled':bool(security.get('totp')), 'ingress_available':ingress()}
         if authenticated():
             result.update(account={'id':g.account['id'], 'username':g.account['username'], 'admin':g.account['id']=='owner' and identity()['role']=='owner'}, role=identity()['role'], spotify_configured=spotify.configured, spotify_connected=spotify.connected,
