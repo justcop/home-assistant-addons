@@ -100,19 +100,109 @@ def test_partial_candidates_are_reported_and_never_persisted(application, monkey
     assert matcher.pending(store, spotify, force=True) == [ALBUM]
 
 
-def test_manual_track_choices_are_never_replaced(application):
-    store = application.extensions['store']
+
+def test_invalid_manual_track_choices_are_replaced_with_complete_edition(application, monkeypatch):
+    store=application.extensions['store']
     store.shelf(ALBUM, True)
-    store.mapping(ALBUM, candidate(store.album(ALBUM), source_album(first='Opening - Live')), manual=True)
-    before = store.album(ALBUM)
-    assert before['tracks'][1]['method'] == 'manual'
-    spotify, matcher = FakeSpotify(source_album()), SpotifyMatching()
-    matcher.start('owner', store, spotify, application.extensions['playable_releases'])
-    job = completed(matcher, store)
-    assert job['matched'] == 0 and job['unmatched'] == 1
-    assert spotify.calls == 0
-    assert store.album(ALBUM)['tracks'] == before['tracks']
-    assert 'Manual Spotify track choices' in report_text(store, job)
+    # One manual Spotify choice in an otherwise incomplete release cannot
+    # block a complete official Spotify-compatible MusicBrainz release.
+    store.mapping(ALBUM,candidate(store.album(ALBUM),source_album(first='Opening - Live')),manual=True)
+    before=store.album(ALBUM)
+    assert before['tracks'][1]['method']=='manual'
+    fake_original_releases(application,monkeypatch)
+    spotify, matcher=FakeSpotify(source_album()),SpotifyMatching()
+    playable=application.extensions['playable_releases']
+    playable.spotify=spotify
+    matcher.start('owner',store,spotify,playable)
+    job=completed(matcher,store)
+    assert job['matched']==1 and job['unmatched']==0
+    selected=store.album(ALBUM)
+    assert selected['on_shelf'] and selected['playable']
+    assert selected['release_id']==before['release_id']
+    assert selected['canonical_reviewed']==0
+    assert [t['spotify_id'] for t in selected['tracks']]==['a'*22,'b'*22]
+    assert all(t['method']=='automatic' for t in selected['tracks'])
+    assert not current_failures(store)
+
+
+def test_reviewed_manual_edition_without_spotify_match_is_wiped(application,monkeypatch):
+    store=application.extensions['store']
+    store.shelf(ALBUM,True)
+    with store.connect() as db:
+        db.execute('UPDATE albums SET canonical_reviewed=1 WHERE id=?',(ALBUM,))
+    store.mapping(ALBUM,candidate(store.album(ALBUM),source_album(first='Opening - Live')),manual=True)
+    before=store.album(ALBUM)
+    assert before['canonical_reviewed'] and any(t['method']=='manual' for t in before['tracks'])
+    fake_original_releases(application,monkeypatch)
+    spotify=FakeSpotify(source_album(first='Opening - Live'))
+    playable=application.extensions['playable_releases']
+    monkeypatch.setattr(playable,'enrich_probe',lambda probe, assessment:probe)
+    playable.spotify=spotify
+    matcher=SpotifyMatching()
+    matcher.start('owner',store,spotify,playable)
+    job=completed(matcher,store)
+    assert job['matched']==0 and job['unmatched']==1
+    cleared=store.album(ALBUM)
+    assert cleared['on_shelf']
+    assert not cleared['playable'] and cleared['tracks']==[]
+    assert cleared['release_id'] is None
+    assert cleared['spotify_album_id'] is None
+    assert cleared['canonical_reviewed']==0
+    assert current_failures(store)[ALBUM]['previous_manual_selection_cleared'] is True
+    assert matcher.pending(store,spotify)==[]
+    assert matcher.pending(store,spotify,force=True)==[ALBUM]
+
+
+def test_reviewed_canonical_edition_remains_reviewed_when_fully_matched(application,monkeypatch):
+    from conftest import RELEASE
+    store=application.extensions['store']
+    store.shelf(ALBUM,True)
+    with store.connect() as db:
+        db.execute('UPDATE albums SET canonical_reviewed=1 WHERE id=?',(ALBUM,))
+    store.mapping(ALBUM,candidate(store.album(ALBUM),source_album(first='Opening - Live')),manual=True)
+    fake_original_releases(application,monkeypatch)
+    spotify=FakeSpotify(source_album())
+    playable=application.extensions['playable_releases']
+    playable.spotify=spotify
+    matcher=SpotifyMatching()
+    matcher.start('owner',store,spotify,playable)
+    job=completed(matcher,store)
+    assert job['matched']==1
+    reviewed=store.album(ALBUM)
+    assert reviewed['on_shelf'] and reviewed['playable']
+    assert reviewed['canonical_reviewed']==1
+    assert reviewed['release_id']==RELEASE
+
+
+def test_reviewed_replacement_edition_requires_new_confirmation(application,monkeypatch):
+    from conftest import RELEASE
+    store=application.extensions['store']
+    store.shelf(ALBUM,True)
+    with store.connect() as db:
+        db.execute('UPDATE albums SET canonical_reviewed=1 WHERE id=?',(ALBUM,))
+    store.mapping(ALBUM,candidate(store.album(ALBUM),source_album(first='Opening - Live')),manual=True)
+    mb=application.extensions['musicbrainz']
+    alternative='77777777-7777-4777-8777-777777777777'
+    base=fake_original_releases(application,monkeypatch)
+    new={**base,'id':alternative,'date':'2007-04-19'}
+    old={**base,'media':[dict(base['media'][0],
+        **{'track-count':3,'tracks':base['media'][0]['tracks']+[
+            {'position':3,'title':'Unreleased Demo','length':180000,
+             'recording':{'title':'Unreleased Demo','id':'rec-3'}}]})]}
+    monkeypatch.setattr(mb,'releases',lambda album_id:[old,new])
+    monkeypatch.setattr(mb,'get',lambda entity,params=None:
+                        old if entity=='release/'+old['id'] else new)
+    spotify=FakeSpotify(source_album())
+    playable=application.extensions['playable_releases']
+    playable.spotify=spotify
+    matcher=SpotifyMatching()
+    matcher.start('owner',store,spotify,playable)
+    job=completed(matcher,store)
+    assert job['matched']==1
+    selected=store.album(ALBUM)
+    assert selected['playable'] and selected['on_shelf']
+    assert selected['release_id']==alternative
+    assert selected['canonical_reviewed']==0
 
 
 def test_removed_or_fixed_album_drops_from_failure_report(application, monkeypatch):

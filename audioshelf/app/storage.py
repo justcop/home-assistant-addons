@@ -228,25 +228,33 @@ class Store:
             db.execute('UPDATE albums SET release_id=?,release_label=?,canonical_reviewed=?,spotify_album_id=NULL,spotify_album_name=NULL WHERE id=?',
                        (release['id'], release.get('label', release.get('title','')), int(reviewed), album_id))
 
-    def clear_unverified_edition(self, album_id, expected_release=None):
-        """Leave an unresolved album on its shelf, never retaining invalid tracks.
+    def clear_unverified_edition(self, album_id, expected_release=None, *,
+                                 include_manual=False):
+        """Clear an invalid canonical tracklist without removing the shelf album.
 
-        Do not erase reviewed releases, manual corrections or an edition that
-        has been changed during a concurrent background Spotify scan.
+        Background Spotify verification can explicitly invalidate manual or
+        reviewed choices that fail 100% matching. All other callers still
+        protect deliberate choices. A concurrent new selection must not be
+        deleted by a stale scan.
         """
         with self.catalogue_lock:
             with self.connect() as db:
                 album = db.execute('SELECT release_id,canonical_reviewed,spotify_album_id '
                                    'FROM albums WHERE id=?', (album_id,)).fetchone()
-                if not album or album['canonical_reviewed'] or (
-                        expected_release is not None and album['release_id'] != expected_release):
+                if not album or (expected_release is not None and
+                                 album['release_id'] != expected_release):
                     return False
-                protected = db.execute('SELECT count(*) FROM tracks WHERE album_id=? AND '
-                                       "method='manual' AND spotify_id IS NOT NULL", (album_id,)).fetchone()[0]
-                if protected:
-                    return False
+                if not include_manual:
+                    if album['canonical_reviewed']:
+                        return False
+                    protected = db.execute('SELECT count(*) FROM tracks WHERE album_id=? AND '
+                                           "method='manual' AND spotify_id IS NOT NULL", (album_id,)).fetchone()[0]
+                    if protected:
+                        return False
+                # The caller has already proved no fully verified edition
+                # exists. Previously reviewed/manual choices are not exempt.
                 db.execute('DELETE FROM tracks WHERE album_id=?', (album_id,))
-                db.execute('UPDATE albums SET release_id=NULL,release_label=NULL,'
+                db.execute('UPDATE albums SET release_id=NULL,release_label=NULL,canonical_reviewed=0,'
                            'spotify_album_id=NULL,spotify_album_name=NULL WHERE id=?', (album_id,))
                 db.execute('DELETE FROM settings WHERE key=?', ('playback_sides:'+album_id,))
                 return True
