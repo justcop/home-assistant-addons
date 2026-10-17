@@ -215,6 +215,17 @@ class Spotify:
         self.store.cache_put(key, result, ttl=3600)
         return result
 
+    def track(self, track_id):
+        """Fetch a complete Spotify track only when independent ISRC evidence is needed."""
+        track_id = spotify_id(track_id, 'track')
+        key = 'spotify:' + self.market + ':track:' + track_id
+        cached = self.store.cache_get(key)
+        if cached is not None:
+            return cached
+        result = self.api('GET', 'tracks/' + track_id, {'market': self.market})
+        self.store.cache_put(key, result, ttl=3600)
+        return result
+
     def candidates(self, album, broad=False):
         artists = [a['name'] for a in album['artists']]
         if not artists:
