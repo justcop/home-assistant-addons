@@ -109,6 +109,8 @@ def report_text(store, job):
                          + ' filtered or unusable; ' + str(issue.get('total_releases', 0))
                          + ' eligible editions found')
         lines.append('  Reason: ' + plain(issue.get('reason')))
+        if issue.get('previous_manual_selection_cleared'):
+            lines.append('  Previous manual/reviewed selection: invalidated and cleared; album remains on shelf.')
         if issue.get('spotify_candidate'):
             lines.append('  Best Spotify candidate: ' + plain(issue['spotify_candidate'])
                          + ' (' + str(issue.get('verified_tracks', 0))
