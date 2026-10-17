@@ -17,7 +17,7 @@ from .matching import candidate, normalize
 from .musicbrainz import original_release_candidates, release_summary_track_count
 
 LOG = logging.getLogger('audioshelf.spotify_matching')
-ATTEMPTS = 'spotify_matching_attempts_v4'
+ATTEMPTS = 'spotify_matching_attempts_v5'
 FAILURES = 'spotify_matching_failures_v1'
 STATUS = 'spotify_matching_status_v1'
 PAUSE_UNTIL = 'spotify_matching_pause_until_v1'
