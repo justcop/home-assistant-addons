@@ -14,6 +14,7 @@ from .errors import AppError
 from difflib import SequenceMatcher
 
 from .matching import candidate, normalize
+from .musicbrainz import original_release_candidates, release_summary_track_count
 
 LOG = logging.getLogger('audioshelf.spotify_matching')
 ATTEMPTS = 'spotify_matching_attempts_v3'
@@ -217,26 +218,46 @@ class SpotifyMatching:
                 album = store.album(album_id)
                 if not album['on_shelf'] or not eligible(album):
                     outcome, issue = 'skipped', None
-                elif not album['tracks']:
-                    outcome, issue = 'unmatched', failure(album, 'No canonical MusicBrainz tracklist is saved.')
                 elif any(t.get('method') == 'manual' and t.get('spotify_id') for t in album['tracks']):
                     outcome, issue = 'unmatched', failure(album, 'Manual Spotify track choices present; automatic replacement disabled.')
-                else:
-                    choice, issue = self._match(album, spotify, playable)
-                    if choice is None:
-                        outcome = 'unmatched'
+                elif album.get('canonical_reviewed'):
+                    # User-approved tracklists cannot be silently changed.
+                    if not album['tracks']:
+                        outcome, issue = 'unmatched', failure(album, 'Reviewed tracklist has no canonical tracks.')
                     else:
-                        # Only lock for the write, not for slow Spotify searches.
-                        with store.catalogue_lock:
-                            fresh = store.album(album_id)
-                            if (eligible(fresh) and fresh.get('release_id') == album.get('release_id')
-                                    and signature(fresh, spotify.market) == signature(album, spotify.market)
-                                    and not any(t.get('method') == 'manual' and t.get('spotify_id')
-                                                for t in fresh['tracks'])):
-                                store.mapping(album_id, choice)
-                                outcome, issue = 'matched', None
-                            else:
-                                outcome, issue = 'skipped', None
+                        choice, issue = self._match(album, spotify, playable)
+                        if choice is None:
+                            outcome = 'unmatched'
+                        else:
+                            with store.catalogue_lock:
+                                fresh = store.album(album_id)
+                                if (eligible(fresh) and signature(fresh, spotify.market) ==
+                                        signature(album, spotify.market)):
+                                    store.mapping(album_id, choice)
+                                    outcome, issue = 'matched', None
+                                else:
+                                    outcome, issue = 'skipped', None
+                else:
+                    # Last.fm imports and other unreviewed albums must only
+                    # acquire a canonical tracklist after verifying all the
+                    # original songs against a playable Spotify edition.
+                    verified, issue = self._find_verified_edition(album, playable)
+                    with store.catalogue_lock:
+                        fresh = store.album(album_id)
+                        if (not eligible(fresh) or fresh.get('canonical_reviewed') or
+                                signature(fresh, spotify.market) != signature(album, spotify.market)
+                                or any(t.get('method') == 'manual' and t.get('spotify_id')
+                                       for t in fresh['tracks'])):
+                            outcome, issue = 'skipped', None
+                        elif verified:
+                            release_id, spotify_id = verified
+                            playable.select(album_id, release_id, spotify_id, reviewed=False)
+                            outcome, issue = 'matched', None
+                        else:
+                            # No unsuccessful MusicBrainz pressing should be
+                            # retained as the final album tracklist.
+                            store.clear_unverified_edition(album_id, expected_release=album.get('release_id'))
+                            outcome = 'unmatched'
                 attempted = store.setting(ATTEMPTS, {}) or {}
                 attempted[album_id] = signature(store.album(album_id), spotify.market)
                 store.set_setting(ATTEMPTS, attempted)
@@ -292,6 +313,62 @@ class SpotifyMatching:
         # newly collected albums without needing another browser visit.
         self.start(account_id, store, spotify, playable,
                    enabled=enabled, automatic=True)
+
+    @staticmethod
+    def _find_verified_edition(album, playable):
+        """Find one complete original tracklist without writing speculative tracks.
+
+        Search alternate official, permitted MusicBrainz releases on the
+        background thread. Group and rank using edition metadata before
+        network-intensive inspection; a nearby Spotify candidate alone
+        cannot determine the canonical tracks. A limit avoids indefinite
+        scans when a release group contains thousands of reissues.
+        """
+        mb = playable.musicbrainz
+        candidates = original_release_candidates(
+            mb.releases(album['id']), album.get('release_date', ''),
+            playable.store.release_filters(album['id']))
+        examined, skipped, best = 0, 0, None
+        # Prefer standard / original pressings; postpone expanded media and
+        # excessive track counts but do not assume a country is intrinsically
+        # more canonical than another.
+        for release in candidates:
+            if examined >= 80:
+                break
+            count = release_summary_track_count(release)
+            if count is not None and count > 100:
+                skipped += 1
+                continue
+            try:
+                probe = playable.inspect(album['id'], release['id'])
+            except AppError as error:
+                if error.status >= 500 or error.status == 429:
+                    raise
+                skipped += 1
+                continue
+            if len(probe['tracks']) > 100:
+                skipped += 1
+                continue
+            examined += 1
+            matches, assessments = playable.verified_choices(probe, album)
+            if matches:
+                return (release['id'], matches[0]['id']), None
+            if assessments:
+                top = max(assessments, key=lambda c: (c['verified'], c['matched'], c['score']))
+                if best is None or (top['verified']/max(1,len(probe['tracks'])), top['verified']) > (
+                        best[1]['verified']/max(1,len(best[0]['tracks'])), best[1]['verified']):
+                    best = (probe, top)
+        total = len(candidates)
+        reason = ('No fully Spotify-verified original MusicBrainz tracklist after checking '
+                  + str(examined) + ' allowed official editions'
+                  + (' (scan capped before all ' + str(total) + ' editions).' if examined >= 80 and total > examined + skipped else '.')
+                  + ' The album stays on your shelf unresolved; its unverified tracklist is not retained.')
+        failed_album, failed_choice = best if best else (album, None)
+        issue = failure(failed_album, reason, failed_choice)
+        issue['examined_releases'] = examined
+        issue['skipped_releases'] = skipped
+        issue['total_releases'] = total
+        return None, issue
 
     @staticmethod
     def _match(album, spotify, playable):
