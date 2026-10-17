@@ -23,6 +23,48 @@ MAX_BATCH = 250
 USERNAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9_-]{0,31}')
 API_KEY = re.compile(r'[a-fA-F0-9]{32}')
 
+# Edition labels do not identify separate studio albums. Subtitles such as
+# Re:Wired, ...Naked and colour-album descriptions are deliberately preserved.
+EDITION_LABEL = (
+    r'(?:super\s+deluxe|deluxe(?:\s+(?:edition|version))?|'
+    r're-?master(?:ed)?(?:\s+\d{4})?|(?:\d{4}\s+)?re-?master(?:ed)?|'
+    r'(?:\d+(?:st|nd|rd|th)\s+)?anniversary(?:\s+(?:special\s+)?edition)?|'
+    r'reissue|promo(?:tional)?|(?:disc|cd)\s*\d+)'
+)
+EDITION_SUFFIX = re.compile(r'\s*[\[(]\s*' + EDITION_LABEL + r'\s*[\])]\s*$', re.I)
+CD_SUFFIX = re.compile(r'\s+CD\s*\d+\s*$', re.I)
+EPONYM_SUFFIX = re.compile(r'^(.+?)\s*\([^)]{1,60}\)\s*$')
+
+
+def same_artist(left, right):
+    a, b = normalize(left), normalize(right)
+    return a == b or (a.startswith('the ') and a[4:] == b) or (b.startswith('the ') and b[4:] == a)
+
+
+def album_title_variants(title, artist):
+    """Offer conservative catalogue titles without conflating distinct albums."""
+    clean = title.strip()
+    for _ in range(4):
+        without_label = CD_SUFFIX.sub('', EDITION_SUFFIX.sub('', clean)).strip()
+        if without_label == clean:
+            break
+        clean = without_label
+    variants = [clean, title.strip()]
+    parenthetical = EPONYM_SUFFIX.match(clean)
+    if parenthetical and same_artist(parenthetical.group(1), artist):
+        # Only resolve an informal descriptor on an eponymous album when
+        # exactly one eligible MusicBrainz release group exists.
+        variants.insert(0, parenthetical.group(1))
+    if clean.endswith(' I') and same_artist(clean[:-2], artist):
+        variants.insert(0, clean[:-2])
+    result, seen = [], set()
+    for variant in variants:
+        key = normalize(variant)
+        if key and key not in seen:
+            result.append(variant)
+            seen.add(key)
+    return result
+
 
 def album_key(artist, title):
     return hashlib.sha256((normalize(artist) + '\n' + normalize(title)).encode()).hexdigest()[:24]
@@ -213,25 +255,47 @@ class LastFmImporter:
 
     @staticmethod
     def _match_group(musicbrainz, item):
-        def matches(record):
-            return (normalize(record['title']) == normalize(item['title']) and
-                    any(normalize(a['name']) == normalize(item['artist'])
-                        for a in record.get('artists', [])))
+        artist = item['artist']
+        titles = album_title_variants(item['title'], artist)
+
+        def matches(record, title):
+            return (normalize(record['title']) == normalize(title) and
+                    any(same_artist(a['name'], artist) for a in record.get('artists', [])))
+
         identifier = item.get('mbid', '')
         if identifier:
             try:
                 album = musicbrainz.ensure_group(mbid(identifier))
-                if matches(album):
+                if any(matches(album, title) for title in titles):
                     return album
             except (AppError, ValueError, KeyError):
                 pass
-        # Search by title and demand an exact artist+album pair. If there are
-        # multiple distinct groups, a person needs to choose the right one.
-        options = [a for a in musicbrainz.search(item['title'], 'album') if matches(a)]
-        unique = {a['id']: a for a in options}
-        if len(unique) != 1:
-            raise AppError('No unambiguous MusicBrainz studio album match. Add manually.')
-        return next(iter(unique.values()))
+
+        # Search by artist AND title so common titles are not crowded out
+        # by the first results for unrelated artists.
+        credited = [artist]
+        if artist.casefold().startswith('the '):
+            credited.append(artist[4:])
+        else:
+            credited.append('The ' + artist)
+        for title in titles:
+            candidates = {}
+            for credited_artist in credited:
+                for album in musicbrainz.search(title, 'album', album_artist=credited_artist):
+                    if matches(album, title):
+                        candidates[album['id']] = album
+                if candidates:
+                    break
+            if not candidates:
+                # Conservative fallback for unusual artist-search indexing.
+                for album in musicbrainz.search(title, 'album'):
+                    if matches(album, title):
+                        candidates[album['id']] = album
+            if len(candidates) == 1:
+                return next(iter(candidates.values()))
+            if len(candidates) > 1:
+                raise AppError('Several MusicBrainz studio albums could match. Choose manually.')
+        raise AppError('No matching MusicBrainz studio album was found. Check compilations, remixes or spelling.')
 
     def _update(self, account_id, store, job_id, outcome, item, reason):
         with self.lock:

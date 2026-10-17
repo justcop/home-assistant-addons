@@ -173,12 +173,17 @@ class MusicBrainz:
             self.store.cache_put(key, result)
             return result
 
-    def search(self, query, kind='artist'):
+    def search(self, query, kind='artist', album_artist=None):
         field = 'artist' if kind == 'artist' else 'releasegroup'
         expression = field + ':' + literal(query)
         if kind == 'album':
             expression += ' AND primarytype:album AND status:official'
-        result = self.get('artist' if kind == 'artist' else 'release-group', {'query': expression, 'limit': 30})
+            if album_artist:
+                # Last.fm import: do not lose a valid album behind 30 unrelated
+                # artists' records with the same title.
+                expression += ' AND artist:' + literal(album_artist)
+        result = self.get('artist' if kind == 'artist' else 'release-group',
+                          {'query': expression, 'limit': 100 if album_artist else 30})
         if kind == 'artist':
             return result.get('artists', [])
         groups = [g for g in result.get('release-groups', []) if self.membership(g)]
