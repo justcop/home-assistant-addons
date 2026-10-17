@@ -206,11 +206,11 @@ def _rescue_contextual_title_variants(album, source, mappings):
         return
     source_tracks = source['all_tracks']
     by_id = {track['id']: i for i, track in enumerate(source_tracks)}
-    used = {m['spotify_id'] for m in mappings if m['spotify_id']}
+    used = {m['spotify_id'] for m in mappings if m['verified'] and m['spotify_id']}
     artist_names = [a['name'] for a in album['artists']]
     for index in missing:
         mapping, canonical = mappings[index], album['tracks'][index]
-        if mapping['verified'] or mapping['spotify_id']:
+        if mapping['verified']:
             continue
         earlier = [by_id[m['spotify_id']] for m in mappings[:index]
                    if m['verified'] and m['spotify_id'] in by_id]
