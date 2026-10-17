@@ -407,7 +407,11 @@ function pumpCoverRequests(){
     };
     image.addEventListener('load',settle,{once:true});
     image.addEventListener('error',failed,{once:true});
-    // Retain native responsive srcset and service-worker caching.
+    // Once our bounded queue admits an image it must actually fetch.
+    // Leaving loading=lazy can strand a request slot indefinitely when a
+    // horizontal record rack clips the image outside the browser's viewport.
+    image.loading='eager';
+    // Retain responsive srcset and service-worker caching.
     if(sources)image.srcset=sources;
     image.src=source;
   }
