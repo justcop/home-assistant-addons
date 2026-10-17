@@ -678,7 +678,7 @@ def candidate(album, source):
             'edition_year':preferred_year, 'track_count':len(source['all_tracks']), 'matched':matched, 'verified':verified,
             'score':score, 'mappings':mappings, 'url':'https://open.spotify.com/album/'+source['id']}
 )
-PRINTED_VERSION = re.compile(r'\\b(?:feat\\.?|featuring|ft\\.?|live|demo|acoustic|instrumental|remix|edit|remaster|mix|version|take|radio|mono|stereo|part|pt\\.?)\\b', re.I)
+PRINTED_VERSION = re.compile(r'\\b(?:feat\\.?|featuring|ft\\.?|live|demo|acoustic|instrumental|remix|edit|remaster|mix|version|take|radio|mono|stereo|part|pt\\.?|bonus|hidden|reprise|alternate|alternative|unplugged|session|clean|explicit|extended|acapella)\\b', re.I)
 FEATURED_TITLE = re.compile(r'\\s*[\\[(]\\s*(?:feat\\.?|featuring|ft\\.?)\\s+[^\\])]+[\\])]\\s*VERSION_QUALIFIER = re.compile(r'\b(acoustic|live|demo|instrumental)\s+version\b', re.I)
 ROMAN_PART = re.compile(r'\bpart\s+(i|ii|iii|iv|v|vi|vii|viii|ix|x)\b', re.I)
 ROMAN_PARTS = {'i': 1, 'ii': 2, 'iii': 3, 'iv': 4, 'v': 5,
