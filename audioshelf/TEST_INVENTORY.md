@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-10-17T14:59:00+01:00 (Europe/London).
+Reviewed: 2026-10-17T15:03:00+01:00 (Europe/London).
 
-Reviewed two new verified-edition background matching tests and revisions of preexisting tests. The worker now exercises fully verified release selection over a failed bonus edition, no stale invalid tracklists after exhausting verified candidates, and preservation of manual choices. A blank shelf record remains unresolved until a Spotify-verified original edition can be selected. Mocked API tests do not establish live Spotify availability.
+Reviewed updates to existing Last.fm importer integration test: new imports may retain album identity only, must not invoke unverified MusicBrainz ensure_tracks, and must discard previously browsed speculative tracks. Reviewed 374 backend tests covering verified-first release selection, unresolved shelf behavior, and preservation of manual corrections.
 
-<!-- inventory: {"reviewed_at":"2026-10-17T14:59:00+01:00","review_note":"Reviewed two new verified-edition background matching tests and revisions of preexisting tests. The worker now exercises fully verified release selection over a failed bonus edition, no stale invalid tracklists after exhausting verified candidates, and preservation of manual choices. A blank shelf record remains unresolved until a Spotify-verified original edition can be selected. Mocked API tests do not establish live Spotify availability.","source_sha256":"96acb6e535485a79d18a6c39e1c0b4cace98c812ba76221bb38bd82943489d4c"} -->
+<!-- inventory: {"reviewed_at":"2026-10-17T15:03:00+01:00","review_note":"Reviewed updates to existing Last.fm importer integration test: new imports may retain album identity only, must not invoke unverified MusicBrainz ensure_tracks, and must discard previously browsed speculative tracks. Reviewed 374 backend tests covering verified-first release selection, unresolved shelf behavior, and preservation of manual corrections.","source_sha256":"f7d3f1e2c867a5ed5c52bc5706eaf10466f0682a95eb66bf3550889b0367a68d"} -->
 
 ## Backend cases (374)
 
