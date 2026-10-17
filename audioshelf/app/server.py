@@ -21,6 +21,7 @@ from .listening_links import shelf_matches
 from .lastfm_import import LastFmImporter
 
 from .artwork import Artwork
+from .artwork_refresh import ArtworkRefresh
 from .errors import AppError
 from .matching import candidate, track_score
 from .musicbrainz import MusicBrainz, mbid
@@ -91,6 +92,8 @@ def create_app(options=None):
     app.extensions['accounts'] = accounts
     lastfm_import = LastFmImporter()
     app.extensions['lastfm_import'] = lastfm_import
+    artwork_refresh = ArtworkRefresh()
+    app.extensions['artwork_refresh'] = artwork_refresh
     # Every request resolves its own context. No global current-user mutation.
     store = LocalProxy(lambda: g.context.store)
     spotify = LocalProxy(lambda: g.context.spotify)
@@ -549,6 +552,17 @@ def create_app(options=None):
             except KeyError:
                 musicbrainz.ensure_group(album_id)
             return jsonify(musicbrainz.ensure_tracks(album_id))
+
+    @app.post('/api/artwork/refresh')
+    def begin_artwork_refresh():
+        if g.identity['role'] != 'owner':
+            raise AppError('Only the account owner can rebuild artwork.', 403)
+        return jsonify(job=artwork_refresh.start(g.account['id'], g.context.store,
+            g.context.artwork, enabled=accounts.enabled)), 202
+
+    @app.get('/api/artwork/refresh')
+    def artwork_refresh_status():
+        return jsonify(job=artwork_refresh.status(g.account['id'], g.context.store))
 
     @app.get('/api/albums/<album_id>/artwork')
     def album_artwork(album_id):
