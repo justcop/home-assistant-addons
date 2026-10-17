@@ -677,10 +677,13 @@ def create_app(options=None):
                     payload['spotify_album_id'], reviewed=False, add_to_shelf=True,
                     split_sides=payload.get('split_sides', False))
                 return jsonify(album)
-            # Backward compatibility for existing integrations. The interactive
-            # Record Store always sends a Spotify-verified edition choice.
-            musicbrainz.ensure_tracks(album_id)
+            # Compatibility route: add an album identity but do not accept
+            # an unverified MusicBrainz tracklist as the final edition.
+            store.clear_unverified_edition(album_id)
             store.shelf(album_id,True)
+            spotify_matching.start(g.account['id'], g.context.store,
+                g.context.spotify, g.context.playable_releases,
+                enabled=accounts.enabled, automatic=True)
             return jsonify(store.album(album_id))
 
     @app.delete('/api/albums/<album_id>/shelf')
