@@ -32,6 +32,21 @@ def source_album(first='Opening', second='Closing'):
                  'artists': [{'name': 'The Artist'}], 'is_playable': True}]}
 
 
+def fake_original_releases(application, monkeypatch):
+    from conftest import RELEASE
+    musicbrainz=application.extensions['musicbrainz']
+    release={'id': RELEASE, 'title':'The Album', 'status':'Official',
+        'date':'2007-04-18', 'country':'GB', 'release-group':{'id':ALBUM},
+        'media':[{'position':1,'format':'CD','track-count':2,'tracks':[
+            {'position':1,'title':'Opening','length':180000,
+             'recording':{'title':'Opening','id':'rec-1','length':180000}},
+            {'position':2,'title':'Closing','length':240000,
+             'recording':{'title':'Closing','id':'rec-2','length':240000}}]}]}
+    monkeypatch.setattr(musicbrainz,'releases',lambda album_id:[release])
+    monkeypatch.setattr(musicbrainz,'get',lambda entity,params=None:release)
+    return release
+
+
 def completed(manager, store):
     for _ in range(300):
         job = manager.status('owner', store)['job']
@@ -41,10 +56,12 @@ def completed(manager, store):
     raise AssertionError('Background Spotify matching did not finish')
 
 
-def test_verified_bulk_match_saves_tracks_but_does_not_review_album(application):
+def test_verified_bulk_match_saves_tracks_but_does_not_review_album(application, monkeypatch):
     store = application.extensions['store']
     store.shelf(ALBUM, True)
     matcher, spotify = SpotifyMatching(), FakeSpotify(source_album())
+    fake_original_releases(application,monkeypatch)
+    application.extensions['playable_releases'].spotify=spotify
     started = matcher.start('owner', store, spotify, application.extensions['playable_releases'])
     assert started['total'] == 1
     job = completed(matcher, store)
@@ -64,12 +81,15 @@ def test_partial_candidates_are_reported_and_never_persisted(application, monkey
     playable = application.extensions['playable_releases']
     monkeypatch.setattr(playable, 'enrich_probe', lambda album, assessment: album)
     spotify, matcher = FakeSpotify(source_album(first='Opening - Live')), SpotifyMatching()
+    fake_original_releases(application,monkeypatch)
+    playable.spotify=spotify
     matcher.start('owner', store, spotify, playable)
     job = completed(matcher, store)
     assert job['unmatched'] == 1 and job['matched'] == 0
     album = store.album(ALBUM)
     assert album['spotify_album_id'] is None
-    assert all(t['spotify_id'] is None for t in album['tracks'])
+    assert album['tracks']==[], 'An unverified imported tracklist must not remain canonical'
+    assert album['release_id'] is None
     report = report_text(store, job)
     assert 'The Artist — The Album' in report
     assert 'Opening' in report
@@ -99,6 +119,8 @@ def test_removed_or_fixed_album_drops_from_failure_report(application, monkeypat
     store = application.extensions['store']
     store.shelf(ALBUM, True)
     matcher, spotify = SpotifyMatching(), FakeSpotify(source_album(first='Opening - Live'))
+    fake_original_releases(application,monkeypatch)
+    application.extensions['playable_releases'].spotify=spotify
     monkeypatch.setattr(application.extensions['playable_releases'], 'enrich_probe', lambda a, c: a)
     matcher.start('owner', store, spotify, application.extensions['playable_releases'])
     completed(matcher, store)
