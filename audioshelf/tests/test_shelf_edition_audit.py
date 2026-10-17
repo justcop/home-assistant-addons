@@ -55,7 +55,8 @@ def test_audit_flags_deluxe_label_even_without_reference_and_preserves_original(
     result=inspect_album(saved(20,'The Album (Deluxe Edition)'),
                          [edition('d'*36,20,label='The Album (Deluxe Edition)')])
     assert result['classification']=='review_edition'
-    assert result['excess_count'] if 'excess_count' in result else True
+    assert result.get('excess_count') is None
+    assert result['saved_tracks']==20
 
 
 def test_audit_does_not_infer_count_from_single_original_or_later_editions():
