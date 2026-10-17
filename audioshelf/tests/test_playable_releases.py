@@ -221,6 +221,7 @@ def test_matching_original_album_uses_isrc_for_unlabelled_version_not_shortcuts(
     assert matches and matches[0]['verified']==10
     assert matches[0]['mappings'][5]['assessment']['reason']=='isrc_verified_version_label'
     assert [m['spotify_id'] for m in matches[0]['mappings']]==[t['id'] for t in tracks]
+    assert playable.assess(probe,'p'*22)['verified']==10
     assert spotify.calls>=1
     spotify.evidence='DIFFERENTISRC'
     matches,_=playable.verified_choices(probe,album)
