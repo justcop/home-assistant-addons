@@ -10,6 +10,11 @@ VERSION = re.compile(r'\b(live|demo|acoustic|instrumental|remix|radio edit|singl
 MIX_FORMAT = re.compile(r'\s*[-–—/]\s*(?:original\s+)?(?:mono|stereo)\s*$', re.I)
 PART_NUMBER = re.compile(r'\bpt\.?\s*(?=(?:[0-9]+|[ivx]+)\b)', re.I)
 MEDLEY_LABEL = re.compile(r'\s*[-–—/]\s*medley\s*$', re.I)
+VERSION_QUALIFIER = re.compile(r'\b(acoustic|live|demo|instrumental)\s+version\b', re.I)
+ROMAN_PART = re.compile(r'\bpart\s+(i|ii|iii|iv|v|vi|vii|viii|ix|x)\b', re.I)
+ROMAN_PARTS = {'i': 1, 'ii': 2, 'iii': 3, 'iv': 4, 'v': 5,
+               'vi': 6, 'vii': 7, 'viii': 8, 'ix': 9, 'x': 10}
+
 
 
 def normalize(value, track=False):
@@ -23,6 +28,10 @@ def normalize(value, track=False):
         if '/' in value:
             value = MEDLEY_LABEL.sub('', value)
         value = PART_NUMBER.sub('part ', value)
+        value = VERSION_QUALIFIER.sub(lambda m: m.group(1), value)
+        # Limit Roman-numeral rewriting to explicit numbered "Part" labels.
+        # Never change standalone "I", song titles or unrelated Roman numerals.
+        value = ROMAN_PART.sub(lambda m: 'part ' + str(ROMAN_PARTS[m.group(1).lower()]), value)
     value = unicodedata.normalize('NFKD', value).casefold().replace('&', ' and ')
     value = ''.join(c for c in value if not unicodedata.combining(c))
     return ' '.join(re.findall(r'\w+', value))
