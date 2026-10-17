@@ -603,6 +603,29 @@ def create_app(options=None):
         job = spotify_matching.status(g.account['id'], g.context.store)['job']
         return jsonify(text=report_text(g.context.store, job))
 
+    @app.get('/api/shelf/edition-audit')
+    def original_edition_audit_status():
+        if g.identity['role'] != 'owner':
+            raise AppError('Owner access required for the original-edition audit.', 403)
+        return jsonify(job=shelf_edition_audit.status(g.account['id'], g.context.store))
+
+    @app.post('/api/shelf/edition-audit')
+    def original_edition_audit_start():
+        if g.identity['role'] != 'owner':
+            raise AppError('Owner access required for the original-edition audit.', 403)
+        running = spotify_matching.status(g.account['id'], g.context.store)['job']
+        if running and running.get('state') == 'running':
+            raise AppError('Finish bulk Spotify matching before auditing editions.', 409)
+        job = shelf_edition_audit.start(g.account['id'], g.context.store,
+            g.context.musicbrainz, enabled=accounts.enabled)
+        return jsonify(job=job), 202
+
+    @app.get('/api/shelf/edition-audit/report')
+    def original_edition_audit_report():
+        if g.identity['role'] != 'owner':
+            raise AppError('Owner access required to export the original-edition audit.', 403)
+        return jsonify(text=audit_report(g.context.store))
+
     @app.get('/api/albums/<album_id>/artwork')
     def album_artwork(album_id):
         album_id = mbid(album_id)
