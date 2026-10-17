@@ -25,6 +25,24 @@ def normalize(value, track=False):
     return ' '.join(re.findall(r'\w+', value))
 
 
+def artist_credit_matches(allowed_names, credited_names):
+    """Handle a jointly credited act printed as one name or two Spotify artists.
+
+    All components must be present. Substring matching or one-member matching
+    would incorrectly admit solo versions and unrelated cover recordings.
+    """
+    allowed = {normalize(name) for name in allowed_names if name}
+    credited = {normalize(name) for name in credited_names if name}
+    if allowed.intersection(credited):
+        return True
+    for name in allowed_names:
+        members = re.split(r'\s+(?:and|&)\s+', name.strip(), flags=re.I)
+        if len(members) == 2 and all(len(normalize(member)) >= 3 for member in members):
+            if {normalize(member) for member in members}.issubset(credited):
+                return True
+    return False
+
+
 def track_assessment(canonical, spotify, artist_names):
     if spotify.get('is_playable') is False or spotify.get('restrictions'):
         return {'score': 0, 'verified': False, 'reason': 'unavailable'}
@@ -32,8 +50,8 @@ def track_assessment(canonical, spotify, artist_names):
     # singer/conductor on one track is not a different edition of the album.
     # Without per-track credits, fall back to the release-group artist.
     allowed = canonical.get('artist_names') or artist_names
-    credited = {normalize(a['name']) for a in spotify.get('artists', []) if a.get('name')}
-    if not credited.intersection({normalize(name) for name in allowed if name}):
+    credited = [a['name'] for a in spotify.get('artists', []) if a.get('name')]
+    if not artist_credit_matches(allowed, credited):
         return {'score': 0, 'verified': False, 'reason': 'artist_mismatch'}
     left, right = normalize(canonical['title'], True), normalize(spotify['name'], True)
     recording_title = normalize(canonical.get('recording_title') or '', True)
@@ -121,7 +139,6 @@ def _rescue_ordered_medley_prefix(album, source, mappings):
         return
     tracks = source['all_tracks']
     used = {m['spotify_id'] for m in mappings if m['spotify_id']}
-    artists = {normalize(a['name']) for a in album['artists']}
     by_id = {track['id']: index for index, track in enumerate(tracks)}
     for index, (canonical, mapping) in enumerate(zip(album['tracks'], mappings)):
         if mapping['verified'] or mapping['spotify_id']:
@@ -142,8 +159,8 @@ def _rescue_ordered_medley_prefix(album, source, mappings):
             if set(VERSION.findall(normalize(canonical['title'], True))) != set(
                     VERSION.findall(normalize(spotify['name'], True))):
                 continue
-            credited = {normalize(a['name']) for a in spotify.get('artists', []) if a.get('name')}
-            if not artists.intersection(credited):
+            credited = [a['name'] for a in spotify.get('artists', []) if a.get('name')]
+            if not artist_credit_matches([a['name'] for a in album['artists']], credited):
                 continue
             duration, actual = canonical.get('duration_ms'), spotify.get('duration_ms')
             if not duration or not actual or abs(actual-duration) > max(8000, duration*.04):
@@ -183,8 +200,10 @@ def candidate(album, source):
             item = by_id[mapping['spotify_id']]
             mapping.update(spotify_title=item['name'], assessment=track_assessment(track, item, artists))
         else:
-            considered = sorted(({'id': t['id'], 'title': t['name'], **track_assessment(track, t, artists)}
-                                for t in source['all_tracks']), key=lambda t: t['score'], reverse=True)
+            considered = sorted(({'id': t['id'], 'title': t['name'], 'spotify_position': n+1,
+                                   **track_assessment(track, t, artists)}
+                                for n,t in enumerate(source['all_tracks'])),
+                                key=lambda t: (t['verified'], t['score']), reverse=True)
             mapping.update(assessment={'reason': 'no_ordered_match'}, alternatives=considered[:3])
     _rescue_ordered_medley_prefix(album, source, mappings)
     # An album with at least five tracks and every other song independently
