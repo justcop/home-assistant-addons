@@ -158,6 +158,12 @@ Every successful series lookup retains a last successful membership snapshot wit
 
 **Settings → Appearance** offers ten themes: Record Store, Midnight, Paper, Forest, Ocean, Sunset, Plum, Monochrome, Amber and High Contrast. Each has a preview. The choice is stored in the collection database and reused on other devices. A browser-local copy applies it promptly on reopening. Colour palettes include light and dark choices; typography and corner styles vary. Browser checks cover all ten palettes, text/button contrast and phone layout.
 
+## Background Spotify matching
+
+When Spotify is connected, AudioShelf scans shelf albums without a fully verified Spotify mapping in a separate, account-scoped server worker. It starts automatically after Last.fm imports, when Spotify is connected, and on subsequent visits after an interrupted scan. Progress is shown in **Settings → Background Spotify matching**. Existing verified albums are skipped, and unchanged failures are not repeatedly retried on each page visit. Use **Retry all unmatched albums** after catalogue or matching-rule fixes.
+
+Automatic matching saves an edition only if **all original tracks independently verify in order**; manual track choices are never overwritten. Unreviewed original tracklists remain unreviewed and still require your confirmation before playback. Settings also offers **Copy full failure report** with unresolved albums, their best Spotify candidate, verified counts and individual track mismatch reasons. These records are retained server-side across a restart and removed from the report when the album is fixed or leaves the shelf. If Spotify disconnects or rate-limits the worker, the job pauses and can be retried.
+
 ## Problem reports and recording matching
 
 Use **Album settings → Download diagnostic report** after reproducing an issue. Send that JSON file with a description of what went wrong. It includes build information, the saved tracklist and mapping methods, country/format settings, edition decisions, the latest Spotify candidates and matching explanations, artwork source and recent album errors. It excludes OAuth tokens, account credentials, cookies and private configuration. The database retains at most 200 diagnostic events across albums and one latest detailed automatic/manual matching assessment per album. The download includes that album's latest 30 events. API response caches and downloaded artwork remain in the separate replaceable cache folder.
