@@ -123,6 +123,14 @@ def track_assessment(canonical, spotify, artist_names):
         return {'score': 0, 'verified': False, 'reason': 'recording_version_mismatch'}
     exact = left == right
     subtitle = not exact and printed_subtitle_match(canonical['title'], spotify['name'])
+    feature = FEATURED_TITLE.search(spotify['name'])
+    named_guests = {normalize(name) for name in allowed}
+    printed_guest = normalize(feature.group(0).strip(' ()[]')) if feature else ''
+    matched_guest = (credited_guest_matches(allowed, spotify, artist_names)
+                     or any(guest and guest in printed_guest for guest in named_guests
+                            if guest not in {normalize(name) for name in artist_names}))
+    feature_title = (not exact and bool(feature) and matched_guest
+                     and normalize(spotify['name'][:feature.start()], True) == left)
     # Spaced numerals and run-together words: 11am/11 am,
     # Cliffdiving/Cliff Diving, and punctuation-only contractions.
     compact = (not exact and len(left.replace(' ', '')) >= 4 and
@@ -142,7 +150,7 @@ def track_assessment(canonical, spotify, artist_names):
     similarity = SequenceMatcher(None, left, right).ratio()
     isrc = spotify.get('external_ids', {}).get('isrc')
     same_isrc = bool(isrc and isrc in canonical.get('isrcs', []))
-    if not exact and not compact and not subtitle and not recording_match and not same_isrc and not expanded_title and similarity < .85:
+    if not exact and not compact and not subtitle and not feature_title and not recording_match and not same_isrc and not expanded_title and similarity < .85:
         return {'score': 0, 'verified': False, 'reason': 'title_mismatch', 'canonical_title': left, 'spotify_title': right}
     duration = canonical.get('duration_ms')
     actual = spotify.get('duration_ms')
@@ -150,14 +158,14 @@ def track_assessment(canonical, spotify, artist_names):
     plausible_duration = delta is None or delta <= max(8000, duration*.04)
     if delta is not None and delta > max(30000, duration*.18):
         return {'score': 0, 'verified': False, 'reason': 'duration_mismatch', 'duration_delta_ms': delta}
-    score = (95 if exact or compact or subtitle or recording_match or same_isrc or expanded_title else similarity*80) + (5 if delta is not None and delta<2000 else 0)
+    score = (95 if exact or compact or subtitle or feature_title or recording_match or same_isrc or expanded_title else similarity*80) + (5 if delta is not None and delta<2000 else 0)
     # A trailing-title expansion is only verified with independent duration
     # agreement. A similarly named edit/remix is still rejected above.
     verified = (exact or compact or same_isrc or (recording_match and delta is not None)
                 or (expanded_title and delta is not None)
-                or (subtitle and delta is not None and delta <= max(5000, duration*.025))) and plausible_duration
+                or ((subtitle or feature_title) and delta is not None and delta <= max(5000, duration*.025))) and plausible_duration
     return {'score': score, 'verified': verified,
-            'reason': ('exact_title' if exact else 'compact_title' if compact else 'printed_subtitle' if subtitle else 'same_recording_title' if recording_match else 'same_isrc' if same_isrc else 'extended_title') if verified else 'needs_review',
+            'reason': ('exact_title' if exact else 'compact_title' if compact else 'printed_subtitle' if subtitle else 'credited_feature' if feature_title else 'same_recording_title' if recording_match else 'same_isrc' if same_isrc else 'extended_title') if verified else 'needs_review',
             'duration_delta_ms': delta, 'canonical_title': left, 'spotify_title': right}
 
 
