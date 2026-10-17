@@ -93,6 +93,52 @@ def test_browse_and_automatic_selection_skip_early_cassette(application, client,
     assert mb.ensure_tracks(ALBUM)['release_id'] == RELEASE
 
 
+
+def test_automatic_import_prefers_common_original_track_count_without_changing_preferences(application, monkeypatch):
+    from app.musicbrainz import original_release_candidates
+    mb=application.extensions['musicbrainz']
+    store=application.extensions['store']
+    original_ids=['11111111-1111-4111-8111-111111111111',
+                  '22222222-2222-4222-8222-222222222222']
+    extended_id='33333333-3333-4333-8333-333333333333'
+    short_id='44444444-4444-4444-8444-444444444444'
+    def summ(identifier, count, country='GB', date='2007-04-01'):
+        return edition(country, identifier=identifier, date=date, media=[{
+            'format':'CD', 'position':1, 'track-count':count,
+            'tracks':[{'title':'Opening','position':1,'length':180000}]}])
+    variants=[summ(extended_id,233), summ(original_ids[0],14),
+              summ(short_id,12,'US'), summ(original_ids[1],14)]
+    ordered=original_release_candidates(variants,'2007',DEFAULT_FILTERS)
+    assert ordered[0]['id'] in original_ids
+    assert ordered[1]['id'] in original_ids
+    # The preferred country still takes precedence over an unrelated
+    # shortened regional edition. No country/format settings are mutated.
+    def get(entity,params=None):
+        if entity=='release':
+            return {'releases':variants,'release-count':len(variants)}
+        assert entity.startswith('release/')
+        return next(r for r in variants if r['id']==entity.split('/')[-1])
+    monkeypatch.setattr(mb,'get',get)
+    with store.connect() as db:
+        db.execute('DELETE FROM tracks WHERE album_id=?',(ALBUM,))
+    selected=mb.ensure_tracks(ALBUM)
+    assert selected['release_id'] in original_ids
+    assert store.release_filters() == DEFAULT_FILTERS
+    # Existing manually selected/reviewed tracklists remain fixed.
+    before=selected
+    assert mb.ensure_tracks(ALBUM)==before
+
+
+def test_ambiguous_track_count_without_corrobation_preserves_old_selection_order():
+    from app.musicbrainz import original_release_candidates
+    oversized=edition(identifier='11111111-1111-4111-8111-111111111111',date='2007-01-01',
+                     media=[{'format':'CD','position':1,'track-count':45}])
+    shorter=edition(identifier='22222222-2222-4222-8222-222222222222',date='2007-05-01',
+                    media=[{'format':'CD','position':1,'track-count':10}])
+    candidates=original_release_candidates([oversized,shorter],'2007',DEFAULT_FILTERS)
+    assert candidates[0]['id']==oversized['id'], 'Never infer the canonical edition from two arbitrary release counts'
+
+
 def test_no_matching_editions_has_settings_guidance_without_fallback(application, monkeypatch):
     mb = application.extensions['musicbrainz']; store = application.extensions['store']
     monkeypatch.setattr(mb, 'get', lambda *args, **kwargs: {'releases': [edition('XW')], 'release-count': 1})
