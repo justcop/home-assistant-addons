@@ -14,6 +14,12 @@ PRINTED_SUBTITLE = re.compile(r'^(.+?)\s*\(([^()]*)\)\s*$')
 PRINTED_VERSION = re.compile(r'\b(?:feat\.?|featuring|ft\.?|live|demo|acoustic|instrumental|remix|edit|remaster|mix|version|take|radio|mono|stereo|part|pt\.?|bonus|hidden|reprise|alternate|alternative|unplugged|session|clean|explicit|extended|acapella)\b', re.I)
 FEATURED_TITLE = re.compile(r'\s*[\[(]\s*(?:feat\.?|featuring|ft\.?)\s+[^\])]+[\])]\s*$', re.I)
 FEATURED_ARTISTS = re.compile(r'\s+(?:feat\.?|featuring|ft\.?)\s+', re.I)
+# Printed parenthetical songwriting-source notes are not recording versions.
+# Greedy match is deliberate: quoted source titles may have nested parentheses.
+SPOTIFY_PARODY_CREDIT = re.compile(
+    r'\s*\((?:parody\s+of|(?:an?\s+)?(?:lyrical\s+)?(?:adaptation|adaption)\s+of)\s+.+\)\s*$',
+    re.I)
+
 # A few physical editions print a hidden reprise as part of a single long
 # audio track, rather than as a separately playable recording.
 HIDDEN_COMPOSITE = re.compile(r'^\s*(.+?)\s*/\s*(?:\[untitled\]|.+?\(reprise\))\s*$', re.I)
@@ -82,6 +88,15 @@ def printed_subtitle_match(canonical_title, spotify_title):
     return (len(left) >= 4 and left.replace(' ', '') == right.replace(' ', ''))
 
 
+def spotify_parody_credit_match(canonical_title, spotify_title):
+    """Ignore a source-song attribution when the entire base title is intact."""
+    match = SPOTIFY_PARODY_CREDIT.search(spotify_title)
+    if not match:
+        return False
+    base = normalize(spotify_title[:match.start()], True)
+    return len(base) >= 6 and base == normalize(canonical_title, True)
+
+
 def credited_guest_matches(allowed_names, spotify, album_artist_names):
     """Corroborate a MusicBrainz 'Artist feat. Guest' credit printed as one name.
 
@@ -126,10 +141,16 @@ def track_assessment(canonical, spotify, artist_names):
     # Alternate names are evidence only for this linked recording. An alias must
     # never erase a live/demo/edit distinction present in either canonical title.
     versions = set(VERSION.findall(left)) | set(VERSION.findall(recording_title))
-    if versions != set(VERSION.findall(right)):
-        return {'score': 0, 'verified': False, 'reason': 'recording_version_mismatch'}
+    spotify_versions = set(VERSION.findall(right))
+    if versions != spotify_versions:
+        duration, actual = canonical.get('duration_ms'), spotify.get('duration_ms')
+        return {'score': 0, 'verified': False, 'reason': 'recording_version_mismatch',
+                'canonical_version_labels': sorted(versions),
+                'spotify_version_labels': sorted(spotify_versions),
+                'duration_delta_ms': abs(actual-duration) if actual and duration else None}
     exact = left == right
     subtitle = not exact and printed_subtitle_match(canonical['title'], spotify['name'])
+    parody_credit = not exact and spotify_parody_credit_match(canonical['title'], spotify['name'])
     feature = FEATURED_TITLE.search(spotify['name'])
     named_guests = {normalize(name) for name in allowed}
     printed_guest = normalize(feature.group(0).strip(' ()[]')) if feature else ''
@@ -157,7 +178,7 @@ def track_assessment(canonical, spotify, artist_names):
     similarity = SequenceMatcher(None, left, right).ratio()
     isrc = spotify.get('external_ids', {}).get('isrc')
     same_isrc = bool(isrc and isrc in canonical.get('isrcs', []))
-    if not exact and not compact and not subtitle and not feature_title and not recording_match and not same_isrc and not expanded_title and similarity < .85:
+    if not exact and not compact and not subtitle and not parody_credit and not feature_title and not recording_match and not same_isrc and not expanded_title and similarity < .85:
         return {'score': 0, 'verified': False, 'reason': 'title_mismatch', 'canonical_title': left, 'spotify_title': right}
     duration = canonical.get('duration_ms')
     actual = spotify.get('duration_ms')
@@ -165,14 +186,14 @@ def track_assessment(canonical, spotify, artist_names):
     plausible_duration = delta is None or delta <= max(8000, duration*.04)
     if delta is not None and delta > max(30000, duration*.18):
         return {'score': 0, 'verified': False, 'reason': 'duration_mismatch', 'duration_delta_ms': delta}
-    score = (95 if exact or compact or subtitle or feature_title or recording_match or same_isrc or expanded_title else similarity*80) + (5 if delta is not None and delta<2000 else 0)
+    score = (95 if exact or compact or subtitle or parody_credit or feature_title or recording_match or same_isrc or expanded_title else similarity*80) + (5 if delta is not None and delta<2000 else 0)
     # A trailing-title expansion is only verified with independent duration
     # agreement. A similarly named edit/remix is still rejected above.
     verified = (exact or compact or same_isrc or (recording_match and delta is not None)
                 or (expanded_title and delta is not None)
-                or ((subtitle or feature_title) and delta is not None and delta <= max(5000, duration*.025))) and plausible_duration
+                or ((subtitle or feature_title or parody_credit) and delta is not None and delta <= max(5000, duration*.025))) and plausible_duration
     return {'score': score, 'verified': verified,
-            'reason': ('exact_title' if exact else 'compact_title' if compact else 'printed_subtitle' if subtitle else 'credited_feature' if feature_title else 'same_recording_title' if recording_match else 'same_isrc' if same_isrc else 'extended_title') if verified else 'needs_review',
+            'reason': ('exact_title' if exact else 'compact_title' if compact else 'printed_subtitle' if subtitle else 'parody_source_credit' if parody_credit else 'credited_feature' if feature_title else 'same_recording_title' if recording_match else 'same_isrc' if same_isrc else 'extended_title') if verified else 'needs_review',
             'duration_delta_ms': delta, 'canonical_title': left, 'spotify_title': right}
 
 
