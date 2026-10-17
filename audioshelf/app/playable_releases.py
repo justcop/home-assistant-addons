@@ -8,7 +8,7 @@ import hashlib
 import json
 
 from .errors import AppError
-from .matching import candidate
+from .matching import candidate, normalize, artist_credit_matches
 from .musicbrainz import mbid, release_tracks
 from .release_filters import matches_filters
 from .tracklist_variants import group_releases, vinyl_sides
@@ -55,6 +55,10 @@ class PlayableReleases:
             if enriched is not album:
                 assessment = candidate(enriched, source)
         if not self.fully_verified(assessment, len(album['tracks'])):
+            confirmed = self.isrc_corroborated(enriched, [source], [assessment])
+            if confirmed:
+                assessment = confirmed[0]
+        if not self.fully_verified(assessment, len(album['tracks'])):
             missing = len(album['tracks']) - assessment['verified']
             raise AppError(f'This MusicBrainz edition has {missing} track(s) without a verified Spotify match. Choose another edition.')
         return assessment
@@ -100,6 +104,23 @@ class PlayableReleases:
             self.store.cache_put(key, identifiers, ttl=900)
         return [self.spotify.album(identifier) for identifier in identifiers]
 
+    def labelled_sources(self, album):
+        """Fetch edition-labelled Spotify variants only after normal discovery fails.
+
+        Cache album IDs independently of the MusicBrainz pressing being tried,
+        so scanning dozens of eligible releases doesn't multiply Spotify
+        search calls. Every returned track is checked against the current
+        original MusicBrainz edition; no bonus material is added to it.
+        """
+        if not hasattr(self.spotify, 'labelled_editions'):
+            return []
+        key = 'playable-labelled-editions:' + self.spotify.market + ':' + album['id']
+        identifiers = self.store.cache_get(key)
+        if identifiers is None:
+            identifiers = self.spotify.labelled_editions(album)
+            self.store.cache_put(key, identifiers, ttl=900)
+        return [self.spotify.album(identifier) for identifier in identifiers]
+
     def page(self, album_id, offset=0):
         if not self.spotify.connected:
             raise AppError('Connect Spotify in Settings to find playable MusicBrainz editions.', 409)
@@ -140,6 +161,13 @@ class PlayableReleases:
                      if source['id'] not in existing]
             assessments.extend(candidate(probe, source) for source in extra)
             matches = [c for c in assessments if self.fully_verified(c, len(probe['tracks']))]
+        labelled = []
+        if not matches:
+            seen = {source['id'] for source in sources + extra}
+            labelled = [source for source in self.labelled_sources(album)
+                        if source['id'] not in seen]
+            assessments.extend(candidate(probe, source) for source in labelled)
+            matches = [c for c in assessments if self.fully_verified(c, len(probe['tracks']))]
         if not matches and assessments:
             # Recording aliases/ISRCs can rescue an otherwise good, differently
             # printed title. Do this ONLY for near matches, and never mutate the DB.
@@ -154,11 +182,97 @@ class PlayableReleases:
                 enriched = self.enrich_probe(probe, best)
                 if enriched is not probe:
                     sources_by_id = {s['id']: s for s in sources}
-                    sources_by_id.update({s['id']: s for s in extra})
+                    sources_by_id.update({s['id']: s for s in extra + labelled})
                     assessments = [candidate(enriched, source) for source in sources_by_id.values()]
                     matches = [c for c in assessments if self.fully_verified(c, len(probe['tracks']))]
+                    probe = enriched
+        if not matches and assessments:
+            all_sources = list({source['id']: source for source in sources + extra + labelled}.values())
+            matches = self.isrc_corroborated(probe, all_sources, assessments)
         matches.sort(key=lambda c: c['score'], reverse=True)
         return matches, assessments
+
+    def isrc_corroborated(self, probe, sources, assessments):
+        """Resolve a contradictory recording subtitle only through identical ISRC.
+
+        This is a late fallback for otherwise fully matching original albums.
+        Spotify's album listing omits track-level ISRCs, so obtain the one
+        full Spotify track if MusicBrainz already supplies independent ISRC
+        evidence. A live version or a different title must never be substituted.
+        """
+        if not hasattr(self.spotify, 'track'):
+            return []
+        by_source = {source['id']: source for source in sources}
+        count = len(probe['tracks'])
+        if count < 6:
+            return []
+        # At most three near-complete albums may incur extra network lookups.
+        ranked = sorted((a for a in assessments if a['verified'] == count-1),
+                        key=lambda a: a['score'], reverse=True)[:3]
+        for assessment in ranked:
+            source = by_source.get(assessment['id'])
+            if not source:
+                continue
+            missing = [i for i, m in enumerate(assessment['mappings']) if not m['verified']]
+            if len(missing) != 1:
+                continue
+            index = missing[0]
+            canonical = probe['tracks'][index]
+            if not canonical.get('isrcs'):
+                continue
+            printed = normalize(canonical['title'], True)
+            record = normalize(canonical.get('recording_title') or '', True)
+            # Only investigate when MusicBrainz's RECORDING label has extra
+            # version information absent from the printed canonical track.
+            from .matching import VERSION
+            if not (set(VERSION.findall(record)) and
+                    not set(VERSION.findall(printed))):
+                continue
+            positions = {track['id']: p for p, track in enumerate(source['all_tracks'])}
+            earlier = [positions[m['spotify_id']] for m in assessment['mappings'][:index]
+                       if m['verified'] and m['spotify_id'] in positions]
+            later = [positions[m['spotify_id']] for m in assessment['mappings'][index+1:]
+                     if m['verified'] and m['spotify_id'] in positions]
+            low = max(earlier, default=-1)
+            high = min(later, default=len(source['all_tracks']))
+            if high <= low + 1 or high - low > 4:
+                continue
+            used = {m['spotify_id'] for m in assessment['mappings'] if m['verified']}
+            artists = canonical.get('artist_names') or [
+                item['name'] for item in probe['artists']]
+            options = []
+            for position in range(low+1, high):
+                track = source['all_tracks'][position]
+                duration, actual = canonical.get('duration_ms'), track.get('duration_ms')
+                if (track.get('id') in used or track.get('is_playable') is False or
+                        track.get('restrictions') or
+                        normalize(track.get('name', ''), True) != printed or
+                        not duration or not actual or abs(duration-actual) > 2000 or
+                        not artist_credit_matches(artists, [
+                            a['name'] for a in track.get('artists', []) if a.get('name')])):
+                    continue
+                options.append((position, track))
+            if len(options) != 1:
+                continue
+            position, track = options[0]
+            try:
+                detail = self.spotify.track(track['id'])
+            except AppError as error:
+                if error.status >= 500 or error.status == 429:
+                    raise
+                continue
+            spotify_isrc = ((detail.get('external_ids') or {}).get('isrc') or '').upper()
+            canonical_isrcs = {str(code).upper() for code in canonical.get('isrcs', [])}
+            if not spotify_isrc or spotify_isrc not in canonical_isrcs:
+                continue
+            # Use the original album track identity, enriching only ISRC
+            # evidence. Never borrow a different album or reordered recording.
+            patched = list(source['all_tracks'])
+            patched[position] = {**track, 'external_ids': {'isrc': spotify_isrc}}
+            verified = candidate(probe, {**source, 'all_tracks': patched})
+            if self.fully_verified(verified, count):
+                return [verified]
+        return []
 
     @staticmethod
     def match_summaries(matches, count):

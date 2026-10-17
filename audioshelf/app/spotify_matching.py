@@ -14,10 +14,10 @@ from .errors import AppError
 from difflib import SequenceMatcher
 
 from .matching import candidate, normalize
-from .musicbrainz import original_release_candidates, release_summary_track_count
+from .musicbrainz import original_release_candidates, release_summary_track_count, standard_release_reference
 
 LOG = logging.getLogger('audioshelf.spotify_matching')
-ATTEMPTS = 'spotify_matching_attempts_v6'
+ATTEMPTS = 'spotify_matching_attempts_v7'
 FAILURES = 'spotify_matching_failures_v1'
 STATUS = 'spotify_matching_status_v1'
 PAUSE_UNTIL = 'spotify_matching_pause_until_v1'
@@ -346,8 +346,10 @@ class SpotifyMatching:
         scans when a release group contains thousands of reissues.
         """
         mb = playable.musicbrainz
+        releases = mb.releases(album['id'])
+        reference = standard_release_reference(releases, album.get('release_date', ''))
         candidates = original_release_candidates(
-            mb.releases(album['id']), album.get('release_date', ''),
+            releases, album.get('release_date', ''),
             playable.store.release_filters(album['id']))
         examined, skipped, best = 0, 0, None
         # Prefer standard / original pressings; postpone expanded media and
@@ -357,6 +359,9 @@ class SpotifyMatching:
             if examined >= 80:
                 break
             count = release_summary_track_count(release)
+            if reference and count is not None and count > reference['track_count']:
+                skipped += 1
+                continue
             if count is not None and count > 100:
                 skipped += 1
                 continue
@@ -365,6 +370,9 @@ class SpotifyMatching:
             except AppError as error:
                 if error.status >= 500 or error.status == 429:
                     raise
+                skipped += 1
+                continue
+            if reference and len(probe['tracks']) > reference['track_count']:
                 skipped += 1
                 continue
             if len(probe['tracks']) > 100:

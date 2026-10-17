@@ -23,6 +23,7 @@ from .lastfm_import import LastFmImporter
 from .artwork import Artwork
 from .artwork_refresh import ArtworkRefresh
 from .spotify_matching import SpotifyMatching, report_text, PAUSE_UNTIL
+from .shelf_edition_audit import ShelfEditionAudit, audit_report
 from .errors import AppError
 from .matching import candidate, track_score
 from .musicbrainz import MusicBrainz, mbid
@@ -97,6 +98,8 @@ def create_app(options=None):
     app.extensions['artwork_refresh'] = artwork_refresh
     spotify_matching = SpotifyMatching()
     app.extensions['spotify_matching'] = spotify_matching
+    shelf_edition_audit = ShelfEditionAudit()
+    app.extensions['shelf_edition_audit'] = shelf_edition_audit
     # Every request resolves its own context. No global current-user mutation.
     store = LocalProxy(lambda: g.context.store)
     spotify = LocalProxy(lambda: g.context.spotify)
@@ -599,6 +602,29 @@ def create_app(options=None):
             raise AppError('Only the account owner can read Spotify matching diagnostics.', 403)
         job = spotify_matching.status(g.account['id'], g.context.store)['job']
         return jsonify(text=report_text(g.context.store, job))
+
+    @app.get('/api/shelf/edition-audit')
+    def original_edition_audit_status():
+        if g.identity['role'] != 'owner':
+            raise AppError('Owner access required for the original-edition audit.', 403)
+        return jsonify(job=shelf_edition_audit.status(g.account['id'], g.context.store))
+
+    @app.post('/api/shelf/edition-audit')
+    def original_edition_audit_start():
+        if g.identity['role'] != 'owner':
+            raise AppError('Owner access required for the original-edition audit.', 403)
+        running = spotify_matching.status(g.account['id'], g.context.store)['job']
+        if running and running.get('state') == 'running':
+            raise AppError('Finish bulk Spotify matching before auditing editions.', 409)
+        job = shelf_edition_audit.start(g.account['id'], g.context.store,
+            g.context.musicbrainz, enabled=accounts.enabled)
+        return jsonify(job=job), 202
+
+    @app.get('/api/shelf/edition-audit/report')
+    def original_edition_audit_report():
+        if g.identity['role'] != 'owner':
+            raise AppError('Owner access required to export the original-edition audit.', 403)
+        return jsonify(text=audit_report(g.context.store))
 
     @app.get('/api/albums/<album_id>/artwork')
     def album_artwork(album_id):

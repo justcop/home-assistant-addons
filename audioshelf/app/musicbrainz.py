@@ -96,6 +96,50 @@ def original_release_candidates(releases, original_date, filters):
     return ranked + [r for r in ordered if r not in ranked]
 
 
+
+# Edition labels are weak evidence but useful to avoid treating a 41-track
+# deluxe pressing as the original 12-track album merely because Spotify
+# happens to carry all forty-one recordings.
+EXPANSION = re.compile(r'\b(?:bonus|deluxe|expanded|collector(?:s|\'s)?|anniversary|special edition)\b', re.I)
+
+
+def standard_release_reference(releases, original_date):
+    """Find a corroborated original-era track count, or abstain if ambiguous.
+
+    Never infer that the shortest release is automatically the original:
+    regional editions, hidden tracks, and double albums legitimately differ.
+    Require at least TWO distinct official, non-expanded original-era
+    MusicBrainz releases agreeing on a count, with no equally common rival.
+    """
+    years = [int(release.get('date', '')[:4]) for release in releases
+             if (release.get('date') or '')[:4].isdigit()
+             and release.get('status', 'Official') == 'Official']
+    first = int(original_date[:4]) if original_date[:4].isdigit() else (min(years) if years else None)
+    if first is None:
+        return None
+    grouped = {}
+    for release in releases:
+        year = (release.get('date') or '')[:4]
+        description = release.get('title', '') + ' ' + release.get('disambiguation', '')
+        count = release_summary_track_count(release)
+        if (release.get('status', 'Official') != 'Official' or
+                not year.isdigit() or abs(int(year) - first) > 2 or
+                count is None or count < 2 or count > 100 or
+                EXPANSION.search(description)):
+            continue
+        grouped.setdefault(count, []).append(release)
+    if not grouped:
+        return None
+    leaders = sorted(grouped.items(), key=lambda item: len(item[1]), reverse=True)
+    top_count, evidence = leaders[0]
+    if len(evidence) < 2 or (len(leaders) > 1 and len(leaders[1][1]) == len(evidence)):
+        return None
+    return {'track_count': top_count, 'supporting_releases': len(evidence),
+            'release_ids': [item['id'] for item in evidence],
+            'reference_release_id': min(evidence, key=lambda r: (
+                abs(int(r['date'][:4])-first), r['date'], r['id']))['id']}
+
+
 def credited_artists(credits):
     """Return recorded credit labels and their canonical MusicBrainz artists.
 
