@@ -14,6 +14,11 @@ PRINTED_SUBTITLE = re.compile(r'^(.+?)\s*\(([^()]*)\)\s*$')
 PRINTED_VERSION = re.compile(r'\b(?:feat\.?|featuring|ft\.?|live|demo|acoustic|instrumental|remix|edit|remaster|mix|version|take|radio|mono|stereo|part|pt\.?|bonus|hidden|reprise|alternate|alternative|unplugged|session|clean|explicit|extended|acapella)\b', re.I)
 FEATURED_TITLE = re.compile(r'\s*[\[(]\s*(?:feat\.?|featuring|ft\.?)\s+[^\])]+[\])]\s*$', re.I)
 FEATURED_ARTISTS = re.compile(r'\s+(?:feat\.?|featuring|ft\.?)\s+', re.I)
+# A few physical editions print a hidden reprise as part of a single long
+# audio track, rather than as a separately playable recording.
+HIDDEN_COMPOSITE = re.compile(r'^\s*(.+?)\s*/\s*(?:\[untitled\]|.+?\(reprise\))\s*$', re.I)
+SPOTIFY_INTERLUDE_LABEL = re.compile(r'\s*[-–—]\s*album version\s*\(\s*with interlude\s*\)\s*$', re.I)
+SPOTIFY_HIDDEN_LABEL = re.compile(r'\s*[-–—]\s*contains bonus hidden track\s+.{2,100}\s*$', re.I)
 VERSION_QUALIFIER = re.compile(r'\b(acoustic|live|demo|instrumental)\s+version\b', re.I)
 ROMAN_PART = re.compile(r'\bpart\s+(i|ii|iii|iv|v|vi|vii|viii|ix|x)\b', re.I)
 ROMAN_PARTS = {'i': 1, 'ii': 2, 'iii': 3, 'iv': 4, 'v': 5,
@@ -71,8 +76,10 @@ def printed_subtitle_match(canonical_title, spotify_title):
     primary, detail = match.groups()
     if len(detail.strip()) < 8 or PRINTED_VERSION.search(detail):
         return False
-    return (len(normalize(primary, True)) >= 4
-            and normalize(primary, True) == normalize(spotify_title, True))
+    # The album can also print "Punchup" where Spotify prints "Punch Up".
+    # Preserve the word sequence and require separate artist/duration evidence.
+    left, right = normalize(primary, True), normalize(spotify_title, True)
+    return (len(left) >= 4 and left.replace(' ', '') == right.replace(' ', ''))
 
 
 def credited_guest_matches(allowed_names, spotify, album_artist_names):
@@ -255,6 +262,65 @@ def _rescue_ordered_medley_prefix(album, source, mappings):
             used.add(item['id'])
 
 
+def _rescue_hidden_composite(album, source, mappings):
+    """Verify one long physical track containing a hidden reprise or outro.
+
+    Some MusicBrainz tracklists name BOTH pieces of one audio file, while
+    Spotify displays the primary song. Never silently omit the hidden audio:
+    the whole track must have the same duration (within two seconds), appear
+    in the same ordered position and have at least five verified neighbours.
+    """
+    if len(album['tracks']) < 6 or sum(bool(m['verified']) for m in mappings) < 5:
+        return
+    if sum(not bool(m['verified']) for m in mappings) > 2:
+        return
+    spotify_tracks = source['all_tracks']
+    by_id = {track['id']: index for index, track in enumerate(spotify_tracks)}
+    used = {m['spotify_id'] for m in mappings if m['verified'] and m['spotify_id']}
+    artists = [a['name'] for a in album['artists']]
+    for index, (canonical, mapping) in enumerate(zip(album['tracks'], mappings)):
+        if mapping['verified']:
+            continue
+        match = HIDDEN_COMPOSITE.fullmatch(canonical['title'])
+        if not match:
+            continue
+        lead = normalize(match.group(1), True)
+        if len(lead) < 5:
+            continue
+        earlier = [by_id[m['spotify_id']] for m in mappings[:index]
+                   if m['verified'] and m['spotify_id'] in by_id]
+        later = [by_id[m['spotify_id']] for m in mappings[index+1:]
+                 if m['verified'] and m['spotify_id'] in by_id]
+        low = max(earlier, default=-1)
+        high = min(later, default=len(spotify_tracks))
+        if high - low > 4:
+            continue
+        options = []
+        for position in range(low+1, high):
+            track = spotify_tracks[position]
+            if (track['id'] in used or track.get('is_playable') is False
+                    or track.get('restrictions') or normalize(track['name'], True) != lead):
+                continue
+            if not artist_credit_matches(canonical.get('artist_names') or artists,
+                                         [a['name'] for a in track.get('artists', []) if a.get('name')]):
+                continue
+            # Version labels in the lead piece must agree; recording metadata
+            # for a hidden reprise can mention a different recording version.
+            if set(VERSION.findall(lead)) != set(VERSION.findall(normalize(track['name'], True))):
+                continue
+            duration, actual = canonical.get('duration_ms'), track.get('duration_ms')
+            if not duration or not actual or abs(actual-duration) > 2000:
+                continue
+            options.append(track)
+        if len(options) == 1:
+            track = options[0]
+            mapping.update(spotify_id=track['id'], verified=True, score=95,
+                           spotify_title=track['name'], assessment={
+                               'verified': True, 'reason': 'album_context_full_hidden_track',
+                               'duration_delta_ms': abs(track['duration_ms']-canonical['duration_ms'])})
+            used.add(track['id'])
+
+
 def _rescue_contextual_title_variants(album, source, mappings):
     """Resolve minor print-title differences only within an independently matched album.
 
@@ -299,11 +365,37 @@ def _rescue_contextual_title_variants(album, source, mappings):
             if set(VERSION.findall(left)) | set(VERSION.findall(recording)) != set(VERSION.findall(right)):
                 continue
             likeness = SequenceMatcher(None, left, right).ratio()
-            if likeness < .84:
-                continue
             duration, actual = canonical.get('duration_ms'), track.get('duration_ms')
             if not duration or not actual or abs(actual-duration) > min(3000, max(1000, duration*.012)):
                 continue
+            # Only a single outstanding recording in an otherwise complete
+            # album can be identified by a two-word prefix or editorial
+            # interlude/hidden-track label. Independent placement, performers
+            # and extremely close durations remain mandatory.
+            plain = canonical['title']
+            spotify_title = track['name']
+            prefix = (len(missing) == 1 and len(left.split()) >= 2
+                      and len(right.split()) - len(left.split()) in (1, 2, 3)
+                      and right.split()[:len(left.split())] == left.split()
+                      and len(left) >= 8)
+            labelled = ((SPOTIFY_INTERLUDE_LABEL.search(spotify_title)
+                          or SPOTIFY_HIDDEN_LABEL.search(spotify_title))
+                        and normalize(SPOTIFY_INTERLUDE_LABEL.sub('',
+                            SPOTIFY_HIDDEN_LABEL.sub('', spotify_title)), True) == left)
+            labelled = bool(labelled) and len(missing) == 1
+            if likeness < .84 and not (prefix or labelled):
+                continue
+            if (prefix or labelled) and abs(actual-duration) > 2000:
+                continue
+            if labelled:
+                # A hidden 2/15ths that MusicBrainz lists as a different
+                # track cannot be silently collapsed into its neighbour.
+                suffix = SPOTIFY_HIDDEN_LABEL.search(spotify_title)
+                if suffix:
+                    hidden = normalize(suffix.group(0), True).split('track')[-1].strip()
+                    if any(hidden and hidden in normalize(other['title'], True)
+                           for j, other in enumerate(album['tracks']) if j != index):
+                        continue
             options.append((track, likeness, abs(actual-duration)))
         if len(options) != 1:
             continue
@@ -343,6 +435,7 @@ def candidate(album, source):
                                                     normalize(t['title'], True)).ratio()), reverse=True)
             mapping.update(assessment={'reason': 'no_ordered_match'}, alternatives=considered[:3])
     _rescue_ordered_medley_prefix(album, source, mappings)
+    _rescue_hidden_composite(album, source, mappings)
     _rescue_contextual_title_variants(album, source, mappings)
     # An album with at least five tracks and every other song independently
     # verified provides useful context for one exactly named recording whose

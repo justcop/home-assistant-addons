@@ -340,3 +340,109 @@ def test_featured_artist_credit_requires_primary_artist_and_guest_evidence():
     source['artists']=[{'name':'Vampire Weekend'}]
     source['name']='We Belong Together (feat. Danielle Haim)'
     assert not track_assessment(canonical,source,['Different Group'])['verified']
+
+
+def test_punchup_editorial_subtitle_accepts_compound_spacing_not_different_song():
+    from app.matching import track_assessment
+    canonical={'title':'A Punchup at a Wedding. (No No No No No No No No.)',
+               'duration_ms':297000}
+    match=spotify_track('A Punch Up at a Wedding','p'*22,297850)
+    result=track_assessment(canonical,match,['The Artist'])
+    assert result['verified'] and result['reason']=='printed_subtitle'
+    assert not track_assessment(canonical,spotify_track('A Punch Up at a Wedding',
+                                'p'*22,315000),['The Artist'])['verified']
+    assert not track_assessment(canonical,spotify_track('A Punch Up at Another Wedding',
+                                'p'*22,297000),['The Artist'])['verified']
+
+
+
+def test_full_length_hidden_track_composites_never_substitute_the_short_single():
+    from app.matching import candidate,track_assessment
+    cases=[('El Borracho / [untitled]','El Borracho',1056000),
+           ('Smash / Come Out and Play (reprise)','Smash',640000)]
+    for canonical_title,spotify_title,duration in cases:
+        titles=[f'Other Song {i}' for i in range(1,11)]+[canonical_title]
+        tracks=[{'title':t,'position':i,'duration_ms':duration if i==11 else 180000}
+                for i,t in enumerate(titles,1)]
+        spotify=[spotify_track(t,f'{i:02d}'*11,duration if i==11 else 180000)
+                 for i,t in enumerate(titles[:-1]+[spotify_title],1)]
+        album={'title':'The Album','release_date':'2001',
+               'artists':[{'name':'The Artist'}],'tracks':tracks}
+        source={'id':'s'*22,'name':'The Album','release_date':'2001','all_tracks':spotify}
+        assert not track_assessment(tracks[-1],spotify[-1],['The Artist'])['verified']
+        full=candidate(album,source)
+        assert full['verified']==11
+        assert full['mappings'][-1]['assessment']['reason']=='album_context_full_hidden_track'
+        spotify[-1]['duration_ms']-=30000
+        assert candidate(album,source)['verified']==10, 'A short single is not a hidden-track composite'
+        spotify[-1]['duration_ms']+=30000
+        spotify[-1]['artists']=[{'name':'A Tribute Band'}]
+        assert candidate(album,source)['verified']==10
+        spotify[-1]['artists']=[{'name':'The Artist'}]
+        spotify[-1],spotify[-2]=spotify[-2],spotify[-1]
+        assert candidate(album,source)['verified']<11, 'Song order must be preserved'
+
+
+def test_short_original_song_prefix_is_only_verifiable_in_strict_album_context():
+    from app.matching import candidate,track_assessment
+    canonical=[{'position':i,'title':f'Other {i}','duration_ms':180000}
+               for i in range(1,11)]
+    canonical.append({'position':11,'title':'This Song','duration_ms':265000})
+    tracks=[spotify_track(t['title'],f'{i:02d}'*11,t['duration_ms'])
+            for i,t in enumerate(canonical,1)]
+    tracks[-1]['name']='This Song Is About You'
+    album={'title':"We'll Live and Die in These Towns", 'release_date':'2007',
+           'artists':[{'name':'The Artist'}],'tracks':canonical}
+    spotify={'id':'x'*22,'name':album['title'],'release_date':'2007',
+             'all_tracks':tracks}
+    assert not track_assessment(canonical[-1],tracks[-1],['The Artist'])['verified']
+    assert candidate(album,spotify)['verified']==11
+    tracks[-1]['duration_ms']+=5000
+    assert candidate(album,spotify)['verified']==10
+    tracks[-1]['duration_ms']-=5000
+    tracks[-1]['name']='This Song - Live'
+    assert candidate(album,spotify)['verified']==10
+    tracks[-1]['name']='This Song Is About You'
+    tracks[-1]['artists']=[{'name':'Other Band'}]
+    assert candidate(album,spotify)['verified']==10
+
+
+def test_album_version_with_interlude_needs_same_full_audio_and_independent_album_context():
+    from app.matching import candidate,track_assessment
+    canonical=[{'position':i,'title':f'Song {i}','duration_ms':180000}
+               for i in range(1,14)]
+    spotify=[spotify_track(t['title'],f'{i:02d}'*11,180000)
+             for i,t in enumerate(canonical,1)]
+    spotify[0]['name']='Song 1 - Album Version (With Interlude)'
+    album={'title':'Songs for the Deaf','release_date':'2002',
+           'artists':[{'name':'The Artist'}],'tracks':canonical}
+    source={'id':'s'*22,'name':album['title'],'release_date':'2002',
+            'all_tracks':spotify}
+    assert not track_assessment(canonical[0],spotify[0],['The Artist'])['verified']
+    assert candidate(album,source)['verified']==13
+    spotify[0]['duration_ms']=210000
+    assert candidate(album,source)['verified']==12
+    spotify[0]['duration_ms']=180000
+    spotify[0]['name']='Song 1 - Live Album Version (With Interlude)'
+    assert candidate(album,source)['verified']==12
+
+
+def test_hidden_label_can_match_contiguous_recording_but_not_erase_separate_musicbrainz_track():
+    from app.matching import candidate
+    canonical=[{'position':i,'title':f'Song {i}','duration_ms':180000}
+               for i in range(1,14)]
+    spotify=[spotify_track(t['title'],f'{i:02d}'*11,180000)
+             for i,t in enumerate(canonical,1)]
+    canonical[3]['title']='As Dust Dances'
+    canonical[3]['duration_ms']=262000
+    spotify[3]['name']="As Dust Dances - contains bonus hidden track '2/15ths'"
+    spotify[3]['duration_ms']=262000
+    album={'title':'Puzzle','release_date':'2007',
+           'artists':[{'name':'The Artist'}],'tracks':canonical}
+    source={'id':'s'*22,'name':'Puzzle','release_date':'2007','all_tracks':spotify}
+    assert candidate(album,source)['verified']==13
+    # The audio may be combined only if the canonical edition itself agrees.
+    # A different printed 2/15ths track cannot quietly disappear.
+    canonical.insert(4,{'position':5,'title':'2/15ths','duration_ms':30000})
+    for i,t in enumerate(canonical,1):t['position']=i
+    assert candidate(album,source)['verified']<14
