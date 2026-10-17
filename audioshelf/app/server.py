@@ -561,7 +561,10 @@ def create_app(options=None):
                 store.album(album_id)
             except KeyError:
                 musicbrainz.ensure_group(album_id)
-            return jsonify(musicbrainz.ensure_tracks(album_id))
+            existing = store.album(album_id)
+            # An unresolved shelf album must not accidentally regain the
+            # first unverified MusicBrainz pressing when its page is opened.
+            return jsonify(existing if existing['on_shelf'] else musicbrainz.ensure_tracks(album_id))
 
     @app.post('/api/artwork/refresh')
     def begin_artwork_refresh():
@@ -674,10 +677,13 @@ def create_app(options=None):
                     payload['spotify_album_id'], reviewed=False, add_to_shelf=True,
                     split_sides=payload.get('split_sides', False))
                 return jsonify(album)
-            # Backward compatibility for existing integrations. The interactive
-            # Record Store always sends a Spotify-verified edition choice.
-            musicbrainz.ensure_tracks(album_id)
+            # Compatibility route: add an album identity but do not accept
+            # an unverified MusicBrainz tracklist as the final edition.
+            store.clear_unverified_edition(album_id)
             store.shelf(album_id,True)
+            spotify_matching.start(g.account['id'], g.context.store,
+                g.context.spotify, g.context.playable_releases,
+                enabled=accounts.enabled, automatic=True)
             return jsonify(store.album(album_id))
 
     @app.delete('/api/albums/<album_id>/shelf')
@@ -725,6 +731,8 @@ def create_app(options=None):
             raise AppError('Confirm the edition change. It replaces the canonical tracks and clears Spotify mappings.')
         with store.catalogue_lock:
             payload = request.json
+            if store.album(mbid(album_id))['on_shelf'] and not payload.get('spotify_album_id'):
+                raise AppError('A shelf edition must have every track verified on Spotify before it can be saved.', 409)
             if payload.get('spotify_album_id'):
                 return jsonify(playable_releases.select(mbid(album_id), payload.get('release_id'),
                                                        payload['spotify_album_id'], reviewed=True,
@@ -743,6 +751,9 @@ def create_app(options=None):
 
     @app.post('/api/albums/<album_id>/review')
     def review(album_id):
+        current = store.album(mbid(album_id))
+        if not current['playable']:
+            raise AppError('Only a fully Spotify-verified original tracklist can be confirmed.', 409)
         with store.connect() as db:
             db.execute('UPDATE albums SET canonical_reviewed=1 WHERE id=?',(mbid(album_id),))
         return jsonify(ok=True)
@@ -750,7 +761,11 @@ def create_app(options=None):
     @app.post('/api/albums/<album_id>/resolve')
     def resolve(album_id):
         with store.catalogue_lock:
-            album = musicbrainz.ensure_tracks(mbid(album_id))
+            album = store.album(mbid(album_id))
+            if album['on_shelf'] and not album['tracks']:
+                raise AppError('No verified canonical tracklist is saved. Choose Find playable edition first.', 409)
+            if not album['tracks']:
+                album = musicbrainz.ensure_tracks(mbid(album_id))
             candidates = spotify.candidates(album)
             if candidates:
                 positions = {m['position'] for m in candidates[0]['mappings'] if not m['verified']}

@@ -74,7 +74,8 @@ def test_import_adds_existing_group_without_duplicates_and_reports_skips(applica
 
     monkeypatch.setattr(musicbrainz, 'ensure_group', ensure_group)
     monkeypatch.setattr(musicbrainz, 'ensure_tracks',
-                        lambda group_id: musicbrainz.store.album(group_id))
+                        lambda group_id: (_ for _ in ()).throw(AssertionError(
+                            'Last.fm import must not persist an unverified MusicBrainz edition')))
     monkeypatch.setattr(musicbrainz, 'search', lambda query, kind, album_artist=None: [])
     albums = client.get('/api/lastfm/albums').json['albums']
     selected = [a['id'] for a in albums]
@@ -96,6 +97,8 @@ def test_import_adds_existing_group_without_duplicates_and_reports_skips(applica
     assert seen == [ALBUM]
     own = client.get('/api/shelf').json['albums']
     assert len(own) == 1 and own[0]['id'] == ALBUM
+    assert musicbrainz.store.album(ALBUM)['tracks'] == [], (
+        'Previously browsed MusicBrainz tracks are not an approved imported tracklist')
     # Re-opening the chooser marks this album as already collected.
     again = client.get('/api/lastfm/albums').json['albums']
     assert again[0]['on_shelf'] is True

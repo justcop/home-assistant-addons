@@ -1,4 +1,5 @@
 import re
+from collections import Counter
 import threading
 import time
 import uuid
@@ -40,6 +41,59 @@ def release_rank(release, original_date, filters=None):
     country_rank, format_rank = preference_rank(release, DEFAULT_FILTERS if filters is None else filters)
     return (bool(BAD_EDITION.search(description)), country_rank, year_gap,
             format_rank, date or '9999', release['id'])
+
+
+def release_summary_track_count(release):
+    """MusicBrainz's release search includes medium track counts without a detail fetch."""
+    audio = [medium for medium in release.get('media', [])
+             if medium.get('format') not in VIDEO_FORMATS]
+    if not audio:
+        return None
+    counts = []
+    for medium in audio:
+        raw = medium.get('track-count', medium.get('track_count'))
+        if raw is None and isinstance(medium.get('tracks'), list):
+            raw = len(medium['tracks'])
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            return None
+        if value <= 0:
+            return None
+        counts.append(value)
+    return sum(counts)
+
+
+def original_release_candidates(releases, original_date, filters):
+    """Prefer the prevailing standard-size tracklist within the best region.
+
+    Only used when automatically choosing a tracklist for the first time;
+    the Record Store and users' selected canonical releases are untouched.
+    No assumptions are made when medium counts are absent or contradictory.
+    """
+    if not releases:
+        return []
+    ordered = sorted(releases, key=lambda r: release_rank(r, original_date, filters))
+    primary = (bool(BAD_EDITION.search(ordered[0].get('title', '') + ' ' +
+                                        ordered[0].get('disambiguation', ''))),
+               preference_rank(ordered[0], filters)[0])
+    group = [r for r in ordered
+             if (bool(BAD_EDITION.search(r.get('title', '') + ' ' +
+                                          r.get('disambiguation', ''))),
+                 preference_rank(r, filters)[0]) == primary]
+    counts = [release_summary_track_count(r) for r in group]
+    frequencies = Counter(count for count in counts if count is not None and 2 <= count <= 100)
+    if not frequencies:
+        return ordered
+    # Among equally common versions, choose the shorter one only when it is
+    # corroborated by at least one other release or the original release era.
+    common = max(frequencies.values())
+    modes = [count for count, n in frequencies.items() if n == common]
+    target = min(modes) if common >= 2 else None
+    if target is None:
+        return ordered
+    ranked = [r for r in ordered if r in group and release_summary_track_count(r) == target]
+    return ranked + [r for r in ordered if r not in ranked]
 
 
 def credited_artists(credits):
@@ -275,7 +329,8 @@ class MusicBrainz:
         if not releases:
             raise AppError('No MusicBrainz editions match your release filters (' +
                            filter_description(self.store.release_filters(album_id)) + '). Change them in Settings.')
-        for release in releases[:8]:
+        for release in original_release_candidates(releases, album['release_date'],
+                                                   self.store.release_filters(album_id))[:8]:
             try:
                 return self.use_release(album_id, release['id'])
             except AppError as error:

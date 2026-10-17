@@ -237,7 +237,10 @@ class LastFmImporter:
                             # Preserve the original MusicBrainz edition rules
                             # and the unreviewed canonical tracklist; no
                             # invented Spotify mapping or silent bonus tracks.
-                            musicbrainz.ensure_tracks(group['id'])
+                            # A shelf entry is not an approved tracklist. The
+                            # independent Spotify worker must first locate a
+                            # completely verified original MusicBrainz edition.
+                            store.clear_unverified_edition(group['id'])
                             store.shelf(group['id'], True)
                             owned.add(pair)
                             outcome = 'added'
