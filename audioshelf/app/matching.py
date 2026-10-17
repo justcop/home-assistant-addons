@@ -71,7 +71,7 @@ def track_assessment(canonical, spotify, artist_names):
     exact = left == right
     # Spaced numerals and run-together words: 11am/11 am,
     # Cliffdiving/Cliff Diving, and punctuation-only contractions.
-    compact = (not exact and len(left.replace(' ', '')) >= 5 and
+    compact = (not exact and len(left.replace(' ', '')) >= 4 and
                left.replace(' ', '') == right.replace(' ', ''))
     # A printed track title may omit a short trailing subtitle, such as the
     # end of a combined medley title. This is NOT a general fuzzy match: the
