@@ -372,6 +372,9 @@ class SpotifyMatching:
                     raise
                 skipped += 1
                 continue
+            if reference and len(probe['tracks']) > reference['track_count']:
+                skipped += 1
+                continue
             if len(probe['tracks']) > 100:
                 skipped += 1
                 continue
