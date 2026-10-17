@@ -32,7 +32,7 @@ def eligible(album):
 def signature(album, market):
     # Retry on a new canonical release, corrections to the tracklist or changes
     # in manual mappings. Do not repeatedly poll a failed unchanged album.
-    data = [market, album.get('release_id'), [
+    data = [market, album.get('release_id'), bool(album.get('canonical_reviewed')), [
         (t.get('title'), t.get('recording_id'), t.get('duration_ms'),
          t.get('method') if t.get('method') == 'manual' else '',
          t.get('spotify_id') if t.get('method') == 'manual' else '')
