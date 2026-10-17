@@ -192,7 +192,7 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.getByRole('link',{name:'The Original Album',exact:true}).click();
     // Review is only available after a fully Spotify-verified tracklist exists.
     // Resolve the fixture's original album first, then confirm its tracklist.
-    const ready=await page.evaluate(async()=>{
+    const spotifyReady=await page.evaluate(async()=>{
       const albumId=decodeURIComponent(location.hash.split('/')[1]);
       const result=await fetch(new URL('api/albums/'+albumId+'/resolve',document.baseURI),{
         method:'POST',credentials:'same-origin',
@@ -201,7 +201,7 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
       });
       return result.ok;
     });
-    assert(ready,'Original album Spotify tracklist must verify before review');
+    assert(spotifyReady,'Original album Spotify tracklist must verify before review');
     await page.reload();
     await page.getByRole('button',{name:'This tracklist is correct'}).click();
     await page.getByRole('button',{name:'This tracklist is correct'}).waitFor({state:'hidden'});
