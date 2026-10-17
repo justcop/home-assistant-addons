@@ -256,3 +256,30 @@ def test_play_route_requires_choice_even_when_a_speaker_is_active(application,cl
     response=client.post('/api/albums/'+ALBUM+'/play',json={},headers={'X-AudioShelf-Request':'1'})
     assert response.status_code==409 and 'Choose' in response.json['error']
     api.assert_not_called()
+
+
+def test_labelled_album_search_finds_explicit_and_regional_editions_without_special_cases(application, monkeypatch):
+    from app.spotify import same_album_family_title
+    spotify=application.extensions['spotify']
+    original='An Album'
+    assert same_album_family_title('An Album (Explicit Version)',original)
+    assert same_album_family_title('An Album (UK edition)',original)
+    assert same_album_family_title('An Album (Deluxe Edition)',original)
+    assert not same_album_family_title('An Album Live',original)
+    assert not same_album_family_title('An Album Reimagined',original)
+    assert not same_album_family_title('An Album by Another Artist',original)
+    calls=[]
+    ids=['e'*22, 'u'*22, 'd'*22]
+    titles=['An Album (Explicit Version)', 'An Album (UK edition)',
+            'An Album (Deluxe Edition)']
+    def api(method,path,params=None,body=None):
+        assert method=='GET' and path=='search'
+        calls.append(params['q'])
+        n=len(calls)-1
+        return {'albums':{'items':[{'id':ids[n], 'name':titles[n]},
+                                   {'id':'z'*22,'name':'An Album Live'}]}}
+    monkeypatch.setattr(spotify,'api',api)
+    result=spotify.labelled_editions({'title':original, 'artists':[{'name':'Band'}]})
+    assert result==ids
+    assert len(calls)==3
+    assert all(q.startswith('album:"An Album (') for q in calls)
