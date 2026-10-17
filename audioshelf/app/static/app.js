@@ -604,6 +604,58 @@ async function accountSettings(){
 
 /* Opt-in Last.fm album import. The server verifies every MusicBrainz identity
    and keeps the import running independently of this page or Android WebView. */
+let spotifyMatchingPolling=false, spotifyMatchingPollTimer=null;
+function spotifyMatchingSettings(){
+  return '<section class="settings-block"><h2>Background Spotify matching</h2>'+
+    '<p>Unmatched shelf albums are checked on the server, including those imported from Last.fm. Only completely verified tracks are automatically saved; you still review the original tracklist before playback. Manual choices remain untouched.</p>'+
+    '<p id="spotify-matching-status" role="status" aria-live="polite">Checking Spotify matching…</p>'+
+    '<div class="actions"><button class="secondary" data-action="spotify-matching-retry">Retry all unmatched albums</button>'+
+    '<button class="secondary" data-action="spotify-matching-copy">Copy full failure report</button></div>'+
+    '<div id="spotify-matching-issues"></div></section>';
+}
+async function pollSpotifyMatching(){
+  const line=document.querySelector('#spotify-matching-status');
+  if(!line||spotifyMatchingPolling)return;
+  spotifyMatchingPolling=true;
+  const account=statusInfo.account?.id;
+  let running=false;
+  try{
+    const data=await api('spotify/matching');
+    if(!line.isConnected||account!==statusInfo.account?.id)return;
+    const j=data.job;
+    running=j?.state==='running';
+    line.textContent=j?
+      (j.processed+'/'+j.total+' albums checked · '+j.matched+' fully matched · '+
+       j.unmatched+' still unmatched · '+j.errors+' errors · '+j.skipped+' skipped · '+
+       j.state+(j.reason?' · '+j.reason:'')+'. '+data.failures+' albums in full failure report.'):
+      ('No match scan has run yet. '+data.failures+' albums in the failure report.');
+    const button=document.querySelector('[data-action="spotify-matching-retry"]');
+    if(button)button.disabled=running||!statusInfo.spotify_connected||statusInfo.role!=='owner';
+    const issues=document.querySelector('#spotify-matching-issues');
+    if(issues)issues.textContent=running?'You can leave Settings; matching continues on the server. Unmatched albums are recorded for later investigation.':
+      'The report records album titles, the best Spotify candidate, and individual unverified tracks with matching reasons.';
+  }catch(error){if(line.isConnected)line.textContent='Could not check Spotify matching: '+error.message;}
+  finally{
+    spotifyMatchingPolling=false;
+    if(spotifyMatchingPollTimer)clearTimeout(spotifyMatchingPollTimer);
+    if(running&&line.isConnected&&location.hash==='#settings')
+      spotifyMatchingPollTimer=setTimeout(pollSpotifyMatching,2500);
+  }
+}
+async function retrySpotifyMatching(){
+  const result=await api('spotify/matching','POST',{});
+  toast('Spotify matching started for '+result.job.total+' albums. You can leave Settings.');
+  pollSpotifyMatching();
+}
+async function copySpotifyMatchingReport(){
+  const result=await api('spotify/matching/report');
+  if(navigator.clipboard?.writeText){
+    try{await navigator.clipboard.writeText(result.text);toast('Full Spotify matching report copied.');return;}
+    catch{}
+  }
+  showModal('<h2>Spotify matching report</h2><p>Select and copy the text below.</p>'+
+    '<textarea readonly rows="16" style="width:100%;max-height:65vh">'+escapeHtml(result.text)+'</textarea>');
+}
 function lastfmSettings(){return '<section class="settings-block"><h2>Last.fm import</h2><p>Fill your shelf from albums you already listen to, ranked by Last.fm plays. Review hundreds at once; existing records are skipped.</p><div id="lastfm-settings" aria-live="polite">Checking Last.fm connection…</div></section>';}
 function lastfmJobSummary(job){
   if(!job)return '';
@@ -675,7 +727,7 @@ function pollLastfm(){
 }
 
 function accountSection(){return `<section class="settings-block"><h2>Your account</h2><p>Signed in as <strong>${escapeHtml(statusInfo.account?.username||'owner')}</strong>. Your shelf, Spotify connection and preferences belong to this account.</p><div class="actions"><button class="secondary" data-action="logout">Switch account / Sign out</button>${statusInfo.account?.admin?'<button class="secondary" data-action="accounts">Manage accounts</button>':''}</div></section>`;}
-function settingsPage(){return `<div class="eyebrow">Make yourself at home</div><h1>Settings.</h1>${accountSection()}<section class="settings-block"><h2>Spotify</h2><p>${statusInfo.spotify_connected?'Your Spotify account is connected. Playback uses your chosen device. Unavailable devices are never replaced automatically.':'Connect your Spotify Premium account to match and play albums.'}</p>${!statusInfo.spotify_configured?'<div class="note">In Home Assistant, open AudioShelf configuration and set <code>spotify_client_id</code> and <code>spotify_redirect_uri</code>. Use your HTTPS address followed by <code>/auth/spotify/callback</code>, and add the exact same redirect URL to your Spotify developer app. No client secret is needed.</div>':''}<div class="actions">${statusInfo.role==='owner'?`<button class="primary" data-action="connect">${statusInfo.spotify_connected?'Reconnect Spotify':'Connect Spotify'}</button>${statusInfo.spotify_connected?'<button class="quiet" data-action="disconnect">Disconnect</button>':''}`:''}<button class="quiet" data-action="refresh-status">Refresh connection status</button></div><p class="muted">Catalogue market: ${escapeHtml(statusInfo.market || 'GB')}. Turn Autoplay off in Spotify if you want silence when the album finishes. AudioShelf switches Shuffle and Repeat off before starting an album.</p></section>${statusInfo.role==='owner'?'<section class="settings-block"><h2>Security</h2><p>Manage two-factor authentication, trusted browsers and temporary support logins.</p><button class="secondary" data-action="security">Open Security settings</button></section>':'<div class="note">Temporary support login. Access is limited and expires automatically.</div>'}${lastfmSettings()}${playbackSettings()}${themeSettings()}${releaseFilterSettings()}${serverArtworkSection()}${artworkCacheSection()}${offlineShelfSection()}<section class="settings-block"><h2>Your collection</h2><p>Your shelf belongs to AudioShelf. Adding or removing a record here does not change your saved Spotify albums.</p>${statusInfo.role==='owner'?'<div class="actions"><a class="secondary" href="api/export" download>Export collection</a><button class="secondary" data-action="backup">Download database backup</button></div>':''}<p class="muted">Library: <code>${escapeHtml(statusInfo.data_directory)}</code>. Back up this folder as well as your add-on data.</p><p class="muted">Replaceable artwork and metadata cache: <code>${escapeHtml(statusInfo.cache_directory)}</code>. You can exclude this separate folder from backups. It rebuilds automatically.</p></section><section class="settings-block"><h2>About AudioShelf</h2><p>Albums, in their original order. No singles, compilation appearances or anniversary clutter.</p><p class="muted">Version ${escapeHtml(statusInfo.build?.version)} · ${escapeHtml(statusInfo.build?.channel)} · ${escapeHtml(statusInfo.build?.revision)}</p><p class="footer-note">Install AudioShelf from your phone browser using Add to Home Screen at your standalone HTTPS address.</p></section>`;}
+function settingsPage(){return `<div class="eyebrow">Make yourself at home</div><h1>Settings.</h1>${accountSection()}<section class="settings-block"><h2>Spotify</h2><p>${statusInfo.spotify_connected?'Your Spotify account is connected. Playback uses your chosen device. Unavailable devices are never replaced automatically.':'Connect your Spotify Premium account to match and play albums.'}</p>${!statusInfo.spotify_configured?'<div class="note">In Home Assistant, open AudioShelf configuration and set <code>spotify_client_id</code> and <code>spotify_redirect_uri</code>. Use your HTTPS address followed by <code>/auth/spotify/callback</code>, and add the exact same redirect URL to your Spotify developer app. No client secret is needed.</div>':''}<div class="actions">${statusInfo.role==='owner'?`<button class="primary" data-action="connect">${statusInfo.spotify_connected?'Reconnect Spotify':'Connect Spotify'}</button>${statusInfo.spotify_connected?'<button class="quiet" data-action="disconnect">Disconnect</button>':''}`:''}<button class="quiet" data-action="refresh-status">Refresh connection status</button></div><p class="muted">Catalogue market: ${escapeHtml(statusInfo.market || 'GB')}. Turn Autoplay off in Spotify if you want silence when the album finishes. AudioShelf switches Shuffle and Repeat off before starting an album.</p></section>${statusInfo.role==='owner'?'<section class="settings-block"><h2>Security</h2><p>Manage two-factor authentication, trusted browsers and temporary support logins.</p><button class="secondary" data-action="security">Open Security settings</button></section>':'<div class="note">Temporary support login. Access is limited and expires automatically.</div>'}${lastfmSettings()}${spotifyMatchingSettings()}${playbackSettings()}${themeSettings()}${releaseFilterSettings()}${serverArtworkSection()}${artworkCacheSection()}${offlineShelfSection()}<section class="settings-block"><h2>Your collection</h2><p>Your shelf belongs to AudioShelf. Adding or removing a record here does not change your saved Spotify albums.</p>${statusInfo.role==='owner'?'<div class="actions"><a class="secondary" href="api/export" download>Export collection</a><button class="secondary" data-action="backup">Download database backup</button></div>':''}<p class="muted">Library: <code>${escapeHtml(statusInfo.data_directory)}</code>. Back up this folder as well as your add-on data.</p><p class="muted">Replaceable artwork and metadata cache: <code>${escapeHtml(statusInfo.cache_directory)}</code>. You can exclude this separate folder from backups. It rebuilds automatically.</p></section><section class="settings-block"><h2>About AudioShelf</h2><p>Albums, in their original order. No singles, compilation appearances or anniversary clutter.</p><p class="muted">Version ${escapeHtml(statusInfo.build?.version)} · ${escapeHtml(statusInfo.build?.channel)} · ${escapeHtml(statusInfo.build?.revision)}</p><p class="footer-note">Install AudioShelf from your phone browser using Add to Home Screen at your standalone HTTPS address.</p></section>`;}
 async function route(){
   cancelPendingPlayback();
   const generation=++routeGeneration;
@@ -723,7 +775,7 @@ async function route(){
     else if(view==='settings')html=settingsPage();
     else {location.hash='shelf';return;}
     if(generation!==routeGeneration)return;
-    content.innerHTML=(statusInfo.role==='view'?'<div class="note">View-only temporary access. Changes and playback are disabled.</div>':'')+html;applyPermissions(content);settingsDirty=false;restoreBrowsing(generation);if(view==='settings'){refreshArtworkCacheSettings();pollServerArtworkRefresh();loadLastfmSettings();}refreshPlayback();
+    content.innerHTML=(statusInfo.role==='view'?'<div class="note">View-only temporary access. Changes and playback are disabled.</div>':'')+html;applyPermissions(content);settingsDirty=false;restoreBrowsing(generation);if(view==='settings'){refreshArtworkCacheSettings();pollServerArtworkRefresh();pollSpotifyMatching();loadLastfmSettings();}refreshPlayback();
     if(view==='store'&&['artist','album'].includes(key)&&mode&&!isVinyl()){
       const results=document.querySelector('#search-results');
       results.innerHTML=searchKind==='album'?cards(storeSearch.results):storeSearch.results.map(a=>`<a class="search-result" href="#artist/${id(a.id)}/store"><strong>${escapeHtml(a.name)}</strong></a>`).join('');
@@ -1105,6 +1157,8 @@ document.addEventListener('click',async event=>{
     if(action==='offline-save')await saveOfflineShelf();
     if(action==='offline-clear'){await clearOfflineShelf();toast('Offline shelf cleared.');}
     if(action==='artwork-server-refresh')await beginServerArtworkRefresh();
+    if(action==='spotify-matching-retry')await retrySpotifyMatching();
+    if(action==='spotify-matching-copy')await copySpotifyMatchingReport();
     if(action==='artwork-cache-refresh')await refreshArtworkCacheSettings();
     if(action==='artwork-cache-preload')await preloadShelfArtwork();
     if(action==='artwork-cache-clear'){await caches.delete(artworkCacheName());await refreshArtworkCacheSettings();toast('Downloaded artwork cleared on this device.');}
@@ -1123,7 +1177,7 @@ document.addEventListener('click',async event=>{
       const chosen=[...lastfmSelected];
       if(!chosen.length||chosen.length>250)throw new Error('Choose 1 to 250 albums per batch.');
       const result=await api('lastfm/import','POST',{ids:chosen,period:lastfmPeriod});
-      modalContent.innerHTML='<h2>Adding familiar albums</h2><div id="lastfm-progress">'+lastfmJobSummary(result.job)+'</div><p>Unambiguous albums will appear on your shelf as they are processed. Check editions and Spotify matches later.</p>';
+      modalContent.innerHTML='<h2>Adding familiar albums</h2><div id="lastfm-progress">'+lastfmJobSummary(result.job)+'</div><p>Unambiguous albums will appear on your shelf as they are processed. Background Spotify matching follows automatically once the import finishes. Review the original tracklist before first playback.</p>';
       pollLastfm();
     }
     if(action==='security')await securitySettings();

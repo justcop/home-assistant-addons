@@ -190,7 +190,7 @@ class LastFmImporter:
         return [{**row, 'on_shelf': (normalize(row['artist']), normalize(row['title'])) in owned}
                 for row in rows]
 
-    def start(self, account_id, store, musicbrainz, ids, period, enabled=None):
+    def start(self, account_id, store, musicbrainz, ids, period, enabled=None, on_complete=None):
         if (not isinstance(ids, list) or not 1 <= len(ids) <= MAX_BATCH or
                 any(not isinstance(i, str) for i in ids) or len(set(ids)) != len(ids)):
             raise AppError('Select between 1 and 250 different albums.')
@@ -211,12 +211,12 @@ class LastFmImporter:
             self.jobs[account_id] = job
             store.set_setting('lastfm_import_status', job)
         worker = threading.Thread(target=self._run, args=(account_id, store, musicbrainz,
-                                  selected, enabled, job['id']), name='audioshelf-lastfm-import',
+                                  selected, enabled, job['id'], on_complete), name='audioshelf-lastfm-import',
                                   daemon=True)
         worker.start()
         return dict(job)
 
-    def _run(self, account_id, store, musicbrainz, rows, enabled, job_id):
+    def _run(self, account_id, store, musicbrainz, rows, enabled, job_id, on_complete=None):
         owned = owned_pairs(store)
         for item in rows:
             outcome, reason = 'skipped', ''
@@ -252,6 +252,14 @@ class LastFmImporter:
                 job['state'] = 'complete' if job['processed'] == job['total'] else 'interrupted'
                 job['finished_at'] = int(time.time())
                 store.set_setting('lastfm_import_status', job)
+        # Start the independent Spotify worker only after the catalogue import
+        # has released its lock. It must never turn a successful import into a
+        # reported failure if the downstream service is unavailable.
+        if on_complete and job and job['state'] == 'complete':
+            try:
+                on_complete()
+            except Exception:
+                pass
 
     @staticmethod
     def _match_group(musicbrainz, item):

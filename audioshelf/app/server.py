@@ -22,6 +22,7 @@ from .lastfm_import import LastFmImporter
 
 from .artwork import Artwork
 from .artwork_refresh import ArtworkRefresh
+from .spotify_matching import SpotifyMatching, report_text, PAUSE_UNTIL
 from .errors import AppError
 from .matching import candidate, track_score
 from .musicbrainz import MusicBrainz, mbid
@@ -94,6 +95,8 @@ def create_app(options=None):
     app.extensions['lastfm_import'] = lastfm_import
     artwork_refresh = ArtworkRefresh()
     app.extensions['artwork_refresh'] = artwork_refresh
+    spotify_matching = SpotifyMatching()
+    app.extensions['spotify_matching'] = spotify_matching
     # Every request resolves its own context. No global current-user mutation.
     store = LocalProxy(lambda: g.context.store)
     spotify = LocalProxy(lambda: g.context.spotify)
@@ -236,6 +239,9 @@ def create_app(options=None):
 
     @app.get('/api/status')
     def status():
+        # Do not launch expensive catalogue scans from ordinary navigation or
+        # playback-status requests. Imports, OAuth and Matching Settings kick
+        # the independent worker instead.
         result = {'build':build,'authenticated':authenticated(),'password_required':not bool((identity() or {}).get('ingress')), 'password_configured':bool(password) or len(accounts.listing()) > 1, 'two_factor_enabled':bool(security.get('totp')), 'ingress_available':ingress()}
         if authenticated():
             result.update(account={'id':g.account['id'], 'username':g.account['username'], 'admin':g.account['id']=='owner' and identity()['role']=='owner'}, role=identity()['role'], spotify_configured=spotify.configured, spotify_connected=spotify.connected,
@@ -469,9 +475,13 @@ def create_app(options=None):
     def lastfm_start_import():
         lastfm_owner()
         payload = request.json
+        account_id, context = g.account['id'], g.context
         result = lastfm_import.start(
             g.account['id'], g.context.store, g.context.musicbrainz,
-            payload.get('ids'), payload.get('period', 'overall'), accounts.enabled)
+            payload.get('ids'), payload.get('period', 'overall'), accounts.enabled,
+            on_complete=lambda: spotify_matching.start(account_id, context.store,
+                context.spotify, context.playable_releases, enabled=accounts.enabled,
+                automatic=True))
         return jsonify(job=result), 202
 
     @app.get('/api/shelf')
@@ -563,6 +573,29 @@ def create_app(options=None):
     @app.get('/api/artwork/refresh')
     def artwork_refresh_status():
         return jsonify(job=artwork_refresh.status(g.account['id'], g.context.store))
+
+    @app.get('/api/spotify/matching')
+    def spotify_matching_status():
+        if g.identity['role'] != 'owner':
+            raise AppError('Only the account owner can view bulk Spotify matching.', 403)
+        spotify_matching.ensure_started(g.account['id'], g.context.store,
+            g.context.spotify, g.context.playable_releases, enabled=accounts.enabled)
+        return jsonify(spotify_matching.status(g.account['id'], g.context.store))
+
+    @app.post('/api/spotify/matching')
+    def spotify_matching_start():
+        if g.identity['role'] != 'owner':
+            raise AppError('Only the account owner can start Spotify matching.', 403)
+        return jsonify(job=spotify_matching.start(g.account['id'], g.context.store,
+            g.context.spotify, g.context.playable_releases,
+            enabled=accounts.enabled, force=True)), 202
+
+    @app.get('/api/spotify/matching/report')
+    def spotify_matching_report():
+        if g.identity['role'] != 'owner':
+            raise AppError('Only the account owner can read Spotify matching diagnostics.', 403)
+        job = spotify_matching.status(g.account['id'], g.context.store)['job']
+        return jsonify(text=report_text(g.context.store, job))
 
     @app.get('/api/albums/<album_id>/artwork')
     def album_artwork(album_id):
@@ -891,6 +924,9 @@ def create_app(options=None):
             identifier = accounts.oauth_account(request.args.get('state',''))
             g.context = accounts.context(identifier)
             spotify.callback(request.args.get('code',''),request.args.get('state',''),bool(request.args.get('error')))
+            g.context.store.set_setting(PAUSE_UNTIL, 0)  # A new authorization clears old outage backoff.
+            spotify_matching.ensure_started(identifier, g.context.store, g.context.spotify,
+                g.context.playable_releases, enabled=accounts.enabled)
             message = 'Spotify is connected for '+accounts.get(identifier)['username']+'. Return to that AudioShelf account and play an album.'
             ok = True
         except AppError as error:
