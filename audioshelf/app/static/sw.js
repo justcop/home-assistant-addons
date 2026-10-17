@@ -25,7 +25,7 @@ self.addEventListener('activate', event => {
 });
 
 function shelfArtwork(url) {
-  const match=url.pathname.match(/\/api\/albums\/([0-9a-f-]{36})\/artwork$/i);
+  const match=url.pathname.match(/\/api\/albums\/([0-9a-f-]{36})\/artwork(?:\/back)?$/i);
   if(!match || !['128','320','640'].includes(url.searchParams.get('size')))return null;
   const account=url.searchParams.get('account');
   if(!account || !/^(?:owner|[0-9a-f]{32})$/i.test(account))return null;

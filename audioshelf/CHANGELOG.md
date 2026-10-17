@@ -1,3 +1,10 @@
+# 0.6.32 — Digital-first artwork and server-side bulk rebuild
+
+- Prefer digital/Spotify front covers over scanned CD and vinyl sleeves while respecting custom uploads and individually selected covers.
+- Back covers can come from any official edition of the same album. Download and retain back artwork locally, including 320px/640px WebP sizes.
+- New Settings action to rebuild all cover art, on a background worker with server-side progress tracking; preserves manual covers.
+- Phone and PWA cache back-cover thumbnails as well as fronts, with separate account-specific caching.
+
 # 0.6.30 — Atomic offline shelf refresh
 
 - Save a complete new offline shelf revision before activating it. Interrupted saves preserve the previous usable shelf instead of mixing old and new albums.
