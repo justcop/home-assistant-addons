@@ -172,7 +172,7 @@ public final class MainActivity extends Activity {
     private void watchAndConnect(String clientId) {
         // The deadline is independent of SDK callbacks and network status requests.
         handler.postDelayed(returnDeadline, WakeReturnState.WAKE_WINDOW_MS);
-        record("Background-only wake. Return when AudioShelf finds the selected Spotify Connect phone, otherwise after 20 seconds.");
+        record("Background-only wake. Return after verified playback, terminal failure, or the 20-second deadline.");
         record("Using AudioShelf server feedback to verify the selected phone.");
         // Only start from a visible Activity after request validation and trust.
         // The legacy pre-resume timing experiment has been retired.
@@ -235,10 +235,10 @@ public final class MainActivity extends Activity {
                     record("AudioShelf playback: " + result.state + ".");
                 }
                 if (result.state.equals("waiting")) {
-                    // Spotify Connect discovery is not a safe time to disconnect
-                    // App Remote: the server may still need to transfer the player,
-                    // disable shuffle/repeat and send Play. Wait for Play acceptance
-                    // before returning and tearing down the wake session.
+                    // Neither Spotify Connect discovery nor a successful Play
+                    // response proves the requested track is actually playing.
+                    // Keep App Remote alive through server verification, up to
+                    // the bounded 20-second wake deadline.
                     if (result.playAccepted) {
                         // HTTP 204 from Spotify means only that Play was accepted.
                         // Disconnecting App Remote before the expected track starts
@@ -264,7 +264,7 @@ public final class MainActivity extends Activity {
                     if (selectedPhoneFound) {
                         if (!deviceReadinessLogged) {
                             deviceReadinessLogged = true;
-                            record("Selected phone found on Spotify Connect. Holding Spotify SDK until Play is accepted.");
+                            record("Selected phone found on Spotify Connect. Holding Spotify SDK until actual playback is confirmed.");
                         }
                         message.setText("Phone found. Waiting for Spotify to accept Play…");
                         // Keep the 20-second independent deadline as a fallback.
