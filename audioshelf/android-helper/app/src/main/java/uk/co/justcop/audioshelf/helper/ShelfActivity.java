@@ -303,9 +303,10 @@ public final class ShelfActivity extends Activity {
             final PlaybackStatusClient.Result result=state;
             handler.post(() -> {
                 if(ticket!=sequence)return;
-                if(result!=null && (result.playAccepted || !"waiting".equals(result.state))) {
-                    // Keep Spotify's service alive until the server has accepted Play.
-                    // The server independently confirms device + track afterwards.
+                if(result!=null && !"waiting".equals(result.state)) {
+                    // An accepted Play is not confirmed playback. Keep the
+                    // Spotify SDK session alive through device/track verification,
+                    // bounded independently by the 20-second wake deadline.
                     stopWake();
                 } else handler.postDelayed(poll, 500);
             });
