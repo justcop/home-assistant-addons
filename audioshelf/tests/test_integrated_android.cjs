@@ -11,7 +11,11 @@ const media=fs.readFileSync(path.join(directory,'android-helper/app/src/main/jav
 const workflow=fs.readFileSync(path.join(directory,'../.github/workflows/audioshelf-android-helper.yml'),'utf8');
 assert(android.includes('WebViewCompat.addWebMessageListener') && android.includes('Collections.singleton(trustedOrigin)'));
 assert(android.includes('!isMainFrame') && android.includes('sameOrigin(sourceOrigin)'));
-assert(android.includes('result.playAccepted') && android.includes('stopWake()'));
+assert(android.includes('if(result!=null && !"waiting".equals(result.state))'),
+  'Integrated Spotify wake must continue until server confirms playback or finishes the job');
+assert(!android.includes('result.playAccepted ||'),
+  'Accepted Play cannot disconnect the integrated Spotify SDK before the correct track starts');
+assert(android.includes('stopWake()'));
 assert(android.includes('WindowCompat.setDecorFitsSystemWindows(getWindow(), false)'));
 assert(android.includes('ViewCompat.setOnApplyWindowInsetsListener(root'));
 assert(android.includes('WindowInsetsCompat.Type.systemBars()') &&

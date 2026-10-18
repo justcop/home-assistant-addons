@@ -15,16 +15,17 @@ public class WakeReturnStateTest {
         assertFalse(state.shouldPoll(false));
     }
 
-    @Test public void discoveryDoesNotReturnBeforePlayAcceptance() {
+    @Test public void discoveryAndPlayAcceptanceDoNotReturnBeforeConfirmation() {
         WakeReturnState state = new WakeReturnState();
-        state.onServerState("waiting"); // Includes phone discovery/preparation.
+        state.onServerState("waiting"); // Phone discovered; Play not yet accepted.
         assertFalse(state.shouldReturn(true, false));
-        assertTrue(state.shouldPoll(false)); // Continue watching with SDK connected.
-        state.onPlayAccepted();
+        assertTrue(state.shouldPoll(false));
+        state.onServerState("waiting"); // Play accepted, but Spotify reports another track.
+        assertFalse(state.shouldReturn(true, false));
+        assertTrue(state.shouldPoll(false));
+        state.onServerState("started"); // Correct device, track and playing state verified.
         assertTrue(state.shouldReturn(true, false));
         assertFalse(state.shouldPoll(false));
-        assertFalse(state.shouldReturn(false, false));
-        assertFalse(state.shouldReturn(true, true));
     }
 
     @Test public void diagnosticHoldCanWatchServerAfterDeviceDiscovery() {
@@ -34,7 +35,7 @@ public class WakeReturnStateTest {
         assertTrue(state.shouldPoll(true));
         state.onServerState("waiting");
         assertTrue(state.shouldPoll(true));
-        state.onPlayAccepted();
+        state.onServerState("waiting"); // Play accepted but unconfirmed.
         assertTrue(state.shouldPoll(true));
         state.onServerState("started");
         assertFalse(state.shouldPoll(true));
@@ -42,17 +43,18 @@ public class WakeReturnStateTest {
         assertTrue(state.shouldReturn(true, false));
     }
 
-    @Test public void returnOnPlayAcceptanceDoesNotWaitForSpotifyConfirmation() {
+    @Test public void acceptedPlayContinuesPollingUntilDeadlineOrConfirmation() {
         assertEquals(20000, WakeReturnState.WAKE_WINDOW_MS);
         WakeReturnState state = new WakeReturnState();
-        state.onServerState("waiting");
+        state.onServerState("waiting"); // Includes HTTP Play acceptance.
         assertFalse(state.shouldReturn(true, false));
-        state.onPlayAccepted();
+        assertTrue(state.shouldPoll(false));
+        assertFalse(state.shouldReturn(false, false));
+        state.onDeadline();
         assertTrue(state.shouldReturn(true, false));
         assertFalse(state.shouldPoll(false));
-        assertFalse(state.shouldReturn(false, false));
         assertFalse(state.shouldReturn(true, true));
-        assertTrue(state.shouldPoll(true)); // Hold keeps watching for the actual result.
+        assertTrue(state.shouldPoll(true)); // Diagnostic hold can inspect late confirmation.
         state.onServerState("started");
         assertFalse(state.shouldPoll(true));
     }

@@ -1,3 +1,10 @@
+# 0.2.11 — Keep Spotify alive until playback actually starts
+
+- Fix a regression in the standalone helper and integrated Android app where Spotify App Remote disconnected immediately after the Web API accepted Play, even if Spotify still reported the wrong track.
+- Keep the SDK connection alive while the server confirms that the requested track is actively playing on the chosen phone. Only successful confirmation, a terminal error, or the existing 20-second deadline ends the helper's wake session.
+- Show meaningful confirmation progress when Spotify reports the wrong track or device. Do not confuse Play acceptance with successful playback or change the canonical queue/device.
+- Update Java and JavaScript regression tests for the wake policy. Server playback and the independent PWA remain unchanged.
+
 # 0.2.10 — Initial status clearance that scrolls away
 
 - The logo and Settings begin below the clock and notification icons, while the status-bar area belongs to the scrolling page rather than a permanently reserved blank strip.
