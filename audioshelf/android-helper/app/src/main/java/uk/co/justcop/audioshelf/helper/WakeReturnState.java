@@ -5,7 +5,7 @@ final class WakeReturnState {
     static final long WAKE_WINDOW_MS = 20000;
     private boolean deadlineReached;
     private boolean jobFinished;
-    
+
     void onLocalPlayback() { jobFinished = true; }
 
     void onDeadline() { deadlineReached = true; }
