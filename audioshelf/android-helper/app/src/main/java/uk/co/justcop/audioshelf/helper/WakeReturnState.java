@@ -21,7 +21,6 @@ final class WakeReturnState {
     }
 
     boolean shouldPoll(boolean diagnosticHold) {
-        return !jobFinished && (!deadlineReached || diagnosticHold)
-            && (!playAccepted || diagnosticHold);
+        return !jobFinished && (!deadlineReached || diagnosticHold);
     }
 }
