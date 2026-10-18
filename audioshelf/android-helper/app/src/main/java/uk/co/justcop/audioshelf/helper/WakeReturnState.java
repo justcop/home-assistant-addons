@@ -5,12 +5,8 @@ final class WakeReturnState {
     static final long WAKE_WINDOW_MS = 20000;
     private boolean deadlineReached;
     private boolean jobFinished;
-    private boolean playAccepted;
-
+    
     void onLocalPlayback() { jobFinished = true; }
-
-    // Play was accepted, but the server continues independent playback verification.
-    void onPlayAccepted() { playAccepted = true; }
 
     void onDeadline() { deadlineReached = true; }
 
