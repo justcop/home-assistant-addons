@@ -3,16 +3,22 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname,'../app/static/app.js'),'utf8');
-// Device discovery must not close the Android helper's Spotify SDK session
-// before the server has actually dispatched Play. Keep this separate from
-// PWA playback confirmation, which remains server owned.
+// Neither device discovery nor HTTP Play acceptance proves that Spotify is
+// actually playing the correct track. Keep App Remote connected while the
+// server confirms both, with a bounded 20-second fallback.
 const helperActivitySource = fs.readFileSync(
   path.join(__dirname,'../android-helper/app/src/main/java/uk/co/justcop/audioshelf/helper/MainActivity.java'),'utf8');
 const wakeWait = helperActivitySource.slice(
   helperActivitySource.indexOf('if (result.state.equals("waiting"))'),
   helperActivitySource.indexOf('message.setText(sdkFailed ?'));
 assert(wakeWait.indexOf('if (result.playAccepted)') < wakeWait.indexOf('boolean selectedPhoneFound'),
-  'Play-accepted return must have precedence over phone discovery');
+  'Accepted Play is reported separately from phone discovery');
+const acceptedBlock = wakeWait.slice(wakeWait.indexOf('if (result.playAccepted)'),
+  wakeWait.indexOf('boolean selectedPhoneFound'));
+assert(acceptedBlock.includes('handler.postDelayed(pollStatus, 350)'),
+  'Accepted Play must keep polling for actual Spotify playback');
+assert(!acceptedBlock.includes('returnWhenVisible()') && !acceptedBlock.includes('removeCallbacks(returnDeadline)'),
+  'Accepted Play must neither disconnect App Remote nor disable the 20-second safety deadline');
 const discoveryBlock = wakeWait.slice(wakeWait.indexOf('if (selectedPhoneFound)'));
 assert(discoveryBlock.includes('handler.postDelayed(pollStatus, 350)'),
   'Phone discovery must continue polling the playback job');
@@ -174,5 +180,5 @@ const request=()=>({album:{id:'album',tracks:[{spotify_id:'track',title:'Track',
   assert.equal(context.modal.open,true,'Do not close a different dialog when background verification succeeds');
   assert(notifications.some(n=>n.includes('Playing 1 tracks')),'Verified background completion notifies the user');
   assert(!calls.some(call=>call.method==='DELETE'),'Browsing after accepted Play never cancels the job');
-  console.log('Android helper eligibility, early return, background Play confirmation, playback and cancellation tests passed');
+  console.log('Android helper eligibility, confirmed-playback return, background Play confirmation, playback and cancellation tests passed');
 })().catch(error=>{console.error(error);process.exitCode=1;});
