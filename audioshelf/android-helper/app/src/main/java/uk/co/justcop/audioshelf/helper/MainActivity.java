@@ -240,19 +240,23 @@ public final class MainActivity extends Activity {
                     // disable shuffle/repeat and send Play. Wait for Play acceptance
                     // before returning and tearing down the wake session.
                     if (result.playAccepted) {
-                        wakeReturn.onPlayAccepted();
-                        handler.removeCallbacks(returnDeadline);
+                        // HTTP 204 from Spotify means only that Play was accepted.
+                        // Disconnecting App Remote before the expected track starts
+                        // can tear down the phone's newly woken Spotify session.
                         if (!playAcceptanceLogged) {
                             playAcceptanceLogged = true;
-                            record("Spotify accepted Play. AudioShelf will verify the requested phone and track independently.");
+                            record("Spotify accepted Play. Holding Spotify SDK until the expected phone and track are confirmed.");
                         }
-                        message.setText(keepOpen ? "Play accepted. Watching final confirmation (diagnostics)…" :
-                            "Play command accepted. Returning to AudioShelf while it confirms playback…");
-                        if (keepOpen) {
-                            handler.postDelayed(pollStatus, 350);
-                        } else {
-                            returnWhenVisible();
-                        }
+                        String detail = "wrong_track".equals(result.phase)
+                            ? "Spotify still reports a different track. Waiting for your album…"
+                            : "wrong_device".equals(result.phase)
+                                ? "Spotify is switching to your phone. Waiting for playback…"
+                                : "Play accepted. Waiting for Spotify to confirm your track…";
+                        message.setText(detail);
+                        // Keep polling and retain the independent 20-second
+                        // deadline. The server may need longer than acceptance
+                        // to actually begin the requested playback.
+                        handler.postDelayed(pollStatus, 350);
                         return;
                     }
                     boolean selectedPhoneFound = "preparing_playback".equals(result.phase)
