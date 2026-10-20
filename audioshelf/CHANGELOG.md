@@ -1,3 +1,9 @@
+# 0.6.39 — Android SDK canonical album playback
+
+- The integrated Android app can play reviewed canonical album/disc/vinyl-side selections via Spotify App Remote, avoiding Spotify Web API's accepted-but-inactive `PUT /me/player/play` behaviour. Expose at most 100 verified track URIs to the short-lived authorised helper only; do not change saved mappings or send Web API Play/queue for SDK handoffs.
+- Server independently verifies actual first-track playback on the selected phone. Android queues remaining tracks strictly in order, serialising each SDK queue acknowledgement with no automatic retries. The queue and track-to-track transitions have not been independently verified by Spotify.
+- A native-only on-by-default playback preference switches between SDK full album and original Web API fallback; existing opt-in single-track experiment retained.
+
 # 0.6.38 — Controlled native Spotify SDK first-track experiment
 
 - Integrated Android app may explicitly opt in to an SDK-only first-track test. The server validates the reviewed canonical selection and discovers the uniquely selected, unrestricted preferred phone, then exposes only the exact first track URI to the short-lived authenticated Android helper. **No Web API Play, transfer, shuffle, repeat or track queue command is issued for this test.**
