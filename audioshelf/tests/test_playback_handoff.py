@@ -201,7 +201,7 @@ def test_helper_feedback_remains_readable_while_spotify_play_is_blocked():
     spotify=Mock();spotify.devices.return_value=[PHONE]
     sending=threading.Event();release=threading.Event();received=threading.Event();responses=[]
     result={'device_id':'phone','first_track':{'id':'track'}}
-    def play(album,disc,preferred_device,guard,dispatch):
+    def play(album,disc,preferred_device,guard,dispatch,resolved_device=None,progress=None):
         def send():
             sending.set()
             assert release.wait(2)
@@ -236,7 +236,7 @@ def test_play_acceptance_is_published_before_device_and_track_confirmation():
         return [PHONE]
     spotify.devices.side_effect=devices
     in_flight=threading.Event(); release=threading.Event()
-    def play(album,disc,preferred_device,guard,dispatch):
+    def play(album,disc,preferred_device,guard,dispatch,resolved_device=None,progress=None):
         def send():
             in_flight.set()
             assert release.wait(2)
@@ -275,7 +275,7 @@ def test_ambiguous_play_transport_failure_never_claims_accepted_or_requeues():
     spotify=Mock()
     spotify.devices.return_value=[PHONE]
     commands=[]
-    def play(album,disc,preferred_device,guard,dispatch):
+    def play(album,disc,preferred_device,guard,dispatch,resolved_device=None,progress=None):
         def send():
             commands.append('sent')
             raise AppError('Spotify transport failure',502)
@@ -371,7 +371,7 @@ def test_helper_feedback_includes_bounded_track_mismatch_without_private_payload
     spotify.devices.return_value=[PHONE]
     state={'device':PHONE,'item':{'id':'b'*22,'name':'Previous song','type':'track'},
            'is_playing':True, 'shuffle_state':False, 'repeat_state':'off'}
-    spotify.play.side_effect=lambda album,disc,preferred_device,guard,dispatch: (
+    spotify.play.side_effect=lambda album,disc,preferred_device,guard,dispatch,resolved_device=None,progress=None: (
         dispatch(lambda:{}), {'device_id':'phone','first_track':{'id':'a'*22,'title':'New song'}})[1]
     spotify.api.side_effect=lambda method,path:dict(state)
     manager=PlaybackHandoff(spotify,timeout=1,interval=.01)
@@ -438,3 +438,26 @@ def test_new_job_replaces_prior_job_with_safe_reason():
     with pytest.raises(AppError):
         manager.helper_status(first['id'],same_token,wait=0)
     manager.cancel_all()
+
+
+def test_handoff_reuses_first_verified_device_without_second_discovery(application, monkeypatch):
+    spotify=application.extensions['spotify'];album=ready_album(application)
+    first=[PHONE];probes=[];queues=[]
+    def api(method,path,params=None,body=None):
+        if path=='me/player/devices':
+            probes.append('device-list')
+            return {'devices':first if len(probes)==1 else []}
+        if path=='me/player' and method=='GET':
+            return {'device':PHONE,'shuffle_state':False,'repeat_state':'off',
+                    'is_playing':bool(queues),'item':{'id':'a'*22}}
+        if path=='me/player/play':
+            queues.append((params,body))
+        return {}
+    monkeypatch.setattr(spotify,'api',api)
+    manager=PlaybackHandoff(spotify,interval=.01)
+    job=manager.start(album,None,PHONE,'owner',lambda:True)
+    assert finished(manager,job)['state']=='started'
+    assert probes==['device-list'], 'Do not lose a newly seen phone to an unnecessary second probe'
+    assert len(queues)==1
+    assert queues[0][0]=={'device_id':'phone'}
+    assert queues[0][1]['uris']==['spotify:track:'+'a'*22, 'spotify:track:'+'b'*22]
