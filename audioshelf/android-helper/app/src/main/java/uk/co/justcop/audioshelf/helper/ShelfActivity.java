@@ -63,6 +63,7 @@ public final class ShelfActivity extends Activity {
     private HelperUpdater updater;
     private String trustedOrigin;
     private SpotifyAppRemote remote;
+    private SpotifyLocalPlayerProbe localPlayerProbe;
     private int sequence;
     private boolean wakeConnecting;
     private boolean loaded;
@@ -275,6 +276,7 @@ public final class ShelfActivity extends Activity {
             return;
         }
         stopWake("Previous request replaced by a new playback attempt.");
+        localPlayerProbe = new SpotifyLocalPlayerProbe(handler, this::recordIntegrated);
         integratedWakeLog = new WakeLog();
         integratedWakeStartedAt = SystemClock.elapsedRealtime();
         integratedSessionId = WakeDiagnostics.sessionId();
@@ -333,6 +335,7 @@ public final class ShelfActivity extends Activity {
                         wakeConnecting=false;
                         wakeSdkState="connected";
                         recordIntegrated("Spotify App Remote SDK connected; local service awake. Playback NOT yet confirmed.");
+                        if (localPlayerProbe != null) localPlayerProbe.connected(appRemote);
                     });
                 }
                 @Override public void onFailure(Throwable error) {
@@ -387,6 +390,7 @@ public final class ShelfActivity extends Activity {
                             + "; retrying while wake window remains.");
                     }
                 } else if(result!=null) {
+                    if (localPlayerProbe != null) localPlayerProbe.serverStatus(result);
                     if(lastWakeError!=null) {
                         recordIntegrated("Server connection restored at check "+attempt+".");
                         lastWakeError=null;
@@ -430,6 +434,7 @@ public final class ShelfActivity extends Activity {
                 + (remote!=null?"connected":wakeSdkState)
                 + "; AudioShelf server may continue its independent verification.");
         }
+        if (localPlayerProbe != null) { localPlayerProbe.close(); localPlayerProbe = null; }
         sequence++;jobId=null;accountId=null;token=null;wakeConnecting=false;
         handler.removeCallbacks(poll);
         if(remote!=null){SpotifyAppRemote.disconnect(remote);remote=null;}

@@ -24,6 +24,7 @@ public final class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService statusExecutor = Executors.newSingleThreadExecutor();
     private SpotifyAppRemote remote;
+    private SpotifyLocalPlayerProbe localPlayerProbe;
     private SpotifyAuthGrant pairingGrant;
     private HelperUpdater updater;
     private HelperScreen screen;
@@ -115,6 +116,7 @@ public final class MainActivity extends Activity {
             return;
         }
         wakeRequest = true;
+        localPlayerProbe = new SpotifyLocalPlayerProbe(handler, this::record);
         wakeSessionId = WakeDiagnostics.sessionId();
         record("Wake session " + wakeSessionId + " · companion · AudioShelf Android "
             + BuildConfig.VERSION_NAME + " (build " + BuildConfig.VERSION_CODE + ").");
@@ -237,6 +239,7 @@ public final class MainActivity extends Activity {
                     record("AudioShelf status connection restored.");
                     lastStatusError = null;
                 }
+                if (localPlayerProbe != null) localPlayerProbe.serverStatus(result);
                 String progress = result.progress();
                 lastServerProgress = progress;
                 if (!result.phase.equals(lastObservedPhase)
@@ -500,6 +503,7 @@ public final class MainActivity extends Activity {
                     lastSdkOutcome = "connected";
                     getPreferences(MODE_PRIVATE).edit().putBoolean("spotify_authorized", true).apply();
                     record("Spotify SDK connected (service wake succeeded); this does NOT confirm Spotify Connect playback.");
+                    if (localPlayerProbe != null) localPlayerProbe.connected(appRemote);
                 });
             }
             @Override public void onFailure(Throwable error) {
@@ -551,6 +555,7 @@ public final class MainActivity extends Activity {
         if (completed || isDestroyed()) return;
         completed = true;
         handler.removeCallbacksAndMessages(null);
+        if (localPlayerProbe != null) { localPlayerProbe.close(); localPlayerProbe = null; }
         if (remote != null) SpotifyAppRemote.disconnect(remote);
         remote = null;
         statusExecutor.shutdownNow();
@@ -562,6 +567,7 @@ public final class MainActivity extends Activity {
         record(remote != null ? "Disconnecting Spotify SDK session and closing helper." : "Closing helper; no connected Spotify SDK session.");
         completed = true;
         handler.removeCallbacksAndMessages(null);
+        if (localPlayerProbe != null) { localPlayerProbe.close(); localPlayerProbe = null; }
         if (remote != null) SpotifyAppRemote.disconnect(remote);
         remote = null;
         statusExecutor.shutdownNow();
@@ -599,6 +605,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        if (localPlayerProbe != null) { localPlayerProbe.close(); localPlayerProbe = null; }
         if (updater != null) updater.close();
         pairingAttemptId++;
         if (pairingSpotify || pairingGrant != null) finishPairing();
