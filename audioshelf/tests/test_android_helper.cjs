@@ -82,10 +82,14 @@ context.statusInfo.preferred_device.name='My phone';
 let pageUrl='https://audioshelf.example/#album/saved';
 Object.defineProperty(context.location,'href',{get:()=>pageUrl,set:value=>launches.push(value)});
 const progressIndicator={textContent:''};
+const dialogContents={playback:true};
 Object.assign(context,{
   routeGeneration:1, playbackCommand:0, checkingPlayback:false,
   id:encodeURIComponent, modal:{open:true,close(){this.open=false;}},
-  document:{hidden:false,querySelector:selector=>selector==='#playback-handoff-status'?progressIndicator:null},
+  // The actual UI only dismisses the playback modal. An unrelated settings
+  // dialog is never closed when Spotify later confirms music in the background.
+  modalContent:{querySelector:selector=>selector==='#playback-handoff-status'&&dialogContents.playback?progressIndicator:null},
+  document:{hidden:false,querySelector:selector=>selector==='#playback-handoff-status'&&dialogContents.playback?progressIndicator:null},
   beginPlayback(...args){playbackUpdates.push(args);}, failPlaybackStart(){}, toast(message){notifications.push(message);},
   showModal(){context.modal.open=true;},
   api:async (url,method,body)=>{
@@ -171,6 +175,7 @@ const request=()=>({album:{id:'album',tracks:[{spotify_id:'track',title:'Track',
   assert(notifications.some(n=>n.includes('Confirming playback')),'Never announce Playing before verification');
   assert(!calls.some(call=>call.method==='DELETE'),'Dismissal after accepted Play cannot cancel its job');
   context.routeGeneration=2;
+  dialogContents.playback=false;
   context.modal.open=true; // Simulate browsing and opening an unrelated dialog.
   nextJobStatus={state:'started',play_accepted:true,result:{
     track_count:1,device:'My phone',first_track:{id:'track',title:'Track',duration_ms:1000},started_at:Date.now()/1000
