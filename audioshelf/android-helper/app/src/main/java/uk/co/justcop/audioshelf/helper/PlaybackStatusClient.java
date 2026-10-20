@@ -18,12 +18,13 @@ final class PlaybackStatusClient {
         final int httpStatus, deviceChecks, confirmationChecks;
         final boolean playAccepted;
         final int deviceSeenMs, playAcceptedMs, lastDeviceCheckMs, lastDeviceProbeMs;
+        final String observation;
         Result(String state, String message, String phase, int httpStatus, int devices, int confirmations,
-               boolean accepted, int seenMs, int acceptedMs, int checkMs, int probeMs) {
+               boolean accepted, int seenMs, int acceptedMs, int checkMs, int probeMs, String observed) {
             this.state = state; this.message = message; this.phase = phase;
             this.httpStatus = httpStatus; deviceChecks = devices; confirmationChecks = confirmations;
             playAccepted = accepted; deviceSeenMs = seenMs; playAcceptedMs = acceptedMs;
-            lastDeviceCheckMs = checkMs; lastDeviceProbeMs = probeMs;
+            lastDeviceCheckMs = checkMs; lastDeviceProbeMs = probeMs; observation = observed;
         }
         String progress() {
             String detail;
@@ -47,8 +48,42 @@ final class PlaybackStatusClient {
                 " [server: last device check +" + lastDeviceCheckMs + "ms, request " + lastDeviceProbeMs + "ms]";
             if (deviceSeenMs >= 0) times += " [phone found at server +" + deviceSeenMs + "ms]";
             if (playAcceptedMs >= 0) times += " [Play accepted at server +" + playAcceptedMs + "ms]";
-            return detail + counts + times;
+            return detail + counts + times + (observation.isEmpty() ? "" : " [Spotify player: "+observation+"]");
         }
+    }
+
+    /** Readable, bounded evidence from the authenticated server's one-job
+     * helper view. Full track/device IDs and the Spotify response remain private. */
+    static String observation(JsonObject object) {
+        if (!object.has("verification") || !object.get("verification").isJsonObject()) return "";
+        JsonObject check=object.getAsJsonObject("verification");
+        String wanted=safe(check,"requested");
+        String actual=safe(check,"observed");
+        String wantedTag=safe(check,"requested_tag");
+        String actualTag=safe(check,"observed_tag");
+        String linkedTag=safe(check,"linked_tag");
+        String itemType=safe(check,"item_type");
+        String age=check.has("player_age_ms") && check.get("player_age_ms").isJsonPrimitive()
+            ? check.get("player_age_ms").getAsString()+"ms" : "unknown";
+        return "requested="+(wanted.isEmpty()?"unknown":wanted)
+            + (wantedTag.isEmpty()?"":" (#"+wantedTag+")")
+            + "; observed="+(actual.isEmpty()?"none":actual)
+            + (actualTag.isEmpty()?"":" (#"+actualTag+")")
+            + (linkedTag.isEmpty()?"":"; Spotify linked-from #"+linkedTag)
+            + "; item="+(itemType.isEmpty()?"missing":itemType)
+            + "; device matches="+optionalFlag(check,"device_matches")
+            + "; track matches="+optionalFlag(check,"track_matches")
+            + "; is_playing="+optionalFlag(check,"is_playing")
+            + "; player age="+age;
+    }
+    private static String safe(JsonObject object, String name) {
+        if (!object.has(name) || object.get(name).isJsonNull() || !object.get(name).isJsonPrimitive()) return "";
+        String value=object.get(name).getAsString().replaceAll("[\\p{Cntrl}]", " ");
+        return value.length()>72 ? value.substring(0,72) : value;
+    }
+    private static String optionalFlag(JsonObject object,String name) {
+        if (!object.has(name) || object.get(name).isJsonNull() || !object.get(name).isJsonPrimitive()) return "unknown";
+        return object.get(name).getAsBoolean()?"yes":"no";
     }
 
     interface Progress { void update(String stage); }
@@ -69,7 +104,7 @@ final class PlaybackStatusClient {
     static Result parse(int code, String response) throws IOException {
         if (code == 401 || code == 403 || code == 404 || code == 410)
             return new Result("expired", "Playback request unavailable.", "expired", code, -1, -1,
-                false, -1, -1, -1, -1);
+                false, -1, -1, -1, -1, "");
         if (code != 200) throw new HttpFailure(code);
         try {
             JsonObject object = JsonParser.parseString(response).getAsJsonObject();
@@ -86,7 +121,8 @@ final class PlaybackStatusClient {
                 && object.get("play_accepted").getAsBoolean();
             return new Result(state, message, phase, code, devices, confirmations, accepted,
                 optionalMillis(object, "device_seen_ms"), optionalMillis(object, "play_accepted_ms"),
-                optionalMillis(object, "last_device_check_ms"), optionalMillis(object, "last_device_probe_ms"));
+                optionalMillis(object, "last_device_check_ms"), optionalMillis(object, "last_device_probe_ms"),
+                observation(object));
         } catch (RuntimeException exception) {
             throw new IOException("Invalid playback response", exception);
         }

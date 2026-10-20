@@ -1,3 +1,10 @@
+# 0.2.13 — Explain Spotify wrong-track playback failures
+
+- Show the requested and observed song in the integrated and companion Android wake logs (using short hashed track fingerprints), plus track/device match, playing status, Spotify linked-from recording and player-state age when the AudioShelf server provides them.
+- Explicitly flag a Spotify App Remote SDK connection that produces no callback after 10 seconds, even if the server has discovered the phone and accepted Play. This distinguishes the local SDK issue from Spotify's Web API track mismatch.
+- Remain backward compatible with older AudioShelf servers without verification snapshots. Require AudioShelf server 0.6.33 for detailed observed-player evidence.
+- Do not change playback timing, Spotify Play dispatch, authorisation, device selection, or Android's UI layout. No raw credentials, account identifiers or Spotify device/track IDs are logged.
+
 # 0.2.12 — Timestamped Spotify wake diagnostics inside the Android app
 
 - Each companion and integrated wake log includes local date/time with UTC offset, elapsed monotonic seconds, a fresh short session ID and APK build, so repeated reports cannot be confused.

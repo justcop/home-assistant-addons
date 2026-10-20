@@ -34,6 +34,22 @@ public class PlaybackStatusClientTest {
         assertFalse(PlaybackStatusClient.parse(200, "{\"state\":\"waiting\"}").playAccepted);
     }
 
+    @Test public void playerEvidenceIdentifiesStaleTrackWithoutLeakingIdsOrTokens() throws Exception {
+        PlaybackStatusClient.Result pending = PlaybackStatusClient.parse(200,
+            "{\"state\":\"waiting\",\"phase\":\"wrong_track\",\"play_accepted\":true,"
+            + "\"verification\":{\"requested\":\"New song\",\"observed\":\"Old song\","
+            + "\"requested_tag\":\"aaaa1234\",\"observed_tag\":\"bbbb5678\","
+            + "\"device_matches\":true,\"track_matches\":false,\"is_playing\":true,"
+            + "\"item_type\":\"track\",\"player_age_ms\":13000}}");
+        assertEquals("waiting",pending.state);
+        assertTrue(pending.progress().contains("requested=New song (#aaaa1234)"));
+        assertTrue(pending.progress().contains("observed=Old song (#bbbb5678)"));
+        assertTrue(pending.progress().contains("track matches=no"));
+        assertTrue(pending.progress().contains("player age=13000ms"));
+        assertFalse(pending.progress().contains("Bearer"));
+        assertEquals("",PlaybackStatusClient.parse(200,"{\"state\":\"waiting\"}").observation);
+    }
+
     @Test public void distinguishesDnsTlsHttpAndTimeoutWithoutLoggingPrivateExceptionText() {
         assertEquals("DNS could not resolve AudioShelf", PlaybackStatusClient.describe(new java.net.UnknownHostException("private.host")));
         assertEquals("HTTPS/TLS connection failed", PlaybackStatusClient.describe(new javax.net.ssl.SSLException("private host and certificate")));

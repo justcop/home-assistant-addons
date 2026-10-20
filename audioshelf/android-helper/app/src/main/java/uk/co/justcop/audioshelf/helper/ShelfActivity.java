@@ -316,6 +316,12 @@ public final class ShelfActivity extends Activity {
             recordIntegrated("Spotify version unavailable.");
         }
         recordIntegrated("Starting foreground-visible App Remote service wake; authorisation UI disabled.");
+        handler.postDelayed(() -> {
+            if(ticket==sequence && wakeConnecting && remote==null) {
+                recordIntegrated("Spotify SDK watchdog: no success/failure callback after 10 seconds."
+                    + " This is an App Remote connection issue even if Spotify Connect sees the phone.");
+            }
+        },10000);
         ConnectionParams params = new ConnectionParams.Builder(clientId)
             .setRedirectUri(SpotifyRemoteAuthPolicy.REDIRECT_URI).showAuthView(false).build();
         try {
