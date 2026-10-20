@@ -13,24 +13,26 @@ assert(android.includes('WebViewCompat.addWebMessageListener') && android.includ
 assert(android.includes('!isMainFrame') && android.includes('sameOrigin(sourceOrigin)'));
 assert(android.includes('if(!"waiting".equals(result.state))') &&
   android.includes('Server terminal=') &&
-  android.includes('stopWake("20-second deadline; server phase="'),
+  android.includes('stopWake("Wake deadline; server phase="'),
   'Integrated Spotify wake must continue until server confirms playback or reaches the independent 20-second deadline');
 assert(android.includes('Spotify SDK watchdog: no success/failure callback after 10 seconds.'),
   'Integrated helper logs a missing Spotify SDK callback, not just server Play acceptance');
 assert(android.includes('result.progress()') && android.includes('recordIntegrated('),
   'Integrated wake must include server-reported Spotify player observations in the copyable log');
-assert(source.includes('sdk-single-track-test') && source.includes('sdk_single_track:true'),
-  'Local SDK test must be explicitly opt-in, selectable in native Settings only');
-assert(source.includes('if(sdkSingleTrackTestEnabled())') &&
+assert(source.includes('sdk-album-playback') && source.includes('sdk_album:true'),
+  'Integrated Android has SDK album playback with a user-controlled Web API fallback');
+assert(source.includes('if(sdkAlbumPlaybackEnabled())') &&
   source.includes('await playbackHandoff(request,'),
-  'SDK test must bypass ordinary full-album Web API Play completely');
+  'SDK canonical album playback must bypass Web API Play');
 assert(android.includes('session.getPlayerApi().play(pendingSdkFirstTrack)') &&
   android.includes('sdkPlayAttempted = true;'),
   'Native SDK test sends exactly one first-track Play without auto-retries');
 assert(android.includes('if ("waiting".equals(result.state)) runSdkSingleTrackTest(ticket);'),
   'A cancelled or expired handoff must never initiate SDK Play');
-assert(!android.includes('getPlayerApi().queue('),
-  'Diagnostic experiment must never enqueue any additional album tracks');
+assert(android.includes('session.getPlayerApi().queue(uri)') &&
+  android.includes('queueSdkNext(ticket,session,index+1);') &&
+  android.includes('reportSdkQueue(ticket,position,"complete")'),
+  'Canonical tracks must be appended sequentially and completion reported');
 assert(!android.includes('result.playAccepted ||'),
   'Accepted Play cannot disconnect the integrated Spotify SDK before the correct track starts');
 assert(android.includes('stopWake()'));
@@ -74,9 +76,9 @@ assert(updater.includes('check(BiConsumer<String, Runnable> offerDownload)') &&
 assert((android.match(/\.play\(/g)||[]).length===1 &&
   android.includes('session.getPlayerApi().play(pendingSdkFirstTrack)') &&
   android.includes('sdkPlayAttempted = true;') &&
-  android.includes('result.sdkTestUri') &&
-  !android.includes('.queue('),
-  'The explicit SDK experiment permits precisely one guarded local track Play and no SDK queue');
+  android.includes('result.sdkAlbumUris') &&
+  android.includes('lastSdkDispatchedJob = jobId;'),
+  'Canonical album handoff must start with precisely one protected native Play');
 assert(manifest.includes('android.permission.BIND_NOTIFICATION_LISTENER_SERVICE'));
 assert(media.includes('com.spotify.music') && media.includes('onPlaybackStateChanged'));
 const versionCode=Number(gradle.split('versionCode ')[1].split(String.fromCharCode(10))[0].trim());
