@@ -7,6 +7,7 @@ import threading
 import time
 
 from .errors import AppError
+from .playback_audit import inspect_dispatched_tracks
 
 LOG = logging.getLogger('audioshelf')
 
@@ -43,7 +44,7 @@ class PlaybackHandoff:
     def snapshot(job):
         # The authenticated PWA can show wake/dispatch progress without polling
         # Spotify's player API or mistaking a submitted command for confirmed play.
-        return {key: job[key] for key in ('id', 'state', 'result', 'error', 'phase', 'play_accepted', 'cancel_reason')}
+        return {key: job[key] for key in ('id', 'state', 'result', 'error', 'phase', 'play_accepted', 'cancel_reason', 'track_audit')}
 
     def start(self, album, disc, preferred, owner, authorized):
         token = secrets.token_urlsafe(32)
@@ -55,7 +56,7 @@ class PlaybackHandoff:
                    'phase': 'checking_devices', 'device_checks': 0, 'confirmation_checks': 0,
                    'play_accepted': False, 'device_seen_ms': None, 'play_accepted_ms': None,
                    'last_device_check_ms': None, 'last_device_probe_ms': None,
-                   'preparation_retry': None, 'verification': None,
+                   'preparation_retry': None, 'verification': None, 'track_audit': None,
                    'created_monotonic': started,
                    'helper_token_hash': hashlib.sha256(token.encode()).digest(),
                    'deadline': started + self.timeout,
@@ -85,7 +86,7 @@ class PlaybackHandoff:
                                   ('state', 'error', 'phase', 'device_checks', 'confirmation_checks',
                                    'play_accepted', 'device_seen_ms', 'play_accepted_ms',
                                    'last_device_check_ms', 'last_device_probe_ms', 'verification',
-                                   'preparation_retry', 'cancel_reason')}
+                                   'preparation_retry', 'cancel_reason', 'track_audit')}
             self.helper_job = job
             self.helper_changed.notify_all()
 
@@ -97,6 +98,29 @@ class PlaybackHandoff:
                     job[counter] += 1
                 job.update(metrics)
                 self.publish_helper(job)
+
+    def launch_catalogue_audit(self, job, album, disc, device_id):
+        """Read-only diagnostics after Play acceptance, never delay confirmation."""
+        if not isinstance(album, dict) or not isinstance(album.get('tracks'), list):
+            return
+        if not hasattr(self.spotify, 'market') or not callable(getattr(self.spotify, 'play_tracks', None)):
+            return
+
+        def publish(audit):
+            with self.lock:
+                if self.job is job and job['state'] in ('waiting', 'started', 'unconfirmed'):
+                    job['track_audit'] = audit
+                    self.publish_helper(job)
+
+        def work():
+            try:
+                inspect_dispatched_tracks(self.spotify, album, disc, device_id, publish)
+            except Exception:
+                LOG.exception('Read-only Spotify catalogue audit failed')
+                publish({'state': 'failed', 'market': 'unknown', 'track_count': 0,
+                         'samples': [], 'phone_visible_after_play': 'unknown',
+                         'phone_active_after_play': 'unknown'})
+        threading.Thread(target=work, name='audioshelf-track-audit', daemon=True).start()
 
     def helper_status(self, identifier, bearer, wait=20):
         """Read-only status via a random, single-job capability; never cookies."""
@@ -305,6 +329,7 @@ class PlaybackHandoff:
                         album, disc, preferred_device=preferred, resolved_device=ready[0],
                         guard=guard, dispatch=dispatch,
                         progress=lambda phase: self.progress(job, phase))
+                    self.launch_catalogue_audit(job, album, disc, result['device_id'])
                     self.confirm_playing(job, result, guard)
                     return
                 self.progress(job, 'waiting_for_device', **probe_metrics)
