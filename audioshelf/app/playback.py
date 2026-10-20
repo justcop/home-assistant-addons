@@ -180,6 +180,7 @@ class PlaybackHandoff:
         """Require real player state on the intended device and exact first track."""
         wanted_device = result['device_id']
         wanted_track = result['first_track']['id']
+        last_mode_attempt = 0
         while True:
             guard()
             self.progress(job, 'confirming_playback', 'confirmation_checks')
@@ -196,6 +197,41 @@ class PlaybackHandoff:
                                                   result['first_track'].get('title', ''))
             if (state.get('is_playing') is True and device.get('id') == wanted_device
                     and wanted_track in track_ids):
+                if result.get('modes_need_confirmation'):
+                    # A transfer's GET /me/player response may refer to the
+                    # *previous* player. Correct shuffle/repeat only once the
+                    # requested phone and first track are demonstrably active.
+                    # Mode commands are idempotent and may be retried; the Play
+                    # request itself is NEVER automatically repeated.
+                    wrong_shuffle = state.get('shuffle_state') is not False
+                    wrong_repeat = state.get('repeat_state') != 'off'
+                    if wrong_shuffle or wrong_repeat:
+                        now = time.monotonic()
+                        if now - last_mode_attempt >= 1:
+                            last_mode_attempt = now
+                            self.progress(job, 'preparing_playback_modes')
+                            params = {'device_id': wanted_device}
+                            for endpoint, needed, value in (
+                                ('me/player/shuffle', wrong_shuffle, 'false'),
+                                ('me/player/repeat', wrong_repeat, 'off'),
+                            ):
+                                if not needed:
+                                    continue
+                                guard()
+                                try:
+                                    self.spotify.api('PUT', endpoint, dict(params, state=value))
+                                except AppError as error:
+                                    # A just-awoken Spotify device can still
+                                    # reject mode updates transiently. Poll and
+                                    # retry the idempotent mode command only.
+                                    if error.status not in (404, 409):
+                                        raise
+                        self.progress(job, 'confirming_modes', verification=observed)
+                        now = time.monotonic()
+                        interval = self.confirmation_poll_interval(
+                            now - (job.get('play_accepted_monotonic') or job['created_monotonic']))
+                        job['stop'].wait(min(interval, max(0, job['deadline'] - now)))
+                        continue
                 # This verified observation is authoritative for the PWA's
                 # initial PLAYING state. Don't require a second Spotify read.
                 self.progress(job, 'confirmed', verification=observed)

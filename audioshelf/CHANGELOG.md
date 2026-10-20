@@ -1,3 +1,10 @@
+# 0.6.36 — Play directly to the discovered Spotify phone
+
+- The Android/Spotify App Remote wake succeeds, but a paused Connect transfer remains unacknowledged in `GET /me/player`. A playback job no longer repeats that transfer indefinitely: it issues one explicit `PUT /me/player/play` pinned to the uniquely discovered, unrestricted preferred phone.
+- No second device lookup, stale current-player query, or paused-transfer acknowledgement blocks the first Play request. The exact verified canonical track URI list, its disc/side scope, cancellation guard, and the one-Play-only rule are unchanged.
+- After Play, verify the selected phone and exact first track really are playing; correct and verify shuffle off / repeat off on the now-active phone. Only those idempotent mode commands can be retried if Spotify responds 404/409 during activation. A missing/incorrect playback observation is never treated as success.
+- Keep the legacy synchronous playback path's existing transfer safeguards. Android 0.2.15 remains compatible and requires no new build.
+
 # 0.6.35 — Unstick cold Spotify playback before Play dispatch
 
 - Reuse the phone found by the background handoff instead of querying Spotify Connect twice before beginning Play. The command remains pinned to that exact selected phone.
