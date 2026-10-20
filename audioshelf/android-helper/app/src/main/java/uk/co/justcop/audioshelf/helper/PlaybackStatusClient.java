@@ -18,15 +18,15 @@ final class PlaybackStatusClient {
         final int httpStatus, deviceChecks, confirmationChecks;
         final boolean playAccepted;
         final int deviceSeenMs, playAcceptedMs, lastDeviceCheckMs, lastDeviceProbeMs;
-        final String observation, cancellationReason;
+        final String observation, cancellationReason, preparationRetry;
         Result(String state, String message, String phase, int httpStatus, int devices, int confirmations,
                boolean accepted, int seenMs, int acceptedMs, int checkMs, int probeMs,
-               String observed, String cancelledBecause) {
+               String observed, String cancelledBecause, String retry) {
             this.state = state; this.message = message; this.phase = phase;
             this.httpStatus = httpStatus; deviceChecks = devices; confirmationChecks = confirmations;
             playAccepted = accepted; deviceSeenMs = seenMs; playAcceptedMs = acceptedMs;
             lastDeviceCheckMs = checkMs; lastDeviceProbeMs = probeMs; observation = observed;
-            cancellationReason = cancelledBecause;
+            cancellationReason = cancelledBecause; preparationRetry = retry;
         }
         String progress() {
             String detail;
@@ -34,6 +34,14 @@ final class PlaybackStatusClient {
                 case "checking_devices": detail = "asking Spotify for available devices"; break;
                 case "waiting_for_device": detail = "preferred phone not available yet"; break;
                 case "preparing_playback": detail = "phone found; preparing playback"; break;
+                case "preparing_player_state": detail = "reading Spotify active-player state"; break;
+                case "preparing_device_check": detail = "rechecking preferred Spotify phone"; break;
+                case "preparing_device_transfer": detail = "transferring the player to the phone (paused)"; break;
+                case "preparing_transfer_ack": detail = "waiting for Spotify to acknowledge device transfer"; break;
+                case "preparing_transfer_fallback": detail = "checking safe, explicitly targeted Play fallback"; break;
+                case "preparing_playback_modes": detail = "checking shuffle and repeat are disabled"; break;
+                case "preparing_modes_ack": detail = "waiting for Spotify shuffle/repeat confirmation"; break;
+                case "preparing_explicit_play": detail = "ready to send one phone-pinned album Play"; break;
                 case "sending_play": detail = "sending Play to Spotify"; break;
                 case "play_accepted": detail = "Spotify accepted Play; verifying in the background"; break;
                 case "confirming_playback": detail = "Play sent; checking Spotify playback"; break;
@@ -52,7 +60,9 @@ final class PlaybackStatusClient {
                 " [server: last device check +" + lastDeviceCheckMs + "ms, request " + lastDeviceProbeMs + "ms]";
             if (deviceSeenMs >= 0) times += " [phone found at server +" + deviceSeenMs + "ms]";
             if (playAcceptedMs >= 0) times += " [Play accepted at server +" + playAcceptedMs + "ms]";
-            return detail + counts + times + (observation.isEmpty() ? "" : " [Spotify player: "+observation+"]");
+            String retry = preparationRetry.isEmpty() ? "" : " [previous preparation retry: "+preparationRetry.replace('_',' ')+"]";
+            return detail + counts + times + retry
+                + (observation.isEmpty() ? "" : " [Spotify player: "+observation+"]");
         }
     }
 
@@ -108,7 +118,7 @@ final class PlaybackStatusClient {
     static Result parse(int code, String response) throws IOException {
         if (code == 401 || code == 403 || code == 404 || code == 410)
             return new Result("expired", "Playback request unavailable.", "expired", code, -1, -1,
-                false, -1, -1, -1, -1, "", "");
+                false, -1, -1, -1, -1, "", "", "");
         if (code != 200) throw new HttpFailure(code);
         try {
             JsonObject object = JsonParser.parseString(response).getAsJsonObject();
@@ -126,9 +136,20 @@ final class PlaybackStatusClient {
             return new Result(state, message, phase, code, devices, confirmations, accepted,
                 optionalMillis(object, "device_seen_ms"), optionalMillis(object, "play_accepted_ms"),
                 optionalMillis(object, "last_device_check_ms"), optionalMillis(object, "last_device_probe_ms"),
-                observation(object), cancellationReason(object));
+                observation(object), cancellationReason(object), preparationRetry(object));
         } catch (RuntimeException exception) {
             throw new IOException("Invalid playback response", exception);
+        }
+    }
+
+    private static String preparationRetry(JsonObject object) {
+        if (!object.has("preparation_retry") || object.get("preparation_retry").isJsonNull()
+                || !object.get("preparation_retry").isJsonPrimitive()) return "";
+        String reason=object.get("preparation_retry").getAsString();
+        switch(reason) {
+            case "device_lost": case "transfer_unconfirmed":
+            case "player_not_ready": case "preparation_unavailable": return reason;
+            default: return "";
         }
     }
 
