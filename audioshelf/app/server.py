@@ -150,7 +150,7 @@ def create_app(options=None):
             if origin and not ingress() and urlsplit(origin).netloc not in allowed_hosts:
                 raise AppError('Use the same AudioShelf address for this action.', 403)
         # Helper status has its own per-job bearer authentication, not a browser session.
-        helper_read = request.method == 'GET' and request.path.startswith('/api/helper/playback-handoff/')
+        helper_read = request.method in {'GET', 'POST'} and request.path.startswith('/api/helper/playback-handoff/')
         if request.path.startswith('/api/') and not helper_read and request.path not in {'/api/status','/api/login','/api/login/ingress'}:
             g.identity = identity()
             if g.identity is None:
@@ -865,7 +865,10 @@ def create_app(options=None):
         body = request.get_json(silent=True) or {}
         disc = body.get('disc_number')
         sdk_single_track = body.get('sdk_single_track') is True
-        if sdk_single_track and preferred.get('type') != 'Smartphone':
+        sdk_album = body.get('sdk_album') is True
+        if sdk_album and sdk_single_track:
+            raise AppError('Choose one Android SDK playback mode.', 400)
+        if (sdk_album or sdk_single_track) and preferred.get('type') != 'Smartphone':
             raise AppError('SDK single-track test requires your preferred Android phone.', 409)
         spotify.play_tracks(album, disc)  # Validate before accepting background work.
         token = session.get('sid')
@@ -879,7 +882,7 @@ def create_app(options=None):
             return bool(enabled and context.security.version() == version
                         and person and person['role'] in ('owner', 'control'))
         return jsonify(handoff.start(album, disc, preferred, playback_owner(), authorized,
-                                     sdk_single_track=sdk_single_track)), 202
+                                     sdk_single_track=sdk_single_track, sdk_album=sdk_album)), 202
 
     @app.get('/api/helper/playback-handoff/<account_id>/<job_id>')
     def helper_playback_status(account_id, job_id):
@@ -893,6 +896,19 @@ def create_app(options=None):
         # New helpers request an immediate, bounded snapshot; old long-poll clients still work.
         wait = 0 if request.args.get('wait') == '0' else 20
         return jsonify(context.handoff.helper_status(job_id, token, wait=wait))
+
+    @app.post('/api/helper/playback-handoff/<account_id>/<job_id>/sdk-queue')
+    def helper_sdk_queue_report(account_id, job_id):
+        if account_id != 'owner' and not (len(account_id) == 32 and all(c in '0123456789abcdef' for c in account_id)):
+            raise AppError('Unknown playback job.', 404)
+        if not accounts.enabled(account_id):
+            raise AppError('Unknown playback job.', 404)
+        context = accounts.context(account_id)
+        header = request.headers.get('Authorization', '')
+        token = header[7:] if header.startswith('Bearer ') else ''
+        body = request.get_json(silent=True) or {}
+        return jsonify(context.handoff.sdk_queue_report(job_id, token,
+                       body.get('count'), body.get('state')))
 
     @app.route('/api/spotify/playback-handoff/<job_id>', methods=['GET', 'DELETE'])
     def playback_job(job_id):
