@@ -63,6 +63,20 @@ public class PlaybackStatusClientTest {
         assertEquals("started", PlaybackStatusClient.parse(200, "{\"state\":\"started\"}").state);
         assertEquals("unconfirmed", PlaybackStatusClient.parse(200, "{\"state\":\"unconfirmed\"}").state);
     }
+    @Test public void reportsWhoCancelledWithoutLoggingArbitraryServerText() throws Exception {
+        PlaybackStatusClient.Result user = PlaybackStatusClient.parse(200,
+            "{\"state\":\"cancelled\",\"phase\":\"cancelled\",\"cancel_reason\":\"user_cancelled\"}");
+        assertEquals("user_cancelled",user.cancellationReason);
+        assertTrue(user.progress().contains("cancelled by user cancelled"));
+        PlaybackStatusClient.Result device=PlaybackStatusClient.parse(200,
+            "{\"state\":\"cancelled\",\"phase\":\"cancelled\",\"cancel_reason\":\"device_change\"}");
+        assertTrue(device.progress().contains("device change"));
+        PlaybackStatusClient.Result unknown=PlaybackStatusClient.parse(200,
+            "{\"state\":\"cancelled\",\"phase\":\"cancelled\",\"cancel_reason\":\"private-token-xxx\"}");
+        assertTrue(unknown.cancellationReason.isEmpty());
+        assertFalse(unknown.progress().contains("private-token"));
+    }
+
     @Test public void revocationAndUnexpectedStatusFailClosed() throws Exception {
         assertEquals("expired", PlaybackStatusClient.parse(404, "").state);
         assertEquals("cancelled", PlaybackStatusClient.parse(200, "{\"state\":\"cancelled\"}").state);

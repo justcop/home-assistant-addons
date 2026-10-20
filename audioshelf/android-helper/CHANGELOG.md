@@ -1,3 +1,9 @@
+# 0.2.14 — Explain who cancelled Spotify playback
+
+- Keep integrated playback diagnostics and local Spotify SDK wake timing unchanged, including the absolute date/time and the Spotify observed-track evidence.
+- The integrated app's **Playback diagnostics** now distinguishes an explicit Cancel action from a device change, a new playback request, direct playback, logout or account disconnection when reading AudioShelf server **0.6.34** status.
+- The cancellation reason is a strict allowlist: arbitrary API text, tokens and private identifiers are not shown. Existing AudioShelf versions remain compatible.
+
 # 0.2.13 — Explain Spotify wrong-track playback failures
 
 - Show the requested and observed song in the integrated and companion Android wake logs (using short hashed track fingerprints), plus track/device match, playing status, Spotify linked-from recording and player-state age when the AudioShelf server provides them.

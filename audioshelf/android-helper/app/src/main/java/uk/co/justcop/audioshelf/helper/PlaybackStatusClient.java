@@ -18,13 +18,15 @@ final class PlaybackStatusClient {
         final int httpStatus, deviceChecks, confirmationChecks;
         final boolean playAccepted;
         final int deviceSeenMs, playAcceptedMs, lastDeviceCheckMs, lastDeviceProbeMs;
-        final String observation;
+        final String observation, cancellationReason;
         Result(String state, String message, String phase, int httpStatus, int devices, int confirmations,
-               boolean accepted, int seenMs, int acceptedMs, int checkMs, int probeMs, String observed) {
+               boolean accepted, int seenMs, int acceptedMs, int checkMs, int probeMs,
+               String observed, String cancelledBecause) {
             this.state = state; this.message = message; this.phase = phase;
             this.httpStatus = httpStatus; deviceChecks = devices; confirmationChecks = confirmations;
             playAccepted = accepted; deviceSeenMs = seenMs; playAcceptedMs = acceptedMs;
             lastDeviceCheckMs = checkMs; lastDeviceProbeMs = probeMs; observation = observed;
+            cancellationReason = cancelledBecause;
         }
         String progress() {
             String detail;
@@ -40,6 +42,8 @@ final class PlaybackStatusClient {
                 case "wrong_track": detail = "Spotify reports a different track"; break;
                 case "paused": detail = "correct phone and track found, but Spotify is not playing"; break;
                 case "confirmed": detail = "requested track confirmed playing on the selected phone"; break;
+                case "cancelled": detail = cancellationReason.isEmpty() ? "playback request cancelled (source unknown)"
+                    : "playback request cancelled by " + cancellationReason.replace('_',' '); break;
                 default: detail = state.equals("waiting") ? "waiting for playback confirmation (update AudioShelf for detailed progress)" : state;
             }
             String counts = deviceChecks < 0 ? "" :
@@ -104,7 +108,7 @@ final class PlaybackStatusClient {
     static Result parse(int code, String response) throws IOException {
         if (code == 401 || code == 403 || code == 404 || code == 410)
             return new Result("expired", "Playback request unavailable.", "expired", code, -1, -1,
-                false, -1, -1, -1, -1, "");
+                false, -1, -1, -1, -1, "", "");
         if (code != 200) throw new HttpFailure(code);
         try {
             JsonObject object = JsonParser.parseString(response).getAsJsonObject();
@@ -122,9 +126,22 @@ final class PlaybackStatusClient {
             return new Result(state, message, phase, code, devices, confirmations, accepted,
                 optionalMillis(object, "device_seen_ms"), optionalMillis(object, "play_accepted_ms"),
                 optionalMillis(object, "last_device_check_ms"), optionalMillis(object, "last_device_probe_ms"),
-                observation(object));
+                observation(object), cancellationReason(object));
         } catch (RuntimeException exception) {
             throw new IOException("Invalid playback response", exception);
+        }
+    }
+
+    private static String cancellationReason(JsonObject object) {
+        if (!object.has("cancel_reason") || object.get("cancel_reason").isJsonNull()
+                || !object.get("cancel_reason").isJsonPrimitive()) return "";
+        String reason=object.get("cancel_reason").getAsString();
+        // Never emit arbitrary server response text in a support log.
+        switch (reason) {
+            case "cancelled": case "user_cancelled": case "new_playback":
+            case "device_change": case "direct_playback": case "logout":
+            case "spotify_disconnect": return reason;
+            default: return "";
         }
     }
 
