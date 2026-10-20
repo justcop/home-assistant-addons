@@ -1,3 +1,10 @@
+# 0.6.35 — Unstick cold Spotify playback before Play dispatch
+
+- Reuse the phone found by the background handoff instead of querying Spotify Connect twice before beginning Play. The command remains pinned to that exact selected phone.
+- When Spotify acknowledges a paused transfer but keeps reporting a different current player, permit one explicitly device-targeted album Play **only if** the exact phone remains available and shuffle/repeat are known to be off. No speaker fallback, no automatic repeat of an ambiguous Play, and no change to canonical album track URIs.
+- Treat a 404 reading the inactive Spotify player as an empty player instead of confusing it with a missing Spotify Connect phone.
+- Publish safe, specific preparation stages and a finite, allowlisted retry reason to the authenticated Android job status. Preserve the server's strict final phone/track/playing verification and cancellation behaviour.
+
 # 0.6.34 — Don't cancel Spotify startup on navigation
 
 - Keep an active background playback handoff running when a user closes the startup dialog or browses to another AudioShelf page. This prevents the app from cancelling Spotify activation before Play is sent, as seen in the 16:55 Android log.
