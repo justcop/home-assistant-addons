@@ -88,21 +88,21 @@ public class PlaybackStatusClientTest {
 
     @Test public void exactCanonicalAlbumIsAvailableOnlyToSdkAlbumMode() throws Exception {
         String a="a".repeat(22), b="b".repeat(22);
-        String values="\\"sdk_album_uris\\":[\\"spotify:track:"+a+"\\",\\"spotify:track:"+b+"\\"]";
+        String values="\"sdk_album_uris\":[\"spotify:track:"+a+"\",\"spotify:track:"+b+"\"]";
         PlaybackStatusClient.Result accepted=PlaybackStatusClient.parse(200,
-            "{\\"state\\":\\"waiting\\",\\"sdk_album\\":true,"
-             + "\\"sdk_queue_expected\\":2,\\"sdk_queue_count\\":1,"+values+"}");
+            "{\"state\":\"waiting\",\"sdk_album\":true,"
+             + "\"sdk_queue_expected\":2,\"sdk_queue_count\":1,"+values+"}");
         assertEquals(2,accepted.sdkAlbumUris.size());
         assertEquals("spotify:track:"+b,accepted.sdkAlbumUris.get(1));
         assertEquals(1,accepted.sdkQueued);
         assertEquals(2,accepted.sdkExpected);
         assertTrue(accepted.progress().contains("1/2"));
         assertTrue(PlaybackStatusClient.parse(200,
-            "{\\"state\\":\\"waiting\\",\\"sdk_album\\":false,"+values+"}").sdkAlbumUris.isEmpty());
+            "{\"state\":\"waiting\",\"sdk_album\":false,"+values+"}").sdkAlbumUris.isEmpty());
         try {
             PlaybackStatusClient.parse(200,
-                "{\\"state\\":\\"waiting\\",\\"sdk_album\\":true,"
-                 + "\\"sdk_album_uris\\":[\\"spotify:album:"+a+"\\"]}");
+                "{\"state\":\"waiting\",\"sdk_album\":true,"
+                 + "\"sdk_album_uris\":[\"spotify:album:"+a+"\"]}");
             fail("An album URI must never be accepted in the exact track queue");
         } catch(java.io.IOException expected) { }
     }
