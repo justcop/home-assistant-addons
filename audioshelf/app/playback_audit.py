@@ -43,7 +43,7 @@ def catalogue_entry(track, position, item=None, error=None):
     row['status'] = 'found'
     row['playable'] = ('no' if item.get('is_playable') is False or restriction
                        else 'yes' if item.get('is_playable') is True else 'unknown')
-    row['relinked'] = bool(reported != saved and (linked == saved or linked is None))
+    row['relinked'] = bool(reported != saved and linked == saved)
     row['returned_tag'] = tag(reported)
     row['restriction'] = restriction if restriction in ('market','product','explicit') else 'other' if restriction else None
     original = label(track.get('title')).casefold()
@@ -65,6 +65,7 @@ def inspect_dispatched_tracks(spotify, album, disc, wanted_device_id, publish):
     market = spotify.market if isinstance(spotify.market, str) and re.fullmatch('[A-Z]{2}', spotify.market) else 'unknown'
     indices = list(dict.fromkeys([0, 1 if len(tracks)>1 else 0, len(tracks)-1]))
     audit = {'state': 'checking', 'market': market, 'track_count': len(uris),
+             'queue_tag': tag('|'.join(uris)),
              'samples': [], 'phone_visible_after_play': 'unknown',
              'phone_active_after_play': 'unknown'}
     publish(dict(audit, samples=list(audit['samples'])))
