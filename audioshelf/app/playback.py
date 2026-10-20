@@ -413,7 +413,7 @@ class PlaybackHandoff:
                                   'first_track': {'id': tracks[0]['spotify_id'], 'title': tracks[0]['title'],
                                                   'duration_ms': tracks[0].get('duration_ms')},
                                   'canonical_tracks': tracks,
-                                  'sdk_album': True, 'modes_need_confirmation': False}
+                                  'sdk_album': True, 'modes_need_confirmation': True}
                         self.progress(job, 'sdk_queue_ready', sdk_album_uris=uris,
                                       sdk_queue_expected=len(uris))
                     elif job['sdk_single_track']:
