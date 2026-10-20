@@ -166,7 +166,8 @@ class PlaybackHandoff:
                     not job['payload'][3]()):
                 raise AppError('Playback job is not accepting SDK queue reports.', 404)
             expected = job['sdk_queue_expected']
-            if type(count) is not int or count < 1 or count > expected or state not in ('progress','complete','failed'):
+            if (type(count) is not int or count < 0 or count > expected or
+                    state not in ('progress','complete','failed') or (count == 0 and state != 'failed')):
                 raise AppError('Invalid SDK queue report.', 400)
             if count < job['sdk_queue_count']:
                 raise AppError('SDK queue progress went backwards.', 409)
