@@ -29,8 +29,10 @@ assert(android.includes('session.getPlayerApi().play(pendingSdkFirstTrack)') &&
   'Native SDK test sends exactly one first-track Play without auto-retries');
 assert(android.includes('if ("waiting".equals(result.state)) runSdkSingleTrackTest(ticket);'),
   'A cancelled or expired handoff must never initiate SDK Play');
-assert(!android.includes('getPlayerApi().queue('),
-  'Diagnostic experiment must never enqueue any additional album tracks');
+assert(android.includes('getPlayerApi().queue(uri)') &&
+  android.includes('pendingSdkAlbum.isEmpty()') &&
+  android.includes('queueNextSdkTrack(ticket, session, 1)'),
+  'Full-album mode is the only mode that queues additional tracks');
 assert(!android.includes('result.playAccepted ||'),
   'Accepted Play cannot disconnect the integrated Spotify SDK before the correct track starts');
 assert(android.includes('stopWake()'));
