@@ -76,6 +76,7 @@ public final class ShelfActivity extends Activity {
     private long wakeDeadline;
     private long integratedWakeStartedAt;
     private String integratedSessionId, lastWakePhase, lastWakeState, lastWakeError;
+    private String lastTrackAudit = "";
     private String wakeSdkState = "not started";
     private boolean lastAcceptedPlay;
     private int wakePollCount;
@@ -283,6 +284,7 @@ public final class ShelfActivity extends Activity {
         lastWakePhase = null;
         lastWakeState = null;
         lastWakeError = null;
+        lastTrackAudit = "";
         lastAcceptedPlay = false;
         wakePollCount = 0;
         wakeSdkState = "connecting";
@@ -390,6 +392,11 @@ public final class ShelfActivity extends Activity {
                             + "; retrying while wake window remains.");
                     }
                 } else if(result!=null) {
+                    if (result.trackAudit != null && !result.trackAudit.isEmpty()
+                            && !result.trackAudit.equals(lastTrackAudit)) {
+                        lastTrackAudit = result.trackAudit;
+                        recordIntegrated("Spotify mapping audit: " + result.trackAudit);
+                    }
                     if (localPlayerProbe != null) localPlayerProbe.serverStatus(result);
                     if(lastWakeError!=null) {
                         recordIntegrated("Server connection restored at check "+attempt+".");

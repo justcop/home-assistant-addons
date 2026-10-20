@@ -46,6 +46,7 @@ public final class MainActivity extends Activity {
     private String wakeClientId;
     private final WakeReturnState wakeReturn = new WakeReturnState();
     private String lastStatusError, lastServerProgress;
+    private String lastTrackAudit = "";
     private String transportStage = "not started";
     private boolean serverContacted;
     private boolean playAcceptanceLogged;
@@ -238,6 +239,11 @@ public final class MainActivity extends Activity {
                 if (lastStatusError != null) {
                     record("AudioShelf status connection restored.");
                     lastStatusError = null;
+                }
+                if (result.trackAudit != null && !result.trackAudit.isEmpty()
+                        && !result.trackAudit.equals(lastTrackAudit)) {
+                    lastTrackAudit = result.trackAudit;
+                    record("Spotify mapping audit: " + result.trackAudit);
                 }
                 if (localPlayerProbe != null) localPlayerProbe.serverStatus(result);
                 String progress = result.progress();

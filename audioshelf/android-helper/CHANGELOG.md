@@ -1,3 +1,9 @@
+# 0.2.17 — Include live catalogue evidence in playback diagnostics
+
+- Read AudioShelf 0.6.37's read-only post-Play `track_audit` through the existing authenticated single-job status. Display the saved queue fingerprint, track titles/fingerprints, Spotify market playability, relinking/restriction results and post-Play phone visibility in the copyable wake log.
+- Log when the audit changes rather than repeating results on every poll. Validate and bound every field; no credentials, raw Spotify track/device IDs, unrestricted API data or playback-job IDs appear.
+- Keep existing Android SDK local player observation, precise-track Resume safeguard and 20-second wake deadline; the audit issues no playback command.
+
 # 0.2.16 — Inspect Spotify's local player after accepted Web API Play
 
 - Read Spotify App Remote's local player state in both integrated and companion modes while the server independently verifies playback. Log only the presence of a track, a short non-reversible track-ID fingerprint and paused/playing state. Never expose the raw Spotify URI or account data.

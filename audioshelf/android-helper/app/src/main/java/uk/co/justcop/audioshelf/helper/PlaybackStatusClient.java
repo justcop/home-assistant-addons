@@ -18,15 +18,16 @@ final class PlaybackStatusClient {
         final int httpStatus, deviceChecks, confirmationChecks;
         final boolean playAccepted;
         final int deviceSeenMs, playAcceptedMs, lastDeviceCheckMs, lastDeviceProbeMs;
-        final String observation, requestedTag, cancellationReason, preparationRetry;
+        final String observation, requestedTag, cancellationReason, preparationRetry, trackAudit;
         Result(String state, String message, String phase, int httpStatus, int devices, int confirmations,
                boolean accepted, int seenMs, int acceptedMs, int checkMs, int probeMs,
-               String observed, String requestedTag, String cancelledBecause, String retry) {
+               String observed, String requestedTag, String cancelledBecause, String retry, String audit) {
             this.state = state; this.message = message; this.phase = phase;
             this.httpStatus = httpStatus; deviceChecks = devices; confirmationChecks = confirmations;
             playAccepted = accepted; deviceSeenMs = seenMs; playAcceptedMs = acceptedMs;
             lastDeviceCheckMs = checkMs; lastDeviceProbeMs = probeMs; observation = observed;
             this.requestedTag = requestedTag; cancellationReason = cancelledBecause; preparationRetry = retry;
+            trackAudit = audit;
         }
         String progress() {
             String detail;
@@ -118,7 +119,7 @@ final class PlaybackStatusClient {
     static Result parse(int code, String response) throws IOException {
         if (code == 401 || code == 403 || code == 404 || code == 410)
             return new Result("expired", "Playback request unavailable.", "expired", code, -1, -1,
-                false, -1, -1, -1, -1, "", "", "", "");
+                false, -1, -1, -1, -1, "", "", "", "", "");
         if (code != 200) throw new HttpFailure(code);
         try {
             JsonObject object = JsonParser.parseString(response).getAsJsonObject();
@@ -136,10 +137,57 @@ final class PlaybackStatusClient {
             return new Result(state, message, phase, code, devices, confirmations, accepted,
                 optionalMillis(object, "device_seen_ms"), optionalMillis(object, "play_accepted_ms"),
                 optionalMillis(object, "last_device_check_ms"), optionalMillis(object, "last_device_probe_ms"),
-                observation(object), requestedTag(object), cancellationReason(object), preparationRetry(object));
+                observation(object), requestedTag(object), cancellationReason(object), preparationRetry(object), trackAudit(object));
         } catch (RuntimeException exception) {
             throw new IOException("Invalid playback response", exception);
         }
+    }
+
+    /** Bounded, typed values only; no raw Spotify IDs or untrusted API text. */
+    static String trackAudit(JsonObject object) {
+        if (!object.has("track_audit") || !object.get("track_audit").isJsonObject()) return "";
+        JsonObject audit=object.getAsJsonObject("track_audit");
+        String state=safe(audit,"state");
+        if (!state.equals("checking") && !state.equals("complete") && !state.equals("failed")) return "";
+        String market=safe(audit,"market");
+        if (!market.matches("[A-Z]{2}")) market="unknown";
+        int count=0;
+        try { count=audit.get("track_count").getAsInt(); } catch (RuntimeException ignored) {}
+        if (count<0 || count>100) count=0;
+        String queue=safe(audit,"queue_tag");
+        if (!queue.matches("[0-9a-f]{10}")) queue="unknown";
+        StringBuilder out=new StringBuilder("market="+market+"; queued="+count+" tracks; queue #"+queue+"; audit="+state);
+        if (audit.has("samples") && audit.get("samples").isJsonArray()) {
+            int n=0;
+            for (com.google.gson.JsonElement element:audit.getAsJsonArray("samples")) {
+                if (n++>=3 || !element.isJsonObject()) break;
+                JsonObject sample=element.getAsJsonObject();
+                String title=safe(sample,"title"), status=safe(sample,"status");
+                String saved=safe(sample,"saved_tag"), returned=safe(sample,"returned_tag");
+                String playable=safe(sample,"playable"), restricted=safe(sample,"restriction");
+                if (!saved.matches("[0-9a-f]{10}")) saved="unknown";
+                if (!returned.matches("[0-9a-f]{10}")) returned="none";
+                if (!java.util.Arrays.asList("found","missing","not_found","rate_limited",
+                     "access_denied","request_failed","error").contains(status)) status="unknown";
+                if (!java.util.Arrays.asList("yes","no","unknown").contains(playable)) playable="unknown";
+                if (!java.util.Arrays.asList("market","product","explicit","other").contains(restricted)) restricted="none";
+                int position=0;
+                try { position=sample.get("position").getAsInt(); } catch (RuntimeException ignored) {}
+                if (position<1 || position>100) position=0;
+                String linked=(sample.has("relinked") && sample.get("relinked").isJsonPrimitive()
+                    && sample.get("relinked").getAsBoolean()) ? "yes" : "no";
+                out.append("; #").append(position).append(" ").append(title)
+                    .append(" [saved #").append(saved).append(", Spotify=").append(status)
+                    .append(", playable=").append(playable).append(", relinked=").append(linked)
+                    .append(", returned #").append(returned).append(", restriction=").append(restricted).append("]");
+            }
+        }
+        String visible=safe(audit,"phone_visible_after_play");
+        String active=safe(audit,"phone_active_after_play");
+        if (!java.util.Arrays.asList("yes","no","unknown").contains(visible)) visible="unknown";
+        if (!java.util.Arrays.asList("yes","no","unknown").contains(active)) active="unknown";
+        out.append("; phone visible after Play=").append(visible).append(", active=").append(active);
+        return out.toString();
     }
 
     private static String requestedTag(JsonObject object) {
