@@ -27,8 +27,12 @@ assert(source.includes('if(sdkAlbumPlaybackEnabled())') &&
 assert(android.includes('session.getPlayerApi().play(pendingSdkFirstTrack)') &&
   android.includes('sdkPlayAttempted = true;'),
   'Native SDK test sends exactly one first-track Play without auto-retries');
-assert(android.includes('if ("waiting".equals(result.state)) runSdkSingleTrackTest(ticket);'),
-  'A cancelled or expired handoff must never initiate SDK Play');
+assert(android.includes('if ("waiting".equals(result.state)) {') &&
+  android.includes('runSdkSingleTrackTest(ticket);') &&
+  android.includes('result.firstTrackConfirmed') &&
+  android.includes('sdkPlayAcknowledged') &&
+  android.includes('sdkQueueStarted = true;'),
+  'Only a waiting job may issue SDK Play; queue starts once after independent first-track confirmation');
 assert(android.includes('session.getPlayerApi().queue(uri)') &&
   android.includes('queueSdkNext(ticket,session,index+1);') &&
   android.includes('reportSdkQueue(ticket,position,"complete")'),
