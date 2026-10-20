@@ -5,6 +5,8 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.PendingIntent;
 import android.content.ActivityNotFoundException;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
@@ -13,6 +15,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.view.Gravity;
 import android.view.MenuItem;
@@ -26,6 +29,7 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 import android.widget.PopupMenu;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.core.graphics.Insets;
@@ -69,6 +73,13 @@ public final class ShelfActivity extends Activity {
     private int leftSafePx, rightSafePx;
     private String jobId, accountId, token;
     private long wakeDeadline;
+    private long integratedWakeStartedAt;
+    private String integratedSessionId, lastWakePhase, lastWakeState, lastWakeError;
+    private String wakeSdkState = "not started";
+    private boolean lastAcceptedPlay;
+    private int wakePollCount;
+    private WakeLog integratedWakeLog = new WakeLog();
+    private final WakeProgressLog integratedProgressLog = new WakeProgressLog();
     private final Runnable poll = this::pollWake;
 
     @Override public void onCreate(Bundle state) {
@@ -259,18 +270,52 @@ public final class ShelfActivity extends Activity {
         String registered=getSharedPreferences(PREFS,MODE_PRIVATE).getString("trusted_client","");
         if (!clientId.matches("[a-fA-F0-9]{32}") || !clientId.equals(registered) ||
             !(account.equals("owner")||account.matches("[a-f0-9]{32}")) ||
-            !job.matches("[A-Za-z0-9_-]{20,128}") || !bearer.matches("[A-Za-z0-9_-]{32,128}")) return;
-        stopWake();
-        jobId=job; accountId=account; token=bearer;
-        wakeDeadline=android.os.SystemClock.elapsedRealtime()+20000;
-        final int ticket=sequence;
-        wakeConnecting=true;
-        handler.postDelayed(() -> {if(ticket==sequence)stopWake();},20000);
-        pollWake();
-        if (!SpotifyAppRemote.isSpotifyInstalled(this)) {
-            Toast.makeText(this,"Spotify is not installed.",Toast.LENGTH_SHORT).show();
+            !job.matches("[A-Za-z0-9_-]{20,128}") || !bearer.matches("[A-Za-z0-9_-]{32,128}")) {
+            // Do not record any untrusted values from a rejected web message.
             return;
         }
+        stopWake("Previous request replaced by a new playback attempt.");
+        integratedWakeLog = new WakeLog();
+        integratedWakeStartedAt = SystemClock.elapsedRealtime();
+        integratedSessionId = WakeDiagnostics.sessionId();
+        lastWakePhase = null;
+        lastWakeState = null;
+        lastWakeError = null;
+        lastAcceptedPlay = false;
+        wakePollCount = 0;
+        wakeSdkState = "connecting";
+        jobId=job; accountId=account; token=bearer;
+        wakeDeadline=integratedWakeStartedAt+20000;
+        final int ticket=sequence;
+        wakeConnecting=true;
+        recordIntegrated("Wake session " + integratedSessionId + " · integrated Android app "
+            + BuildConfig.VERSION_NAME + " (build " + BuildConfig.VERSION_CODE + ")"
+            + "; Android API " + Build.VERSION.SDK_INT + ".");
+        recordIntegrated("Time zone " + java.time.ZoneId.systemDefault().getId()
+            + "; absolute timestamps and monotonic elapsed seconds enabled.");
+        recordIntegrated("Trusted wake request validated; credentials, account and full job ID omitted.");
+        recordIntegrated("Spotify App Remote connects without sending Play; server owns device/track selection and verification.");
+        handler.postDelayed(() -> {
+            if(ticket==sequence)stopWake("20-second deadline; server phase="
+                + (lastWakePhase==null?"not yet received":lastWakePhase)
+                + "; Spotify SDK=" + wakeSdkState
+                + "; Play accepted=" + lastAcceptedPlay
+                + ". Verified playback was not reported before this deadline.");
+        },20000);
+        pollWake();
+        if (!SpotifyAppRemote.isSpotifyInstalled(this)) {
+            recordIntegrated("Spotify package is not installed; cannot wake App Remote.");
+            Toast.makeText(this,"Spotify is not installed.",Toast.LENGTH_SHORT).show();
+            stopWake("Spotify missing; no local SDK wake possible.");
+            return;
+        }
+        try {
+            recordIntegrated("Spotify installed: " + getPackageManager()
+                .getPackageInfo("com.spotify.music",0).versionName + ".");
+        } catch(PackageManager.NameNotFoundException ignored) {
+            recordIntegrated("Spotify version unavailable.");
+        }
+        recordIntegrated("Starting foreground-visible App Remote service wake; authorisation UI disabled.");
         ConnectionParams params = new ConnectionParams.Builder(clientId)
             .setRedirectUri(SpotifyRemoteAuthPolicy.REDIRECT_URI).showAuthView(false).build();
         try {
@@ -280,40 +325,106 @@ public final class ShelfActivity extends Activity {
                         if(ticket!=sequence) {SpotifyAppRemote.disconnect(appRemote);return;}
                         remote=appRemote;
                         wakeConnecting=false;
+                        wakeSdkState="connected";
+                        recordIntegrated("Spotify App Remote SDK connected; local service awake. Playback NOT yet confirmed.");
                     });
                 }
                 @Override public void onFailure(Throwable error) {
                     handler.post(() -> {
                         if(ticket!=sequence)return;
-                        wakeConnecting=false; // Server still polls and may succeed independently.
+                        wakeConnecting=false;
+                        wakeSdkState="failed: "+WakeDiagnostics.failure(error);
+                        recordIntegrated("Spotify SDK connection failed: "+WakeDiagnostics.failure(error)
+                            + ". This alone does not prove the server playback job failed.");
                     });
                 }
             });
-        } catch (RuntimeException ignored) {wakeConnecting=false;}
+        } catch (RuntimeException error) {
+            wakeConnecting=false;
+            wakeSdkState="exception: "+WakeDiagnostics.failure(error);
+            recordIntegrated("Spotify SDK connection threw: "+WakeDiagnostics.failure(error));
+        }
+    }
+
+    private void recordIntegrated(String event) {
+        if (integratedSessionId == null) return;
+        integratedWakeLog.append(WakeDiagnostics.line(
+            SystemClock.elapsedRealtime()-integratedWakeStartedAt,event));
+        getSharedPreferences(PREFS,MODE_PRIVATE).edit()
+            .putString("last_integrated_wake_log",integratedWakeLog.toString()).apply();
     }
 
     private void pollWake() {
-        if(jobId==null || android.os.SystemClock.elapsedRealtime()>=wakeDeadline) {stopWake();return;}
+        if(jobId==null)return;
+        if(SystemClock.elapsedRealtime()>=wakeDeadline) {
+            stopWake("20-second polling deadline reached without a verified terminal status.");
+            return;
+        }
         final int ticket=sequence;
+        final int attempt=++wakePollCount;
         final String job=jobId, account=accountId, bearer=token, origin=trustedOrigin;
+        if(attempt==1)recordIntegrated("Server playback verification polling started (1 request at a time).");
         executor.execute(() -> {
             PlaybackStatusClient.Result state=null;
+            IOException failure=null;
             try { state=PlaybackStatusClient.poll(origin,account,job,bearer,stage -> {}); }
-            catch(IOException ignored) {}
+            catch(IOException error) {failure=error;}
             final PlaybackStatusClient.Result result=state;
+            final IOException failed=failure;
             handler.post(() -> {
                 if(ticket!=sequence)return;
-                if(result!=null && !"waiting".equals(result.state)) {
-                    // An accepted Play is not confirmed playback. Keep the
-                    // Spotify SDK session alive through device/track verification,
-                    // bounded independently by the 20-second wake deadline.
-                    stopWake();
-                } else handler.postDelayed(poll, 500);
+                if(failed!=null) {
+                    String description=PlaybackStatusClient.describe(failed);
+                    if(!description.equals(lastWakeError)) {
+                        lastWakeError=description;
+                        recordIntegrated("Server check "+attempt+" failed: "+description
+                            + "; retrying while wake window remains.");
+                    }
+                } else if(result!=null) {
+                    if(lastWakeError!=null) {
+                        recordIntegrated("Server connection restored at check "+attempt+".");
+                        lastWakeError=null;
+                    }
+                    boolean phaseChanged=!result.phase.equals(lastWakePhase)
+                        || !result.state.equals(lastWakeState)
+                        || lastAcceptedPlay!=result.playAccepted;
+                    if(phaseChanged || integratedProgressLog.shouldRecord(result.state,
+                        result.phase,result.playAccepted,result.deviceSeenMs,
+                        SystemClock.elapsedRealtime()-integratedWakeStartedAt)) {
+                        lastWakePhase=result.phase;
+                        lastWakeState=result.state;
+                        lastAcceptedPlay=result.playAccepted;
+                        recordIntegrated("Server check "+attempt+": state="+result.state
+                            + ", phase="+result.phase+", Play accepted="+result.playAccepted
+                            + ", HTTP "+result.httpStatus+". "+result.progress()+".");
+                    }
+                    if(!"waiting".equals(result.state)) {
+                        // HTTP Play acknowledgement or device discovery alone is
+                        // never proof of the exact requested track playing.
+                        stopWake("Server terminal="+result.state
+                            + ("started".equals(result.state)
+                                ? ": correct phone and first track CONFIRMED playing."
+                                : ": requested playback NOT confirmed.")
+                            + " Spotify SDK="+wakeSdkState+".");
+                        return;
+                    }
+                }
+                handler.postDelayed(poll,500);
             });
         });
     }
+
     private void stopWake() {
-        sequence++; jobId=null; accountId=null; token=null; wakeConnecting=false;
+        stopWake("Wake cancelled or Android activity closed.");
+    }
+    private void stopWake(String reason) {
+        if(jobId!=null) {
+            recordIntegrated(reason);
+            recordIntegrated("Disconnecting Spotify SDK="
+                + (remote!=null?"connected":wakeSdkState)
+                + "; AudioShelf server may continue its independent verification.");
+        }
+        sequence++;jobId=null;accountId=null;token=null;wakeConnecting=false;
         handler.removeCallbacks(poll);
         if(remote!=null){SpotifyAppRemote.disconnect(remote);remote=null;}
     }
@@ -338,6 +449,7 @@ public final class ShelfActivity extends Activity {
         boolean enabled=getSharedPreferences(PREFS,MODE_PRIVATE).getBoolean("playback_notifications",false);
         menu.getMenu().add("Refresh AudioShelf");
         menu.getMenu().add("Check for Android updates");
+        menu.getMenu().add("Playback diagnostics / Copy log");
         menu.getMenu().add("Pair or reconnect Spotify");
         menu.getMenu().add("Enable Spotify playback awareness…");
         menu.getMenu().add(enabled?"Disable playback notifications":"Enable playback notifications");
@@ -346,6 +458,7 @@ public final class ShelfActivity extends Activity {
             String choice=String.valueOf(item.getTitle());
             if(choice.equals("Refresh AudioShelf")) web.reload();
             else if(choice.equals("Check for Android updates")) showUpdater();
+            else if(choice.equals("Playback diagnostics / Copy log")) showPlaybackDiagnostics();
             else if(choice.equals("Pair or reconnect Spotify"))
                 startActivity(new Intent(this, MainActivity.class).putExtra("force_companion", true));
             else if(choice.startsWith("Enable Spotify playback awareness")) openMediaPermission();
@@ -358,6 +471,43 @@ public final class ShelfActivity extends Activity {
         });
         menu.show();
     }
+    /** Accessible directly in integrated mode, including after the wake ends.
+     * The companion's previous trace remains readable without mode switching. */
+    private void showPlaybackDiagnostics() {
+        String recentIntegrated = getSharedPreferences(PREFS,MODE_PRIVATE)
+            .getString("last_integrated_wake_log","No integrated-app wake recorded yet.");
+        String recentCompanion = getSharedPreferences(PREFS,MODE_PRIVATE)
+            .getString("last_wake_log","No companion wake recorded yet.");
+        String recentPairing = getSharedPreferences(PREFS,MODE_PRIVATE)
+            .getString("last_pairing_log","No companion pairing recorded yet.");
+        String body = "Installed Android app: "+BuildConfig.VERSION_NAME
+            +" (build "+BuildConfig.VERSION_CODE+")"
+            +"\nAll times are local and include UTC offset; +seconds are elapsed within an attempt."
+            +"\nServer Play acceptance is NOT verified playback."
+            +"\nNo tokens, OAuth URLs or full playback job identifiers are saved."
+            +"\n\nINTEGRATED APP WAKE\n"+recentIntegrated
+            +"\nCOMPANION WAKE\n"+recentCompanion
+            +"\nPAIRING\n"+recentPairing;
+        TextView content=new TextView(this);
+        content.setText(body);
+        content.setTextSize(12);
+        content.setTextIsSelectable(true);
+        content.setPadding(dp(14),dp(12),dp(14),dp(12));
+        ScrollView scroll=new ScrollView(this);
+        scroll.addView(content);
+        new AlertDialog.Builder(this)
+            .setTitle("Spotify playback diagnostics")
+            .setView(scroll)
+            .setPositiveButton("Copy log",(dialog,which)->{
+                ClipboardManager clipboard=(ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
+                clipboard.setPrimaryClip(ClipData.newPlainText("AudioShelf playback diagnostics",body));
+                Toast.makeText(this,"Playback diagnostics copied.",Toast.LENGTH_SHORT).show();
+            })
+            .setNeutralButton("Refresh",(dialog,which)->showPlaybackDiagnostics())
+            .setNegativeButton("Close",null)
+            .show();
+    }
+
     private void showUpdater() {
         if (updater == null || updaterStatus == null) return;
         if (updaterStatus.getParent() instanceof ViewGroup)
