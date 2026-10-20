@@ -390,3 +390,48 @@ def test_helper_feedback_includes_bounded_track_mismatch_without_private_payload
         assert 'payload' not in feedback and 'helper_token' not in feedback
     finally:
         manager.cancel_all()
+
+
+
+def test_cancel_reason_identifies_explicit_user_action_but_not_untrusted_text(application, client, monkeypatch):
+    spotify=application.extensions['spotify']
+    store=application.extensions['store']
+    ready_album(application)
+    store.set_setting('preferred_device',PHONE)
+    monkeypatch.setattr(spotify,'devices',lambda:[SPEAKER])
+    path=f'/api/albums/{ALBUM}/playback-handoff'
+    request=post(client,path)
+    assert request.status_code==202
+    job=request.json['id']
+    bearer=request.json['helper_token']
+    url=f'/api/spotify/playback-handoff/{job}'
+    cancelled=post(client,url,{'reason':'user_cancelled'},method='DELETE')
+    assert cancelled.status_code==200
+    assert cancelled.json['state']=='cancelled'
+    assert cancelled.json['cancel_reason']=='user_cancelled'
+    helper=application.test_client().get(
+        f'/api/helper/playback-handoff/owner/{job}?wait=0',
+        headers={'Authorization':'Bearer '+bearer})
+    assert helper.status_code==200
+    assert helper.json['state']=='cancelled'
+    assert helper.json['cancel_reason']=='user_cancelled'
+    assert 'payload' not in helper.json
+
+    following=post(client,path)
+    url=f"/api/spotify/playback-handoff/{following.json['id']}"
+    spoof=post(client,url,{'reason':'private-token-should-never-appear'},method='DELETE')
+    assert spoof.json['cancel_reason']=='cancelled'
+    assert 'private-token' not in str(spoof.json)
+
+
+def test_new_job_replaces_prior_job_with_safe_reason():
+    spotify=Mock()
+    spotify.devices.return_value=[]
+    manager=PlaybackHandoff(spotify,interval=.005)
+    first=manager.start({'id':'one'},None,PHONE,'owner',lambda:True)
+    same_token=first['helper_token']
+    another=manager.start({'id':'two'},None,PHONE,'owner',lambda:True)
+    assert manager.job['id']==another['id']
+    with pytest.raises(AppError):
+        manager.helper_status(first['id'],same_token,wait=0)
+    manager.cancel_all()
