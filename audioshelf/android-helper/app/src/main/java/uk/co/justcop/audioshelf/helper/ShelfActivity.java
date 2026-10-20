@@ -739,6 +739,7 @@ public final class ShelfActivity extends Activity {
         stopWake();SpotifyMediaListener.detach(this);
         if(updater != null) updater.close();
         executor.shutdownNow();
+        queueReporter.shutdownNow();
         if(web!=null){web.destroy();web=null;}
         super.onDestroy();
     }
