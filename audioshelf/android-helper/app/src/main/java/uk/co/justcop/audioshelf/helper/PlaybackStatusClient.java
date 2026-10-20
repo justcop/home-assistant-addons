@@ -321,7 +321,7 @@ final class PlaybackStatusClient {
             conn.setRequestProperty("X-AudioShelf-Request","1");
             conn.setRequestProperty("Content-Type","application/json");
             conn.setRequestProperty("Accept","application/json");
-            byte[] body=("{\u005c"count\u005c":"+count+",\u005c"state\u005c":\u005c""+state+"\u005c"}")
+            byte[] body=("{\"count\":"+count+",\"state\":\""+state+"\"}")
                 .getBytes(StandardCharsets.UTF_8);
             conn.setFixedLengthStreamingMode(body.length);
             try(java.io.OutputStream out=conn.getOutputStream()){out.write(body);}
