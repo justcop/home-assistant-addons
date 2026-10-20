@@ -315,6 +315,19 @@ public final class ShelfActivity extends Activity {
         recordIntegrated("Spotify App Remote service wake started. Normal handoffs send Web API Play;"
             + " explicit SDK test handoffs send one local first-track Play only.");
         handler.postDelayed(() -> {
+            if (ticket==sequence && !pendingSdkAlbum.isEmpty() && !sdkAlbumQueueFinished) {
+                // Large original albums require multiple serial SDK queue calls.
+                // Preserve the standard 20s wake for every other playback mode.
+                wakeDeadline=integratedWakeStartedAt+60000;
+                recordIntegrated("SDK full-album queue still in progress at 20s;"
+                    + " allowing up to 60s for sequential acknowledgements.");
+                handler.postDelayed(() -> {
+                    if(ticket==sequence)stopWake("60-second SDK queue deadline;"
+                        + " acknowledged " + sdkQueuedCount + "/"
+                        + Math.max(0,pendingSdkAlbum.size()-1) + " queued tracks.");
+                },40000);
+                return;
+            }
             if(ticket==sequence)stopWake("20-second deadline; server phase="
                 + (lastWakePhase==null?"not yet received":lastWakePhase)
                 + "; Spotify SDK=" + wakeSdkState
