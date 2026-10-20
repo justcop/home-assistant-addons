@@ -18,15 +18,15 @@ final class PlaybackStatusClient {
         final int httpStatus, deviceChecks, confirmationChecks;
         final boolean playAccepted;
         final int deviceSeenMs, playAcceptedMs, lastDeviceCheckMs, lastDeviceProbeMs;
-        final String observation, cancellationReason, preparationRetry;
+        final String observation, requestedTag, cancellationReason, preparationRetry;
         Result(String state, String message, String phase, int httpStatus, int devices, int confirmations,
                boolean accepted, int seenMs, int acceptedMs, int checkMs, int probeMs,
-               String observed, String cancelledBecause, String retry) {
+               String observed, String requestedTag, String cancelledBecause, String retry) {
             this.state = state; this.message = message; this.phase = phase;
             this.httpStatus = httpStatus; deviceChecks = devices; confirmationChecks = confirmations;
             playAccepted = accepted; deviceSeenMs = seenMs; playAcceptedMs = acceptedMs;
             lastDeviceCheckMs = checkMs; lastDeviceProbeMs = probeMs; observation = observed;
-            cancellationReason = cancelledBecause; preparationRetry = retry;
+            this.requestedTag = requestedTag; cancellationReason = cancelledBecause; preparationRetry = retry;
         }
         String progress() {
             String detail;
@@ -118,7 +118,7 @@ final class PlaybackStatusClient {
     static Result parse(int code, String response) throws IOException {
         if (code == 401 || code == 403 || code == 404 || code == 410)
             return new Result("expired", "Playback request unavailable.", "expired", code, -1, -1,
-                false, -1, -1, -1, -1, "", "", "");
+                false, -1, -1, -1, -1, "", "", "", "");
         if (code != 200) throw new HttpFailure(code);
         try {
             JsonObject object = JsonParser.parseString(response).getAsJsonObject();
@@ -136,10 +136,16 @@ final class PlaybackStatusClient {
             return new Result(state, message, phase, code, devices, confirmations, accepted,
                 optionalMillis(object, "device_seen_ms"), optionalMillis(object, "play_accepted_ms"),
                 optionalMillis(object, "last_device_check_ms"), optionalMillis(object, "last_device_probe_ms"),
-                observation(object), cancellationReason(object), preparationRetry(object));
+                observation(object), requestedTag(object), cancellationReason(object), preparationRetry(object));
         } catch (RuntimeException exception) {
             throw new IOException("Invalid playback response", exception);
         }
+    }
+
+    private static String requestedTag(JsonObject object) {
+        if (!object.has("verification") || !object.get("verification").isJsonObject()) return "";
+        String tag=safe(object.getAsJsonObject("verification"),"requested_tag");
+        return tag.matches("[0-9a-f]{10}") ? tag : "";
     }
 
     private static String preparationRetry(JsonObject object) {
