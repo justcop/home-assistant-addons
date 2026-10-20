@@ -19,15 +19,17 @@ final class PlaybackStatusClient {
         final boolean playAccepted;
         final int deviceSeenMs, playAcceptedMs, lastDeviceCheckMs, lastDeviceProbeMs;
         final String observation, requestedTag, cancellationReason, preparationRetry, trackAudit, sdkTestUri;
+        final java.util.List<String> sdkTrackUris;
         Result(String state, String message, String phase, int httpStatus, int devices, int confirmations,
                boolean accepted, int seenMs, int acceptedMs, int checkMs, int probeMs,
-               String observed, String requestedTag, String cancelledBecause, String retry, String audit, String sdkUri) {
+               String observed, String requestedTag, String cancelledBecause, String retry, String audit, String sdkUri,
+               java.util.List<String> trackUris) {
             this.state = state; this.message = message; this.phase = phase;
             this.httpStatus = httpStatus; deviceChecks = devices; confirmationChecks = confirmations;
             playAccepted = accepted; deviceSeenMs = seenMs; playAcceptedMs = acceptedMs;
             lastDeviceCheckMs = checkMs; lastDeviceProbeMs = probeMs; observation = observed;
             this.requestedTag = requestedTag; cancellationReason = cancelledBecause; preparationRetry = retry;
-            trackAudit = audit; sdkTestUri = sdkUri;
+            trackAudit = audit; sdkTestUri = sdkUri; sdkTrackUris = trackUris;
         }
         String progress() {
             String detail;
@@ -120,7 +122,7 @@ final class PlaybackStatusClient {
     static Result parse(int code, String response) throws IOException {
         if (code == 401 || code == 403 || code == 404 || code == 410)
             return new Result("expired", "Playback request unavailable.", "expired", code, -1, -1,
-                false, -1, -1, -1, -1, "", "", "", "", "", "");
+                false, -1, -1, -1, -1, "", "", "", "", "", "", java.util.Collections.emptyList());
         if (code != 200) throw new HttpFailure(code);
         try {
             JsonObject object = JsonParser.parseString(response).getAsJsonObject();
@@ -138,7 +140,7 @@ final class PlaybackStatusClient {
             return new Result(state, message, phase, code, devices, confirmations, accepted,
                 optionalMillis(object, "device_seen_ms"), optionalMillis(object, "play_accepted_ms"),
                 optionalMillis(object, "last_device_check_ms"), optionalMillis(object, "last_device_probe_ms"),
-                observation(object), requestedTag(object), cancellationReason(object), preparationRetry(object), trackAudit(object), sdkTestUri(object));
+                observation(object), requestedTag(object), cancellationReason(object), preparationRetry(object), trackAudit(object), sdkTestUri(object), sdkTrackUris(object));
         } catch (RuntimeException exception) {
             throw new IOException("Invalid playback response", exception);
         }
@@ -193,6 +195,23 @@ final class PlaybackStatusClient {
 
     // One scoped, short-lived helper capability may retrieve this validated
     // first-track URI to invoke local App Remote. Never print it in logs.
+    private static java.util.List<String> sdkTrackUris(JsonObject object) {
+        if (!object.has("sdk_full_album") || !object.get("sdk_full_album").isJsonPrimitive()
+                || !object.get("sdk_full_album").getAsBoolean()
+                || !object.has("sdk_track_uris") || !object.get("sdk_track_uris").isJsonArray())
+            return java.util.Collections.emptyList();
+        com.google.gson.JsonArray values=object.getAsJsonArray("sdk_track_uris");
+        if (values.size()<1 || values.size()>100) return java.util.Collections.emptyList();
+        java.util.ArrayList<String> uris=new java.util.ArrayList<>();
+        for (com.google.gson.JsonElement item : values) {
+            if (!item.isJsonPrimitive()) return java.util.Collections.emptyList();
+            String uri=item.getAsString();
+            if (!uri.matches("spotify:track:[A-Za-z0-9]{22}")) return java.util.Collections.emptyList();
+            uris.add(uri);
+        }
+        return java.util.Collections.unmodifiableList(uris);
+    }
+
     private static String sdkTestUri(JsonObject object) {
         if (!object.has("sdk_single_track") || object.get("sdk_single_track").isJsonNull()
                 || !object.get("sdk_single_track").isJsonPrimitive()
