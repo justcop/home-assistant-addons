@@ -82,6 +82,7 @@ public final class ShelfActivity extends Activity {
     private String pendingSdkFirstTrack = "";
     private java.util.List<String> pendingSdkAlbum = java.util.Collections.emptyList();
     private int sdkQueuedCount;
+    private boolean sdkAlbumFirstTrackConfirmed, sdkAlbumQueueFinished;
     private boolean sdkPlayAttempted;
     private String lastSdkDispatchedJob = "";
     private int wakePollCount;
@@ -294,6 +295,8 @@ public final class ShelfActivity extends Activity {
         pendingSdkFirstTrack = "";
         pendingSdkAlbum = java.util.Collections.emptyList();
         sdkQueuedCount = 0;
+        sdkAlbumFirstTrackConfirmed = false;
+        sdkAlbumQueueFinished = false;
         // A repeat wake for the same server job cannot replay an ambiguous
         // SDK command. Only a fresh backend playback job permits another Play.
         sdkPlayAttempted = job.equals(lastSdkDispatchedJob);
@@ -446,6 +449,12 @@ public final class ShelfActivity extends Activity {
                             + ", HTTP "+result.httpStatus+". "+result.progress()+".");
                     }
                     if(!"waiting".equals(result.state)) {
+                        if (!pendingSdkAlbum.isEmpty() && "started".equals(result.state)) {
+                            sdkAlbumFirstTrackConfirmed = true;
+                            recordIntegrated("First track verified by server; holding SDK connection until queue completes.");
+                            if (sdkAlbumQueueFinished) finishSdkAlbumWake();
+                            return;
+                        }
                         // HTTP Play acknowledgement or device discovery alone is
                         // never proof of the exact requested track playing.
                         stopWake("Server terminal="+result.state
@@ -501,10 +510,13 @@ public final class ShelfActivity extends Activity {
 
     private void queueNextSdkTrack(int ticket, SpotifyAppRemote session, int index) {
         if (ticket!=sequence || session!=remote || jobId==null || index>=pendingSdkAlbum.size()) {
-            if (ticket==sequence && session==remote && index>=pendingSdkAlbum.size())
+            if (ticket==sequence && session==remote && index>=pendingSdkAlbum.size()) {
+                sdkAlbumQueueFinished = true;
                 recordIntegrated("SDK canonical album queue complete: "
                     + sdkQueuedCount + "/" + Math.max(0,pendingSdkAlbum.size()-1)
                     + " subsequent tracks acknowledged in order; transition still unverified.");
+                if (sdkAlbumFirstTrackConfirmed) finishSdkAlbumWake();
+            }
             return;
         }
         String uri=pendingSdkAlbum.get(index);
@@ -520,15 +532,26 @@ public final class ShelfActivity extends Activity {
                 }))
                 .setErrorCallback(error -> handler.post(() -> {
                     if (ticket!=sequence || session!=remote) return;
+                    sdkAlbumQueueFinished = true;
                     recordIntegrated("SDK album queue STOPPED at track "
                         + (index+1) + "/" + pendingSdkAlbum.size() + ": "
                         + WakeDiagnostics.failure(error)
                         + ". No retries; earlier tracks may remain queued.");
+                    if (sdkAlbumFirstTrackConfirmed) finishSdkAlbumWake();
                 }));
         } catch (RuntimeException error) {
+            sdkAlbumQueueFinished = true;
             recordIntegrated("SDK album queue threw at track "+(index+1)+": "
                 + WakeDiagnostics.failure(error)+". No automatic retry.");
+            if (sdkAlbumFirstTrackConfirmed) finishSdkAlbumWake();
         }
+    }
+
+    private void finishSdkAlbumWake() {
+        recordIntegrated("SDK album session finished; server first-track confirmed="
+            + sdkAlbumFirstTrackConfirmed + "; queued=" + sdkQueuedCount + "/"
+            + Math.max(0,pendingSdkAlbum.size()-1) + ".");
+        stopWake("SDK album handoff finished. Track-to-track transitions not independently verified.");
     }
 
     private void stopWake() {
