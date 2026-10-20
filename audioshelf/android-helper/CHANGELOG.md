@@ -1,3 +1,9 @@
+# 0.2.19 — Play full original albums through Spotify App Remote
+
+- Native AudioShelf now uses SDK album playback by default for the selected Android phone, with a toggle under Playback device to revert to the previous Web API path. It plays exactly the first canonical Spotify track using the proven SDK method, then queues each remaining verified track **one by one**, awaiting the SDK acknowledgment before sending the next. Existing disc/side selection and bonus-track exclusion are preserved by the server.
+- The Android wake log records canonical queue progress and failures, without exposing complete Spotify URIs; no automatic Play or Queue retries after ambiguous SDK errors. Authenticated queue progress is reported separately from playback verification; backend must confirm the first track and queue completion.
+- Extend the wake window only for album queueing, not normal Spotify wake. Keep the one-track diagnostic path available to older clients.
+
 # 0.2.18 — Opt-in Spotify App Remote SDK first-track test
 
 - Add an explicit native-app Settings toggle, **Experimental SDK single-track test (phone only)**, off by default and scoped to the account in local browser storage. With the toggle enabled, Play runs an SDK-only test of just the first canonical track; it does **not** enqueue the rest of the album.
