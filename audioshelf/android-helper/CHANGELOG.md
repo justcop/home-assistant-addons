@@ -1,3 +1,9 @@
+# 0.2.18 — Opt-in Spotify App Remote SDK first-track test
+
+- Add an explicit native-app Settings toggle, **Experimental SDK single-track test (phone only)**, off by default and scoped to the account in local browser storage. With the toggle enabled, Play runs an SDK-only test of just the first canonical track; it does **not** enqueue the rest of the album.
+- In the integrated app, consume the first-track URI only from the existing single-job authorised helper response and call `SpotifyAppRemote.getPlayerApi().play(uri)` exactly once after App Remote connects. Log its success/failure callback and locally observed player state without recording the full URI, OAuth token or job identifier. Server verification remains authoritative.
+- Never launch playback after cancellation, from an unauthorised helper response or by automatic retries; existing normal Spotify/Web API playback remains unchanged when the setting is off.
+
 # 0.2.17 — Include live catalogue evidence in playback diagnostics
 
 - Read AudioShelf 0.6.37's read-only post-Play `track_audit` through the existing authenticated single-job status. Display the saved queue fingerprint, track titles/fingerprints, Spotify market playability, relinking/restriction results and post-Play phone visibility in the copyable wake log.
