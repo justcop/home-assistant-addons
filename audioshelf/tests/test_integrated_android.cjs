@@ -75,8 +75,10 @@ assert((android.match(/\.play\(/g)||[]).length===1 &&
   android.includes('session.getPlayerApi().play(pendingSdkFirstTrack)') &&
   android.includes('sdkPlayAttempted = true;') &&
   android.includes('result.sdkTestUri') &&
-  !android.includes('.queue('),
-  'The explicit SDK experiment permits precisely one guarded local track Play and no SDK queue');
+  android.includes('session.getPlayerApi().queue(uri)') &&
+  android.includes('queueNextSdkTrack(ticket,session,index+1)') &&
+  android.includes('sdkAlbumFirstTrackConfirmed'),
+  'Full-album SDK queues canonical tracks sequentially and preserves one guarded first-track Play');
 assert(manifest.includes('android.permission.BIND_NOTIFICATION_LISTENER_SERVICE'));
 assert(media.includes('com.spotify.music') && media.includes('onPlaybackStateChanged'));
 const versionCode=Number(gradle.split('versionCode ')[1].split(String.fromCharCode(10))[0].trim());
