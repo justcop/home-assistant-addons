@@ -48,7 +48,7 @@ class PlaybackHandoff:
                    'phase': 'checking_devices', 'device_checks': 0, 'confirmation_checks': 0,
                    'play_accepted': False, 'device_seen_ms': None, 'play_accepted_ms': None,
                    'last_device_check_ms': None, 'last_device_probe_ms': None,
-                   'created_monotonic': started,
+                   'verification': None, 'created_monotonic': started,
                    'helper_token_hash': hashlib.sha256(token.encode()).digest(),
                    'deadline': started + self.timeout,
                    'payload': (copy.deepcopy(album), disc, copy.deepcopy(preferred), authorized)}
@@ -76,7 +76,7 @@ class PlaybackHandoff:
             job['helper_view'] = {key: job[key] for key in
                                   ('state', 'error', 'phase', 'device_checks', 'confirmation_checks',
                                    'play_accepted', 'device_seen_ms', 'play_accepted_ms',
-                                   'last_device_check_ms', 'last_device_probe_ms')}
+                                   'last_device_check_ms', 'last_device_probe_ms', 'verification')}
             self.helper_job = job
             self.helper_changed.notify_all()
 
@@ -128,6 +128,45 @@ class PlaybackHandoff:
                     return
             self.run(job, *job['payload'])
 
+    @staticmethod
+    def verification_snapshot(state, wanted_device, wanted_track, wanted_title=''):
+        """Safe, bounded player evidence for this job's short-lived helper token.
+
+        Spotify track IDs are hashed for correlation. Never publish whole API
+        responses, device IDs, account details, OAuth tokens or player URLs.
+        Song titles are useful for identifying a stale previous recording.
+        """
+        def track_tag(value):
+            return hashlib.sha256(value.encode('utf-8')).hexdigest()[:10] if isinstance(value, str) and value else None
+
+        def label(value):
+            return ''.join(char if char.isprintable() else ' ' for char in value).strip()[:72] if isinstance(value, str) else ''
+
+        state = state if isinstance(state, dict) else {}
+        device = state.get('device') if isinstance(state.get('device'), dict) else {}
+        item = state.get('item') if isinstance(state.get('item'), dict) else {}
+        linked = item.get('linked_from') if isinstance(item.get('linked_from'), dict) else {}
+        item_id = item.get('id')
+        linked_id = linked.get('id')
+        age = None
+        timestamp = state.get('timestamp')
+        if isinstance(timestamp, (int, float)) and timestamp > 0:
+            age = min(24*3600*1000, max(0, int(time.time()*1000-timestamp)))
+        return {
+            'requested': label(wanted_title),
+            'observed': label(item.get('name')),
+            'requested_tag': track_tag(wanted_track),
+            'observed_tag': track_tag(item_id),
+            'linked_tag': track_tag(linked_id),
+            'item_type': label(item.get('type'))[:20],
+            'is_playing': state.get('is_playing') if isinstance(state.get('is_playing'), bool) else None,
+            'device_matches': device.get('id') == wanted_device if device else False,
+            'track_matches': wanted_track in (item_id, linked_id) if item else False,
+            'player_state_present': bool(state),
+            'item_present': bool(item),
+            'player_age_ms': age,
+        }
+
     def confirm_playing(self, job, result, guard):
         """Require real player state on the intended device and exact first track."""
         wanted_device = result['device_id']
@@ -144,15 +183,21 @@ class PlaybackHandoff:
             device = state.get('device') or {}
             item = state.get('item') or {}
             track_ids = (item.get('id'), (item.get('linked_from') or {}).get('id'))
+            observed = self.verification_snapshot(state, wanted_device, wanted_track,
+                                                  result['first_track'].get('title', ''))
             if (state.get('is_playing') is True and device.get('id') == wanted_device
                     and wanted_track in track_ids):
                 # This verified observation is authoritative for the PWA's
                 # initial PLAYING state. Don't require a second Spotify read.
+                self.progress(job, 'confirmed', verification=observed)
                 self.set_status(job, 'started', result=result)
                 return
-            phase = ('no_player_state' if not state else 'wrong_device' if device.get('id') != wanted_device
+            # A device response without an item is NOT evidence of another
+            # track; Spotify may be waking up and have no player track yet.
+            phase = ('no_player_state' if not state or not item
+                     else 'wrong_device' if device.get('id') != wanted_device
                      else 'wrong_track' if wanted_track not in track_ids else 'paused')
-            self.progress(job, phase)
+            self.progress(job, phase, verification=observed)
             now = time.monotonic()
             accepted_at = job.get('play_accepted_monotonic') or job['created_monotonic']
             interval = self.confirmation_poll_interval(now - accepted_at)

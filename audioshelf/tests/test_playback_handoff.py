@@ -332,3 +332,61 @@ def test_spotify_player_confirmation_polling_is_fast_after_play_then_tapers():
     assert manager.confirmation_poll_interval(15)==.01
     assert manager.confirmation_poll_interval(60)==.01
 
+
+
+
+def test_verification_observation_distinguishes_old_track_missing_item_and_linked_track():
+    from unittest.mock import Mock
+    manager=PlaybackHandoff(Mock())
+    wanted='a'*22
+    device='private-phone'
+    observation=manager.verification_snapshot({
+        'device':{'id':device,'name':'Private Phone','extra':'secret'},
+        'item':{'id':'b'*22,'name':'Previous song','type':'track','uri':'spotify:track:secret'},
+        'is_playing':True, 'timestamp':int(time.time()*1000)-12000,
+        'access_token':'do-not-leak'
+    },device,wanted,'New song')
+    assert observation['requested']=='New song'
+    assert observation['observed']=='Previous song'
+    assert observation['device_matches'] and not observation['track_matches']
+    assert observation['is_playing'] is True
+    assert observation['player_age_ms']>=11000
+    assert observation['requested_tag'] != observation['observed_tag']
+    assert 'private-phone' not in str(observation) and 'do-not-leak' not in str(observation)
+    assert 'spotify:track:' not in str(observation)
+
+    missing=manager.verification_snapshot({'device':{'id':device}},device,wanted,'New song')
+    assert not missing['item_present'] and missing['device_matches']
+    assert missing['is_playing'] is None
+
+    relinked=manager.verification_snapshot({
+        'device':{'id':device},'is_playing':True,
+        'item':{'id':'b'*22,'linked_from':{'id':wanted},'name':'New song'}
+    },device,wanted,'New song')
+    assert relinked['track_matches'] and relinked['linked_tag']==observation['requested_tag']
+
+
+def test_helper_feedback_includes_bounded_track_mismatch_without_private_payloads():
+    spotify=Mock()
+    spotify.devices.return_value=[PHONE]
+    state={'device':PHONE,'item':{'id':'b'*22,'name':'Previous song','type':'track'},
+           'is_playing':True, 'shuffle_state':False, 'repeat_state':'off'}
+    spotify.play.side_effect=lambda album,disc,preferred_device,guard,dispatch: (
+        dispatch(lambda:{}), {'device_id':'phone','first_track':{'id':'a'*22,'title':'New song'}})[1]
+    spotify.api.side_effect=lambda method,path:dict(state)
+    manager=PlaybackHandoff(spotify,timeout=1,interval=.01)
+    job=manager.start({},None,PHONE,'owner',lambda:True)
+    try:
+        deadline=time.monotonic()+1
+        while time.monotonic()<deadline:
+            feedback=manager.helper_status(job['id'],job['helper_token'],wait=0)
+            if feedback['phase']=='wrong_track' and feedback['verification']:
+                break
+            time.sleep(.005)
+        assert feedback['phase']=='wrong_track'
+        assert feedback['verification']['requested']=='New song'
+        assert feedback['verification']['observed']=='Previous song'
+        assert not feedback['verification']['track_matches']
+        assert 'payload' not in feedback and 'helper_token' not in feedback
+    finally:
+        manager.cancel_all()

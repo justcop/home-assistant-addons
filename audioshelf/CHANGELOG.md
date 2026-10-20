@@ -1,3 +1,9 @@
+# 0.6.33 — Spotify playback-verification evidence
+
+- Distinguish Spotify returning no current track from actually reporting the wrong track after accepting Play; a device-only player response can no longer be mislabeled as an incorrect recording.
+- Publish a minimal, bounded observation to the short-lived, bearer-protected Android helper status: requested and reported track names, hashed track-ID fingerprints (including Spotify relinking), playback and device-match flags, and Spotify player-state age when available.
+- Keep full Spotify player payloads, raw device and track IDs, Spotify credentials and job capabilities out of Android diagnostic logs. Do not change canonical queues, preferred device, acceptance criteria or automatic replay behaviour.
+
 # 0.6.32 — Digital-first artwork and server-side bulk rebuild
 
 - Prefer digital/Spotify front covers over scanned CD and vinyl sleeves while respecting custom uploads and individually selected covers.
