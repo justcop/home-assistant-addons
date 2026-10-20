@@ -154,7 +154,9 @@ final class PlaybackStatusClient {
         int count=0;
         try { count=audit.get("track_count").getAsInt(); } catch (RuntimeException ignored) {}
         if (count<0 || count>100) count=0;
-        StringBuilder out=new StringBuilder("market="+market+"; queued="+count+" tracks; audit="+state);
+        String queue=safe(audit,"queue_tag");
+        if (!queue.matches("[0-9a-f]{10}")) queue="unknown";
+        StringBuilder out=new StringBuilder("market="+market+"; queued="+count+" tracks; queue #"+queue+"; audit="+state);
         if (audit.has("samples") && audit.get("samples").isJsonArray()) {
             int n=0;
             for (com.google.gson.JsonElement element:audit.getAsJsonArray("samples")) {
