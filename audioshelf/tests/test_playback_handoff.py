@@ -429,8 +429,11 @@ def test_new_job_replaces_prior_job_with_safe_reason():
     spotify.devices.return_value=[]
     manager=PlaybackHandoff(spotify,interval=.005)
     first=manager.start({'id':'one'},None,PHONE,'owner',lambda:True)
+    original_job=manager.job
     same_token=first['helper_token']
     another=manager.start({'id':'two'},None,PHONE,'owner',lambda:True)
+    assert original_job['state']=='cancelled'
+    assert original_job['cancel_reason']=='new_playback'
     assert manager.job['id']==another['id']
     with pytest.raises(AppError):
         manager.helper_status(first['id'],same_token,wait=0)
