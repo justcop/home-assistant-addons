@@ -1,3 +1,9 @@
+# 0.2.19 — Complete original albums through Spotify App Remote
+
+- Launch exact canonical track 1 locally via the tested Spotify Android SDK `play(uri)`; queue subsequent selected album/disc/side tracks in sequence via `queue(uri)` only after the previous queue response succeeds.
+- Maintain one SDK Play per playback job. Stop queuing on any SDK failure, expose fingerprint-only diagnostics, and hold the SDK connection until queue acknowledgement completion even if the server confirms the first song earlier.
+- The integrated Android web app enables this playback method by default for the preferred smartphone, with a switch in Settings for the original Web API fallback. Single-track test remains selectable separately.
+
 # 0.2.18 — Opt-in Spotify App Remote SDK first-track test
 
 - Add an explicit native-app Settings toggle, **Experimental SDK single-track test (phone only)**, off by default and scoped to the account in local browser storage. With the toggle enabled, Play runs an SDK-only test of just the first canonical track; it does **not** enqueue the rest of the album.

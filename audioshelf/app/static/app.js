@@ -492,6 +492,11 @@ let spotifyDevices=[];
 function browserPreferenceKey(name){return name+(statusInfo.account?.id && statusInfo.account.id!=='owner'?':'+statusInfo.account.id:'');}
 function shouldOpenSpotify(){try{return localStorage.getItem(browserPreferenceKey('audioshelf-open-spotify'))==='true';}catch{return false;}}
 function spotifyAppLink(){return 'spotify:';}
+function sdkFullAlbumEnabled(){
+  if(!nativeAudioShelf()||statusInfo.preferred_device?.type!=='Smartphone')return false;
+  try{return localStorage.getItem(browserPreferenceKey('audioshelf-sdk-full-album'))!=='false';}
+  catch{return true;}
+}
 function sdkSingleTrackTestEnabled(){
   if(!nativeAudioShelf()||statusInfo.preferred_device?.type!=='Smartphone')return false;
   try{return localStorage.getItem(browserPreferenceKey('audioshelf-sdk-single-track-test'))==='true';}
@@ -523,7 +528,7 @@ function playbackWakeLinks(request=null){
   return `${native?'<button class="primary" data-action="native-wake">Wake Spotify here</button>':helper?`<a class="primary" data-action="open-playback-helper" href="${escapeHtml(helper)}">Wake Spotify and return</a>`:''}<a class="${helper||native?'secondary':'primary'}" data-action="open-playback-spotify" href="${spotifyAppLink()}">Open Spotify</a>`;
 }
 function androidHelperSettings(){
-  if(nativeAudioShelf())return '<p class="muted">Integrated Android mode is active. Native playback permissions and notifications are available from ⋮.</p><label class="check-option"><input type="checkbox" id="sdk-single-track-test" '+(sdkSingleTrackTestEnabled()?'checked':'')+'> Experimental SDK single-track test (phone only)</label><p class="muted">Diagnostic only: pressing Play starts exactly the first canonical track through Spotify on this Android phone, without the Web API Play request or any album queue. Turn this off for normal full-album playback.</p><button class="secondary" data-action="native-settings">Android app options</button>';
+  if(nativeAudioShelf())return '<p class="muted">Integrated Android mode is active. Native playback permissions and notifications are available from ⋮.</p><label class="check-option"><input type="checkbox" id="sdk-single-track-test" '+(sdkSingleTrackTestEnabled()?'checked':'')+'> Experimental SDK single-track test (phone only)</label><p class="muted">Diagnostic only: pressing Play starts exactly the first canonical track through Spotify on this Android phone, without the Web API Play request or any album queue. Turn this off for normal full-album playback.</p><label class="check-option"><input type="checkbox" id="sdk-full-album" '+(sdkFullAlbumEnabled()?'checked':'')+'> Play full albums using Android Spotify SDK (recommended)</label><p class="muted">Start the first canonical track locally, then queue remaining songs in order. Disc/side selections are preserved. Requires the integrated app.</p><button class="secondary" data-action="native-settings">Android app options</button>';
   return /Android/i.test(navigator.userAgent)?`<label class="check-option"><input type="checkbox" id="android-helper" ${androidHelperEnabled()?'checked':''}> Use the installed Android Spotify helper on this phone</label><p class="muted">Press Play to start music normally. If the selected phone is unavailable, AudioShelf automatically opens the helper to wake Spotify and return. Install and configure the helper first. Available devices play normally. This setting is saved only in this browser.</p>`:'';
 }
 let pendingPlayback=null, checkingPlayback=false, lastPendingPollAt=0;
@@ -581,7 +586,7 @@ async function playbackHandoff(request,message){
   let job;
   try{job=await api(`albums/${id(request.album.id)}/playback-handoff`,'POST',{
     ...(request.disc===null?{}:{disc_number:request.disc}),
-    ...(request.sdkSingleTrackTest?{sdk_single_track:true}:{})});}
+    ...(request.sdkSingleTrackTest?{sdk_single_track:true}:request.sdkFullAlbum?{sdk_full_album:true}:{})});}
   catch(error){if(pendingPlayback===request){pendingPlayback=null;failPlaybackStart();}throw error;}
   request.job=job.id;
   request.helperToken=job.helper_token;
@@ -603,6 +608,11 @@ async function startPlayback(request,openApp=true){
   if(sdkSingleTrackTestEnabled()){
     request.sdkSingleTrackTest=true;
     await playbackHandoff(request,'Testing local Spotify SDK playback of only the first canonical track. Web API Play is disabled for this test.');
+    return;
+  }
+  if(sdkFullAlbumEnabled()){
+    request.sdkFullAlbum=true;
+    await playbackHandoff(request,'Starting the first canonical track via Spotify SDK and queuing the selected album, disc or side in order.');
     return;
   }
   const playbackRequest=++playbackCommand;
@@ -662,7 +672,7 @@ async function retryPendingPlayback(force=false){
       // Do not wait for a second, possibly stale, Spotify player read.
       beginPlayback(request.album,job.result,false,true);
       if(!request.detached&&modal.open&&modalContent.querySelector('#playback-handoff-status'))modal.close();
-      toast(job.result.sdk_single_track?`SDK test confirmed: first track playing on ${job.result.device}. No additional tracks queued.`:`Playing ${job.result.track_count} tracks on ${job.result.device}.`);
+      toast(job.result.sdk_single_track?`SDK test confirmed: first track playing on ${job.result.device}. No additional tracks queued.`:job.result.sdk_full_album?`First track confirmed on ${job.result.device}; Android is queuing ${job.result.track_count} canonical tracks.`:`Playing ${job.result.track_count} tracks on ${job.result.device}.`);
     }else{
       failPlaybackStart();
       if(request.detached||request.confirmingInBackground){
@@ -695,6 +705,7 @@ document.addEventListener('change',async event=>{
     finally{box.disabled=statusInfo.role==='view';}
   }
 });
+document.addEventListener('change',event=>{if(event.target.id==='sdk-full-album'){try{localStorage.setItem(browserPreferenceKey('audioshelf-sdk-full-album'),String(event.target.checked));}catch{event.target.checked=!event.target.checked;toast('Could not save Android playback preference.');}}});
 document.addEventListener('change',event=>{if(event.target.id==='sdk-single-track-test'){try{localStorage.setItem(browserPreferenceKey('audioshelf-sdk-single-track-test'),String(event.target.checked));}catch{event.target.checked=false;toast('Unable to save the SDK test setting.');}}});
 document.addEventListener('change',event=>{if(event.target.id==='android-helper'){try{localStorage.setItem(browserPreferenceKey('audioshelf-android-helper'),String(event.target.checked));}catch{event.target.checked=false;toast('This browser could not save the preference.');}}});
 document.addEventListener('change',event=>{if(event.target.id==='open-spotify'){try{localStorage.setItem(browserPreferenceKey('audioshelf-open-spotify'),String(event.target.checked));}catch{event.target.checked=false;toast('This browser could not save the preference.');}}});

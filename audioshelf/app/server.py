@@ -865,7 +865,10 @@ def create_app(options=None):
         body = request.get_json(silent=True) or {}
         disc = body.get('disc_number')
         sdk_single_track = body.get('sdk_single_track') is True
-        if sdk_single_track and preferred.get('type') != 'Smartphone':
+        sdk_full_album = body.get('sdk_full_album') is True
+        if sdk_single_track and sdk_full_album:
+            raise AppError('Choose one SDK playback mode.', 400)
+        if (sdk_single_track or sdk_full_album) and preferred.get('type') != 'Smartphone':
             raise AppError('SDK single-track test requires your preferred Android phone.', 409)
         spotify.play_tracks(album, disc)  # Validate before accepting background work.
         token = session.get('sid')
@@ -879,7 +882,8 @@ def create_app(options=None):
             return bool(enabled and context.security.version() == version
                         and person and person['role'] in ('owner', 'control'))
         return jsonify(handoff.start(album, disc, preferred, playback_owner(), authorized,
-                                     sdk_single_track=sdk_single_track)), 202
+                                     sdk_single_track=sdk_single_track,
+                                     sdk_full_album=sdk_full_album)), 202
 
     @app.get('/api/helper/playback-handoff/<account_id>/<job_id>')
     def helper_playback_status(account_id, job_id):

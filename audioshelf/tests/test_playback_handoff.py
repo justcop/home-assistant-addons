@@ -160,6 +160,42 @@ def test_sdk_single_track_requires_phone_and_does_not_expose_uri_before_discover
     assert 'sdk_test_uri' not in resp.json
     application.extensions['playback_handoff'].cancel_all()
 
+
+def test_sdk_full_album_exposes_exact_canonical_sequence_without_web_play(application, monkeypatch):
+    spotify=application.extensions['spotify']
+    album=ready_album(application)
+    started=threading.Event()
+    calls=[]
+    def api(method,path,params=None,body=None):
+        calls.append((method,path))
+        if path=='me/player/devices':return {'devices':[PHONE]}
+        if path=='me/player':
+            return {'device':PHONE,'is_playing':True,'item':{'id':'a'*22}} if started.is_set() else {}
+        if method!='GET':pytest.fail('SDK album must not invoke Web API playback or queue')
+        return {}
+    monkeypatch.setattr(spotify,'api',api)
+    manager=PlaybackHandoff(spotify,interval=.01,timeout=2)
+    job=manager.start(album,None,PHONE,'owner',lambda:True,sdk_full_album=True)
+    deadline=time.monotonic()+1
+    helper={}
+    while time.monotonic()<deadline:
+        helper=manager.helper_status(job['id'],job['helper_token'],wait=0)
+        if helper.get('sdk_track_uris'):break
+        time.sleep(.005)
+    expected=['spotify:track:'+t['spotify_id'] for t in album['tracks']]
+    assert helper['sdk_track_uris']==expected
+    assert helper['sdk_test_uri']==expected[0]
+    assert 'sdk_track_uris' not in manager.status(job['id'],'owner')
+    assert 'sdk_track_uris' not in str(manager.snapshot(job))
+    assert not any(m=='PUT' for m,_ in calls)
+    started.set()
+    done=finished(manager,job)
+    assert done['state']=='started'
+    assert done['result']['sdk_full_album'] is True
+    assert done['result']['track_count']==len(expected)
+    assert not any(m=='PUT' for m,_ in calls)
+
+
 def test_worker_stops_on_spotify_errors_without_repeating_queue():
     spotify=Mock();spotify.devices.return_value=[PHONE]
     spotify.play.side_effect=AppError('Spotify rate limit, retry later.',429)
