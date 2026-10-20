@@ -21,10 +21,11 @@ final class PlaybackStatusClient {
         final String observation, requestedTag, cancellationReason, preparationRetry, trackAudit, sdkTestUri;
         final java.util.List<String> sdkAlbumUris;
         final int sdkQueued, sdkExpected;
+        final boolean firstTrackConfirmed;
         Result(String state, String message, String phase, int httpStatus, int devices, int confirmations,
                boolean accepted, int seenMs, int acceptedMs, int checkMs, int probeMs,
                String observed, String requestedTag, String cancelledBecause, String retry, String audit, String sdkUri,
-               java.util.List<String> albumUris, int queued, int expected) {
+               java.util.List<String> albumUris, int queued, int expected, boolean confirmedFirst) {
             this.state = state; this.message = message; this.phase = phase;
             this.httpStatus = httpStatus; deviceChecks = devices; confirmationChecks = confirmations;
             playAccepted = accepted; deviceSeenMs = seenMs; playAcceptedMs = acceptedMs;
@@ -32,6 +33,7 @@ final class PlaybackStatusClient {
             this.requestedTag = requestedTag; cancellationReason = cancelledBecause; preparationRetry = retry;
             trackAudit = audit; sdkTestUri = sdkUri;
             sdkAlbumUris = albumUris; sdkQueued = queued; sdkExpected = expected;
+            firstTrackConfirmed = confirmedFirst;
         }
         String progress() {
             String detail;
@@ -129,7 +131,7 @@ final class PlaybackStatusClient {
         if (code == 401 || code == 403 || code == 404 || code == 410)
             return new Result("expired", "Playback request unavailable.", "expired", code, -1, -1,
                 false, -1, -1, -1, -1, "", "", "", "", "", "",
-                java.util.Collections.emptyList(), 0, 0);
+                java.util.Collections.emptyList(), 0, 0, false);
         if (code != 200) throw new HttpFailure(code);
         try {
             JsonObject object = JsonParser.parseString(response).getAsJsonObject();
@@ -148,10 +150,23 @@ final class PlaybackStatusClient {
                 optionalMillis(object, "device_seen_ms"), optionalMillis(object, "play_accepted_ms"),
                 optionalMillis(object, "last_device_check_ms"), optionalMillis(object, "last_device_probe_ms"),
                 observation(object), requestedTag(object), cancellationReason(object), preparationRetry(object), trackAudit(object), sdkTestUri(object),
-                sdkAlbumUris(object), boundedCount(object,"sdk_queue_count"), boundedCount(object,"sdk_queue_expected"));
+                sdkAlbumUris(object), boundedCount(object,"sdk_queue_count"), boundedCount(object,"sdk_queue_expected"),
+                firstTrackConfirmed(object));
         } catch (RuntimeException exception) {
             throw new IOException("Invalid playback response", exception);
         }
+    }
+
+    private static boolean firstTrackConfirmed(JsonObject object) {
+        if (!object.has("verification") || !object.get("verification").isJsonObject()) return false;
+        JsonObject v=object.getAsJsonObject("verification");
+        return flag(v,"device_matches") && flag(v,"track_matches") && flag(v,"is_playing");
+    }
+
+    private static boolean flag(JsonObject object,String name) {
+        return object.has(name) && object.get(name).isJsonPrimitive()
+            && object.get(name).getAsJsonPrimitive().isBoolean()
+            && object.get(name).getAsBoolean();
     }
 
     private static int boundedCount(JsonObject object,String name) {
