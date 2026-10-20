@@ -19,6 +19,18 @@ assert(android.includes('Spotify SDK watchdog: no success/failure callback after
   'Integrated helper logs a missing Spotify SDK callback, not just server Play acceptance');
 assert(android.includes('result.progress()') && android.includes('recordIntegrated('),
   'Integrated wake must include server-reported Spotify player observations in the copyable log');
+assert(source.includes('sdk-single-track-test') && source.includes('sdk_single_track:true'),
+  'Local SDK test must be explicitly opt-in, selectable in native Settings only');
+assert(source.includes('if(sdkSingleTrackTestEnabled())') &&
+  source.includes('await playbackHandoff(request,'),
+  'SDK test must bypass ordinary full-album Web API Play completely');
+assert(android.includes('session.getPlayerApi().play(pendingSdkFirstTrack)') &&
+  android.includes('sdkPlayAttempted = true;'),
+  'Native SDK test sends exactly one first-track Play without auto-retries');
+assert(android.includes('if ("waiting".equals(result.state)) runSdkSingleTrackTest(ticket);'),
+  'A cancelled or expired handoff must never initiate SDK Play');
+assert(!android.includes('getPlayerApi().queue('),
+  'Diagnostic experiment must never enqueue any additional album tracks');
 assert(!android.includes('result.playAccepted ||'),
   'Accepted Play cannot disconnect the integrated Spotify SDK before the correct track starts');
 assert(android.includes('stopWake()'));
