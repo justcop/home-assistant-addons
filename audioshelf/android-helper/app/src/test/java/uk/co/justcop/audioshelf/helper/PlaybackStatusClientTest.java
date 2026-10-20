@@ -79,13 +79,15 @@ public class PlaybackStatusClientTest {
 
     @Test public void reportsPreparationStagesAndFiltersUnexpectedRetryText() throws Exception {
         PlaybackStatusClient.Result retry=PlaybackStatusClient.parse(200,
-            "{\\"state\\":\\"waiting\\",\\"phase\\":\\"preparing_transfer_ack\\","
-            + "\\"preparation_retry\\":\\"device_lost\\"}");
+            """
+            {"state":"waiting","phase":"preparing_transfer_ack","preparation_retry":"device_lost"}
+            """);
         assertTrue(retry.progress().contains("waiting for Spotify to acknowledge device transfer"));
         assertTrue(retry.progress().contains("previous preparation retry: device lost"));
         PlaybackStatusClient.Result malicious=PlaybackStatusClient.parse(200,
-            "{\\"state\\":\\"waiting\\",\\"phase\\":\\"preparing_device_check\\","
-            + "\\"preparation_retry\\":\\"private_token\\"}");
+            """
+            {"state":"waiting","phase":"preparing_device_check","preparation_retry":"private_token"}
+            """);
         assertEquals("",malicious.preparationRetry);
         assertFalse(malicious.progress().contains("private_token"));
     }
