@@ -328,12 +328,12 @@ class Spotify:
 
     def play(self, album, disc_number=None, preferred_device=None, guard=None,
              dispatch=None, resolved_device=None, progress=None):
-        """Play an exact canonical queue on one explicitly chosen Spotify device.
+        """Play the verified tracklist on one explicitly chosen Spotify device.
 
-        Handoff passes its *freshly discovered* device, avoiding a duplicate
-        Spotify Connect probe during the short Android SDK wake window. Transfer
-        acknowledgement from GET /me/player can lag or remain on an old device;
-        the Play request remains pinned to the verified phone ID.
+        Background handoffs issue one Play directly to the discovered phone,
+        bypassing stale transfer acknowledgements. Its playback modes are
+        corrected and verified by PlaybackHandoff after the phone is active.
+        Legacy direct plays retain their existing transfer/mode safeguards.
         """
         tracks, uris = self.play_tracks(album, disc_number)
         def stage(name):
@@ -342,6 +342,33 @@ class Spotify:
             if progress:
                 progress(name)
         with self.playback_lock:
+            if resolved_device is not None:
+                # The background handoff has *already* discovered this exact
+                # Connect device. In particular, GET /me/player can describe
+                # an old speaker (or an inactive/empty player) indefinitely.
+                # Neither a paused transfer nor its acknowledgement is needed
+                # to dispatch PUT /me/player/play with a device_id.
+                stage('preparing_device_check')
+                preferred = preferred_device or self.store.setting('preferred_device')
+                device = resolved_device
+                if (not preferred or not device.get('id') or device.get('is_restricted')
+                        or (device['id'] != preferred['id']
+                            and (device.get('name') != preferred.get('name')
+                                 or device.get('type') != preferred.get('type')))):
+                    raise AppError('Your preferred Spotify device is unavailable. Open Spotify on it, or choose another device.', 409)
+                params = {'device_id': device['id']}
+                stage('preparing_explicit_play')
+                def send_to_discovered_phone():
+                    return self.api('PUT', 'me/player/play', params, {'uris': uris, 'position_ms': 0})
+                dispatch(send_to_discovered_phone) if dispatch else send_to_discovered_phone()
+                self.store.set_setting('last_played_album', album['id'])
+                return {'started': True, 'started_at': time.time(), 'track_count': len(uris),
+                        'device': device.get('name', 'Spotify'), 'device_id': device['id'],
+                        'first_track': {'id': tracks[0]['spotify_id'], 'title': tracks[0]['title'],
+                                        'duration_ms': tracks[0].get('duration_ms')},
+                        # The server must confirm modes *on this phone*, not
+                        # on the stale current-player snapshot before Play.
+                        'modes_need_confirmation': True}
             stage('preparing_player_state')
             try:
                 state = self.api('GET', 'me/player')
