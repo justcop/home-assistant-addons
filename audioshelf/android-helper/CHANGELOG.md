@@ -1,3 +1,9 @@
+# 0.2.15 — Identify exactly where Spotify preparation stalls
+
+- Display the server's granular activation phases, including current-player lookup, transfer acknowledgement, shuffle/repeat checks and explicitly targeted Play.
+- Report a strictly allowlisted reason when a previous preparation attempt returned to device discovery. Never log Spotify credentials, raw device IDs, full player responses, or arbitrary errors.
+- Pair with AudioShelf server 0.6.35. No changes to the SDK wake timing, app design, native Play policy or the independent PWA.
+
 # 0.2.14 — Explain who cancelled Spotify playback
 
 - Keep integrated playback diagnostics and local Spotify SDK wake timing unchanged, including the absolute date/time and the Spotify observed-track evidence.
