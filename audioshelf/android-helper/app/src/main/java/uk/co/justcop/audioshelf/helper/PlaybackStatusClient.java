@@ -301,5 +301,33 @@ final class PlaybackStatusClient {
         }
     }
 
+    /** HTTPS receipt for sequential local SDK queue callbacks. Never includes
+     * Spotify URIs or tokens in URL, logs or body. A non-2xx response stops
+     * further queueing rather than falsely reporting a complete album. */
+    static void reportSdkQueue(String origin,String account,String job,String token,
+                               int count,String state) throws IOException {
+        if (count<1 || count>100 || !(state.equals("progress") || state.equals("complete") || state.equals("failed")))
+            throw new IOException("Invalid SDK queue receipt");
+        URL url=new URL(origin+"/api/helper/playback-handoff/"+account+"/"+job+"/sdk-queue");
+        HttpURLConnection conn=(HttpURLConnection)url.openConnection();
+        try {
+            conn.setInstanceFollowRedirects(false);
+            conn.setRequestMethod("POST");
+            conn.setConnectTimeout(2000);
+            conn.setReadTimeout(4000);
+            conn.setDoOutput(true);
+            conn.setUseCaches(false);
+            conn.setRequestProperty("Authorization","Bearer "+token);
+            conn.setRequestProperty("X-AudioShelf-Request","1");
+            conn.setRequestProperty("Content-Type","application/json");
+            conn.setRequestProperty("Accept","application/json");
+            byte[] body=("{\\"count\\":"+count+",\\"state\\":\\""+state+"\\"}")
+                .getBytes(StandardCharsets.UTF_8);
+            conn.setFixedLengthStreamingMode(body.length);
+            try(java.io.OutputStream out=conn.getOutputStream()){out.write(body);}
+            if(conn.getResponseCode()!=200)throw new HttpFailure(conn.getResponseCode());
+        } finally {conn.disconnect();}
+    }
+
     private PlaybackStatusClient() {}
 }
