@@ -103,7 +103,7 @@ class PlaybackHandoff:
         """Read-only diagnostics after Play acceptance, never delay confirmation."""
         if not isinstance(album, dict) or not isinstance(album.get('tracks'), list):
             return
-        if not hasattr(self.spotify, 'market') or not callable(getattr(self.spotify, 'play_tracks', None)):
+        if not isinstance(getattr(self.spotify, 'market', None), str) or not callable(getattr(self.spotify, 'play_tracks', None)):
             return
 
         def publish(audit):
