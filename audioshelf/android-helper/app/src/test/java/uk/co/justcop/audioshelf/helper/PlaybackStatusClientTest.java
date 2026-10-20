@@ -50,6 +50,16 @@ public class PlaybackStatusClientTest {
         assertEquals("",PlaybackStatusClient.parse(200,"{\"state\":\"waiting\"}").observation);
     }
 
+    @Test public void onlyTrustedHashIsExposedForLocalTrackVerification() throws Exception {
+        PlaybackStatusClient.Result valid = PlaybackStatusClient.parse(200,
+            "{\"state\":\"waiting\",\"phase\":\"no_player_state\",\"play_accepted\":true,"
+            + "\"verification\":{\"requested_tag\":\"ec7c494df6\"}}");
+        assertEquals("ec7c494df6", valid.requestedTag);
+        assertEquals("", PlaybackStatusClient.parse(200,
+            "{\"state\":\"waiting\",\"verification\":{\"requested_tag\":\"secret-id\"}}").requestedTag);
+        assertEquals("", PlaybackStatusClient.parse(200,"{\"state\":\"waiting\"}").requestedTag);
+    }
+
     @Test public void distinguishesDnsTlsHttpAndTimeoutWithoutLoggingPrivateExceptionText() {
         assertEquals("DNS could not resolve AudioShelf", PlaybackStatusClient.describe(new java.net.UnknownHostException("private.host")));
         assertEquals("HTTPS/TLS connection failed", PlaybackStatusClient.describe(new javax.net.ssl.SSLException("private host and certificate")));
