@@ -79,6 +79,8 @@ public final class ShelfActivity extends Activity {
     private String lastTrackAudit = "";
     private String wakeSdkState = "not started";
     private boolean lastAcceptedPlay;
+    private String pendingSdkFirstTrack = "";
+    private boolean sdkPlayAttempted;
     private int wakePollCount;
     private WakeLog integratedWakeLog = new WakeLog();
     private final WakeProgressLog integratedProgressLog = new WakeProgressLog();
@@ -286,6 +288,8 @@ public final class ShelfActivity extends Activity {
         lastWakeError = null;
         lastTrackAudit = "";
         lastAcceptedPlay = false;
+        pendingSdkFirstTrack = "";
+        sdkPlayAttempted = false;
         wakePollCount = 0;
         wakeSdkState = "connecting";
         jobId=job; accountId=account; token=bearer;
@@ -298,7 +302,8 @@ public final class ShelfActivity extends Activity {
         recordIntegrated("Time zone " + java.time.ZoneId.systemDefault().getId()
             + "; absolute timestamps and monotonic elapsed seconds enabled.");
         recordIntegrated("Trusted wake request validated; credentials, account and full job ID omitted.");
-        recordIntegrated("Spotify App Remote connects without sending Play; server owns device/track selection and verification.");
+        recordIntegrated("Spotify App Remote service wake started. Normal handoffs send Web API Play;"
+            + " explicit SDK test handoffs send one local first-track Play only.");
         handler.postDelayed(() -> {
             if(ticket==sequence)stopWake("20-second deadline; server phase="
                 + (lastWakePhase==null?"not yet received":lastWakePhase)
@@ -338,6 +343,7 @@ public final class ShelfActivity extends Activity {
                         wakeSdkState="connected";
                         recordIntegrated("Spotify App Remote SDK connected; local service awake. Playback NOT yet confirmed.");
                         if (localPlayerProbe != null) localPlayerProbe.connected(appRemote);
+                        runSdkSingleTrackTest(ticket);
                     });
                 }
                 @Override public void onFailure(Throwable error) {
@@ -392,6 +398,14 @@ public final class ShelfActivity extends Activity {
                             + "; retrying while wake window remains.");
                     }
                 } else if(result!=null) {
+                    if (result.sdkTestUri != null && !result.sdkTestUri.isEmpty()
+                            && pendingSdkFirstTrack.isEmpty()) {
+                        pendingSdkFirstTrack = result.sdkTestUri;
+                        recordIntegrated("SDK single-track experiment armed: exact first-track fingerprint #"
+                            + SpotifyLocalPlayerProbe.trackTag(pendingSdkFirstTrack)
+                            + ". Server will not send Web API Play.");
+                    }
+                    runSdkSingleTrackTest(ticket);
                     if (result.trackAudit != null && !result.trackAudit.isEmpty()
                             && !result.trackAudit.equals(lastTrackAudit)) {
                         lastTrackAudit = result.trackAudit;
@@ -431,6 +445,36 @@ public final class ShelfActivity extends Activity {
         });
     }
 
+    /** Exactly one local SDK play per wake session. No URI lists, SDK queue
+     * mutations, Web API commands or automatic retries, even on timeout.
+     * The server independently verifies the chosen phone and track.
+     */
+    private void runSdkSingleTrackTest(int ticket) {
+        if (ticket != sequence || jobId == null || remote == null || sdkPlayAttempted
+                || !pendingSdkFirstTrack.matches("spotify:track:[A-Za-z0-9]{22}")) return;
+        final SpotifyAppRemote session = remote;
+        sdkPlayAttempted = true; // set BEFORE the asynchronous SDK call
+        recordIntegrated("SDK single-track test: issuing exactly one local play(trackUri)"
+            + " for #" + SpotifyLocalPlayerProbe.trackTag(pendingSdkFirstTrack)
+            + "; no album queue or Web API Play.");
+        try {
+            session.getPlayerApi().play(pendingSdkFirstTrack)
+                .setResultCallback(ignored -> handler.post(() -> {
+                    if (ticket == sequence && remote == session)
+                        recordIntegrated("SDK single-track Play callback succeeded;"
+                            + " server must still verify the correct phone and playing track.");
+                }))
+                .setErrorCallback(error -> handler.post(() -> {
+                    if (ticket == sequence && remote == session)
+                        recordIntegrated("SDK single-track Play callback failed: "
+                            + WakeDiagnostics.failure(error) + "; no automatic retry.");
+                }));
+        } catch (RuntimeException error) {
+            recordIntegrated("SDK single-track Play threw: "
+                + WakeDiagnostics.failure(error) + "; no automatic retry.");
+        }
+    }
+
     private void stopWake() {
         stopWake("Wake cancelled or Android activity closed.");
     }
@@ -442,6 +486,8 @@ public final class ShelfActivity extends Activity {
                 + "; AudioShelf server may continue its independent verification.");
         }
         if (localPlayerProbe != null) { localPlayerProbe.close(); localPlayerProbe = null; }
+        pendingSdkFirstTrack = "";
+        sdkPlayAttempted = false;
         sequence++;jobId=null;accountId=null;token=null;wakeConnecting=false;
         handler.removeCallbacks(poll);
         if(remote!=null){SpotifyAppRemote.disconnect(remote);remote=null;}
