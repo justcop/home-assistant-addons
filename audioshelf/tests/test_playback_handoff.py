@@ -107,26 +107,29 @@ def test_worker_stops_on_spotify_errors_without_repeating_queue():
     assert spotify.play.call_count==1
 
 
-def test_cancellation_during_device_activation_prevents_queue(application,monkeypatch):
+def test_cancellation_just_before_direct_play_prevents_queue(application, monkeypatch):
     spotify=application.extensions['spotify'];album=ready_album(application)
     activating=threading.Event();release=threading.Event();queues=[]
     def api(method,path,params=None,body=None):
         if path=='me/player/devices':return {'devices':[PHONE]}
-        if path=='me/player' and method=='GET':
-            return {'device':PHONE if release.is_set() else SPEAKER,'shuffle_state':False,'repeat_state':'off'}
-        if path=='me/player' and method=='PUT':
-            activating.set();release.wait(2)
         if path=='me/player/play':queues.append(body)
+        if path=='me/player' and method=='PUT':
+            pytest.fail('A direct phone handoff must not depend on a paused transfer')
         return {}
     monkeypatch.setattr(spotify,'api',api)
-    monkeypatch.setattr('app.spotify.time.sleep',lambda _:None)
     manager=PlaybackHandoff(spotify,interval=.005)
+    original_progress=manager.progress
+    def progress(job,phase,*args,**kwargs):
+        if phase=='preparing_explicit_play':
+            activating.set()
+            assert release.wait(2)
+        return original_progress(job,phase,*args,**kwargs)
+    manager.progress=progress
     job=manager.start(album,None,PHONE,'owner',lambda:True)
     assert activating.wait(1)
     assert manager.status(job['id'],'owner',cancel=True)['state']=='cancelled'
-    worker=manager.worker
     release.set()
-    worker.join(1)
+    manager.worker.join(1)
     assert not queues
 
 
@@ -461,3 +464,62 @@ def test_handoff_reuses_first_verified_device_without_second_discovery(applicati
     assert len(queues)==1
     assert queues[0][0]=={'device_id':'phone'}
     assert queues[0][1]['uris']==['spotify:track:'+'a'*22, 'spotify:track:'+'b'*22]
+
+
+def test_handoff_direct_play_skips_stale_transfer_and_corrects_modes(application,monkeypatch):
+    spotify=application.extensions['spotify'];album=ready_album(application)
+    calls=[];state={'playing':False,'shuffle':True,'repeat':'context'}
+    def api(method,path,params=None,body=None):
+        calls.append((method,path,params,body))
+        if path=='me/player/devices':return {'devices':[PHONE]}
+        if path=='me/player' and method=='PUT':
+            pytest.fail('Paused Spotify transfer should not block a known phone')
+        if path=='me/player' and method=='GET':
+            assert state['playing'], 'A stale current-player read must not precede Play'
+            return {'device':PHONE,'is_playing':True,'item':{'id':'a'*22},
+                    'shuffle_state':state['shuffle'],'repeat_state':state['repeat']}
+        if path=='me/player/play':
+            assert params=={'device_id':'phone'}
+            assert body=={'uris':['spotify:track:'+'a'*22,'spotify:track:'+'b'*22],
+                          'position_ms':0}
+            state['playing']=True
+        if path=='me/player/shuffle':
+            assert params=={'device_id':'phone','state':'false'}
+            state['shuffle']=False
+        if path=='me/player/repeat':
+            assert params=={'device_id':'phone','state':'off'}
+            state['repeat']='off'
+        return {}
+    monkeypatch.setattr(spotify,'api',api)
+    manager=PlaybackHandoff(spotify,timeout=2,interval=.01)
+    job=manager.start(album,None,PHONE,'owner',lambda:True)
+    assert finished(manager,job)['state']=='started'
+    assert [c[1] for c in calls].count('me/player/play')==1
+    assert [c[1] for c in calls].count('me/player/shuffle')==1
+    assert [c[1] for c in calls].count('me/player/repeat')==1
+    assert state['shuffle'] is False and state['repeat']=='off'
+    assert [c[1] for c in calls].index('me/player/play') < [c[1] for c in calls].index('me/player/shuffle')
+
+
+def test_handoff_mode_retry_does_not_repeat_accepted_play(application,monkeypatch):
+    spotify=application.extensions['spotify'];album=ready_album(application)
+    calls=[];state={'shuffle':True,'repeat':'context','shuffle_attempts':0}
+    def api(method,path,params=None,body=None):
+        calls.append((method,path,params,body))
+        if path=='me/player/devices':return {'devices':[PHONE]}
+        if path=='me/player' and method=='GET':
+            return {'device':PHONE,'is_playing':True,'item':{'id':'a'*22},
+                    'shuffle_state':state['shuffle'],'repeat_state':state['repeat']}
+        if path=='me/player/shuffle':
+            state['shuffle_attempts']+=1
+            if state['shuffle_attempts']==1:
+                raise AppError('Phone warming up',409)
+            state['shuffle']=False
+        if path=='me/player/repeat':state['repeat']='off'
+        return {}
+    monkeypatch.setattr(spotify,'api',api)
+    manager=PlaybackHandoff(spotify,timeout=3,interval=.01)
+    job=manager.start(album,None,PHONE,'owner',lambda:True)
+    assert finished(manager,job)['state']=='started'
+    assert state['shuffle_attempts']==2
+    assert [c[1] for c in calls].count('me/player/play')==1
