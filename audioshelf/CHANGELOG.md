@@ -1,3 +1,9 @@
+# 0.6.38 — Controlled native Spotify SDK first-track experiment
+
+- Integrated Android app may explicitly opt in to an SDK-only first-track test. The server validates the reviewed canonical selection and discovers the uniquely selected, unrestricted preferred phone, then exposes only the exact first track URI to the short-lived authenticated Android helper. **No Web API Play, transfer, shuffle, repeat or track queue command is issued for this test.**
+- Independently verify the intended phone and first track actually playing before marking the diagnostic test successful. Do not report mere local SDK Play acknowledgement as success or replay an ambiguous command. Normal album/side/disc playback is unchanged while the experiment is disabled.
+- Test requests cannot target a non-smartphone preferred device; the raw track URI never appears in the owner/PWA playback snapshot or logs.
+
 # 0.6.37 — Diagnose actual Spotify track URIs after Play
 
 - Asynchronously audit the exact canonical Spotify track IDs after Spotify accepts the one phone-pinned Play request, without delaying playback or altering mappings. Look up the first, second, and final queued tracks with the account's GB-market context; report availability, regional relinking, restrictions and unexpected IDs.
