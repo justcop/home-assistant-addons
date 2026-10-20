@@ -71,7 +71,12 @@ assert(android.includes('updater.check((version, action) ->') &&
 assert(updater.includes('check(BiConsumer<String, Runnable> offerDownload)') &&
   updater.includes('offerDownload.accept(update.versionName'),
   'Updater sends a validated version to the same integrated dialog');
-assert(!android.includes('.play('),'No native SDK playback/queue command');
+assert((android.match(/\\.play\\(/g)||[]).length===1 &&
+  android.includes('session.getPlayerApi().play(pendingSdkFirstTrack)') &&
+  android.includes('sdkPlayAttempted = true;') &&
+  android.includes('result.sdkTestUri') &&
+  !android.includes('.queue('),
+  'The explicit SDK experiment permits precisely one guarded local track Play and no SDK queue');
 assert(manifest.includes('android.permission.BIND_NOTIFICATION_LISTENER_SERVICE'));
 assert(media.includes('com.spotify.music') && media.includes('onPlaybackStateChanged'));
 const versionCode=Number(gradle.split('versionCode ')[1].split(String.fromCharCode(10))[0].trim());
