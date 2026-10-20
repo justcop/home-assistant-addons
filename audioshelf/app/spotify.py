@@ -326,56 +326,106 @@ class Spotify:
             raise AppError('This album exceeds the MVP limit of 100 tracks.')
         return tracks, uris
 
-    def play(self, album, disc_number=None, preferred_device=None, guard=None, dispatch=None):
+    def play(self, album, disc_number=None, preferred_device=None, guard=None,
+             dispatch=None, resolved_device=None, progress=None):
+        """Play an exact canonical queue on one explicitly chosen Spotify device.
+
+        Handoff passes its *freshly discovered* device, avoiding a duplicate
+        Spotify Connect probe during the short Android SDK wake window. Transfer
+        acknowledgement from GET /me/player can lag or remain on an old device;
+        the Play request remains pinned to the verified phone ID.
+        """
         tracks, uris = self.play_tracks(album, disc_number)
-        with self.playback_lock:
+        def stage(name):
             if guard:
                 guard()
-            state = self.api('GET','me/player')
-            device = state.get('device',{})
+            if progress:
+                progress(name)
+        with self.playback_lock:
+            stage('preparing_player_state')
+            try:
+                state = self.api('GET', 'me/player')
+            except AppError as error:
+                if error.status != 404:
+                    raise
+                # Some Spotify clients have no active player despite appearing
+                # in the device list. A missing player isn't a missing device.
+                state = {}
             preferred = preferred_device or self.store.setting('preferred_device')
             if preferred:
-                devices = self.devices()
-                device = next((d for d in devices if d['id'] == preferred['id']), None)
-                if device is None:
-                    matches = [d for d in devices if d['name'] == preferred['name'] and d['type'] == preferred['type']]
-                    device = matches[0] if len(matches) == 1 else None
-                if not device or device.get('is_restricted'):
-                    raise AppError('Your preferred Spotify device is unavailable. Open Spotify on it, or choose another device.', 409)
-            elif not device.get('id') or device.get('is_restricted'):
-                raise AppError('Choose your playback device. Open Spotify on your phone if it is missing, then refresh the device list.', 409)
-            if state.get('device', {}).get('id') != device['id'] or state.get('device', {}).get('is_restricted'):
-                if guard:
-                    guard()
-                self.api('PUT', 'me/player', body={'device_ids': [device['id']], 'play': False})
-                for attempt in range(10):
-                    time.sleep(.3)
-                    state = self.api('GET', 'me/player')
-                    if state.get('device', {}).get('id') == device['id'] and not state.get('device', {}).get('is_restricted'):
-                        break
+                stage('preparing_device_check')
+                if resolved_device is None:
+                    devices = self.devices()
+                    device = next((d for d in devices if d['id'] == preferred['id']), None)
+                    if device is None:
+                        matches = [d for d in devices if d['name'] == preferred['name'] and d['type'] == preferred['type']]
+                        device = matches[0] if len(matches) == 1 else None
                 else:
-                    raise AppError('Spotify has not activated your device yet. Return here and retry.', 409)
-            params = {'device_id':device['id']}
-            if guard:
-                guard()
+                    device = resolved_device
+                    if device.get('id') != preferred['id'] and (
+                            device.get('name') != preferred['name']
+                            or device.get('type') != preferred['type']):
+                        device = None
+                if not device or not device.get('id') or device.get('is_restricted'):
+                    raise AppError('Your preferred Spotify device is unavailable. Open Spotify on it, or choose another device.', 409)
+            else:
+                device = state.get('device') or {}
+                if not device.get('id') or device.get('is_restricted'):
+                    raise AppError('Choose your playback device. Open Spotify on your phone if it is missing, then refresh the device list.', 409)
+            if state.get('device', {}).get('id') != device['id'] or state.get('device', {}).get('is_restricted'):
+                stage('preparing_device_transfer')
+                self.api('PUT', 'me/player', body={'device_ids': [device['id']], 'play': False})
+                activated = False
+                for attempt in range(10):
+                    stage('preparing_transfer_ack')
+                    time.sleep(.3)
+                    try:
+                        state = self.api('GET', 'me/player')
+                    except AppError as error:
+                        if error.status != 404:
+                            raise
+                        state = {}
+                    if state.get('device', {}).get('id') == device['id'] and not state.get('device', {}).get('is_restricted'):
+                        activated = True
+                        break
+                if not activated:
+                    # A paused Spotify Connect transfer can succeed while GET
+                    # /me/player keeps reporting the old player. Don't loop
+                    # indefinitely if the exact target is still available AND
+                    # shuffle/repeat are explicitly known to be disabled.
+                    # Never guess if those playback-mode flags are unknown.
+                    stage('preparing_transfer_fallback')
+                    available = [d for d in self.devices()
+                                 if d.get('id') == device['id'] and not d.get('is_restricted')]
+                    if len(available) != 1 or (state.get('shuffle_state') is not False
+                                                or state.get('repeat_state') != 'off'):
+                        raise AppError('Spotify has not activated your device yet. Return here and retry.', 409)
+                    # Explicit device_id is still used in Play; any ambiguous
+                    # Play result is NEVER retried or targeted to another device.
+            params = {'device_id': device['id']}
+            stage('preparing_playback_modes')
             if state.get('shuffle_state'):
-                self.api('PUT','me/player/shuffle', dict(params,state='false'))
+                self.api('PUT', 'me/player/shuffle', dict(params, state='false'))
             if state.get('repeat_state') != 'off':
-                self.api('PUT','me/player/repeat', dict(params,state='off'))
+                self.api('PUT', 'me/player/repeat', dict(params, state='off'))
             if state.get('shuffle_state') or state.get('repeat_state') != 'off':
                 for attempt in range(5):
+                    stage('preparing_modes_ack')
                     time.sleep(.3)
-                    state = self.api('GET','me/player')
-                    if state.get('device', {}).get('id') == device['id'] and state.get('shuffle_state') is False and state.get('repeat_state') == 'off':
+                    state = self.api('GET', 'me/player')
+                    if (state.get('device', {}).get('id') == device['id']
+                            and state.get('shuffle_state') is False
+                            and state.get('repeat_state') == 'off'):
                         break
                 else:
                     raise AppError('Turn Shuffle and Repeat off in Spotify, then try Play Album again.')
-            # Explicit ordered URIs, never an album context and never bonus-track slicing.
-            if guard:
-                guard()
+            # Explicit ordered URIs, never an album context or bonus tracks.
+            stage('preparing_explicit_play')
             def send():
-                return self.api('PUT','me/player/play', params, {'uris':uris,'position_ms':0})
+                return self.api('PUT', 'me/player/play', params, {'uris': uris, 'position_ms': 0})
             dispatch(send) if dispatch else send()
             self.store.set_setting('last_played_album', album['id'])
-            return {'started':True,'started_at':time.time(),'track_count':len(uris),'device':device.get('name','Spotify'),'device_id':device['id'],
-                    'first_track':{'id':tracks[0]['spotify_id'],'title':tracks[0]['title'],'duration_ms':tracks[0].get('duration_ms')}}
+            return {'started': True, 'started_at': time.time(), 'track_count': len(uris),
+                    'device': device.get('name', 'Spotify'), 'device_id': device['id'],
+                    'first_track': {'id': tracks[0]['spotify_id'], 'title': tracks[0]['title'],
+                                    'duration_ms': tracks[0].get('duration_ms')}}
