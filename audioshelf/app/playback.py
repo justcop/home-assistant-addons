@@ -55,7 +55,8 @@ class PlaybackHandoff:
                    'phase': 'checking_devices', 'device_checks': 0, 'confirmation_checks': 0,
                    'play_accepted': False, 'device_seen_ms': None, 'play_accepted_ms': None,
                    'last_device_check_ms': None, 'last_device_probe_ms': None,
-                   'verification': None, 'created_monotonic': started,
+                   'preparation_retry': None, 'verification': None,
+                   'created_monotonic': started,
                    'helper_token_hash': hashlib.sha256(token.encode()).digest(),
                    'deadline': started + self.timeout,
                    'payload': (copy.deepcopy(album), disc, copy.deepcopy(preferred), authorized)}
@@ -84,7 +85,7 @@ class PlaybackHandoff:
                                   ('state', 'error', 'phase', 'device_checks', 'confirmation_checks',
                                    'play_accepted', 'device_seen_ms', 'play_accepted_ms',
                                    'last_device_check_ms', 'last_device_probe_ms', 'verification',
-                                   'cancel_reason')}
+                                   'preparation_retry', 'cancel_reason')}
             self.helper_job = job
             self.helper_changed.notify_all()
 
@@ -264,7 +265,10 @@ class PlaybackHandoff:
                     guard()
                     self.progress(job, 'preparing_playback',
                                   device_seen_ms=probe_metrics['last_device_check_ms'], **probe_metrics)
-                    result = self.spotify.play(album, disc, preferred_device=preferred, guard=guard, dispatch=dispatch)
+                    result = self.spotify.play(
+                        album, disc, preferred_device=preferred, resolved_device=ready[0],
+                        guard=guard, dispatch=dispatch,
+                        progress=lambda phase: self.progress(job, phase))
                     self.confirm_playing(job, result, guard)
                     return
                 self.progress(job, 'waiting_for_device', **probe_metrics)
@@ -275,6 +279,16 @@ class PlaybackHandoff:
                 if error.status not in (404, 409):
                     self.set_status(job, 'expired' if error.status == 410 else 'failed', error=str(error))
                     return
+                # The old handoff quietly retried from device discovery,
+                # obscuring failures inside Spotify's player preparation.
+                # Only emit a safe, server-authored stage/code classification.
+                stage = job.get('phase', '')
+                reason = ('device_lost' if stage == 'preparing_device_check'
+                          else 'transfer_unconfirmed' if stage in (
+                              'preparing_transfer_ack', 'preparing_transfer_fallback')
+                          else 'player_not_ready' if stage == 'preparing_player_state'
+                          else 'preparation_unavailable')
+                self.progress(job, 'waiting_for_device', preparation_retry=reason)
             except Exception:
                 LOG.exception('Background Spotify playback failed')
                 self.set_status(job, 'unconfirmed' if command_sent else 'failed',
