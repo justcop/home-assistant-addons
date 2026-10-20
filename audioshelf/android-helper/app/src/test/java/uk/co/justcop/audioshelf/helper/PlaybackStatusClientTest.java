@@ -102,6 +102,36 @@ public class PlaybackStatusClientTest {
         assertFalse(malicious.progress().contains("private_token"));
     }
 
+    @Test public void liveMappingAuditIsCopyableButNeverIncludesRawTrackIds() throws Exception {
+        PlaybackStatusClient.Result result=PlaybackStatusClient.parse(200, """
+            {"state":"waiting","phase":"no_player_state","play_accepted":true,
+              "track_audit":{"state":"complete","market":"GB","track_count":14,
+                "queue_tag":"1234567890","phone_visible_after_play":"yes",
+                "phone_active_after_play":"no","samples":[
+                  {"position":1,"title":"Lycanthrope","saved_tag":"abcdef1234",
+                   "status":"found","playable":"yes","relinked":true,
+                   "returned_tag":"9876543210","restriction":null},
+                  {"position":2,"title":"Another Track","saved_tag":"12345abcde",
+                   "status":"not_found","playable":"unknown",
+                   "returned_tag":null,"restriction":"market"}]}}
+            """);
+        assertTrue(result.trackAudit.contains("queued=14 tracks; queue #1234567890"));
+        assertTrue(result.trackAudit.contains("Lycanthrope"));
+        assertTrue(result.trackAudit.contains("Spotify=found, playable=yes, relinked=yes"));
+        assertTrue(result.trackAudit.contains("phone visible after Play=yes, active=no"));
+        assertFalse(result.trackAudit.contains("spotify:track:"));
+        assertFalse(result.trackAudit.contains("Authorization"));
+        PlaybackStatusClient.Result bad=PlaybackStatusClient.parse(200, """
+            {"state":"waiting","track_audit":{"state":"complete","market":"private_secret",
+                "track_count":9999,"queue_tag":"PRIVATE","samples":[{
+                "position":9999,"title":"Ignore","saved_tag":"token",
+                "status":"private_secret","playable":"secret"}]}}
+            """);
+        assertTrue(bad.trackAudit.contains("market=unknown"));
+        assertFalse(bad.trackAudit.contains("PRIVATE"));
+        assertFalse(bad.trackAudit.contains("private_secret"));
+    }
+
     @Test public void revocationAndUnexpectedStatusFailClosed() throws Exception {
         assertEquals("expired", PlaybackStatusClient.parse(404, "").state);
         assertEquals("cancelled", PlaybackStatusClient.parse(200, "{\"state\":\"cancelled\"}").state);
