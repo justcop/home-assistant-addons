@@ -165,10 +165,10 @@ final class PlaybackStatusClient {
                 String playable=safe(sample,"playable"), restricted=safe(sample,"restriction");
                 if (!saved.matches("[0-9a-f]{10}")) saved="unknown";
                 if (!returned.matches("[0-9a-f]{10}")) returned="none";
-                if (!java.util.Set.of("found","missing","not_found","rate_limited",
+                if (!java.util.Arrays.asList("found","missing","not_found","rate_limited",
                      "access_denied","request_failed","error").contains(status)) status="unknown";
-                if (!java.util.Set.of("yes","no","unknown").contains(playable)) playable="unknown";
-                if (!java.util.Set.of("market","product","explicit","other").contains(restricted)) restricted="none";
+                if (!java.util.Arrays.asList("yes","no","unknown").contains(playable)) playable="unknown";
+                if (!java.util.Arrays.asList("market","product","explicit","other").contains(restricted)) restricted="none";
                 int position=0;
                 try { position=sample.get("position").getAsInt(); } catch (RuntimeException ignored) {}
                 if (position<1 || position>100) position=0;
@@ -182,8 +182,8 @@ final class PlaybackStatusClient {
         }
         String visible=safe(audit,"phone_visible_after_play");
         String active=safe(audit,"phone_active_after_play");
-        if (!java.util.Set.of("yes","no","unknown").contains(visible)) visible="unknown";
-        if (!java.util.Set.of("yes","no","unknown").contains(active)) active="unknown";
+        if (!java.util.Arrays.asList("yes","no","unknown").contains(visible)) visible="unknown";
+        if (!java.util.Arrays.asList("yes","no","unknown").contains(active)) active="unknown";
         out.append("; phone visible after Play=").append(visible).append(", active=").append(active);
         return out.toString();
     }
