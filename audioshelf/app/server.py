@@ -862,7 +862,11 @@ def create_app(options=None):
         if not preferred:
             raise AppError('Choose your playback device first.', 409)
         album = store.album(mbid(album_id))
-        disc = request.json.get('disc_number')
+        body = request.get_json(silent=True) or {}
+        disc = body.get('disc_number')
+        sdk_single_track = body.get('sdk_single_track') is True
+        if sdk_single_track and preferred.get('type') != 'Smartphone':
+            raise AppError('SDK single-track test requires your preferred Android phone.', 409)
         spotify.play_tracks(album, disc)  # Validate before accepting background work.
         token = session.get('sid')
         ingress_request = bool(g.identity.get('ingress'))
@@ -874,7 +878,8 @@ def create_app(options=None):
             person = context.security.identity(token) if not ingress_request else {'role': 'owner'}
             return bool(enabled and context.security.version() == version
                         and person and person['role'] in ('owner', 'control'))
-        return jsonify(handoff.start(album, disc, preferred, playback_owner(), authorized)), 202
+        return jsonify(handoff.start(album, disc, preferred, playback_owner(), authorized,
+                                     sdk_single_track=sdk_single_track)), 202
 
     @app.get('/api/helper/playback-handoff/<account_id>/<job_id>')
     def helper_playback_status(account_id, job_id):
