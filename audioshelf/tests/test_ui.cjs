@@ -192,7 +192,22 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.getByRole('heading',{name:'Spotify editions'}).waitFor();
     await page.getByRole('button',{name:'Close',exact:true}).click();
     await page.getByRole('button',{name:'Play album'}).click();
-    await page.getByRole('heading',{name:'Choose playback device',exact:true}).waitFor();
+    try {
+      await page.getByRole('heading',{name:'Choose playback device',exact:true}).waitFor({timeout:8000});
+    } catch(error) {
+      const diagnostic=await page.evaluate(()=>({
+        modal:document.querySelector('#modal')?.innerText?.slice(0,900),
+        toast:document.querySelector('#toast')?.textContent,
+        spotify_connected:statusInfo.spotify_connected,
+        preferred_device:statusInfo.preferred_device,
+        canonical_reviewed:currentAlbum?.canonical_reviewed,
+        tracks:currentAlbum?.tracks?.map(t=>({title:t.title,verified:t.verified,spotify:!!t.spotify_id})),
+        route_generation:routeGeneration,
+        pending:!!pendingPlayback,
+      }));
+      throw new Error('Expected playback-device chooser was not shown: '+JSON.stringify(diagnostic)
+        +'; browser errors='+JSON.stringify(errors)+'; original='+error.message);
+    }
     await page.getByRole('button',{name:'Fixture phone',exact:false}).click();
     await page.locator('#toast').filter({hasText:'Playing 2 tracks on Fixture phone.'}).waitFor();
     const fixtureOptions=body=>fixtureFetch(base+'/__test/playback-options',{method:'POST',headers:{'Content-Type':'application/json','X-AudioShelf-Request':'1'},body:JSON.stringify(body)});
