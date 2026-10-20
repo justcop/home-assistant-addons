@@ -1,6 +1,8 @@
 package uk.co.justcop.audioshelf.helper;
 
 import org.junit.Test;
+import java.time.ZoneId;
+import java.time.Instant;
 import static org.junit.Assert.*;
 
 public class WakeDiagnosticsTest {
@@ -37,7 +39,12 @@ public class WakeDiagnosticsTest {
     private static final class IOExceptionEquivalent extends Exception {}
 
     @Test public void timestampsUseElapsedSecondsAndDoNotDependOnLocale() {
-        assertEquals("[1.234s] Connected", WakeDiagnostics.line(1234, "Connected"));
-        assertEquals("[0.000s] Starting", WakeDiagnostics.line(-1, "Starting"));
+        long epoch = Instant.parse("2026-10-20T15:26:42.123Z").toEpochMilli();
+        assertEquals("[2026-10-20 16:26:42.123 +01:00 | +1.234s] Connected",
+            WakeDiagnostics.line(epoch,1234,ZoneId.of("Europe/London"),"Connected"));
+        assertEquals("[2026-10-20 15:26:42.123 Z | +0.000s] Starting",
+            WakeDiagnostics.line(epoch,-1,ZoneId.of("UTC"),"Starting"));
+        assertTrue(WakeDiagnostics.sessionId().matches("[0-9a-f]{8}"));
+        assertNotEquals(WakeDiagnostics.sessionId(),WakeDiagnostics.sessionId());
     }
 }

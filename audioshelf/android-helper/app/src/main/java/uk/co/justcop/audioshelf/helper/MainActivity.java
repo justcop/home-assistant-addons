@@ -35,6 +35,10 @@ public final class MainActivity extends Activity {
     private int pairingAttemptId;
     private final WakeProgressLog progressLog = new WakeProgressLog();
     private long diagnosticStartedAt;
+    private String wakeSessionId;
+    private String lastObservedPhase;
+    private boolean lastObservedPlayAccepted;
+    private String lastSdkOutcome = "not started";
     private boolean wakeRequest, keepOpen;
     private boolean completed, connecting, resumed, sdkFailed;
     private boolean sdkWakeStarted, pairingSpotify;
@@ -54,7 +58,11 @@ public final class MainActivity extends Activity {
         wakeReturn.onDeadline();
         record(serverContacted ? "Last AudioShelf progress: " + lastServerProgress :
             "No authenticated AudioShelf status received before return. Last network step: " + transportStage);
-        record("20-second wake deadline reached. AudioShelf continues checking independently.");
+        record("20-second wake deadline reached; final server phase="
+            + (lastObservedPhase == null ? "not received" : lastObservedPhase)
+            + "; last SDK=" + lastSdkOutcome
+            + "; Play accepted=" + lastObservedPlayAccepted
+            + "; playback was NOT confirmed by the helper before returning.");
         message.setText(keepOpen ? "Wake timed out. Review diagnostics." :
             "Returning to AudioShelf…");
         if (keepOpen) record("Diagnostic hold enabled; status monitoring continues until the job finishes.");
@@ -107,7 +115,12 @@ public final class MainActivity extends Activity {
             return;
         }
         wakeRequest = true;
-        record("AudioShelf helper " + BuildConfig.VERSION_NAME + " (" + BuildConfig.VERSION_CODE + ")");
+        wakeSessionId = WakeDiagnostics.sessionId();
+        record("Wake session " + wakeSessionId + " · companion · AudioShelf Android "
+            + BuildConfig.VERSION_NAME + " (build " + BuildConfig.VERSION_CODE + ").");
+        record("Time zone: " + java.time.ZoneId.systemDefault().getId()
+            + "; Android API " + android.os.Build.VERSION.SDK_INT
+            + "; logging time-of-day plus monotonic elapsed seconds.");
         record("Wake request received. " + (keepOpen ? "Diagnostic hold enabled." : "Automatic return enabled."));
         record("Foreground-visible Spotify SDK wake policy selected.");
         String clientId = data.getQueryParameter("client_id");
@@ -124,7 +137,8 @@ public final class MainActivity extends Activity {
         }
         wakeClientId = clientId;
         returnUri = Uri.parse(returnUrl == null ? origin : returnUrl);
-        record("Request and HTTPS return address validated. No playback commands are sent by this helper.");
+        record("Request and HTTPS return address validated; job correlation session " + wakeSessionId
+            + ". No playback commands are sent by this helper.");
         String trusted = getPreferences(MODE_PRIVATE).getString("trusted_origin", "");
         String trustedClient = getPreferences(MODE_PRIVATE).getString("trusted_client", "");
         if (origin.equals(trusted) && clientId.equals(trustedClient)) {
@@ -225,6 +239,16 @@ public final class MainActivity extends Activity {
                 }
                 String progress = result.progress();
                 lastServerProgress = progress;
+                if (!result.phase.equals(lastObservedPhase)
+                        || result.playAccepted != lastObservedPlayAccepted) {
+                    lastObservedPhase = result.phase;
+                    lastObservedPlayAccepted = result.playAccepted;
+                    record("Server verification: state=" + result.state
+                        + ", phase=" + result.phase + ", Play accepted=" + result.playAccepted
+                        + ", device checks=" + result.deviceChecks
+                        + ", player-state checks=" + result.confirmationChecks
+                        + ". Play acceptance is NOT confirmed playback.");
+                }
                 if (progressLog.shouldRecord(result.state, result.phase, result.playAccepted,
                         result.deviceSeenMs, SystemClock.elapsedRealtime() - diagnosticStartedAt)) {
                     record("AudioShelf progress: " + progress + " [status request " + attempt
@@ -282,7 +306,11 @@ public final class MainActivity extends Activity {
                 }
                 wakeReturn.onServerState(result.state);
                 handler.removeCallbacks(returnDeadline);
-                record("AudioShelf job finished: " + result.state + ". "
+                record("AudioShelf job finished: " + result.state
+                    + (result.state.equals("started")
+                        ? " (correct phone and first track confirmed playing). "
+                        : " (requested playback NOT verified). ")
+                    + "Last verification phase=" + result.phase + ". "
                     + (keepOpen ? "Diagnostic hold keeps this result open." : "Returning to AudioShelf if visible."));
                 message.setText((result.state.equals("started") ? "Playback confirmed." : "AudioShelf reports: " + result.message)
                     + (keepOpen ? "\nCopy the log, then return manually." : "\nReturning to AudioShelf…"));
@@ -297,6 +325,7 @@ public final class MainActivity extends Activity {
                 sdkWakeStarted, !completed && !isFinishing() && !isDestroyed()
                     && wakeClientId != null)) return;
         sdkWakeStarted = true;
+        lastSdkOutcome = "connecting";
         record("Starting foreground-visible SDK wake; helper resumed=" + resumed + ".");
         connect(wakeClientId);
     }
@@ -468,8 +497,9 @@ public final class MainActivity extends Activity {
                         return;
                     }
                     remote = appRemote;
+                    lastSdkOutcome = "connected";
                     getPreferences(MODE_PRIVATE).edit().putBoolean("spotify_authorized", true).apply();
-                    record("Spotify SDK connected. AudioShelf is checking the preferred phone.");
+                    record("Spotify SDK connected (service wake succeeded); this does NOT confirm Spotify Connect playback.");
                 });
             }
             @Override public void onFailure(Throwable error) {
@@ -478,6 +508,7 @@ public final class MainActivity extends Activity {
                     if (completed || isFinishing() || isDestroyed()) return;
                     connecting = false;
                     sdkFailed = true;
+                    lastSdkOutcome = "failed: " + WakeDiagnostics.failure(error);
                     boolean authorization = WakeDiagnostics.isAuthorizationFailure(error);
                     if (authorization) getPreferences(MODE_PRIVATE).edit()
                         .putBoolean("spotify_authorized", false).apply();
@@ -509,7 +540,7 @@ public final class MainActivity extends Activity {
             // Resolve the trusted HTTPS URL normally, including an installed PWA.
             // The automatic return runs while the helper is visible. SDK service
             // waking does not put Spotify in the foreground.
-            record("Opening AudioShelf return address.");
+            record("Dispatching HTTPS return intent; Android accepted it, but actual PWA/page focus cannot be verified from this Activity.");
             startActivity(back);
             finishHelper();
         } catch (ActivityNotFoundException | SecurityException error) {

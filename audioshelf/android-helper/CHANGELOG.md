@@ -1,3 +1,10 @@
+# 0.2.12 — Timestamped Spotify wake diagnostics inside the Android app
+
+- Each companion and integrated wake log includes local date/time with UTC offset, elapsed monotonic seconds, a fresh short session ID and APK build, so repeated reports cannot be confused.
+- Explicitly separate SDK service connection, Spotify Connect phone discovery, Play acceptance, server's exact device/track verification, terminal result and 20-second deadline; preserve safe phase transitions and compact counters instead of logging every poll.
+- Add **Playback diagnostics** to the integrated AudioShelf overflow menu, with a selectable and copyable record of the latest integrated wake, companion wake and pairing trace. Switching to companion mode is not required.
+- Never write OAuth URLs, bearer tokens, full playback job IDs or raw Spotify exception payloads to the log. The PWA remains unchanged.
+
 # 0.2.11 — Keep Spotify alive until playback actually starts
 
 - Fix a regression in the standalone helper and integrated Android app where Spotify App Remote disconnected immediately after the Web API accepted Play, even if Spotify still reported the wrong track.
