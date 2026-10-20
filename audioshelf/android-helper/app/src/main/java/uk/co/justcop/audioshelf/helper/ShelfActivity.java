@@ -471,9 +471,10 @@ public final class ShelfActivity extends Activity {
         sdkPlayAttempted = true; // set BEFORE the asynchronous SDK call
         lastSdkDispatchedJob = jobId;
         if (localPlayerProbe != null) localPlayerProbe.sdkSingleTrackPlayIssued();
-        recordIntegrated(pendingSdkAlbum.isEmpty()?"SDK single-track test: issuing exactly one local play(trackUri)"
-            + " for #" + SpotifyLocalPlayerProbe.trackTag(pendingSdkFirstTrack)
-            + (pendingSdkAlbum.isEmpty()?"; no album queue or Web API Play.":"; canonical SDK queue to follow."));
+        recordIntegrated((pendingSdkAlbum.isEmpty()?"SDK single-track test":"SDK album playback")
+            + ": issuing one local play(trackUri) for #"
+            + SpotifyLocalPlayerProbe.trackTag(pendingSdkFirstTrack)
+            + (pendingSdkAlbum.isEmpty()?"; no queue or Web API Play.":"; canonical queue to follow."));
         try {
             session.getPlayerApi().play(pendingSdkFirstTrack)
                 .setResultCallback(ignored -> handler.post(() -> {
@@ -490,13 +491,13 @@ public final class ShelfActivity extends Activity {
                     if (ticket == sequence && remote == session) {
                         recordIntegrated("SDK first-track Play callback failed: "
                             + WakeDiagnostics.failure(error) + "; no automatic retry.");
-                        if (!pendingSdkAlbum.isEmpty()) reportSdkQueue(ticket,1,"failed");
+                        if (!pendingSdkAlbum.isEmpty()) reportSdkQueue(ticket,0,"failed");
                     }
                 }));
         } catch (RuntimeException error) {
             recordIntegrated("SDK first-track Play threw: "
                 + WakeDiagnostics.failure(error) + "; no automatic retry.");
-            if (!pendingSdkAlbum.isEmpty()) reportSdkQueue(ticket,1,"failed");
+            if (!pendingSdkAlbum.isEmpty()) reportSdkQueue(ticket,0,"failed");
         }
     }
 
