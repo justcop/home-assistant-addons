@@ -1,3 +1,10 @@
+# 0.6.34 — Don't cancel Spotify startup on navigation
+
+- Keep an active background playback handoff running when a user closes the startup dialog or browses to another AudioShelf page. This prevents the app from cancelling Spotify activation before Play is sent, as seen in the 16:55 Android log.
+- Add an explicit **Cancel playback** action to the startup dialog. Choosing another album or a different playback device still safely cancels/replaces the older job.
+- Publish a short, allowlisted cancellation reason in the owner and one-job, bearer-protected helper status. Distinguish explicit user cancellation, device change, replacement, direct playback, logout and Spotify disconnection without exposing private identifiers.
+- Preserve one queued Spotify Play and the existing exact-device/first-track confirmation rules. No automatic retry of an ambiguous Play.
+
 # 0.6.33 — Spotify playback-verification evidence
 
 - Distinguish Spotify returning no current track from actually reporting the wrong track after accepting Play; a device-only player response can no longer be mislabeled as an incorrect recording.

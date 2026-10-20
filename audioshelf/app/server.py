@@ -349,7 +349,7 @@ def create_app(options=None):
 
     @app.post('/api/logout')
     def logout():
-        handoff.cancel_all()
+        handoff.cancel_all('logout')
         security.logout(session.get('sid')); security.forget_trust(request.cookies.get('audioshelf_trusted')); session.clear()
         session['require_login'] = True
         response = jsonify(ok=True)
@@ -849,7 +849,7 @@ def create_app(options=None):
             raise AppError('Choose your playback device before starting music.', 409)
         body = request.get_json(silent=True) or {}
         album = store.album(mbid(album_id))
-        handoff.cancel_all()
+        handoff.cancel_all('direct_playback')
         result = spotify.play(album, disc_number=body.get('disc_number'))
         return jsonify(result)
 
@@ -891,7 +891,13 @@ def create_app(options=None):
 
     @app.route('/api/spotify/playback-handoff/<job_id>', methods=['GET', 'DELETE'])
     def playback_job(job_id):
-        return jsonify(handoff.status(job_id, playback_owner(), cancel=request.method == 'DELETE'))
+        reason = 'cancelled'
+        if request.method == 'DELETE':
+            provided = (request.get_json(silent=True) or {}).get('reason')
+            if provided in ('user_cancelled', 'device_change', 'new_playback'):
+                reason = provided
+        return jsonify(handoff.status(job_id, playback_owner(),
+                                      cancel=request.method == 'DELETE', reason=reason))
 
     @app.get('/api/spotify/playback')
     def playback():
@@ -955,7 +961,7 @@ def create_app(options=None):
 
     @app.post('/api/spotify/disconnect')
     def disconnect():
-        handoff.cancel_all()
+        handoff.cancel_all('spotify_disconnect')
         spotify.disconnect()
         return jsonify(ok=True)
 

@@ -23,11 +23,18 @@ class PlaybackHandoff:
         self.job = None
         self.worker = None
 
-    def cancel_all(self):
+    def cancel_all(self, reason='cancelled'):
+        # A predefined, non-user-controlled reason explains why an otherwise
+        # healthy Spotify wake was terminated before Play was sent.
+        valid = {'cancelled', 'user_cancelled', 'device_change',
+                 'new_playback', 'direct_playback', 'logout', 'spotify_disconnect'}
+        if reason not in valid:
+            reason = 'cancelled'
         with self.changed:
             if self.job and self.job['state'] == 'waiting':
                 self.job['state'] = 'cancelled'
                 self.job['phase'] = 'cancelled'
+                self.job['cancel_reason'] = reason
                 self.job['stop'].set()
                 self.publish_helper(self.job)
                 self.changed.notify_all()
@@ -36,15 +43,15 @@ class PlaybackHandoff:
     def snapshot(job):
         # The authenticated PWA can show wake/dispatch progress without polling
         # Spotify's player API or mistaking a submitted command for confirmed play.
-        return {key: job[key] for key in ('id', 'state', 'result', 'error', 'phase', 'play_accepted')}
+        return {key: job[key] for key in ('id', 'state', 'result', 'error', 'phase', 'play_accepted', 'cancel_reason')}
 
     def start(self, album, disc, preferred, owner, authorized):
         token = secrets.token_urlsafe(32)
         started = time.monotonic()
         with self.changed:
-            self.cancel_all()
+            self.cancel_all('new_playback')
             job = {'id': secrets.token_urlsafe(24), 'state': 'waiting', 'result': None,
-                   'error': None, 'owner': owner, 'stop': threading.Event(),
+                   'error': None, 'cancel_reason': None, 'owner': owner, 'stop': threading.Event(),
                    'phase': 'checking_devices', 'device_checks': 0, 'confirmation_checks': 0,
                    'play_accepted': False, 'device_seen_ms': None, 'play_accepted_ms': None,
                    'last_device_check_ms': None, 'last_device_probe_ms': None,
@@ -61,12 +68,12 @@ class PlaybackHandoff:
             # Only the initial job creation response contains this capability.
             return dict(self.snapshot(job), helper_token=token)
 
-    def status(self, identifier, owner, cancel=False):
+    def status(self, identifier, owner, cancel=False, reason='cancelled'):
         with self.changed:
             if not self.job or self.job['id'] != identifier or self.job['owner'] != owner:
                 raise AppError('That playback request is no longer available.', 404)
             if cancel:
-                self.cancel_all()
+                self.cancel_all(reason)
             return self.snapshot(self.job)
 
     def publish_helper(self, job):
@@ -76,7 +83,8 @@ class PlaybackHandoff:
             job['helper_view'] = {key: job[key] for key in
                                   ('state', 'error', 'phase', 'device_checks', 'confirmation_checks',
                                    'play_accepted', 'device_seen_ms', 'play_accepted_ms',
-                                   'last_device_check_ms', 'last_device_probe_ms', 'verification')}
+                                   'last_device_check_ms', 'last_device_probe_ms', 'verification',
+                                   'cancel_reason')}
             self.helper_job = job
             self.helper_changed.notify_all()
 
