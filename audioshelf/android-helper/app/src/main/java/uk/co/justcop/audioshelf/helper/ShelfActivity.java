@@ -83,6 +83,7 @@ public final class ShelfActivity extends Activity {
     private String pendingSdkFirstTrack = "";
     private java.util.List<String> pendingSdkAlbum = java.util.Collections.emptyList();
     private boolean sdkPlayAttempted;
+    private boolean sdkPlayAcknowledged, sdkQueueStarted;
     private String lastSdkDispatchedJob = "";
     private int wakePollCount;
     private WakeLog integratedWakeLog = new WakeLog();
@@ -296,6 +297,8 @@ public final class ShelfActivity extends Activity {
         // A repeat wake for the same server job cannot replay an ambiguous
         // SDK command. Only a fresh backend playback job permits another Play.
         sdkPlayAttempted = job.equals(lastSdkDispatchedJob);
+        sdkPlayAcknowledged = false;
+        sdkQueueStarted = false;
         wakePollCount = 0;
         wakeSdkState = "connecting";
         jobId=job; accountId=account; token=bearer;
@@ -420,7 +423,17 @@ public final class ShelfActivity extends Activity {
                             + SpotifyLocalPlayerProbe.trackTag(pendingSdkFirstTrack)
                             + ". Server will not send Web API Play.");
                     }
-                    if ("waiting".equals(result.state)) runSdkSingleTrackTest(ticket);
+                    if ("waiting".equals(result.state)) {
+                        runSdkSingleTrackTest(ticket);
+                        if (!pendingSdkAlbum.isEmpty() && sdkPlayAcknowledged
+                                && !sdkQueueStarted && result.firstTrackConfirmed && remote!=null) {
+                            sdkQueueStarted = true;
+                            recordIntegrated("Correct first track independently confirmed playing on phone;"
+                                + " now appending "+(pendingSdkAlbum.size()-1)+" canonical tracks.");
+                            reportSdkQueue(ticket,1,pendingSdkAlbum.size()==1?"complete":"progress");
+                            if (pendingSdkAlbum.size()>1)queueSdkNext(ticket,remote,1);
+                        }
+                    }
                     if (result.trackAudit != null && !result.trackAudit.isEmpty()
                             && !result.trackAudit.equals(lastTrackAudit)) {
                         lastTrackAudit = result.trackAudit;
@@ -482,8 +495,9 @@ public final class ShelfActivity extends Activity {
                         recordIntegrated("SDK first-track Play callback succeeded;"
                             + " server must still verify actual playback.");
                         if (!pendingSdkAlbum.isEmpty()) {
-                            reportSdkQueue(ticket,1,pendingSdkAlbum.size()==1?"complete":"progress");
-                            if(pendingSdkAlbum.size()>1) queueSdkNext(ticket,session,1);
+                            sdkPlayAcknowledged = true;
+                            recordIntegrated("Waiting for server to confirm first track actually playing"
+                                + " before queueing anything.");
                         }
                     }
                 }))
@@ -573,6 +587,8 @@ public final class ShelfActivity extends Activity {
         pendingSdkFirstTrack = "";
         pendingSdkAlbum = java.util.Collections.emptyList();
         sdkPlayAttempted = false;
+        sdkPlayAcknowledged = false;
+        sdkQueueStarted = false;
         sequence++;jobId=null;accountId=null;token=null;wakeConnecting=false;
         handler.removeCallbacks(poll);
         if(remote!=null){SpotifyAppRemote.disconnect(remote);remote=null;}
