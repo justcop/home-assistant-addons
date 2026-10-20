@@ -372,7 +372,7 @@ class Spotify:
                 device = state.get('device') or {}
                 if not device.get('id') or device.get('is_restricted'):
                     raise AppError('Choose your playback device. Open Spotify on your phone if it is missing, then refresh the device list.', 409)
-            if state.get('device', {}).get('id') != device['id'] or state.get('device', {}).get('is_restricted'):
+            if (state.get('device') or {}).get('id') != device['id'] or (state.get('device') or {}).get('is_restricted'):
                 stage('preparing_device_transfer')
                 self.api('PUT', 'me/player', body={'device_ids': [device['id']], 'play': False})
                 activated = False
@@ -385,7 +385,7 @@ class Spotify:
                         if error.status != 404:
                             raise
                         state = {}
-                    if state.get('device', {}).get('id') == device['id'] and not state.get('device', {}).get('is_restricted'):
+                    if (state.get('device') or {}).get('id') == device['id'] and not (state.get('device') or {}).get('is_restricted'):
                         activated = True
                         break
                 if not activated:
@@ -413,7 +413,7 @@ class Spotify:
                     stage('preparing_modes_ack')
                     time.sleep(.3)
                     state = self.api('GET', 'me/player')
-                    if (state.get('device', {}).get('id') == device['id']
+                    if ((state.get('device') or {}).get('id') == device['id']
                             and state.get('shuffle_state') is False
                             and state.get('repeat_state') == 'off'):
                         break
