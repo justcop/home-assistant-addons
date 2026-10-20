@@ -398,14 +398,14 @@ public final class ShelfActivity extends Activity {
                             + "; retrying while wake window remains.");
                     }
                 } else if(result!=null) {
-                    if (result.sdkTestUri != null && !result.sdkTestUri.isEmpty()
-                            && pendingSdkFirstTrack.isEmpty()) {
+                    if ("waiting".equals(result.state) && result.sdkTestUri != null
+                            && !result.sdkTestUri.isEmpty() && pendingSdkFirstTrack.isEmpty()) {
                         pendingSdkFirstTrack = result.sdkTestUri;
                         recordIntegrated("SDK single-track experiment armed: exact first-track fingerprint #"
                             + SpotifyLocalPlayerProbe.trackTag(pendingSdkFirstTrack)
                             + ". Server will not send Web API Play.");
                     }
-                    runSdkSingleTrackTest(ticket);
+                    if ("waiting".equals(result.state)) runSdkSingleTrackTest(ticket);
                     if (result.trackAudit != null && !result.trackAudit.isEmpty()
                             && !result.trackAudit.equals(lastTrackAudit)) {
                         lastTrackAudit = result.trackAudit;
