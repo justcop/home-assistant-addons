@@ -449,6 +449,8 @@ def test_handoff_reuses_first_verified_device_without_second_discovery(applicati
     def api(method,path,params=None,body=None):
         if path=='me/player/devices':
             probes.append('device-list')
+            if len(probes)>1:
+                assert queues, 'Only the read-only post-Play audit may probe again; never block initial Play'
             return {'devices':first if len(probes)==1 else []}
         if path=='me/player' and method=='GET':
             return {'device':PHONE,'shuffle_state':False,'repeat_state':'off',
@@ -460,7 +462,7 @@ def test_handoff_reuses_first_verified_device_without_second_discovery(applicati
     manager=PlaybackHandoff(spotify,interval=.01)
     job=manager.start(album,None,PHONE,'owner',lambda:True)
     assert finished(manager,job)['state']=='started'
-    assert probes==['device-list'], 'Do not lose a newly seen phone to an unnecessary second probe'
+    assert probes and len(probes)<=2, 'No duplicate pre-Play discovery is permitted'
     assert len(queues)==1
     assert queues[0][0]=={'device_id':'phone'}
     assert queues[0][1]['uris']==['spotify:track:'+'a'*22, 'spotify:track:'+'b'*22]
