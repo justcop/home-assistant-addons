@@ -1,3 +1,10 @@
+# 0.6.39 — Native Spotify canonical album playback
+
+- Integrated Android defaults to SDK album playback for the chosen phone, bypassing Spotify Web API Play which can accept an exact URI queue without loading a track. The exact verified AudioShelf song order (album, disc or vinyl side) is sent only through an authorised single-job helper status response.
+- The server does not declare success until the first song is demonstrably playing on the selected phone **and** the Android SDK has acknowledged the entire selected queue. The bearer-scoped helper sends idempotent count-only receipts without exposing credentials or raw Spotify IDs in logs; cancellation/revocation invalidates them.
+- Cross-check Spotify’s read-only next-up queue order against canonical saved IDs, accounting for track relinking. Explicit mismatches are reported, not silently accepted; unavailable API inspection is marked unverified rather than guaranteed.
+- The previous Web API playback path remains available via the integrated app Settings toggle and remains the standard path for browsers and other devices.
+
 # 0.6.38 — Controlled native Spotify SDK first-track experiment
 
 - Integrated Android app may explicitly opt in to an SDK-only first-track test. The server validates the reviewed canonical selection and discovers the uniquely selected, unrestricted preferred phone, then exposes only the exact first track URI to the short-lived authenticated Android helper. **No Web API Play, transfer, shuffle, repeat or track queue command is issued for this test.**
