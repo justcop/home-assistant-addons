@@ -73,6 +73,19 @@ public class PlaybackStatusClientTest {
         assertEquals("started", PlaybackStatusClient.parse(200, "{\"state\":\"started\"}").state);
         assertEquals("unconfirmed", PlaybackStatusClient.parse(200, "{\"state\":\"unconfirmed\"}").state);
     }
+    @Test public void scopedSdkFirstTrackIsAcceptedOnlyForExplicitTestHandoff() throws Exception {
+        String id="a".repeat(22);
+        String base="{\"state\":\"waiting\",\"sdk_single_track\":true,"
+            + "\"sdk_test_uri\":\"spotify:track:"+id+"\"}";
+        assertEquals("spotify:track:"+id,PlaybackStatusClient.parse(200,base).sdkTestUri);
+        assertEquals("",PlaybackStatusClient.parse(200,
+            "{\"state\":\"waiting\",\"sdk_single_track\":false,\"sdk_test_uri\":\"spotify:track:"+id+"\"}").sdkTestUri);
+        assertEquals("",PlaybackStatusClient.parse(200,
+            "{\"state\":\"waiting\",\"sdk_single_track\":true,\"sdk_test_uri\":\"https://example.com/evil\"}").sdkTestUri);
+        assertEquals("",PlaybackStatusClient.parse(200,
+            "{\"state\":\"waiting\",\"sdk_single_track\":true,\"sdk_test_uri\":\"spotify:album:"+id+"\"}").sdkTestUri);
+    }
+
     @Test public void reportsWhoCancelledWithoutLoggingArbitraryServerText() throws Exception {
         PlaybackStatusClient.Result user = PlaybackStatusClient.parse(200,
             "{\"state\":\"cancelled\",\"phase\":\"cancelled\",\"cancel_reason\":\"user_cancelled\"}");
