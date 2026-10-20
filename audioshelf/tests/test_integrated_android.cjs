@@ -19,6 +19,18 @@ assert(android.includes('Spotify SDK watchdog: no success/failure callback after
   'Integrated helper logs a missing Spotify SDK callback, not just server Play acceptance');
 assert(android.includes('result.progress()') && android.includes('recordIntegrated('),
   'Integrated wake must include server-reported Spotify player observations in the copyable log');
+assert(source.includes('sdk-single-track-test') && source.includes('sdk_single_track:true'),
+  'Local SDK test must be explicitly opt-in, selectable in native Settings only');
+assert(source.includes('if(sdkSingleTrackTestEnabled())') &&
+  source.includes('await playbackHandoff(request,'),
+  'SDK test must bypass ordinary full-album Web API Play completely');
+assert(android.includes('session.getPlayerApi().play(pendingSdkFirstTrack)') &&
+  android.includes('sdkPlayAttempted = true;'),
+  'Native SDK test sends exactly one first-track Play without auto-retries');
+assert(android.includes('if ("waiting".equals(result.state)) runSdkSingleTrackTest(ticket);'),
+  'A cancelled or expired handoff must never initiate SDK Play');
+assert(!android.includes('getPlayerApi().queue('),
+  'Diagnostic experiment must never enqueue any additional album tracks');
 assert(!android.includes('result.playAccepted ||'),
   'Accepted Play cannot disconnect the integrated Spotify SDK before the correct track starts');
 assert(android.includes('stopWake()'));
@@ -59,7 +71,12 @@ assert(android.includes('updater.check((version, action) ->') &&
 assert(updater.includes('check(BiConsumer<String, Runnable> offerDownload)') &&
   updater.includes('offerDownload.accept(update.versionName'),
   'Updater sends a validated version to the same integrated dialog');
-assert(!android.includes('.play('),'No native SDK playback/queue command');
+assert((android.match(/\.play\(/g)||[]).length===1 &&
+  android.includes('session.getPlayerApi().play(pendingSdkFirstTrack)') &&
+  android.includes('sdkPlayAttempted = true;') &&
+  android.includes('result.sdkTestUri') &&
+  !android.includes('.queue('),
+  'The explicit SDK experiment permits precisely one guarded local track Play and no SDK queue');
 assert(manifest.includes('android.permission.BIND_NOTIFICATION_LISTENER_SERVICE'));
 assert(media.includes('com.spotify.music') && media.includes('onPlaybackStateChanged'));
 const versionCode=Number(gradle.split('versionCode ')[1].split(String.fromCharCode(10))[0].trim());

@@ -97,6 +97,69 @@ def test_handoff_routes_validate_and_keep_status_private(application,client,monk
     assert unauthed.get(helper_path,headers=helper_header).json['state']=='cancelled'
 
 
+
+def test_sdk_single_track_handoff_exposes_first_uri_only_to_trusted_helper_without_web_play(application, monkeypatch):
+    spotify=application.extensions['spotify']
+    album=ready_album(application)
+    spotify_commands=[]
+    playing=threading.Event()
+    def api(method,path,params=None,body=None):
+        spotify_commands.append((method,path,body))
+        if path=='me/player/devices':
+            return {'devices':[PHONE]}
+        if path=='me/player':
+            return ({'device':PHONE,'is_playing':True,'item':{'id':'a'*22}}
+                    if playing.is_set() else {})
+        if method!='GET':
+            pytest.fail('SDK test must not issue Web API Play, transfer, queue or mode commands')
+        return {}
+    monkeypatch.setattr(spotify,'api',api)
+    manager=PlaybackHandoff(spotify,timeout=2,interval=.01)
+    job=manager.start(album,None,PHONE,'owner',lambda:True,sdk_single_track=True)
+    uri=None
+    deadline=time.monotonic()+1
+    while time.monotonic()<deadline:
+        helper=manager.helper_status(job['id'],job['helper_token'],wait=0)
+        if helper['sdk_test_uri']:
+            uri=helper['sdk_test_uri']
+            break
+        time.sleep(.005)
+    assert uri=='spotify:track:'+'a'*22
+    owner=manager.status(job['id'],'owner')
+    assert 'sdk_test_uri' not in owner and 'sdk_single_track' not in owner
+    assert owner['play_accepted'] is False
+    assert 'spotify:track:' not in str(manager.snapshot(job))
+    assert not any(method=='PUT' for method,_,__ in spotify_commands)
+    playing.set()
+    done=finished(manager,job)
+    assert done['state']=='started' and done['result']['track_count']==1
+    assert done['result']['sdk_single_track'] is True
+    assert not any(method=='PUT' for method,_,__ in spotify_commands)
+    assert manager.helper_status(job['id'],job['helper_token'],wait=0)['state']=='started'
+
+
+def test_sdk_single_track_requires_phone_and_does_not_expose_uri_before_discovery(application, client, monkeypatch):
+    spotify=application.extensions['spotify']
+    store=application.extensions['store']
+    ready_album(application)
+    store.set_setting('preferred_device',SPEAKER)
+    rejected=post(client,f'/api/albums/{ALBUM}/playback-handoff',
+                  {'sdk_single_track':True})
+    assert rejected.status_code==409
+    store.set_setting('preferred_device',PHONE)
+    monkeypatch.setattr(spotify,'devices',lambda:[SPEAKER])
+    resp=post(client,f'/api/albums/{ALBUM}/playback-handoff',
+              {'sdk_single_track':True})
+    assert resp.status_code==202
+    helper_path='/api/helper/playback-handoff/owner/'+resp.json['id']+'?wait=0'
+    unauthed=application.test_client()
+    assert unauthed.get(helper_path).status_code==404
+    helper=unauthed.get(helper_path,headers={'Authorization':'Bearer '+resp.json['helper_token']})
+    assert helper.status_code==200 and helper.json['sdk_test_uri'] is None
+    assert helper.json['sdk_single_track'] is True
+    assert 'sdk_test_uri' not in resp.json
+    application.extensions['playback_handoff'].cancel_all()
+
 def test_worker_stops_on_spotify_errors_without_repeating_queue():
     spotify=Mock();spotify.devices.return_value=[PHONE]
     spotify.play.side_effect=AppError('Spotify rate limit, retry later.',429)

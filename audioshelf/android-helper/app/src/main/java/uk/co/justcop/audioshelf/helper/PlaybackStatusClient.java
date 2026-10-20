@@ -18,22 +18,23 @@ final class PlaybackStatusClient {
         final int httpStatus, deviceChecks, confirmationChecks;
         final boolean playAccepted;
         final int deviceSeenMs, playAcceptedMs, lastDeviceCheckMs, lastDeviceProbeMs;
-        final String observation, requestedTag, cancellationReason, preparationRetry, trackAudit;
+        final String observation, requestedTag, cancellationReason, preparationRetry, trackAudit, sdkTestUri;
         Result(String state, String message, String phase, int httpStatus, int devices, int confirmations,
                boolean accepted, int seenMs, int acceptedMs, int checkMs, int probeMs,
-               String observed, String requestedTag, String cancelledBecause, String retry, String audit) {
+               String observed, String requestedTag, String cancelledBecause, String retry, String audit, String sdkUri) {
             this.state = state; this.message = message; this.phase = phase;
             this.httpStatus = httpStatus; deviceChecks = devices; confirmationChecks = confirmations;
             playAccepted = accepted; deviceSeenMs = seenMs; playAcceptedMs = acceptedMs;
             lastDeviceCheckMs = checkMs; lastDeviceProbeMs = probeMs; observation = observed;
             this.requestedTag = requestedTag; cancellationReason = cancelledBecause; preparationRetry = retry;
-            trackAudit = audit;
+            trackAudit = audit; sdkTestUri = sdkUri;
         }
         String progress() {
             String detail;
             switch (phase) {
                 case "checking_devices": detail = "asking Spotify for available devices"; break;
                 case "waiting_for_device": detail = "preferred phone not available yet"; break;
+                case "sdk_waiting_for_local_play": detail = "SDK test: waiting for local first-track Play, without Web API Play"; break;
                 case "preparing_playback": detail = "phone found; preparing playback"; break;
                 case "preparing_player_state": detail = "reading Spotify active-player state"; break;
                 case "preparing_device_check": detail = "rechecking preferred Spotify phone"; break;
@@ -119,7 +120,7 @@ final class PlaybackStatusClient {
     static Result parse(int code, String response) throws IOException {
         if (code == 401 || code == 403 || code == 404 || code == 410)
             return new Result("expired", "Playback request unavailable.", "expired", code, -1, -1,
-                false, -1, -1, -1, -1, "", "", "", "", "");
+                false, -1, -1, -1, -1, "", "", "", "", "", "");
         if (code != 200) throw new HttpFailure(code);
         try {
             JsonObject object = JsonParser.parseString(response).getAsJsonObject();
@@ -137,7 +138,7 @@ final class PlaybackStatusClient {
             return new Result(state, message, phase, code, devices, confirmations, accepted,
                 optionalMillis(object, "device_seen_ms"), optionalMillis(object, "play_accepted_ms"),
                 optionalMillis(object, "last_device_check_ms"), optionalMillis(object, "last_device_probe_ms"),
-                observation(object), requestedTag(object), cancellationReason(object), preparationRetry(object), trackAudit(object));
+                observation(object), requestedTag(object), cancellationReason(object), preparationRetry(object), trackAudit(object), sdkTestUri(object));
         } catch (RuntimeException exception) {
             throw new IOException("Invalid playback response", exception);
         }
@@ -188,6 +189,16 @@ final class PlaybackStatusClient {
         if (!java.util.Arrays.asList("yes","no","unknown").contains(active)) active="unknown";
         out.append("; phone visible after Play=").append(visible).append(", active=").append(active);
         return out.toString();
+    }
+
+    // One scoped, short-lived helper capability may retrieve this validated
+    // first-track URI to invoke local App Remote. Never print it in logs.
+    private static String sdkTestUri(JsonObject object) {
+        if (!object.has("sdk_single_track") || object.get("sdk_single_track").isJsonNull()
+                || !object.get("sdk_single_track").isJsonPrimitive()
+                || !object.get("sdk_single_track").getAsBoolean()) return "";
+        String uri=safe(object,"sdk_test_uri");
+        return uri.matches("spotify:track:[A-Za-z0-9]{22}") ? uri : "";
     }
 
     private static String requestedTag(JsonObject object) {
