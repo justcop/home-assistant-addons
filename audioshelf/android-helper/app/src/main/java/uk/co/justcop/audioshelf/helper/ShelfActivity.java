@@ -57,6 +57,7 @@ public final class ShelfActivity extends Activity {
     static final String PREFS = "MainActivity";
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final ExecutorService queueReporter = Executors.newSingleThreadExecutor();
     private WebView web;
     private TextView options;
     private TextView updaterStatus;
@@ -80,6 +81,7 @@ public final class ShelfActivity extends Activity {
     private String wakeSdkState = "not started";
     private boolean lastAcceptedPlay;
     private String pendingSdkFirstTrack = "";
+    private java.util.List<String> pendingSdkAlbum = java.util.Collections.emptyList();
     private boolean sdkPlayAttempted;
     private String lastSdkDispatchedJob = "";
     private int wakePollCount;
@@ -290,6 +292,7 @@ public final class ShelfActivity extends Activity {
         lastTrackAudit = "";
         lastAcceptedPlay = false;
         pendingSdkFirstTrack = "";
+        pendingSdkAlbum = java.util.Collections.emptyList();
         // A repeat wake for the same server job cannot replay an ambiguous
         // SDK command. Only a fresh backend playback job permits another Play.
         sdkPlayAttempted = job.equals(lastSdkDispatchedJob);
@@ -308,7 +311,7 @@ public final class ShelfActivity extends Activity {
         recordIntegrated("Spotify App Remote service wake started. Normal handoffs send Web API Play;"
             + " explicit SDK test handoffs send one local first-track Play only.");
         handler.postDelayed(() -> {
-            if(ticket==sequence)stopWake("20-second deadline; server phase="
+            if(ticket==sequence && SystemClock.elapsedRealtime()>=wakeDeadline)stopWake("Wake deadline; server phase="
                 + (lastWakePhase==null?"not yet received":lastWakePhase)
                 + "; Spotify SDK=" + wakeSdkState
                 + "; Play accepted=" + lastAcceptedPlay
@@ -401,6 +404,15 @@ public final class ShelfActivity extends Activity {
                             + "; retrying while wake window remains.");
                     }
                 } else if(result!=null) {
+                    if ("waiting".equals(result.state) && !result.sdkAlbumUris.isEmpty()
+                            && pendingSdkAlbum.isEmpty()) {
+                        pendingSdkAlbum = result.sdkAlbumUris;
+                        pendingSdkFirstTrack = pendingSdkAlbum.get(0);
+                        wakeDeadline = integratedWakeStartedAt+55000;
+                        recordIntegrated("SDK canonical album prepared: "+pendingSdkAlbum.size()
+                            +" verified tracks; first #"+SpotifyLocalPlayerProbe.trackTag(pendingSdkFirstTrack)
+                            +". SDK Play followed by sequential Queue; Web API Play disabled.");
+                    }
                     if ("waiting".equals(result.state) && result.sdkTestUri != null
                             && !result.sdkTestUri.isEmpty() && pendingSdkFirstTrack.isEmpty()) {
                         pendingSdkFirstTrack = result.sdkTestUri;
@@ -459,25 +471,91 @@ public final class ShelfActivity extends Activity {
         sdkPlayAttempted = true; // set BEFORE the asynchronous SDK call
         lastSdkDispatchedJob = jobId;
         if (localPlayerProbe != null) localPlayerProbe.sdkSingleTrackPlayIssued();
-        recordIntegrated("SDK single-track test: issuing exactly one local play(trackUri)"
+        recordIntegrated(pendingSdkAlbum.isEmpty()?"SDK single-track test: issuing exactly one local play(trackUri)"
             + " for #" + SpotifyLocalPlayerProbe.trackTag(pendingSdkFirstTrack)
-            + "; no album queue or Web API Play.");
+            + (pendingSdkAlbum.isEmpty()?"; no album queue or Web API Play.":"; canonical SDK queue to follow."));
         try {
             session.getPlayerApi().play(pendingSdkFirstTrack)
                 .setResultCallback(ignored -> handler.post(() -> {
-                    if (ticket == sequence && remote == session)
-                        recordIntegrated("SDK single-track Play callback succeeded;"
-                            + " server must still verify the correct phone and playing track.");
+                    if (ticket == sequence && remote == session) {
+                        recordIntegrated("SDK first-track Play callback succeeded;"
+                            + " server must still verify actual playback.");
+                        if (!pendingSdkAlbum.isEmpty()) {
+                            reportSdkQueue(ticket,1,pendingSdkAlbum.size()==1?"complete":"progress");
+                            if(pendingSdkAlbum.size()>1) queueSdkNext(ticket,session,1);
+                        }
+                    }
                 }))
                 .setErrorCallback(error -> handler.post(() -> {
-                    if (ticket == sequence && remote == session)
-                        recordIntegrated("SDK single-track Play callback failed: "
+                    if (ticket == sequence && remote == session) {
+                        recordIntegrated("SDK first-track Play callback failed: "
                             + WakeDiagnostics.failure(error) + "; no automatic retry.");
+                        if (!pendingSdkAlbum.isEmpty()) reportSdkQueue(ticket,1,"failed");
+                    }
                 }));
         } catch (RuntimeException error) {
-            recordIntegrated("SDK single-track Play threw: "
+            recordIntegrated("SDK first-track Play threw: "
                 + WakeDiagnostics.failure(error) + "; no automatic retry.");
+            if (!pendingSdkAlbum.isEmpty()) reportSdkQueue(ticket,1,"failed");
         }
+    }
+
+    /** Append canonical tracks strictly in order. No retries after an
+     * ambiguous SDK queue failure; callbacks advance at most once per track.
+     * The server checks actual Spotify queue ordering before reporting success.
+     */
+    private void queueSdkNext(int ticket,SpotifyAppRemote session,int index) {
+        if(ticket!=sequence || remote!=session || jobId==null || index>=pendingSdkAlbum.size())return;
+        final int position=index+1, total=pendingSdkAlbum.size();
+        String uri=pendingSdkAlbum.get(index);
+        try {
+            session.getPlayerApi().queue(uri)
+                .setResultCallback(ignored -> handler.post(() -> {
+                    if(ticket!=sequence || remote!=session)return;
+                    if(position==total || position%5==0)
+                        recordIntegrated("Spotify SDK canonical queue acknowledged "+position+"/"+total
+                            +" tracks, last #"+SpotifyLocalPlayerProbe.trackTag(uri)+".");
+                    if(position==total) reportSdkQueue(ticket,position,"complete");
+                    else {
+                        if(position%5==0)reportSdkQueue(ticket,position,"progress");
+                        queueSdkNext(ticket,session,index+1);
+                    }
+                }))
+                .setErrorCallback(error -> handler.post(() -> {
+                    if(ticket!=sequence || remote!=session)return;
+                    recordIntegrated("Spotify SDK queue failed at track "+position+"/"+total+": "
+                        +WakeDiagnostics.failure(error)+"; no automatic retry. Queue may be partial.");
+                    reportSdkQueue(ticket,position-1,"failed");
+                }));
+        } catch (RuntimeException error) {
+            recordIntegrated("Spotify SDK queue threw at track "+position+"/"+total+": "
+                +WakeDiagnostics.failure(error)+"; no automatic retry.");
+            reportSdkQueue(ticket,position-1,"failed");
+        }
+    }
+
+    private void reportSdkQueue(int ticket,int count,String state) {
+        final String origin=trustedOrigin, account=accountId, job=jobId, bearer=token;
+        if(ticket!=sequence || job==null || bearer==null)return;
+        queueReporter.execute(() -> {
+            IOException last=null;
+            for(int attempt=0;attempt<3;attempt++) {
+                try {
+                    PlaybackStatusClient.reportSdkQueue(origin,account,job,bearer,count,state);
+                    handler.post(() -> {
+                        if(ticket==sequence && ("complete".equals(state)||"failed".equals(state)))
+                            recordIntegrated("AudioShelf SDK queue report accepted: "+state+" "+count
+                                +"/"+pendingSdkAlbum.size()+".");
+                    });
+                    return;
+                } catch(IOException error) {last=error;}
+                try {Thread.sleep(350);}catch(InterruptedException ignored){Thread.currentThread().interrupt();return;}
+            }
+            final String error=PlaybackStatusClient.describe(last);
+            handler.post(() -> {if(ticket==sequence)recordIntegrated(
+                "AudioShelf SDK queue report failed ("+state+", "+count+"): "+error
+                +"; queue completion not confirmed by server.");});
+        });
     }
 
     private void stopWake() {
@@ -492,6 +570,7 @@ public final class ShelfActivity extends Activity {
         }
         if (localPlayerProbe != null) { localPlayerProbe.close(); localPlayerProbe = null; }
         pendingSdkFirstTrack = "";
+        pendingSdkAlbum = java.util.Collections.emptyList();
         sdkPlayAttempted = false;
         sequence++;jobId=null;accountId=null;token=null;wakeConnecting=false;
         handler.removeCallbacks(poll);
