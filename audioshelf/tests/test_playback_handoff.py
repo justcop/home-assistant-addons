@@ -160,6 +160,100 @@ def test_sdk_single_track_requires_phone_and_does_not_expose_uri_before_discover
     assert 'sdk_test_uri' not in resp.json
     application.extensions['playback_handoff'].cancel_all()
 
+
+def test_sdk_album_only_exposes_ordered_canonical_uris_to_scoped_helper_and_requires_queue_receipts(application, monkeypatch):
+    spotify=application.extensions['spotify'];album=ready_album(application)
+    commands=[]
+    playing=threading.Event()
+    def api(method,path,params=None,body=None):
+        commands.append((method,path))
+        if path=='me/player/devices':return {'devices':[PHONE]}
+        if path=='me/player':return {'device':PHONE,'is_playing':playing.is_set(),
+                                     'item':{'id':'a'*22}} if playing.is_set() else {}
+        if path=='me/player/queue':
+            return {'queue':[{'id':'b'*22}]}
+        if method!='GET':pytest.fail('SDK album must never send a Web API control request')
+        return {}
+    monkeypatch.setattr(spotify,'api',api)
+    manager=PlaybackHandoff(spotify,timeout=2,interval=.01)
+    job=manager.start(album,None,PHONE,'owner',lambda:True,sdk_album=True)
+    deadline=time.monotonic()+1
+    while time.monotonic()<deadline:
+        helper=manager.helper_status(job['id'],job['helper_token'],wait=0)
+        if helper['sdk_album_uris']:break
+        time.sleep(.005)
+    assert helper['sdk_album_uris']==['spotify:track:'+'a'*22,'spotify:track:'+'b'*22]
+    owner=manager.status(job['id'],'owner')
+    assert 'sdk_album_uris' not in owner and 'sdk_test_uri' not in owner
+    assert 'spotify:track:' not in str(owner)
+    assert owner['play_accepted'] is False
+    playing.set()
+    time.sleep(.05)
+    assert manager.status(job['id'],'owner')['state']=='waiting','First track alone is not a complete album'
+    assert manager.sdk_queue_report(job['id'],job['helper_token'],1,'progress')['queued']==1
+    assert manager.status(job['id'],'owner')['state']=='waiting'
+    with pytest.raises(AppError):
+        manager.sdk_queue_report(job['id'],job['helper_token'],1,'complete')
+    assert manager.sdk_queue_report(job['id'],job['helper_token'],2,'complete')['queued']==2
+    complete=finished(manager,job)
+    assert complete['state']=='started'
+    assert complete['result']['track_count']==2
+    assert complete['result']['queue_verified'] is True
+    assert not any(method in ('PUT','POST') for method,_ in commands)
+
+
+def test_sdk_album_reports_require_authorised_short_lived_job_and_correct_order(application,client,monkeypatch):
+    spotify=application.extensions['spotify'];store=application.extensions['store']
+    ready_album(application)
+    store.set_setting('preferred_device',SPEAKER)
+    assert post(client,f'/api/albums/{ALBUM}/playback-handoff',{'sdk_album':True}).status_code==409
+    store.set_setting('preferred_device',PHONE)
+    monkeypatch.setattr(spotify,'devices',lambda:[PHONE])
+    monkeypatch.setattr(spotify,'api',lambda method,path,params=None,body=None:
+        {'devices':[PHONE]} if path=='me/player/devices' else {})
+    result=post(client,f'/api/albums/{ALBUM}/playback-handoff',{'sdk_album':True})
+    assert result.status_code==202
+    unauthed=application.test_client()
+    path=f"/api/helper/playback-handoff/owner/{result.json['id']}/sdk-queue"
+    missing=post(unauthed,path,{'count':2,'state':'complete'})
+    assert missing.status_code==404
+    header={'Authorization':'Bearer '+result.json['helper_token'],'X-AudioShelf-Request':'1'}
+    job=application.extensions['playback_handoff']
+    deadline=time.monotonic()+1
+    while time.monotonic()<deadline:
+        if job.helper_status(result.json['id'],result.json['helper_token'],wait=0)['sdk_album_uris']:break
+        time.sleep(.005)
+    invalid=unauthed.post(path,json={'count':1,'state':'complete'},headers=header)
+    assert invalid.status_code==409
+    accepted=unauthed.post(path,json={'count':1,'state':'progress'},headers=header)
+    assert accepted.status_code==200
+    # A replacement job invalidates the entire prior capability.
+    job.cancel_all()
+    assert unauthed.post(path,json={'count':2,'state':'complete'},headers=header).status_code==404
+
+
+def test_sdk_album_reports_queue_mismatch_rather_than_misleading_success(application,monkeypatch):
+    spotify=application.extensions['spotify'];album=ready_album(application)
+    def api(method,path,params=None,body=None):
+        if path=='me/player/devices':return {'devices':[PHONE]}
+        if path=='me/player':return {'device':PHONE,'is_playing':True,'item':{'id':'a'*22}}
+        if path=='me/player/queue':return {'queue':[{'id':'z'*22}]}
+        if method!='GET':pytest.fail('No Web API queue writes')
+        return {}
+    monkeypatch.setattr(spotify,'api',api)
+    manager=PlaybackHandoff(spotify,timeout=5,interval=.005)
+    job=manager.start(album,None,PHONE,'owner',lambda:True,sdk_album=True)
+    deadline=time.monotonic()+1
+    while time.monotonic()<deadline:
+        if manager.helper_status(job['id'],job['helper_token'],wait=0)['sdk_album_uris']:break
+        time.sleep(.005)
+    manager.sdk_queue_report(job['id'],job['helper_token'],2,'complete')
+    result=finished(manager,job)
+    assert result['state']=='unconfirmed'
+    assert 'queue order' in result['error']
+    assert result['sdk_queue_verified']=='mismatch'
+
+
 def test_worker_stops_on_spotify_errors_without_repeating_queue():
     spotify=Mock();spotify.devices.return_value=[PHONE]
     spotify.play.side_effect=AppError('Spotify rate limit, retry later.',429)
