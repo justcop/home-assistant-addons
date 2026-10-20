@@ -306,7 +306,7 @@ final class PlaybackStatusClient {
      * further queueing rather than falsely reporting a complete album. */
     static void reportSdkQueue(String origin,String account,String job,String token,
                                int count,String state) throws IOException {
-        if (count<1 || count>100 || !(state.equals("progress") || state.equals("complete") || state.equals("failed")))
+        if (count<0 || count>100 || (count==0 && !state.equals("failed")) || !(state.equals("progress") || state.equals("complete") || state.equals("failed")))
             throw new IOException("Invalid SDK queue receipt");
         URL url=new URL(origin+"/api/helper/playback-handoff/"+account+"/"+job+"/sdk-queue");
         HttpURLConnection conn=(HttpURLConnection)url.openConnection();
@@ -321,7 +321,7 @@ final class PlaybackStatusClient {
             conn.setRequestProperty("X-AudioShelf-Request","1");
             conn.setRequestProperty("Content-Type","application/json");
             conn.setRequestProperty("Accept","application/json");
-            byte[] body=("{\\"count\\":"+count+",\\"state\\":\\""+state+"\\"}")
+            byte[] body=("{\u005c"count\u005c":"+count+",\u005c"state\u005c":\u005c""+state+"\u005c"}")
                 .getBytes(StandardCharsets.UTF_8);
             conn.setFixedLengthStreamingMode(body.length);
             try(java.io.OutputStream out=conn.getOutputStream()){out.write(body);}
