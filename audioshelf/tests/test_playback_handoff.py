@@ -169,7 +169,7 @@ def test_sdk_album_only_exposes_ordered_canonical_uris_to_scoped_helper_and_requ
         commands.append((method,path))
         if path=='me/player/devices':return {'devices':[PHONE]}
         if path=='me/player':return {'device':PHONE,'is_playing':playing.is_set(),
-                                     'item':{'id':'a'*22}} if playing.is_set() else {}
+                                     'item':{'id':'a'*22},'shuffle_state':False,'repeat_state':'off'} if playing.is_set() else {}
         if path=='me/player/queue':
             return {'queue':[{'id':'b'*22}]}
         if method!='GET':pytest.fail('SDK album must never send a Web API control request')
@@ -236,7 +236,8 @@ def test_sdk_album_reports_queue_mismatch_rather_than_misleading_success(applica
     spotify=application.extensions['spotify'];album=ready_album(application)
     def api(method,path,params=None,body=None):
         if path=='me/player/devices':return {'devices':[PHONE]}
-        if path=='me/player':return {'device':PHONE,'is_playing':True,'item':{'id':'a'*22}}
+        if path=='me/player':return {'device':PHONE,'is_playing':True,'item':{'id':'a'*22},
+                                     'shuffle_state':False,'repeat_state':'off'}
         if path=='me/player/queue':return {'queue':[{'id':'z'*22}]}
         if method!='GET':pytest.fail('No Web API queue writes')
         return {}
@@ -248,7 +249,11 @@ def test_sdk_album_reports_queue_mismatch_rather_than_misleading_success(applica
         if manager.helper_status(job['id'],job['helper_token'],wait=0)['sdk_album_uris']:break
         time.sleep(.005)
     manager.sdk_queue_report(job['id'],job['helper_token'],2,'complete')
-    result=finished(manager,job)
+    deadline=time.monotonic()+4
+    result=manager.status(job['id'],'owner')
+    while result['state']=='waiting' and time.monotonic()<deadline:
+        time.sleep(.01)
+        result=manager.status(job['id'],'owner')
     assert result['state']=='unconfirmed'
     assert 'queue order' in result['error']
     assert result['sdk_queue_verified']=='mismatch'
