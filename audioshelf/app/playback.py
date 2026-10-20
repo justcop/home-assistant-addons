@@ -46,7 +46,7 @@ class PlaybackHandoff:
         # Spotify's player API or mistaking a submitted command for confirmed play.
         return {key: job[key] for key in ('id', 'state', 'result', 'error', 'phase', 'play_accepted', 'cancel_reason', 'track_audit')}
 
-    def start(self, album, disc, preferred, owner, authorized, sdk_single_track=False):
+    def start(self, album, disc, preferred, owner, authorized, sdk_single_track=False, sdk_full_album=False):
         token = secrets.token_urlsafe(32)
         started = time.monotonic()
         with self.changed:
@@ -57,7 +57,8 @@ class PlaybackHandoff:
                    'play_accepted': False, 'device_seen_ms': None, 'play_accepted_ms': None,
                    'last_device_check_ms': None, 'last_device_probe_ms': None,
                    'preparation_retry': None, 'verification': None, 'track_audit': None,
-                   'sdk_single_track': sdk_single_track, 'sdk_test_uri': None,
+                   'sdk_single_track': sdk_single_track, 'sdk_full_album': sdk_full_album,
+                   'sdk_test_uri': None, 'sdk_track_uris': None,
                    'created_monotonic': started,
                    'helper_token_hash': hashlib.sha256(token.encode()).digest(),
                    'deadline': started + self.timeout,
@@ -88,7 +89,7 @@ class PlaybackHandoff:
                                    'play_accepted', 'device_seen_ms', 'play_accepted_ms',
                                    'last_device_check_ms', 'last_device_probe_ms', 'verification',
                                    'preparation_retry', 'cancel_reason', 'track_audit',
-                                   'sdk_single_track', 'sdk_test_uri')}
+                                   'sdk_single_track', 'sdk_full_album', 'sdk_test_uri', 'sdk_track_uris')}
             self.helper_job = job
             self.helper_changed.notify_all()
 
@@ -327,18 +328,20 @@ class PlaybackHandoff:
                     guard()
                     self.progress(job, 'preparing_playback',
                                   device_seen_ms=probe_metrics['last_device_check_ms'], **probe_metrics)
-                    if job['sdk_single_track']:
+                    if job['sdk_single_track'] or job['sdk_full_album']:
                         # Intentionally *no* Web API Play or queue. Let the
                         # connected Android App Remote SDK play only the exact
                         # first canonical track and verify independently here.
                         tracks, uris = self.spotify.play_tracks(album, disc)
                         guard()
-                        result = {'started': True, 'started_at': time.time(), 'track_count': 1,
+                        result = {'started': True, 'started_at': time.time(), 'track_count': len(uris) if job['sdk_full_album'] else 1,
                                   'device': ready[0].get('name', 'Spotify'), 'device_id': ready[0]['id'],
                                   'first_track': {'id': tracks[0]['spotify_id'], 'title': tracks[0]['title'],
                                                   'duration_ms': tracks[0].get('duration_ms')},
-                                  'sdk_single_track': True, 'modes_need_confirmation': False}
-                        self.progress(job, 'sdk_waiting_for_local_play', sdk_test_uri=uris[0])
+                                  'sdk_single_track': job['sdk_single_track'],
+                                  'sdk_full_album': job['sdk_full_album'], 'modes_need_confirmation': False}
+                        self.progress(job, 'sdk_waiting_for_local_play', sdk_test_uri=uris[0],
+                                      sdk_track_uris=uris if job['sdk_full_album'] else None)
                     else:
                         result = self.spotify.play(
                             album, disc, preferred_device=preferred, resolved_device=ready[0],
