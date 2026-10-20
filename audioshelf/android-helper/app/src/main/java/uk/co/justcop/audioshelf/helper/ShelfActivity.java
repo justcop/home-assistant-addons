@@ -454,6 +454,7 @@ public final class ShelfActivity extends Activity {
                 || !pendingSdkFirstTrack.matches("spotify:track:[A-Za-z0-9]{22}")) return;
         final SpotifyAppRemote session = remote;
         sdkPlayAttempted = true; // set BEFORE the asynchronous SDK call
+        if (localPlayerProbe != null) localPlayerProbe.sdkSingleTrackPlayIssued();
         recordIntegrated("SDK single-track test: issuing exactly one local play(trackUri)"
             + " for #" + SpotifyLocalPlayerProbe.trackTag(pendingSdkFirstTrack)
             + "; no album queue or Web API Play.");
