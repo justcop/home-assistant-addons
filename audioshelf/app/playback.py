@@ -44,9 +44,10 @@ class PlaybackHandoff:
     def snapshot(job):
         # The authenticated PWA can show wake/dispatch progress without polling
         # Spotify's player API or mistaking a submitted command for confirmed play.
-        return {key: job[key] for key in ('id', 'state', 'result', 'error', 'phase', 'play_accepted', 'cancel_reason', 'track_audit')}
+        return {key: job[key] for key in ('id', 'state', 'result', 'error', 'phase', 'play_accepted', 'cancel_reason', 'track_audit',
+                                       'sdk_queue_count', 'sdk_queue_expected', 'sdk_queue_verified')}
 
-    def start(self, album, disc, preferred, owner, authorized, sdk_single_track=False):
+    def start(self, album, disc, preferred, owner, authorized, sdk_single_track=False, sdk_album=False):
         token = secrets.token_urlsafe(32)
         started = time.monotonic()
         with self.changed:
@@ -58,6 +59,9 @@ class PlaybackHandoff:
                    'last_device_check_ms': None, 'last_device_probe_ms': None,
                    'preparation_retry': None, 'verification': None, 'track_audit': None,
                    'sdk_single_track': sdk_single_track, 'sdk_test_uri': None,
+                   'sdk_album': sdk_album, 'sdk_album_uris': None,
+                   'sdk_queue_count': 0, 'sdk_queue_expected': 0,
+                   'sdk_queue_finished': False, 'sdk_queue_verified': 'pending',
                    'created_monotonic': started,
                    'helper_token_hash': hashlib.sha256(token.encode()).digest(),
                    'deadline': started + self.timeout,
@@ -88,7 +92,9 @@ class PlaybackHandoff:
                                    'play_accepted', 'device_seen_ms', 'play_accepted_ms',
                                    'last_device_check_ms', 'last_device_probe_ms', 'verification',
                                    'preparation_retry', 'cancel_reason', 'track_audit',
-                                   'sdk_single_track', 'sdk_test_uri')}
+                                   'sdk_single_track', 'sdk_test_uri', 'sdk_album',
+                                   'sdk_album_uris', 'sdk_queue_count', 'sdk_queue_expected',
+                                   'sdk_queue_finished', 'sdk_queue_verified')}
             self.helper_job = job
             self.helper_changed.notify_all()
 
@@ -145,6 +151,62 @@ class PlaybackHandoff:
             if not job['payload'][3]():
                 return {'state': 'expired', 'phase': 'expired', 'error': 'Playback authorisation ended.'}
             return dict(job['helper_view'])
+
+    def sdk_queue_report(self, identifier, bearer, count, state):
+        """Read queue acknowledgements through one short-lived helper capability."""
+        if not isinstance(bearer, str) or len(bearer) > 128:
+            raise AppError('Unknown playback job.', 404)
+        supplied = hashlib.sha256(bearer.encode()).digest()
+        with self.changed:
+            job = self.job
+            if (not job or job['id'] != identifier or
+                    not secrets.compare_digest(supplied, job['helper_token_hash']) or
+                    job['state'] != 'waiting' or not job['sdk_album'] or
+                    job['sdk_album_uris'] is None or time.monotonic() > job['deadline'] or
+                    not job['payload'][3]()):
+                raise AppError('Playback job is not accepting SDK queue reports.', 404)
+            expected = job['sdk_queue_expected']
+            if type(count) is not int or count < 1 or count > expected or state not in ('progress','complete','failed'):
+                raise AppError('Invalid SDK queue report.', 400)
+            if count < job['sdk_queue_count']:
+                raise AppError('SDK queue progress went backwards.', 409)
+            if state == 'complete' and count != expected:
+                raise AppError('A partial Spotify queue cannot be marked complete.', 409)
+            job['sdk_queue_count'] = count
+            if state == 'failed':
+                self.set_status(job, 'unconfirmed',
+                    error='Spotify SDK could not queue the whole album. Playback may be partial; see Android diagnostics.')
+                job['stop'].set()
+            else:
+                if state == 'complete':
+                    job['sdk_queue_finished'] = True
+                self.progress(job, 'sdk_queue_confirming' if state == 'complete' else 'sdk_queueing')
+            return {'accepted': True, 'queued': job['sdk_queue_count'], 'expected': expected}
+
+    def verify_sdk_queue(self, job, tracks):
+        """Check actual Spotify next-up order, not merely SDK callbacks."""
+        wanted = [t['spotify_id'] for t in tracks[1:]]
+        if not wanted:
+            return 'matched'
+        for attempt in range(4):
+            try:
+                data = self.spotify.api('GET', 'me/player/queue')
+            except AppError as error:
+                if error.status in (401, 403, 404, 429):
+                    return 'unavailable'
+                raise
+            items = data.get('queue') if isinstance(data, dict) else None
+            if not isinstance(items, list):
+                return 'unavailable'
+            matched = len(items) >= len(wanted) and all(
+                isinstance(items[i], dict) and
+                wanted[i] in (items[i].get('id'), (items[i].get('linked_from') or {}).get('id'))
+                for i in range(len(wanted)))
+            if matched:
+                return 'matched'
+            if attempt < 3:
+                job['stop'].wait(.6)
+        return 'mismatch'
 
     def set_status(self, job, state, result=None, error=None):
         with self.changed:
@@ -258,6 +320,21 @@ class PlaybackHandoff:
                             now - (job.get('play_accepted_monotonic') or job['created_monotonic']))
                         job['stop'].wait(min(interval, max(0, job['deadline'] - now)))
                         continue
+                if job['sdk_album']:
+                    if not job['sdk_queue_finished']:
+                        self.progress(job, 'sdk_queueing', verification=observed)
+                        now = time.monotonic()
+                        job['stop'].wait(min(.5, max(0, job['deadline'] - now)))
+                        continue
+                    verification = self.verify_sdk_queue(job, result['canonical_tracks'])
+                    self.progress(job, 'sdk_queue_confirming', sdk_queue_verified=verification)
+                    if verification == 'mismatch':
+                        self.set_status(job, 'unconfirmed',
+                            error='Spotify queue order did not match the selected album. Check Android diagnostics.')
+                        return
+                    result['queue_verified'] = verification == 'matched'
+                    result.pop('canonical_tracks', None)
+                    result['sdk_album'] = True
                 # This verified observation is authoritative for the PWA's
                 # initial PLAYING state. Don't require a second Spotify read.
                 self.progress(job, 'confirmed', verification=observed)
@@ -327,7 +404,19 @@ class PlaybackHandoff:
                     guard()
                     self.progress(job, 'preparing_playback',
                                   device_seen_ms=probe_metrics['last_device_check_ms'], **probe_metrics)
-                    if job['sdk_single_track']:
+                    if job['sdk_album']:
+                        # Exact canonical disc/side filter; never dispatch Web API Play.
+                        tracks, uris = self.spotify.play_tracks(album, disc)
+                        guard()
+                        result = {'started': True, 'started_at': time.time(), 'track_count': len(uris),
+                                  'device': ready[0].get('name', 'Spotify'), 'device_id': ready[0]['id'],
+                                  'first_track': {'id': tracks[0]['spotify_id'], 'title': tracks[0]['title'],
+                                                  'duration_ms': tracks[0].get('duration_ms')},
+                                  'canonical_tracks': tracks,
+                                  'sdk_album': True, 'modes_need_confirmation': False}
+                        self.progress(job, 'sdk_queue_ready', sdk_album_uris=uris,
+                                      sdk_queue_expected=len(uris))
+                    elif job['sdk_single_track']:
                         # Intentionally *no* Web API Play or queue. Let the
                         # connected Android App Remote SDK play only the exact
                         # first canonical track and verify independently here.
