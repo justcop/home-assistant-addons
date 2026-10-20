@@ -53,6 +53,20 @@ final class SpotifyLocalPlayerProbe {
         observe("", "", false);
     }
 
+    /** Confirm whether an SDK Play actually loaded the requested first track.
+     * These are read-only checks; SDK acknowledgement alone is not success.
+     */
+    void sdkSingleTrackPlayIssued() {
+        for (long delay : new long[]{2200, 6200}) {
+            handler.postDelayed(() -> {
+                if (closed || remote == null) return;
+                // Record a fresh sample even when the player remains empty.
+                lastObservation = "";
+                observe("", "", false);
+            }, delay);
+        }
+    }
+
     void serverStatus(PlaybackStatusClient.Result result) {
         if (closed || remote == null || !"waiting".equals(result.state)) return;
         if (result.playAccepted && acceptedSeenAt < 0) acceptedSeenAt = SystemClock.elapsedRealtime();
