@@ -81,6 +81,7 @@ public final class ShelfActivity extends Activity {
     private boolean lastAcceptedPlay;
     private String pendingSdkFirstTrack = "";
     private boolean sdkPlayAttempted;
+    private String lastSdkDispatchedJob = "";
     private int wakePollCount;
     private WakeLog integratedWakeLog = new WakeLog();
     private final WakeProgressLog integratedProgressLog = new WakeProgressLog();
@@ -289,7 +290,9 @@ public final class ShelfActivity extends Activity {
         lastTrackAudit = "";
         lastAcceptedPlay = false;
         pendingSdkFirstTrack = "";
-        sdkPlayAttempted = false;
+        // A repeat wake for the same server job cannot replay an ambiguous
+        // SDK command. Only a fresh backend playback job permits another Play.
+        sdkPlayAttempted = job.equals(lastSdkDispatchedJob);
         wakePollCount = 0;
         wakeSdkState = "connecting";
         jobId=job; accountId=account; token=bearer;
@@ -454,6 +457,7 @@ public final class ShelfActivity extends Activity {
                 || !pendingSdkFirstTrack.matches("spotify:track:[A-Za-z0-9]{22}")) return;
         final SpotifyAppRemote session = remote;
         sdkPlayAttempted = true; // set BEFORE the asynchronous SDK call
+        lastSdkDispatchedJob = jobId;
         if (localPlayerProbe != null) localPlayerProbe.sdkSingleTrackPlayIssued();
         recordIntegrated("SDK single-track test: issuing exactly one local play(trackUri)"
             + " for #" + SpotifyLocalPlayerProbe.trackTag(pendingSdkFirstTrack)
