@@ -1,3 +1,9 @@
+# 0.6.37 — Diagnose actual Spotify track URIs after Play
+
+- Asynchronously audit the exact canonical Spotify track IDs after Spotify accepts the one phone-pinned Play request, without delaying playback or altering mappings. Look up the first, second, and final queued tracks with the account's GB-market context; report availability, regional relinking, restrictions and unexpected IDs.
+- Include a non-reversible fingerprint of the complete URI queue, track count and a post-Play check of whether the preferred phone remains visible/active in Spotify Connect. Distinguish explicitly unplayable recordings from unknown/missing API availability evidence.
+- Add a bounded `track_audit` to the authenticated short-lived helper status and redact raw Spotify track/device identifiers, OAuth secrets and API payloads in add-on logs. Catalogue errors are diagnostic only and cannot cause a second Play or change a previously reviewed album.
+
 # 0.6.36 — Play directly to the discovered Spotify phone
 
 - The Android/Spotify App Remote wake succeeds, but a paused Connect transfer remains unacknowledged in `GET /me/player`. A playback job no longer repeats that transfer indefinitely: it issues one explicit `PUT /me/player/play` pinned to the uniquely discovered, unrestricted preferred phone.
