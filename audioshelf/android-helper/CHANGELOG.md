@@ -1,3 +1,9 @@
+# 0.2.16 — Inspect Spotify's local player after accepted Web API Play
+
+- Read Spotify App Remote's local player state in both integrated and companion modes while the server independently verifies playback. Log only the presence of a track, a short non-reversible track-ID fingerprint and paused/playing state. Never expose the raw Spotify URI or account data.
+- When the server has accepted exactly one canonical phone-targeted Play but its player API reports no state, issue **one SDK Resume** only when the local SDK confirms the *same requested first track* is paused. Resume cannot select a track or rewrite the queue. A missing, different or already-playing track is diagnostic-only.
+- Preserve exact device and first-track verification by the AudioShelf server, the bounded 20-second wake window, and no automatic repeat of an ambiguous Play. Compatible with AudioShelf add-on 0.6.36.
+
 # 0.2.15 — Identify exactly where Spotify preparation stalls
 
 - Display the server's granular activation phases, including current-player lookup, transfer acknowledgement, shuffle/repeat checks and explicitly targeted Play.
