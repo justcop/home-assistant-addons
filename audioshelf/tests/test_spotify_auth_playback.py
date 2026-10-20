@@ -283,3 +283,50 @@ def test_labelled_album_search_finds_explicit_and_regional_editions_without_spec
     assert result==ids
     assert len(calls)==3
     assert all(q.startswith('album:"An Album (') for q in calls)
+
+
+def test_explicit_phone_play_when_paused_transfer_does_not_update_stale_player(application,monkeypatch):
+    """A stale current-player response must not prevent a device-pinned Play.
+
+    Only safe when the exact phone remains discoverable and shuffle/repeat
+    have explicitly been observed off. No other device is ever targeted.
+    """
+    spotify=application.extensions['spotify'];album=ready_album(application)
+    spotify.store.set_setting('preferred_device',{'id':'phone','name':'Phone','type':'Smartphone'})
+    calls=[]
+    def api(method,path,params=None,body=None):
+        calls.append((method,path,params,body))
+        if path=='me/player/devices':
+            return {'devices':[{'id':'phone','name':'Phone','type':'Smartphone','is_restricted':False}]}
+        if path=='me/player' and method=='GET':
+            return {'device':{'id':'speaker'},'shuffle_state':False,'repeat_state':'off'}
+        return {}
+    monkeypatch.setattr(spotify,'api',api)
+    monkeypatch.setattr('app.spotify.time.sleep',lambda _:None)
+    result=spotify.play(album)
+    assert result['device_id']=='phone'
+    play=[item for item in calls if item[1]=='me/player/play']
+    assert len(play)==1
+    assert play[0][2]=={'device_id':'phone'}
+    assert play[0][3]['uris']==['spotify:track:'+'a'*22,'spotify:track:'+'b'*22]
+    assert ('PUT','me/player',None,{'device_ids':['phone'],'play':False}) in calls
+
+
+def test_missing_active_player_is_treated_as_idle_not_missing_phone(application,monkeypatch):
+    spotify=application.extensions['spotify'];album=ready_album(application)
+    calls=[]
+    def api(method,path,params=None,body=None):
+        calls.append((method,path))
+        if method=='GET' and path=='me/player':
+            raise AppError('No active player',404)
+        if path=='me/player/devices':
+            return {'devices':[{'id':'phone','name':'Phone','type':'Smartphone'}]}
+        return {}
+    monkeypatch.setattr(spotify,'api',api)
+    monkeypatch.setattr('app.spotify.time.sleep',lambda _:None)
+    with pytest.raises(AppError,match='activated'):
+        spotify.play(album,preferred_device={'id':'phone','name':'Phone','type':'Smartphone'})
+    # A normal cold-start 404 on the current player should still permit
+    # attempting activation of the verified Spotify Connect phone.
+    assert ('PUT','me/player') in calls
+    assert ('PUT','me/player/play') not in calls
