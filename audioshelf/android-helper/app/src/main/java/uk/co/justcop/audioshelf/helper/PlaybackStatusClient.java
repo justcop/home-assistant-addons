@@ -309,5 +309,30 @@ final class PlaybackStatusClient {
         }
     }
 
+    /** Report a local SDK acknowledgement, not a command to play.
+     * Only the bearer for this active wake job can modify its progress.
+     */
+    static void sdkEvent(String origin,String account,String job,String bearer,
+                         String stage,int count) throws IOException {
+        URL url=new URL(origin+"/api/helper/playback-handoff/"+account+"/"+job+"/sdk-event");
+        HttpURLConnection conn=(HttpURLConnection)url.openConnection();
+        try {
+            conn.setInstanceFollowRedirects(false);
+            conn.setRequestMethod("POST");
+            conn.setConnectTimeout(2000);
+            conn.setReadTimeout(3000);
+            conn.setDoOutput(true);
+            conn.setUseCaches(false);
+            conn.setRequestProperty("Authorization","Bearer "+bearer);
+            conn.setRequestProperty("Content-Type","application/json");
+            conn.setRequestProperty("X-AudioShelf-Request","1");
+            byte[] content=new org.json.JSONObject(java.util.Map.of(
+                "stage",stage,"count",count)).toString().getBytes(StandardCharsets.UTF_8);
+            conn.setFixedLengthStreamingMode(content.length);
+            try(java.io.OutputStream stream=conn.getOutputStream()){stream.write(content);}
+            if(conn.getResponseCode()!=200)throw new HttpFailure(conn.getResponseCode());
+        } finally {conn.disconnect();}
+    }
+
     private PlaybackStatusClient() {}
 }
