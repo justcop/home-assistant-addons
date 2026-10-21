@@ -150,7 +150,7 @@ def create_app(options=None):
             if origin and not ingress() and urlsplit(origin).netloc not in allowed_hosts:
                 raise AppError('Use the same AudioShelf address for this action.', 403)
         # Helper status has its own per-job bearer authentication, not a browser session.
-        helper_read = request.method == 'GET' and request.path.startswith('/api/helper/playback-handoff/')
+        helper_read = request.method in {'GET', 'POST'} and request.path.startswith('/api/helper/playback-handoff/')
         if request.path.startswith('/api/') and not helper_read and request.path not in {'/api/status','/api/login','/api/login/ingress'}:
             g.identity = identity()
             if g.identity is None:
@@ -897,6 +897,19 @@ def create_app(options=None):
         # New helpers request an immediate, bounded snapshot; old long-poll clients still work.
         wait = 0 if request.args.get('wait') == '0' else 20
         return jsonify(context.handoff.helper_status(job_id, token, wait=wait))
+
+    @app.post('/api/helper/playback-handoff/<account_id>/<job_id>/sdk-event')
+    def helper_sdk_event(account_id, job_id):
+        if account_id != 'owner' and not (len(account_id) == 32 and all(c in '0123456789abcdef' for c in account_id)):
+            raise AppError('Unknown playback job.', 404)
+        if not accounts.enabled(account_id):
+            raise AppError('Unknown playback job.', 404)
+        context = accounts.context(account_id)
+        header = request.headers.get('Authorization', '')
+        bearer = header[7:] if header.startswith('Bearer ') else ''
+        body = request.get_json(silent=True) or {}
+        return jsonify(context.handoff.sdk_event(job_id, bearer,
+                       body.get('stage'), body.get('count')))
 
     @app.route('/api/spotify/playback-handoff/<job_id>', methods=['GET', 'DELETE'])
     def playback_job(job_id):
