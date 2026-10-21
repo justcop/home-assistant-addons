@@ -243,6 +243,8 @@ class PlaybackHandoff:
         wanted_track = result['first_track']['id']
         last_mode_attempt = 0
         while True:
+            if job['state'] != 'waiting' or self.job is not job:
+                return
             guard()
             self.progress(job, 'confirming_playback', 'confirmation_checks')
             try:
@@ -261,7 +263,8 @@ class PlaybackHandoff:
             if first_active and result.get('sdk_full_album'):
                 job['sdk_first_verified'] = True
             if first_active or (result.get('sdk_full_album') and job['sdk_first_verified']
-                                and job['sdk_queue_ack']):
+                                and job['sdk_queue_ack'] and state.get('is_playing') is True
+                                and device.get('id') == wanted_device):
                 if result.get('modes_need_confirmation'):
                     # A transfer's GET /me/player response may refer to the
                     # *previous* player. Correct shuffle/repeat only once the
@@ -408,7 +411,8 @@ class PlaybackHandoff:
                                   'first_track': {'id': tracks[0]['spotify_id'], 'title': tracks[0]['title'],
                                                   'duration_ms': tracks[0].get('duration_ms')},
                                   'sdk_single_track': job['sdk_single_track'],
-                                  'sdk_full_album': job['sdk_full_album'], 'modes_need_confirmation': False}
+                                  'sdk_full_album': job['sdk_full_album'],
+                                  'modes_need_confirmation': bool(job['sdk_full_album'])}
                         self.progress(job, 'sdk_waiting_for_local_play', sdk_test_uri=uris[0],
                                       sdk_track_uris=tuple(uris) if job['sdk_full_album'] else None)
                     else:
