@@ -537,7 +537,13 @@ function handoffProgressText(job){
   if(job.play_accepted)return 'Spotify accepted Play. Confirming your phone and first track…';
   switch(job.phase){
     case 'preparing_playback': return 'Phone found on Spotify Connect. Preparing your album…';
-    case 'sdk_waiting_for_local_play': return 'Phone found. Asking local Spotify SDK to play the first track only…';
+    case 'sdk_waiting_for_local_play': return 'Phone found. Waiting for Android to start the first verified track…';
+    case 'sdk_awaiting_play_ack': return 'Waiting for the new Spotify SDK Play acknowledgement…';
+    case 'sdk_awaiting_first_track': return 'New Play acknowledged. Waiting for Spotify to confirm the new playback…';
+    case 'sdk_waiting_for_fresh_play': return 'Spotify is still showing a previous play of this track. Verifying the new one…';
+    case 'sdk_first_track_confirmed': return 'New first track confirmed. Preparing the rest of the album…';
+    case 'sdk_queueing': return 'Queuing original album tracks '+(job.sdk_queued||0)+'/'+(job.sdk_expected||0)+'…';
+    case 'sdk_queue_confirming': return 'All tracks acknowledged. Confirming album playback…';
     case 'sending_play': return 'Phone ready. Sending your album to Spotify…';
     case 'confirming_playback': return 'Play sent. Confirming your phone and track…';
     case 'no_player_state': return 'Play sent. Waiting for Spotify to report playback…';
