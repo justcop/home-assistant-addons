@@ -1,3 +1,10 @@
+# 0.6.40 — Verified Android SDK canonical full-album handoff
+
+- Full album, disc, and vinyl-side selections are sent as the exact reviewed Spotify track sequence to the trusted, short-lived integrated Android helper (not exposed in PWA status). Web API Play is bypassed on this path.
+- Only declare the album started when the first canonical track is independently confirmed playing on the preferred phone, the Android SDK reports all sequential queue appends completed, and Spotify's read-only queue endpoint confirms the visible ordered prefix. The API's bounded queue view limits independent checking of long album tails.
+- Add authenticated idempotent SDK queue receipt reporting with no raw Spotify IDs. Partial appends fail clearly without automatically retrying ambiguous queue operations. Correct repeat/shuffle on the confirmed device.
+- Keep non-Android and optional legacy Web API playback available.
+
 # 0.6.39 — Android SDK canonical album playback
 
 - The integrated Android app can play reviewed canonical album/disc/vinyl-side selections via Spotify App Remote, avoiding Spotify Web API's accepted-but-inactive `PUT /me/player/play` behaviour. Expose at most 100 verified track URIs to the short-lived authorised helper only; do not change saved mappings or send Web API Play/queue for SDK handoffs.
