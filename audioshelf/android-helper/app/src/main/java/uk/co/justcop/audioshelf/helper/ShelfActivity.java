@@ -513,7 +513,8 @@ public final class ShelfActivity extends Activity {
         recordIntegrated((pendingSdkAlbum.isEmpty()?"SDK single-track test":"SDK full-album playback")
             + ": issuing exactly one local play(trackUri)"
             + " for #" + SpotifyLocalPlayerProbe.trackTag(pendingSdkFirstTrack)
-            + "; no album queue or Web API Play.");
+            + (pendingSdkAlbum.isEmpty()?"; no album queue or Web API Play."
+                :"; canonical queue follows new first-track verification; no Web API Play."));
         try {
             session.getPlayerApi().play(pendingSdkFirstTrack)
                 .setResultCallback(ignored -> handler.post(() -> {
