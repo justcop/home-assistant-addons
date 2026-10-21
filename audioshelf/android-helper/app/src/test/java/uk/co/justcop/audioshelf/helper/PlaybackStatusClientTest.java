@@ -86,6 +86,25 @@ public class PlaybackStatusClientTest {
             "{\"state\":\"waiting\",\"sdk_single_track\":true,\"sdk_test_uri\":\"spotify:album:"+id+"\"}").sdkTestUri);
     }
 
+    @Test public void sdkAlbumReceiptsAreNotConfusedWithOldPlayingTracks() throws Exception {
+        PlaybackStatusClient.Result stale=PlaybackStatusClient.parse(200,
+            "{\"state\":\"waiting\",\"phase\":\"sdk_awaiting_play_ack\","
+            + "\"sdk_full_album\":true,\"sdk_play_ack\":false,\"sdk_first_confirmed\":false,"
+            + "\"sdk_queued\":0,\"sdk_expected\":14}");
+        assertFalse(stale.sdkPlayAck);
+        assertFalse(stale.sdkFirstConfirmed);
+        assertTrue(stale.progress().contains("waiting for new SDK Play callback"));
+        PlaybackStatusClient.Result fresh=PlaybackStatusClient.parse(200,
+            "{\"state\":\"waiting\",\"phase\":\"sdk_queueing\","
+            + "\"sdk_play_ack\":true,\"sdk_first_confirmed\":true,"
+            + "\"sdk_queued\":8,\"sdk_expected\":14}");
+        assertTrue(fresh.sdkPlayAck);
+        assertTrue(fresh.sdkFirstConfirmed);
+        assertEquals(8,fresh.sdkQueued);
+        assertEquals(14,fresh.sdkExpected);
+        assertTrue(fresh.progress().contains("8/14"));
+    }
+
     @Test public void reportsWhoCancelledWithoutLoggingArbitraryServerText() throws Exception {
         PlaybackStatusClient.Result user = PlaybackStatusClient.parse(200,
             "{\"state\":\"cancelled\",\"phase\":\"cancelled\",\"cancel_reason\":\"user_cancelled\"}");
