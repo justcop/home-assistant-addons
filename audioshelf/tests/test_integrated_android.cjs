@@ -27,12 +27,17 @@ assert(source.includes('if(sdkSingleTrackTestEnabled())') &&
 assert(android.includes('session.getPlayerApi().play(pendingSdkFirstTrack)') &&
   android.includes('sdkPlayAttempted = true;'),
   'Native SDK test sends exactly one first-track Play without auto-retries');
-assert(android.includes('if ("waiting".equals(result.state)) runSdkSingleTrackTest(ticket);'),
-  'A cancelled or expired handoff must never initiate SDK Play');
+assert(android.includes('if ("waiting".equals(result.state)) {') &&
+  android.includes('runSdkSingleTrackTest(ticket);') &&
+  android.includes('result.sdkFirstConfirmed') &&
+  android.includes('sdkQueueStarted = true;'),
+  'Only waiting SDK jobs may issue Play or queue, and queue follows fresh first-track confirmation');
 assert(android.includes('getPlayerApi().queue(uri)') &&
   android.includes('pendingSdkAlbum.isEmpty()') &&
-  android.includes('queueNextSdkTrack(ticket, session, 1)'),
-  'Full-album mode is the only mode that queues additional tracks');
+  android.includes('queueNextSdkTrack(ticket,remote,1)') &&
+  android.includes('sendSdkEvent(ticket,"play_ack",1)') &&
+  android.includes('sendSdkEvent(ticket,index+1==pendingSdkAlbum.size()?"queue_complete":"queue_progress",index+1)'),
+  'Native SDK queue starts after verified new playback and acknowledges the complete canonical queue');
 assert(!android.includes('result.playAccepted ||'),
   'Accepted Play cannot disconnect the integrated Spotify SDK before the correct track starts');
 assert(android.includes('stopWake()'));
