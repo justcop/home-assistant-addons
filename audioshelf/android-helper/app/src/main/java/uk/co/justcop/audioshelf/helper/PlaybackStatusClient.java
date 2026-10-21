@@ -301,7 +301,7 @@ final class PlaybackStatusClient {
             connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
             connection.setRequestProperty("Accept", "application/json");
             connection.setRequestProperty("Cache-Control", "no-store");
-            String payload="{\\"queued_count\\":"+queuedCount+",\\"success\\":"+(success?"true":"false")+"}";
+            String payload="{\"queued_count\":"+queuedCount+",\"success\":"+(success?"true":"false")+"}";
             byte[] bytes=payload.getBytes(StandardCharsets.UTF_8);
             connection.setFixedLengthStreamingMode(bytes.length);
             try (java.io.OutputStream output=connection.getOutputStream()) {
