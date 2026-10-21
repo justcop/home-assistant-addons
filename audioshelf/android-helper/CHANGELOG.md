@@ -1,3 +1,9 @@
+# 0.2.20 — New Play receipt and complete original-album queue handshake
+
+- AudioShelf's Android helper records a Play acknowledgement for the current job before asking the server to verify the newly started first song. It no longer begins queuing simply because an older playback of the same song is already visible.
+- After authoritative fresh first-track verification, append the remaining canonical album/disc/side tracks sequentially. Report every queue callback back to the short-lived authenticated server job; never repeat an ambiguous Spotify Play or Queue command automatically.
+- Hold Spotify App Remote connected until the server has acknowledged the entire selected queue and newly started first track. Report incomplete queues and errors rather than claiming the album started. Preserve first-track-only diagnostic mode and previous Web API fallback.
+
 # 0.2.19 — Complete original albums through Spotify App Remote
 
 - Launch exact canonical track 1 locally via the tested Spotify Android SDK `play(uri)`; queue subsequent selected album/disc/side tracks in sequence via `queue(uri)` only after the previous queue response succeeds.
