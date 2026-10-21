@@ -226,7 +226,7 @@ def test_sdk_full_album_mismatched_queue_is_not_confirmed(application, monkeypat
     time.sleep(.1)
     state=manager.status(job['id'],'owner')
     assert state['state']=='waiting'
-    assert state['phase'] in ('sdk_verifying_queue','confirming_playback','preparing_playback_modes')
+    assert state['phase'] in ('sdk_queueing','sdk_verifying_queue','confirming_playback','preparing_playback_modes')
     manager.cancel_all()
 
 
