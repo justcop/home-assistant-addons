@@ -20,16 +20,21 @@ final class PlaybackStatusClient {
         final int deviceSeenMs, playAcceptedMs, lastDeviceCheckMs, lastDeviceProbeMs;
         final String observation, requestedTag, cancellationReason, preparationRetry, trackAudit, sdkTestUri;
         final java.util.List<String> sdkTrackUris;
+        final boolean sdkPlayAck, sdkFirstConfirmed, sdkQueueComplete;
+        final int sdkQueued, sdkExpected;
         Result(String state, String message, String phase, int httpStatus, int devices, int confirmations,
                boolean accepted, int seenMs, int acceptedMs, int checkMs, int probeMs,
                String observed, String requestedTag, String cancelledBecause, String retry, String audit, String sdkUri,
-               java.util.List<String> trackUris) {
+               java.util.List<String> trackUris, boolean playAck, boolean firstConfirmed,
+               boolean queueComplete, int queued, int expected) {
             this.state = state; this.message = message; this.phase = phase;
             this.httpStatus = httpStatus; deviceChecks = devices; confirmationChecks = confirmations;
             playAccepted = accepted; deviceSeenMs = seenMs; playAcceptedMs = acceptedMs;
             lastDeviceCheckMs = checkMs; lastDeviceProbeMs = probeMs; observation = observed;
             this.requestedTag = requestedTag; cancellationReason = cancelledBecause; preparationRetry = retry;
             trackAudit = audit; sdkTestUri = sdkUri; sdkTrackUris = trackUris;
+            sdkPlayAck = playAck; sdkFirstConfirmed = firstConfirmed;
+            sdkQueueComplete = queueComplete; sdkQueued = queued; sdkExpected = expected;
         }
         String progress() {
             String detail;
@@ -37,6 +42,12 @@ final class PlaybackStatusClient {
                 case "checking_devices": detail = "asking Spotify for available devices"; break;
                 case "waiting_for_device": detail = "preferred phone not available yet"; break;
                 case "sdk_waiting_for_local_play": detail = "SDK test: waiting for local first-track Play, without Web API Play"; break;
+                case "sdk_awaiting_play_ack": detail = "waiting for new SDK Play callback, not previous playback"; break;
+                case "sdk_awaiting_first_track": detail = "new SDK Play acknowledged; checking Spotify timestamp"; break;
+                case "sdk_waiting_for_fresh_play": detail = "Spotify still reports old player state; waiting for this session"; break;
+                case "sdk_first_track_confirmed": detail = "new first track verified; Android can queue the album"; break;
+                case "sdk_queueing": detail = "queuing verified album tracks through Android SDK"; break;
+                case "sdk_queue_confirming": detail = "SDK queue complete; confirming exact phone and first track"; break;
                 case "preparing_playback": detail = "phone found; preparing playback"; break;
                 case "preparing_player_state": detail = "reading Spotify active-player state"; break;
                 case "preparing_device_check": detail = "rechecking preferred Spotify phone"; break;
@@ -65,7 +76,8 @@ final class PlaybackStatusClient {
             if (deviceSeenMs >= 0) times += " [phone found at server +" + deviceSeenMs + "ms]";
             if (playAcceptedMs >= 0) times += " [Play accepted at server +" + playAcceptedMs + "ms]";
             String retry = preparationRetry.isEmpty() ? "" : " [previous preparation retry: "+preparationRetry.replace('_',' ')+"]";
-            return detail + counts + times + retry
+            String queued=sdkExpected>0 ? " [SDK queued="+sdkQueued+"/"+sdkExpected+", first verified="+sdkFirstConfirmed+"]" : "";
+            return detail + counts + times + retry + queued
                 + (observation.isEmpty() ? "" : " [Spotify player: "+observation+"]");
         }
     }
@@ -122,7 +134,8 @@ final class PlaybackStatusClient {
     static Result parse(int code, String response) throws IOException {
         if (code == 401 || code == 403 || code == 404 || code == 410)
             return new Result("expired", "Playback request unavailable.", "expired", code, -1, -1,
-                false, -1, -1, -1, -1, "", "", "", "", "", "", java.util.Collections.emptyList());
+                false, -1, -1, -1, -1, "", "", "", "", "", "", java.util.Collections.emptyList(),
+                false, false, false, 0, 0);
         if (code != 200) throw new HttpFailure(code);
         try {
             JsonObject object = JsonParser.parseString(response).getAsJsonObject();
@@ -140,10 +153,22 @@ final class PlaybackStatusClient {
             return new Result(state, message, phase, code, devices, confirmations, accepted,
                 optionalMillis(object, "device_seen_ms"), optionalMillis(object, "play_accepted_ms"),
                 optionalMillis(object, "last_device_check_ms"), optionalMillis(object, "last_device_probe_ms"),
-                observation(object), requestedTag(object), cancellationReason(object), preparationRetry(object), trackAudit(object), sdkTestUri(object), sdkTrackUris(object));
+                observation(object), requestedTag(object), cancellationReason(object), preparationRetry(object), trackAudit(object), sdkTestUri(object), sdkTrackUris(object),
+                flag(object,"sdk_play_ack"), flag(object,"sdk_first_confirmed"), flag(object,"sdk_queue_complete"),
+                safeCount(object,"sdk_queued"), safeCount(object,"sdk_expected"));
         } catch (RuntimeException exception) {
             throw new IOException("Invalid playback response", exception);
         }
+    }
+
+    private static boolean flag(JsonObject object,String field) {
+        return object.has(field) && object.get(field).isJsonPrimitive()
+            && object.get(field).getAsJsonPrimitive().isBoolean() && object.get(field).getAsBoolean();
+    }
+
+    private static int safeCount(JsonObject object,String field) {
+        try { int value=object.get(field).getAsInt();return value>=0&&value<=100?value:0; }
+        catch(RuntimeException ignored) {return 0;}
     }
 
     /** Bounded, typed values only; no raw Spotify IDs or untrusted API text. */
