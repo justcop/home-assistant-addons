@@ -1,3 +1,9 @@
+# 0.6.40 — Prevent stale playback from completing new Android album handoffs
+
+- Prevent a previously playing first track from being mistaken for a newly started SDK album. Require a fresh, authenticated local Spotify SDK Play callback and a newly timestamped Spotify player state on the selected phone. A matching track with a timestamp from before the current request is no longer sufficient.
+- Require a full ordered stream of Android SDK queue acknowledgements before marking the album handoff started; track progress and rejected or incomplete queue states in server and helper diagnostics. A scoped, short-lived helper POST accepts count-only callback receipts without any Spotify IDs, tokens or credentials in logs.
+- Keep the full-album SDK handoff waiting until the complete queue and new first-track playback have been confirmed. The PWA surfaces these intermediate states rather than declaring success from a previous song. Existing exact canonical track selections, discs, vinyl sides and optional Web API fallback are unchanged.
+
 # 0.6.39 — Android SDK canonical album playback
 
 - The integrated Android app can play reviewed canonical album/disc/vinyl-side selections via Spotify App Remote, avoiding Spotify Web API's accepted-but-inactive `PUT /me/player/play` behaviour. Expose at most 100 verified track URIs to the short-lived authorised helper only; do not change saved mappings or send Web API Play/queue for SDK handoffs.
