@@ -193,7 +193,10 @@ def test_sdk_full_album_exposes_exact_canonical_sequence_without_web_play(applic
     time.sleep(.05)
     assert manager.status(job['id'],'owner')['state']=='waiting'
     manager.sdk_event(job['id'],job['helper_token'],'play_ack',1)
-    time.sleep(.05)
+    verified_deadline=time.monotonic()+1
+    while time.monotonic()<verified_deadline:
+        if manager.status(job['id'],'owner')['sdk_first_confirmed']:break
+        time.sleep(.005)
     assert manager.status(job['id'],'owner')['sdk_first_confirmed'] is True
     assert manager.status(job['id'],'owner')['state']=='waiting'
     manager.sdk_event(job['id'],job['helper_token'],'queue_complete',len(expected))
