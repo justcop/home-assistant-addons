@@ -326,8 +326,11 @@ final class PlaybackStatusClient {
             conn.setRequestProperty("Authorization","Bearer "+bearer);
             conn.setRequestProperty("Content-Type","application/json");
             conn.setRequestProperty("X-AudioShelf-Request","1");
-            byte[] content=new org.json.JSONObject(java.util.Map.of(
-                "stage",stage,"count",count)).toString().getBytes(StandardCharsets.UTF_8);
+            java.util.Map<String,Object> event=new java.util.HashMap<>();
+            event.put("stage",stage);
+            event.put("count",count);
+            byte[] content=new org.json.JSONObject(event).toString()
+                .getBytes(StandardCharsets.UTF_8);
             conn.setFixedLengthStreamingMode(content.length);
             try(java.io.OutputStream stream=conn.getOutputStream()){stream.write(content);}
             if(conn.getResponseCode()!=200)throw new HttpFailure(conn.getResponseCode());
