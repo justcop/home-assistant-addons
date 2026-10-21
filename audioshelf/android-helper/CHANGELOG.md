@@ -1,3 +1,10 @@
+# 0.2.20 — Reliable canonical full-album SDK queue
+
+- After a single local Spotify SDK Play, wait until the exact first track is locally playing before appending any further selected tracks.
+- Append each canonical remainder in order using one Spotify App Remote queue call, waiting for a success callback before submitting the next; report progress as short track fingerprints rather than exposing raw URIs.
+- Stop on failures or missing callbacks without risking duplicated appends. Report the count through the same temporary job capability; the AudioShelf server checks actual playback and Spotify's queue before reporting success.
+- Allow up to 120 seconds for longer albums. Disc/side selections continue to use only verified original tracks; full-album SDK playback remains selectable in Settings.
+
 # 0.2.19 — Complete original albums through Spotify App Remote
 
 - Launch exact canonical track 1 locally via the tested Spotify Android SDK `play(uri)`; queue subsequent selected album/disc/side tracks in sequence via `queue(uri)` only after the previous queue response succeeds.
