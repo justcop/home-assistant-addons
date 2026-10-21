@@ -31,8 +31,17 @@ assert(android.includes('if ("waiting".equals(result.state)) runSdkSingleTrackTe
   'A cancelled or expired handoff must never initiate SDK Play');
 assert(android.includes('getPlayerApi().queue(uri)') &&
   android.includes('pendingSdkAlbum.isEmpty()') &&
-  android.includes('queueNextSdkTrack(ticket, session, 1)'),
+  android.includes('waitForSdkFirstTrack(ticket, session, 0)') &&
+  android.includes('reportSdkQueueReceipt(ticket,true)'),
   'Full-album mode is the only mode that queues additional tracks');
+assert(android.includes('pendingSdkFirstTrack.equals(state.track.uri)') &&
+  android.includes('getPlayerState()') &&
+  android.includes('No Spotify SDK queue callback') &&
+  android.includes('sdkQueueFailed(ticket,'),
+  'Never enqueue before Spotify loads the first canonical song or retry ambiguous queue appends');
+assert(source.includes('sdkFullAlbumEnabled()') &&
+  source.includes('sdk_full_album:true'),
+  'Integrated Android SDK album option must be selected explicitly by the web app');
 assert(!android.includes('result.playAccepted ||'),
   'Accepted Play cannot disconnect the integrated Spotify SDK before the correct track starts');
 assert(android.includes('stopWake()'));
@@ -79,7 +88,9 @@ assert((android.match(/\.play\(/g)||[]).length===1 &&
   android.includes('result.sdkTestUri') &&
   android.includes('session.getPlayerApi().queue(uri)') &&
   android.includes('queueNextSdkTrack(ticket,session,index+1)') &&
-  android.includes('sdkAlbumFirstTrackConfirmed'),
+  android.includes('reportSdkQueueReceipt(ticket,true)') &&
+  android.includes('PlaybackStatusClient.reportSdkQueue(') &&
+  android.includes('sdkAlbumQueueFinished'),
   'Full-album SDK queues canonical tracks sequentially and preserves one guarded first-track Play');
 assert(manifest.includes('android.permission.BIND_NOTIFICATION_LISTENER_SERVICE'));
 assert(media.includes('com.spotify.music') && media.includes('onPlaybackStateChanged'));

@@ -284,5 +284,38 @@ final class PlaybackStatusClient {
         }
     }
 
+    /** Idempotent queue receipt for a single verified handoff, never track URIs. */
+    static void reportSdkQueue(String origin, String account, String job, String token,
+                               int queuedCount, boolean success) throws IOException {
+        URL url = new URL(origin + "/api/helper/playback-handoff/" + account + "/" + job + "/sdk-queue");
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        try {
+            connection.setRequestMethod("POST");
+            connection.setInstanceFollowRedirects(false);
+            connection.setConnectTimeout(2500);
+            connection.setReadTimeout(3500);
+            connection.setUseCaches(false);
+            connection.setDoOutput(true);
+            connection.setRequestProperty("Authorization", "Bearer " + token);
+            connection.setRequestProperty("X-AudioShelf-Request", "1");
+            connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+            connection.setRequestProperty("Accept", "application/json");
+            connection.setRequestProperty("Cache-Control", "no-store");
+            String payload="{\"queued_count\":"+queuedCount+",\"success\":"+(success?"true":"false")+"}";
+            byte[] bytes=payload.getBytes(StandardCharsets.UTF_8);
+            connection.setFixedLengthStreamingMode(bytes.length);
+            try (java.io.OutputStream output=connection.getOutputStream()) {
+                output.write(bytes);
+            }
+            int code=connection.getResponseCode();
+            if (code!=200) throw new HttpFailure(code);
+            try (InputStream input=connection.getInputStream()) {
+                while (input.read()!=-1) { /* release connection */ }
+            }
+        } finally {
+            connection.disconnect();
+        }
+    }
+
     private PlaybackStatusClient() {}
 }

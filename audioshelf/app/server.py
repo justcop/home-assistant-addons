@@ -151,7 +151,10 @@ def create_app(options=None):
                 raise AppError('Use the same AudioShelf address for this action.', 403)
         # Helper status has its own per-job bearer authentication, not a browser session.
         helper_read = request.method == 'GET' and request.path.startswith('/api/helper/playback-handoff/')
-        if request.path.startswith('/api/') and not helper_read and request.path not in {'/api/status','/api/login','/api/login/ingress'}:
+        helper_queue_write = (request.method == 'POST' and
+                              request.path.startswith('/api/helper/playback-handoff/') and
+                              request.path.endswith('/sdk-queue'))
+        if request.path.startswith('/api/') and not (helper_read or helper_queue_write) and request.path not in {'/api/status','/api/login','/api/login/ingress'}:
             g.identity = identity()
             if g.identity is None:
                 raise AppError('Enter your AudioShelf password. If none is set, configure one in Home Assistant or use ingress.', 401)
@@ -869,7 +872,7 @@ def create_app(options=None):
         if sdk_single_track and sdk_full_album:
             raise AppError('Choose one SDK playback mode.', 400)
         if (sdk_single_track or sdk_full_album) and preferred.get('type') != 'Smartphone':
-            raise AppError('SDK single-track test requires your preferred Android phone.', 409)
+            raise AppError('Android SDK playback requires your preferred Android phone.', 409)
         spotify.play_tracks(album, disc)  # Validate before accepting background work.
         token = session.get('sid')
         ingress_request = bool(g.identity.get('ingress'))
@@ -897,6 +900,21 @@ def create_app(options=None):
         # New helpers request an immediate, bounded snapshot; old long-poll clients still work.
         wait = 0 if request.args.get('wait') == '0' else 20
         return jsonify(context.handoff.helper_status(job_id, token, wait=wait))
+
+    @app.post('/api/helper/playback-handoff/<account_id>/<job_id>/sdk-queue')
+    def helper_sdk_queue_result(account_id, job_id):
+        # Same short-lived, one-job bearer capability as GET helper status.
+        # No browser session or raw Spotify IDs are accepted.
+        if account_id != 'owner' and not (len(account_id) == 32 and all(c in '0123456789abcdef' for c in account_id)):
+            raise AppError('Unknown playback job.', 404)
+        if not accounts.enabled(account_id):
+            raise AppError('Unknown playback job.', 404)
+        context = accounts.context(account_id)
+        header = request.headers.get('Authorization', '')
+        token = header[7:] if header.startswith('Bearer ') else ''
+        body = request.get_json(silent=True) or {}
+        return jsonify(context.handoff.acknowledge_sdk_queue(
+            job_id, token, body.get('queued_count'), body.get('success')))
 
     @app.route('/api/spotify/playback-handoff/<job_id>', methods=['GET', 'DELETE'])
     def playback_job(job_id):

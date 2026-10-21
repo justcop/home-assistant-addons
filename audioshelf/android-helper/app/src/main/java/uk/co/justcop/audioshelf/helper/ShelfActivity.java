@@ -282,6 +282,7 @@ public final class ShelfActivity extends Activity {
             // Do not record any untrusted values from a rejected web message.
             return;
         }
+        if (job.equals(jobId)) return; // No duplicate Play or queue on repeated Wake.
         stopWake("Previous request replaced by a new playback attempt.");
         localPlayerProbe = new SpotifyLocalPlayerProbe(handler, this::recordIntegrated);
         integratedWakeLog = new WakeLog();
@@ -312,20 +313,20 @@ public final class ShelfActivity extends Activity {
         recordIntegrated("Time zone " + java.time.ZoneId.systemDefault().getId()
             + "; absolute timestamps and monotonic elapsed seconds enabled.");
         recordIntegrated("Trusted wake request validated; credentials, account and full job ID omitted.");
-        recordIntegrated("Spotify App Remote service wake started. Normal handoffs send Web API Play;"
-            + " explicit SDK test handoffs send one local first-track Play only.");
+        recordIntegrated("Spotify App Remote wake started. SDK album handoffs play the"
+            + " first canonical track locally, then queue the remaining tracks in order.");
         handler.postDelayed(() -> {
-            if (ticket==sequence && !pendingSdkAlbum.isEmpty() && !sdkAlbumQueueFinished) {
+            if (ticket==sequence && !pendingSdkAlbum.isEmpty()) {
                 // Large original albums require multiple serial SDK queue calls.
                 // Preserve the standard 20s wake for every other playback mode.
-                wakeDeadline=integratedWakeStartedAt+60000;
-                recordIntegrated("SDK full-album queue still in progress at 20s;"
-                    + " allowing up to 60s for sequential acknowledgements.");
+                wakeDeadline=integratedWakeStartedAt+120000;
+                recordIntegrated("SDK album confirmation still active at 20s;"
+                    + " allowing up to 120s for sequential SDK queue acknowledgements and independent verification.");
                 handler.postDelayed(() -> {
-                    if(ticket==sequence)stopWake("60-second SDK queue deadline;"
+                    if (ticket==sequence) stopWake("120-second SDK queue deadline;"
                         + " acknowledged " + sdkQueuedCount + "/"
                         + Math.max(0,pendingSdkAlbum.size()-1) + " queued tracks.");
-                },40000);
+                },100000);
                 return;
             }
             if(ticket==sequence)stopWake("20-second deadline; server phase="
@@ -462,12 +463,11 @@ public final class ShelfActivity extends Activity {
                             + ", HTTP "+result.httpStatus+". "+result.progress()+".");
                     }
                     if(!"waiting".equals(result.state)) {
-                        if (!pendingSdkAlbum.isEmpty() && "started".equals(result.state)) {
-                            sdkAlbumFirstTrackConfirmed = true;
-                            recordIntegrated("First track verified by server; holding SDK connection until queue completes.");
-                            if (sdkAlbumQueueFinished) finishSdkAlbumWake();
-                            return;
-                        }
+                        if (!pendingSdkAlbum.isEmpty())
+                            recordIntegrated("SDK album server result=" + result.state
+                                + "; queued=" + sdkQueuedCount + "/"
+                                + Math.max(0,pendingSdkAlbum.size()-1)
+                                + "; queue receipt=" + (sdkAlbumQueueFinished?"sent":"pending") + ".");
                         // HTTP Play acknowledgement or device discovery alone is
                         // never proof of the exact requested track playing.
                         stopWake("Server terminal="+result.state
@@ -495,16 +495,16 @@ public final class ShelfActivity extends Activity {
         lastSdkDispatchedJob = jobId;
         if (localPlayerProbe != null) localPlayerProbe.sdkSingleTrackPlayIssued();
         recordIntegrated((pendingSdkAlbum.isEmpty()?"SDK single-track test":"SDK full-album playback")
-            + ": issuing exactly one local play(trackUri)"
-            + " for #" + SpotifyLocalPlayerProbe.trackTag(pendingSdkFirstTrack)
-            + "; no album queue or Web API Play.");
+            + ": issuing one local Play for #" + SpotifyLocalPlayerProbe.trackTag(pendingSdkFirstTrack)
+            + "; no Web API Play. Remaining canonical tracks queued via SDK only.");
         try {
             session.getPlayerApi().play(pendingSdkFirstTrack)
                 .setResultCallback(ignored -> handler.post(() -> {
                     if (ticket == sequence && remote == session)
                         if (!pendingSdkAlbum.isEmpty()) {
-                            recordIntegrated("SDK first-track Play acknowledged; beginning sequential canonical queue.");
-                            queueNextSdkTrack(ticket, session, 1);
+                            recordIntegrated("SDK first-track Play acknowledged; checking the local track"
+                                + " is loaded before appending the canonical queue.");
+                            waitForSdkFirstTrack(ticket, session, 0);
                         } else {
                             recordIntegrated("SDK single-track Play callback succeeded;"
                                 + " server must still verify the correct phone and playing track.");
@@ -521,50 +521,133 @@ public final class ShelfActivity extends Activity {
         }
     }
 
-    private void queueNextSdkTrack(int ticket, SpotifyAppRemote session, int index) {
-        if (ticket!=sequence || session!=remote || jobId==null || index>=pendingSdkAlbum.size()) {
-            if (ticket==sequence && session==remote && index>=pendingSdkAlbum.size()) {
-                sdkAlbumQueueFinished = true;
-                recordIntegrated("SDK canonical album queue complete: "
-                    + sdkQueuedCount + "/" + Math.max(0,pendingSdkAlbum.size()-1)
-                    + " subsequent tracks acknowledged in order; transition still unverified.");
-                if (sdkAlbumFirstTrackConfirmed) finishSdkAlbumWake();
-            }
+    /** Wait for local Spotify to replace the old context before appending tracks.
+     * Android callbacks can precede actual player activation by 1-2 seconds.
+     */
+    private void waitForSdkFirstTrack(int ticket, SpotifyAppRemote session, int attempt) {
+        if (ticket!=sequence || session!=remote || jobId==null || sdkAlbumQueueFinished) return;
+        if (attempt>=25) {
+            sdkQueueFailed(ticket,"Spotify did not load the first track within 10 seconds.");
             return;
         }
-        String uri=pendingSdkAlbum.get(index);
+        final int round=attempt;
+        handler.postDelayed(() -> {
+            if (ticket!=sequence || session!=remote || sdkAlbumQueueFinished) return;
+            try {
+                session.getPlayerApi().getPlayerState()
+                    .setResultCallback(state -> handler.post(() -> {
+                        if (ticket!=sequence || session!=remote || sdkAlbumQueueFinished) return;
+                        boolean expected=state!=null && state.track!=null
+                            && pendingSdkFirstTrack.equals(state.track.uri);
+                        if (expected && !state.isPaused) {
+                            recordIntegrated("Spotify SDK local first track playing, #"
+                                + SpotifyLocalPlayerProbe.trackTag(pendingSdkFirstTrack)
+                                + ". Beginning canonical queue of " + (pendingSdkAlbum.size()-1)
+                                + " additional tracks.");
+                            queueNextSdkTrack(ticket,session,1);
+                        } else waitForSdkFirstTrack(ticket,session,round+1);
+                    }))
+                    .setErrorCallback(error -> handler.post(() -> {
+                        if (ticket==sequence && session==remote && !sdkAlbumQueueFinished)
+                            waitForSdkFirstTrack(ticket,session,round+1);
+                    }));
+            } catch (RuntimeException error) {
+                waitForSdkFirstTrack(ticket,session,round+1);
+            }
+        }, 350);
+    }
+
+    /** Spotify SDK queue calls are ordered strictly by their success callbacks.
+     * Any ambiguous timeout or error stops the queue: never retry a possibly
+     * accepted append and thereby risk duplicate tracks.
+     */
+    private void queueNextSdkTrack(int ticket, SpotifyAppRemote session, int index) {
+        if (ticket!=sequence || session!=remote || jobId==null || sdkAlbumQueueFinished) return;
+        if (index>=pendingSdkAlbum.size()) {
+            sdkAlbumQueueFinished = true;
+            recordIntegrated("SDK canonical album queue complete: " + sdkQueuedCount
+                + "/" + Math.max(0,pendingSdkAlbum.size()-1)
+                + " additional tracks SDK-acknowledged in order."
+                + " Server independently checking Spotify upcoming queue.");
+            reportSdkQueueReceipt(ticket,true);
+            return;
+        }
+        final String uri=pendingSdkAlbum.get(index);
+        final boolean[] settled={false};
+        handler.postDelayed(() -> {
+            if (ticket==sequence && session==remote && !settled[0] && !sdkAlbumQueueFinished) {
+                settled[0]=true;
+                sdkQueueFailed(ticket,"No Spotify SDK queue callback for track "
+                    +(index+1)+" within 10 seconds; refusing duplicate append.");
+            }
+        },10000);
         try {
             session.getPlayerApi().queue(uri)
                 .setResultCallback(ignored -> handler.post(() -> {
-                    if (ticket!=sequence || session!=remote) return;
+                    if (ticket!=sequence || session!=remote || settled[0] || sdkAlbumQueueFinished) return;
+                    settled[0]=true;
                     sdkQueuedCount++;
-                    recordIntegrated("SDK queue acknowledged track "
-                        + (index+1) + "/" + pendingSdkAlbum.size()
-                        + " (#" + SpotifyLocalPlayerProbe.trackTag(uri) + ").");
-                    queueNextSdkTrack(ticket,session,index+1);
+                    if (index==1 || (index+1)%5==0 || index+1==pendingSdkAlbum.size())
+                        recordIntegrated("SDK queue acknowledged track " + (index+1)
+                            + "/" + pendingSdkAlbum.size()
+                            + " (#" + SpotifyLocalPlayerProbe.trackTag(uri) + ").");
+                    handler.post(() -> queueNextSdkTrack(ticket,session,index+1));
                 }))
                 .setErrorCallback(error -> handler.post(() -> {
-                    if (ticket!=sequence || session!=remote) return;
-                    sdkAlbumQueueFinished = true;
-                    recordIntegrated("SDK album queue STOPPED at track "
-                        + (index+1) + "/" + pendingSdkAlbum.size() + ": "
-                        + WakeDiagnostics.failure(error)
-                        + ". No retries; earlier tracks may remain queued.");
-                    if (sdkAlbumFirstTrackConfirmed) finishSdkAlbumWake();
+                    if (ticket!=sequence || session!=remote || settled[0] || sdkAlbumQueueFinished) return;
+                    settled[0]=true;
+                    sdkQueueFailed(ticket,"SDK queue rejected track "+(index+1)+"/"
+                        +pendingSdkAlbum.size()+": "+WakeDiagnostics.failure(error));
                 }));
         } catch (RuntimeException error) {
-            sdkAlbumQueueFinished = true;
-            recordIntegrated("SDK album queue threw at track "+(index+1)+": "
-                + WakeDiagnostics.failure(error)+". No automatic retry.");
-            if (sdkAlbumFirstTrackConfirmed) finishSdkAlbumWake();
+            if (!settled[0]) {
+                settled[0]=true;
+                sdkQueueFailed(ticket,"SDK queue threw on track "+(index+1)+": "
+                    +WakeDiagnostics.failure(error));
+            }
         }
     }
 
-    private void finishSdkAlbumWake() {
-        recordIntegrated("SDK album session finished; server first-track confirmed="
-            + sdkAlbumFirstTrackConfirmed + "; queued=" + sdkQueuedCount + "/"
-            + Math.max(0,pendingSdkAlbum.size()-1) + ".");
-        stopWake("SDK album handoff finished. Track-to-track transitions not independently verified.");
+    private void sdkQueueFailed(int ticket,String reason) {
+        if (ticket!=sequence || sdkAlbumQueueFinished) return;
+        sdkAlbumQueueFinished=true;
+        recordIntegrated("SDK album queue INCOMPLETE: "+reason
+            +" Successfully appended "+sdkQueuedCount+"/"
+            +Math.max(0,pendingSdkAlbum.size()-1)+". No automatic retry.");
+        reportSdkQueueReceipt(ticket,false);
+    }
+
+    private void reportSdkQueueReceipt(int ticket,boolean success) {
+        final int count=sdkQueuedCount;
+        final String origin=trustedOrigin, account=accountId, job=jobId, bearer=token;
+        if (job==null || account==null || bearer==null) return;
+        executor.execute(() -> {
+            IOException error=null;
+            for (int attempt=0;attempt<3;attempt++) {
+                try {
+                    PlaybackStatusClient.reportSdkQueue(origin,account,job,bearer,count,success);
+                    handler.post(() -> {
+                        if (ticket==sequence)
+                            recordIntegrated("SDK album queue receipt accepted by server: "
+                                +count+" added, complete="+success
+                                +". Server queue verification remains authoritative.");
+                    });
+                    return;
+                } catch (IOException failure) {
+                    error=failure;
+                    if (attempt<2) {
+                        try { Thread.sleep(650); }
+                        catch (InterruptedException interrupted) { Thread.currentThread().interrupt();return; }
+                    }
+                }
+            }
+            final String description=PlaybackStatusClient.describe(error);
+            handler.post(() -> {
+                if (ticket==sequence)
+                    recordIntegrated("SDK album receipt delivery failed: "+description
+                        +". Playback may continue; server will not claim queue success.");
+            });
+        });
     }
 
     private void stopWake() {

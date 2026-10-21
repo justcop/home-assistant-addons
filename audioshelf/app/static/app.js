@@ -537,7 +537,9 @@ function handoffProgressText(job){
   if(job.play_accepted)return 'Spotify accepted Play. Confirming your phone and first track…';
   switch(job.phase){
     case 'preparing_playback': return 'Phone found on Spotify Connect. Preparing your album…';
-    case 'sdk_waiting_for_local_play': return 'Phone found. Asking local Spotify SDK to play the first track only…';
+    case 'sdk_waiting_for_local_play': return 'Phone found. Asking local Spotify SDK to play the canonical first track…';
+    case 'sdk_queueing': return 'First track playing. Queueing remaining album tracks in order…';
+    case 'sdk_verifying_queue': return 'Album queued. Verifying Spotify’s actual upcoming tracks…';
     case 'sending_play': return 'Phone ready. Sending your album to Spotify…';
     case 'confirming_playback': return 'Play sent. Confirming your phone and track…';
     case 'no_player_state': return 'Play sent. Waiting for Spotify to report playback…';
@@ -598,7 +600,7 @@ async function playbackHandoff(request,message){
   }
   if(request.generation!==routeGeneration)request.detached=true;
   if(!request.detached){
-    showModal(`<h2>${request.sdkSingleTrackTest?'Testing Spotify SDK first-track playback':'Starting playback on '+escapeHtml(statusInfo.preferred_device.name)}</h2><p id="playback-handoff-status" aria-live="polite">Waking Spotify and finding your selected phone…</p><p class="muted">${escapeHtml(message)}</p><div class="actions">${playbackWakeLinks()}<button class="secondary" data-action="play" ${request.disc===null?'':`data-disc="${request.disc}"`}>Retry playback</button><button class="secondary" data-action="playback-devices">Change device</button><button class="quiet" data-action="cancel-playback">Cancel playback</button></div><p>${nativeAudioShelf()?'The Android app wakes Spotify here without switching screens.':androidHelperLink()?'The helper wakes Spotify and returns here automatically. If it did not open, tap “Wake Spotify and return”.':'You can stay in Spotify.'} ${request.sdkSingleTrackTest?'This test plays ONLY the first original track through the local Spotify SDK; it will not queue the rest of the album.':'AudioShelf waits up to one minute to start this synced '+(request.disc===null?'album':'disc')+' on your selected device.'} You can close this dialog or browse your shelf while it continues. Only “Cancel playback” or choosing different music cancels this request.</p>`);
+    showModal(`<h2>${request.sdkSingleTrackTest?'Testing Spotify SDK first-track playback':'Starting playback on '+escapeHtml(statusInfo.preferred_device.name)}</h2><p id="playback-handoff-status" aria-live="polite">Waking Spotify and finding your selected phone…</p><p class="muted">${escapeHtml(message)}</p><div class="actions">${playbackWakeLinks()}<button class="secondary" data-action="play" ${request.disc===null?'':`data-disc="${request.disc}"`}>Retry playback</button><button class="secondary" data-action="playback-devices">Change device</button><button class="quiet" data-action="cancel-playback">Cancel playback</button></div><p>${nativeAudioShelf()?'The Android app wakes Spotify here without switching screens.':androidHelperLink()?'The helper wakes Spotify and returns here automatically. If it did not open, tap “Wake Spotify and return”.':'You can stay in Spotify.'} ${request.sdkSingleTrackTest?'This test plays ONLY the first original track through the local Spotify SDK; it will not queue the rest of the album.':request.sdkFullAlbum?'AudioShelf plays the canonical first track locally and queues the rest in strict order, then verifies the queue. It allows up to two minutes.':'AudioShelf waits up to two minutes to start this synced '+(request.disc===null?'album':'disc')+' on your selected device.'} You can close this dialog or browse your shelf while it continues. Only “Cancel playback” or choosing different music cancels this request.</p>`);
   }
   wakePlaybackHelper(request);
   retryPendingPlayback();
@@ -672,7 +674,7 @@ async function retryPendingPlayback(force=false){
       // Do not wait for a second, possibly stale, Spotify player read.
       beginPlayback(request.album,job.result,false,true);
       if(!request.detached&&modal.open&&modalContent.querySelector('#playback-handoff-status'))modal.close();
-      toast(job.result.sdk_single_track?`SDK test confirmed: first track playing on ${job.result.device}. No additional tracks queued.`:job.result.sdk_full_album?`First track confirmed on ${job.result.device}; Android is queuing ${job.result.track_count} canonical tracks.`:`Playing ${job.result.track_count} tracks on ${job.result.device}.`);
+      toast(job.result.sdk_single_track?`SDK test confirmed: first track playing on ${job.result.device}. No additional tracks queued.`:job.result.sdk_full_album?`${job.result.track_count} canonical tracks queued and verified on ${job.result.device}.`:`Playing ${job.result.track_count} tracks on ${job.result.device}.`);
     }else{
       failPlaybackStart();
       if(request.detached||request.confirmingInBackground){

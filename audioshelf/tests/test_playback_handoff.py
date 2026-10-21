@@ -166,11 +166,15 @@ def test_sdk_full_album_exposes_exact_canonical_sequence_without_web_play(applic
     album=ready_album(application)
     started=threading.Event()
     calls=[]
+    expected=['spotify:track:'+t['spotify_id'] for t in album['tracks']]
     def api(method,path,params=None,body=None):
         calls.append((method,path))
         if path=='me/player/devices':return {'devices':[PHONE]}
         if path=='me/player':
-            return {'device':PHONE,'is_playing':True,'item':{'id':'a'*22}} if started.is_set() else {}
+            return ({'device':PHONE,'is_playing':True,'item':{'id':'a'*22},
+                     'shuffle_state':False,'repeat_state':'off'} if started.is_set() else {})
+        if path=='me/player/queue':
+            return {'queue':[{'uri':uri} for uri in expected[1:]]}
         if method!='GET':pytest.fail('SDK album must not invoke Web API playback or queue')
         return {}
     monkeypatch.setattr(spotify,'api',api)
@@ -182,18 +186,65 @@ def test_sdk_full_album_exposes_exact_canonical_sequence_without_web_play(applic
         helper=manager.helper_status(job['id'],job['helper_token'],wait=0)
         if helper.get('sdk_track_uris'):break
         time.sleep(.005)
-    expected=['spotify:track:'+t['spotify_id'] for t in album['tracks']]
-    assert helper['sdk_track_uris']==expected
+    assert list(helper['sdk_track_uris'])==expected
     assert helper['sdk_test_uri']==expected[0]
     assert 'sdk_track_uris' not in manager.status(job['id'],'owner')
     assert 'sdk_track_uris' not in str(manager.snapshot(job))
-    assert not any(m=='PUT' for m,_ in calls)
+    assert not any(method=='PUT' for method,_ in calls)
     started.set()
+    time.sleep(.035)
+    assert manager.status(job['id'],'owner')['state']=='waiting'
+    with pytest.raises(AppError):
+        manager.acknowledge_sdk_queue(job['id'],'bad-token',1,True)
+    assert manager.acknowledge_sdk_queue(job['id'],job['helper_token'],len(expected)-1,True)['queued_count']==1
     done=finished(manager,job)
     assert done['state']=='started'
     assert done['result']['sdk_full_album'] is True
     assert done['result']['track_count']==len(expected)
-    assert not any(m=='PUT' for m,_ in calls)
+    assert ('GET','me/player/queue') in calls
+    assert not any(method=='PUT' for method,_ in calls)
+
+
+def test_sdk_full_album_mismatched_queue_is_not_confirmed(application, monkeypatch):
+    spotify=application.extensions['spotify']
+    album=ready_album(application)
+    def api(method,path,params=None,body=None):
+        if path=='me/player/devices':return {'devices':[PHONE]}
+        if path=='me/player':return {'device':PHONE,'is_playing':True,
+                                     'item':{'id':'a'*22},'shuffle_state':False,'repeat_state':'off'}
+        if path=='me/player/queue':return {'queue':[{'uri':'spotify:track:'+'z'*22}]}
+        if method!='GET':pytest.fail('No Web API playback commands permitted')
+        return {}
+    monkeypatch.setattr(spotify,'api',api)
+    manager=PlaybackHandoff(spotify,interval=.01,timeout=.15)
+    job=manager.start(album,None,PHONE,'owner',lambda:True,sdk_full_album=True)
+    deadline=time.monotonic()+1
+    while time.monotonic()<deadline:
+        if manager.helper_status(job['id'],job['helper_token'],wait=0).get('sdk_track_uris'):break
+        time.sleep(.005)
+    manager.acknowledge_sdk_queue(job['id'],job['helper_token'],1,True)
+    time.sleep(.1)
+    state=manager.status(job['id'],'owner')
+    assert state['state']=='waiting'
+    assert state['phase'] in ('sdk_queueing','sdk_verifying_queue','confirming_playback','preparing_playback_modes')
+    manager.cancel_all()
+
+
+def test_sdk_full_album_partial_enqueue_exposes_failure_without_retry(application, monkeypatch):
+    spotify=application.extensions['spotify']
+    album=ready_album(application)
+    monkeypatch.setattr(spotify,'devices',lambda:[PHONE])
+    monkeypatch.setattr(spotify,'api',lambda method,path,params=None,body=None:{})
+    manager=PlaybackHandoff(spotify,interval=.01)
+    job=manager.start(album,None,PHONE,'owner',lambda:True,sdk_full_album=True)
+    deadline=time.monotonic()+1
+    while time.monotonic()<deadline:
+        if manager.helper_status(job['id'],job['helper_token'],wait=0).get('sdk_track_uris'):break
+        time.sleep(.005)
+    receipt=manager.acknowledge_sdk_queue(job['id'],job['helper_token'],0,False)
+    assert receipt['state']=='unconfirmed'
+    assert 'incomplete' in manager.status(job['id'],'owner')['error']
+    assert not manager.job['sdk_queue_ack']
 
 
 def test_worker_stops_on_spotify_errors_without_repeating_queue():
