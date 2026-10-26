@@ -5,6 +5,12 @@
 - Add authenticated idempotent SDK queue receipt reporting with no raw Spotify IDs. Partial appends fail clearly without automatically retrying ambiguous queue operations. Correct repeat/shuffle on the confirmed device.
 - Keep non-Android and optional legacy Web API playback available.
 
+# 0.6.40 — Automatic acceptance of verified tracklists
+
+- Removed the first-playback confirmation gate for canonical MusicBrainz tracklists that already have complete Spotify verification.
+- Removed the redundant “This tracklist is correct” prompt; preferred verified mappings play automatically. Users can still choose a different original edition in Album settings.
+- Added a UI regression test that checks playback no longer requires manual confirmation.
+
 # 0.6.39 — Android SDK canonical album playback
 
 - The integrated Android app can play reviewed canonical album/disc/vinyl-side selections via Spotify App Remote, avoiding Spotify Web API's accepted-but-inactive `PUT /me/player/play` behaviour. Expose at most 100 verified track URIs to the short-lived authorised helper only; do not change saved mappings or send Web API Play/queue for SDK handoffs.
