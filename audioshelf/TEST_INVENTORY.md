@@ -4,7 +4,7 @@ Reviewed: 2026-10-26T21:00:00+00:00 (Europe/London).
 
 Reviewed the changed browser regression: the canonical tracklist confirmation button must no longer appear because a fully Spotify-verified tracklist is accepted automatically. The 421 backend test cases are unchanged. Existing Spotify matching requirements and manual edition selection remain; real-world multi-song playback still requires user verification.
 
-<!-- inventory: {"reviewed_at":"2026-10-26T21:00:00+00:00","review_note":"Reviewed the changed browser regression: the first-playback tracklist confirmation is absent, while the existing requirement for a complete Spotify-verified canonical tracklist remains enforced. Manual edition selection remains available. The collected backend cases are unchanged; real-world playback still requires user verification.","source_sha256":"b10534901379a308b47b1d3c88dadcbd751045520220789b67a72457828bd66f"} -->
+<!-- inventory: {"reviewed_at":"2026-10-26T21:00:00+00:00","review_note":"Reviewed the changed browser regression: the first-playback tracklist confirmation is absent, while the existing requirement for a complete Spotify-verified canonical tracklist remains enforced. Manual edition selection remains available. The collected backend cases are unchanged; real-world playback still requires user verification.","source_sha256":"2a2fdab40e2f72705f617209fef09f9515f13d66e99f8373a5d6edac1899c218"} -->
 
 ## Backend cases (421)
 
