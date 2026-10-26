@@ -186,8 +186,8 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     if(screenshotDir)await page.screenshot({path:path.join(screenshotDir,'cover-picker-mobile.png'),fullPage:true});
     await page.locator('[data-action="choose-cover"]').first().click();
     await page.locator('#toast').filter({hasText:'Edition cover saved.'}).waitFor();
-    await page.getByRole('button',{name:'This tracklist is correct'}).click();
-    await page.getByRole('button',{name:'This tracklist is correct'}).waitFor({state:'hidden'});
+    assert.equal(await page.getByRole('button',{name:'This tracklist is correct'}).count(),0,
+      'A fully verified canonical tracklist is accepted automatically without a manual confirmation gate');
     await page.getByRole('button',{name:'Find another edition'}).click();
     await page.getByRole('heading',{name:'Spotify editions'}).waitFor();
     await page.getByRole('button',{name:'Close',exact:true}).click();
