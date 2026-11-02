@@ -87,7 +87,8 @@ assert(updater.includes('check(BiConsumer<String, Runnable> offerDownload)') &&
   updater.includes('offerDownload.accept(update.versionName'),
   'Updater sends a validated version to the same integrated dialog');
 assert((android.match(/\.play\(/g)||[]).length===1 &&
-  android.includes('session.getPlayerApi().play(pendingSdkFirstTrack)') &&
+  android.includes('session.getPlayerApi().play(playUri)') &&
+  android.includes('pendingSdkContextUri.isEmpty() ? pendingSdkFirstTrack : pendingSdkContextUri') &&
   android.includes('sdkPlayAttempted = true;') &&
   android.includes('result.sdkTestUri') &&
   android.includes('session.getPlayerApi().queue(uri)') &&
