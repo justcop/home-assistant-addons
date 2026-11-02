@@ -179,6 +179,7 @@ class PlaybackHandoff:
             elif not job['sdk_queue_error'] and not job['sdk_queue_ack']:
                 job['sdk_queue_ack'] = True
                 self.publish_helper(job)
+                self.changed.notify_all()
             return {'state': job['state'], 'queued_count': expected if job['sdk_queue_ack'] else count}
 
     def set_status(self, job, state, result=None, error=None):
@@ -304,7 +305,13 @@ class PlaybackHandoff:
                 if result.get('sdk_full_album'):
                     if not job['sdk_queue_ack']:
                         self.progress(job, 'sdk_queueing', verification=observed)
-                        job['stop'].wait(min(.5, max(0, job['deadline'] - time.monotonic())))
+                        # The SDK queue receipt wakes this waiter immediately.
+                        # Do not poll Spotify for 500 ms after an already-received
+                        # acknowledgement, and do not spin on the player API.
+                        with self.changed:
+                            self.changed.wait_for(
+                                lambda: job['sdk_queue_ack'] or job['state'] != 'waiting' or job['stop'].is_set(),
+                                timeout=min(.5, max(0, job['deadline'] - time.monotonic())))
                         continue
                     expected = job['sdk_track_uris'][1:]
                     if expected:
