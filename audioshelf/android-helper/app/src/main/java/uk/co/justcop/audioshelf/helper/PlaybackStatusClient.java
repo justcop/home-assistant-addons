@@ -18,18 +18,18 @@ final class PlaybackStatusClient {
         final int httpStatus, deviceChecks, confirmationChecks;
         final boolean playAccepted;
         final int deviceSeenMs, playAcceptedMs, lastDeviceCheckMs, lastDeviceProbeMs;
-        final String observation, requestedTag, cancellationReason, preparationRetry, trackAudit, sdkTestUri;
+        final String observation, requestedTag, cancellationReason, preparationRetry, trackAudit, sdkTestUri, sdkContextUri;
         final java.util.List<String> sdkTrackUris;
         Result(String state, String message, String phase, int httpStatus, int devices, int confirmations,
                boolean accepted, int seenMs, int acceptedMs, int checkMs, int probeMs,
                String observed, String requestedTag, String cancelledBecause, String retry, String audit, String sdkUri,
-               java.util.List<String> trackUris) {
+               java.util.List<String> trackUris, String contextUri) {
             this.state = state; this.message = message; this.phase = phase;
             this.httpStatus = httpStatus; deviceChecks = devices; confirmationChecks = confirmations;
             playAccepted = accepted; deviceSeenMs = seenMs; playAcceptedMs = acceptedMs;
             lastDeviceCheckMs = checkMs; lastDeviceProbeMs = probeMs; observation = observed;
             this.requestedTag = requestedTag; cancellationReason = cancelledBecause; preparationRetry = retry;
-            trackAudit = audit; sdkTestUri = sdkUri; sdkTrackUris = trackUris;
+            trackAudit = audit; sdkTestUri = sdkUri; sdkTrackUris = trackUris; sdkContextUri = contextUri;
         }
         String progress() {
             String detail;
@@ -122,7 +122,7 @@ final class PlaybackStatusClient {
     static Result parse(int code, String response) throws IOException {
         if (code == 401 || code == 403 || code == 404 || code == 410)
             return new Result("expired", "Playback request unavailable.", "expired", code, -1, -1,
-                false, -1, -1, -1, -1, "", "", "", "", "", "", java.util.Collections.emptyList());
+                false, -1, -1, -1, -1, "", "", "", "", "", "", java.util.Collections.emptyList(), "");
         if (code != 200) throw new HttpFailure(code);
         try {
             JsonObject object = JsonParser.parseString(response).getAsJsonObject();
@@ -140,7 +140,7 @@ final class PlaybackStatusClient {
             return new Result(state, message, phase, code, devices, confirmations, accepted,
                 optionalMillis(object, "device_seen_ms"), optionalMillis(object, "play_accepted_ms"),
                 optionalMillis(object, "last_device_check_ms"), optionalMillis(object, "last_device_probe_ms"),
-                observation(object), requestedTag(object), cancellationReason(object), preparationRetry(object), trackAudit(object), sdkTestUri(object), sdkTrackUris(object));
+                observation(object), requestedTag(object), cancellationReason(object), preparationRetry(object), trackAudit(object), sdkTestUri(object), sdkTrackUris(object), sdkContextUri(object));
         } catch (RuntimeException exception) {
             throw new IOException("Invalid playback response", exception);
         }
@@ -210,6 +210,13 @@ final class PlaybackStatusClient {
             uris.add(uri);
         }
         return java.util.Collections.unmodifiableList(uris);
+    }
+
+    private static String sdkContextUri(JsonObject object) {
+        if (!object.has("sdk_full_album") || !object.get("sdk_full_album").isJsonPrimitive()
+                || !object.get("sdk_full_album").getAsBoolean()) return "";
+        String uri = safe(object, "sdk_context_uri");
+        return uri.matches("spotify:album:[A-Za-z0-9]{22}") ? uri : "";
     }
 
     private static String sdkTestUri(JsonObject object) {
