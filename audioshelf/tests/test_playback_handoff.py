@@ -675,3 +675,65 @@ def test_handoff_mode_retry_does_not_repeat_accepted_play(application,monkeypatc
     assert finished(manager,job)['state']=='started'
     assert state['shuffle_attempts']==2
     assert [c[1] for c in calls].count('me/player/play')==1
+
+
+def test_sdk_exact_album_context_avoids_queue_appends(application, monkeypatch):
+    spotify=application.extensions['spotify']
+    album=ready_album(application)
+    album['spotify_album_id']='c'*22
+    expected=['spotify:track:'+t['spotify_id'] for t in album['tracks']]
+    monkeypatch.setattr(spotify,'album',lambda _: {
+        'all_tracks':[{'id':t['spotify_id']} for t in album['tracks']]})
+    playing=threading.Event()
+    def api(method,path,params=None,body=None):
+        if path=='me/player/devices':return {'devices':[PHONE]}
+        if path=='me/player':
+            return ({'device':PHONE,'is_playing':True,
+                     'item':{'id':album['tracks'][0]['spotify_id']},
+                     'shuffle_state':False,'repeat_state':'off'} if playing.is_set() else {})
+        if path=='me/player/queue':return {'queue':[{'uri':uri} for uri in expected[1:]]}
+        if method!='GET':pytest.fail('Album context must not issue Web API Play or queue')
+        return {}
+    monkeypatch.setattr(spotify,'api',api)
+    manager=PlaybackHandoff(spotify,timeout=2,interval=.01)
+    job=manager.start(album,None,PHONE,'owner',lambda:True,sdk_full_album=True)
+    deadline=time.monotonic()+1
+    helper={}
+    while time.monotonic()<deadline:
+        helper=manager.helper_status(job['id'],job['helper_token'],wait=0)
+        if helper.get('sdk_context_uri'):break
+        time.sleep(.005)
+    assert helper['sdk_context_uri']=='spotify:album:'+'c'*22
+    assert list(helper['sdk_track_uris'])==expected
+    assert 'sdk_context_uri' not in manager.status(job['id'],'owner')
+    playing.set()
+    assert manager.acknowledge_sdk_queue(job['id'],job['helper_token'],0,True)['queued_count']==0
+    assert finished(manager,job)['state']=='started'
+
+
+def test_album_context_does_not_confirm_stale_manual_queue(application, monkeypatch):
+    spotify=application.extensions['spotify']
+    album=ready_album(application)
+    album['spotify_album_id']='c'*22
+    monkeypatch.setattr(spotify,'album',lambda _: {'all_tracks':[
+        {'id':album['tracks'][0]['spotify_id']}, {'id':album['tracks'][1]['spotify_id']}]})
+    def api(method,path,params=None,body=None):
+        if path=='me/player/devices':return {'devices':[PHONE]}
+        if path=='me/player':return {'device':PHONE,'is_playing':True,
+                                     'item':{'id':album['tracks'][0]['spotify_id']},
+                                     'shuffle_state':False,'repeat_state':'off'}
+        if path=='me/player/queue':return {'queue':[{'uri':'spotify:track:'+'z'*22}]}
+        if method!='GET':pytest.fail('No Web API playback commands')
+        return {}
+    monkeypatch.setattr(spotify,'api',api)
+    manager=PlaybackHandoff(spotify,timeout=2,interval=.01)
+    job=manager.start(album,None,PHONE,'owner',lambda:True,sdk_full_album=True)
+    deadline=time.monotonic()+1
+    while time.monotonic()<deadline:
+        if manager.helper_status(job['id'],job['helper_token'],wait=0).get('sdk_context_uri'):break
+        time.sleep(.005)
+    manager.acknowledge_sdk_queue(job['id'],job['helper_token'],0,True)
+    time.sleep(.06)
+    assert manager.status(job['id'],'owner')['state']=='waiting'
+    assert manager.status(job['id'],'owner')['phase']=='sdk_verifying_queue'
+    manager.cancel_all()
