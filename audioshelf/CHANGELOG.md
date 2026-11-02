@@ -1,3 +1,10 @@
+# 0.6.41 — Verified Spotify album playback context
+
+- Android App Remote starts a Spotify album context instead of appending individual songs when the exact complete Spotify album tracklist matches AudioShelf's verified canonical album.
+- For vinyl sides, individual discs and alternate editions, retain exact-track playback via the existing SDK queue mechanism.
+- Spotify has no public clear-manually-queued-songs API. Require the expected upcoming sequence before claiming playback; if older tracks persist, show an actionable Clear queue error.
+- Restrict the new album context URI to the scoped Android helper and independently verify the queue. Add regression tests and updated release versions.
+
 # 0.6.40 — Verified Android SDK canonical full-album handoff
 
 - Full album, disc, and vinyl-side selections are sent as the exact reviewed Spotify track sequence to the trusted, short-lived integrated Android helper (not exposed in PWA status). Web API Play is bypassed on this path.
