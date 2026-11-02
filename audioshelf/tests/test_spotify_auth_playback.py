@@ -330,3 +330,17 @@ def test_missing_active_player_is_treated_as_idle_not_missing_phone(application,
     # attempting activation of the verified Spotify Connect phone.
     assert ('PUT','me/player') in calls
     assert ('PUT','me/player/play') not in calls
+
+
+def test_sdk_album_context_requires_identical_full_release(application, monkeypatch):
+    spotify=application.extensions['spotify']
+    album=ready_album(application)
+    album['spotify_album_id']='c'*22
+    expected=['spotify:track:'+t['spotify_id'] for t in album['tracks']]
+    monkeypatch.setattr(spotify,'album',lambda _: {
+        'all_tracks':[{'id':t['spotify_id']} for t in album['tracks']]})
+    assert spotify.sdk_verified_album_context(album,None,expected)=='spotify:album:'+'c'*22
+    assert spotify.sdk_verified_album_context(album,1,expected) is None
+    assert spotify.sdk_verified_album_context(album,None,expected[:1]) is None
+    assert spotify.sdk_verified_album_context(album,None,list(reversed(expected))) is None
+    assert spotify.sdk_verified_album_context({**album,'spotify_album_id':None},None,expected) is None
