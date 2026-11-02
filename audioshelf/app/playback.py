@@ -58,7 +58,7 @@ class PlaybackHandoff:
                    'last_device_check_ms': None, 'last_device_probe_ms': None,
                    'preparation_retry': None, 'verification': None, 'track_audit': None,
                    'sdk_single_track': sdk_single_track, 'sdk_full_album': sdk_full_album,
-                   'sdk_test_uri': None, 'sdk_track_uris': None,
+                   'sdk_test_uri': None, 'sdk_track_uris': None, 'sdk_context_uri': None,
                    'sdk_queue_ack': False, 'sdk_queue_error': False,
                    'sdk_queue_verified_prefix': 0, 'sdk_first_verified': False,
                    'created_monotonic': started,
@@ -91,7 +91,7 @@ class PlaybackHandoff:
                                    'play_accepted', 'device_seen_ms', 'play_accepted_ms',
                                    'last_device_check_ms', 'last_device_probe_ms', 'verification',
                                    'preparation_retry', 'cancel_reason', 'track_audit',
-                                   'sdk_single_track', 'sdk_full_album', 'sdk_test_uri', 'sdk_track_uris',
+                                   'sdk_single_track', 'sdk_full_album', 'sdk_test_uri', 'sdk_track_uris', 'sdk_context_uri',
                                    'sdk_queue_ack', 'sdk_queue_verified_prefix')}
             self.helper_job = job
             self.helper_changed.notify_all()
@@ -168,7 +168,7 @@ class PlaybackHandoff:
                 raise AppError('Playback request expired or was cancelled.', 410)
             if job['state'] != 'waiting':
                 return {'state': job['state']}
-            expected = len(job['sdk_track_uris'] or []) - 1
+            expected = 0 if job['sdk_context_uri'] else len(job['sdk_track_uris'] or []) - 1
             if type(count) is not int or type(success) is not bool or count < 0 or count > max(0, expected):
                 raise AppError('Invalid SDK queue acknowledgement.', 400)
             if not success or count != expected:
@@ -179,6 +179,7 @@ class PlaybackHandoff:
             elif not job['sdk_queue_error'] and not job['sdk_queue_ack']:
                 job['sdk_queue_ack'] = True
                 self.publish_helper(job)
+                self.changed.notify_all()
             return {'state': job['state'], 'queued_count': expected if job['sdk_queue_ack'] else count}
 
     def set_status(self, job, state, result=None, error=None):
@@ -242,6 +243,7 @@ class PlaybackHandoff:
         wanted_device = result['device_id']
         wanted_track = result['first_track']['id']
         last_mode_attempt = 0
+        mismatched_queue_since = None
         while True:
             if job['state'] != 'waiting' or self.job is not job:
                 return
@@ -303,7 +305,13 @@ class PlaybackHandoff:
                 if result.get('sdk_full_album'):
                     if not job['sdk_queue_ack']:
                         self.progress(job, 'sdk_queueing', verification=observed)
-                        job['stop'].wait(min(.5, max(0, job['deadline'] - time.monotonic())))
+                        # The SDK queue receipt wakes this waiter immediately.
+                        # Do not poll Spotify for 500 ms after an already-received
+                        # acknowledgement, and do not spin on the player API.
+                        with self.changed:
+                            self.changed.wait_for(
+                                lambda: job['sdk_queue_ack'] or job['state'] != 'waiting' or job['stop'].is_set(),
+                                timeout=min(.5, max(0, job['deadline'] - time.monotonic())))
                         continue
                     expected = job['sdk_track_uris'][1:]
                     if expected:
@@ -326,8 +334,21 @@ class PlaybackHandoff:
                         self.progress(job, 'sdk_verifying_queue',
                                       sdk_queue_verified_prefix=matches, verification=observed)
                         if matches < minimum_visible:
+                            # Never claim the old manual Spotify queue was cleared
+                            # when its tracks still precede the requested album.
+                            if actual:
+                                if mismatched_queue_since is None:
+                                    mismatched_queue_since = time.monotonic()
+                                elif time.monotonic() - mismatched_queue_since >= 5:
+                                    self.set_status(job, 'unconfirmed',
+                                        error='Spotify kept songs from its previous queue ahead of this album. '
+                                              'Open Spotify, clear Next in queue, then play the album again.')
+                                    return
+                            else:
+                                mismatched_queue_since = None
                             job['stop'].wait(min(.75, max(0, job['deadline'] - time.monotonic())))
                             continue
+                        mismatched_queue_since = None
                     # Spotify may expose a bounded queue prefix; all songs
                     # must be SDK acknowledged and all visible prefix tracks
                     # must match before initial playback is confirmed.
@@ -413,7 +434,10 @@ class PlaybackHandoff:
                                   'sdk_single_track': job['sdk_single_track'],
                                   'sdk_full_album': job['sdk_full_album'],
                                   'modes_need_confirmation': bool(job['sdk_full_album'])}
+                        context_uri = (self.spotify.sdk_verified_album_context(album, disc, uris)
+                                       if job['sdk_full_album'] else None)
                         self.progress(job, 'sdk_waiting_for_local_play', sdk_test_uri=uris[0],
+                                      sdk_context_uri=context_uri,
                                       sdk_track_uris=tuple(uris) if job['sdk_full_album'] else None)
                     else:
                         result = self.spotify.play(

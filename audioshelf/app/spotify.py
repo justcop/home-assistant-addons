@@ -326,6 +326,31 @@ class Spotify:
             raise AppError('This album exceeds the MVP limit of 100 tracks.')
         return tracks, uris
 
+    def sdk_verified_album_context(self, album, disc_number, uris):
+        """Play a verified, exact album using its native Spotify context.
+
+        This replaces the normal upcoming context instead of appending tracks
+        to the previous queue. Spotify offers no public manual queue clear API.
+        """
+        identifier = album.get('spotify_album_id')
+        if disc_number is not None or not identifier:
+            return None
+        try:
+            identifier = spotify_id(identifier, 'album')
+            listed = self.album(identifier).get('all_tracks', [])
+            if len(listed) != len(uris):
+                return None
+            for expected, item in zip(uris, listed):
+                if not isinstance(item, dict):
+                    return None
+                linked = item.get('linked_from') or {}
+                ids = (item.get('id'), linked.get('id') if isinstance(linked, dict) else None)
+                if expected not in ('spotify:track:' + value for value in ids if isinstance(value, str)):
+                    return None
+            return 'spotify:album:' + identifier
+        except (AppError, KeyError, TypeError, ValueError):
+            return None
+
     def play(self, album, disc_number=None, preferred_device=None, guard=None,
              dispatch=None, resolved_device=None, progress=None):
         """Play the verified tracklist on one explicitly chosen Spotify device.

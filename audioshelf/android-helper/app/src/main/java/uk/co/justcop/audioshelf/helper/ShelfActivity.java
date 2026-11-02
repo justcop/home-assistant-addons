@@ -80,6 +80,7 @@ public final class ShelfActivity extends Activity {
     private String wakeSdkState = "not started";
     private boolean lastAcceptedPlay;
     private String pendingSdkFirstTrack = "";
+    private String pendingSdkContextUri = "";
     private java.util.List<String> pendingSdkAlbum = java.util.Collections.emptyList();
     private int sdkQueuedCount;
     private boolean sdkAlbumFirstTrackConfirmed, sdkAlbumQueueFinished;
@@ -294,6 +295,7 @@ public final class ShelfActivity extends Activity {
         lastTrackAudit = "";
         lastAcceptedPlay = false;
         pendingSdkFirstTrack = "";
+        pendingSdkContextUri = "";
         pendingSdkAlbum = java.util.Collections.emptyList();
         sdkQueuedCount = 0;
         sdkAlbumFirstTrackConfirmed = false;
@@ -314,7 +316,7 @@ public final class ShelfActivity extends Activity {
             + "; absolute timestamps and monotonic elapsed seconds enabled.");
         recordIntegrated("Trusted wake request validated; credentials, account and full job ID omitted.");
         recordIntegrated("Spotify App Remote wake started. SDK album handoffs play the"
-            + " first canonical track locally, then queue the remaining tracks in order.");
+            + " verified album context when possible; otherwise uses exact-track queueing.");
         handler.postDelayed(() -> {
             if (ticket==sequence && !pendingSdkAlbum.isEmpty()) {
                 // Large original albums require multiple serial SDK queue calls.
@@ -426,10 +428,12 @@ public final class ShelfActivity extends Activity {
                             && pendingSdkAlbum.isEmpty()) {
                         pendingSdkAlbum = result.sdkTrackUris;
                         pendingSdkFirstTrack = pendingSdkAlbum.get(0);
+                        pendingSdkContextUri = result.sdkContextUri;
                         recordIntegrated("SDK full-album playback armed: "
                             + pendingSdkAlbum.size() + " canonical tracks, first #"
                             + SpotifyLocalPlayerProbe.trackTag(pendingSdkFirstTrack)
-                            + ". No Web API Play or transfer.");
+                            + (pendingSdkContextUri.isEmpty() ? ". Exact-track queue mode." : ". Verified album context mode.")
+                            + " No Web API Play or transfer.");
                     }
                     if ("waiting".equals(result.state) && result.sdkTestUri != null
                             && !result.sdkTestUri.isEmpty() && pendingSdkFirstTrack.isEmpty()) {
@@ -496,14 +500,16 @@ public final class ShelfActivity extends Activity {
         if (localPlayerProbe != null) localPlayerProbe.sdkSingleTrackPlayIssued();
         recordIntegrated((pendingSdkAlbum.isEmpty()?"SDK single-track test":"SDK full-album playback")
             + ": issuing one local Play for #" + SpotifyLocalPlayerProbe.trackTag(pendingSdkFirstTrack)
-            + "; no Web API Play. Remaining canonical tracks queued via SDK only.");
+            + (pendingSdkContextUri.isEmpty() ? "; exact tracks will be SDK-queued." : "; album context replaces the prior normal queue.")
+            + " No Web API Play.");
         try {
-            session.getPlayerApi().play(pendingSdkFirstTrack)
+            final String playUri = pendingSdkContextUri.isEmpty() ? pendingSdkFirstTrack : pendingSdkContextUri;
+            session.getPlayerApi().play(playUri)
                 .setResultCallback(ignored -> handler.post(() -> {
                     if (ticket == sequence && remote == session)
                         if (!pendingSdkAlbum.isEmpty()) {
-                            recordIntegrated("SDK first-track Play acknowledged; checking the local track"
-                                + " is loaded before appending the canonical queue.");
+                            recordIntegrated("SDK Play acknowledged; checking the exact first track"
+                                + " before accepting the album context or queueing exact tracks.");
                             waitForSdkFirstTrack(ticket, session, 0);
                         } else {
                             recordIntegrated("SDK single-track Play callback succeeded;"
@@ -542,9 +548,15 @@ public final class ShelfActivity extends Activity {
                         if (expected && !state.isPaused) {
                             recordIntegrated("Spotify SDK local first track playing, #"
                                 + SpotifyLocalPlayerProbe.trackTag(pendingSdkFirstTrack)
-                                + ". Beginning canonical queue of " + (pendingSdkAlbum.size()-1)
-                                + " additional tracks.");
-                            queueNextSdkTrack(ticket,session,1);
+                                + (pendingSdkContextUri.isEmpty()
+                                    ? ". Beginning exact-track queue of " + (pendingSdkAlbum.size()-1) + " additional tracks."
+                                    : ". Album context is active; verifying its upcoming tracklist."));
+                            if (pendingSdkContextUri.isEmpty()) {
+                                queueNextSdkTrack(ticket,session,1);
+                            } else {
+                                sdkAlbumQueueFinished = true;
+                                reportSdkQueueReceipt(ticket,true);
+                            }
                         } else waitForSdkFirstTrack(ticket,session,round+1);
                     }))
                     .setErrorCallback(error -> handler.post(() -> {

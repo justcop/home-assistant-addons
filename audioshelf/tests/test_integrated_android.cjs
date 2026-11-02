@@ -24,7 +24,7 @@ assert(source.includes('sdk-single-track-test') && source.includes('sdk_single_t
 assert(source.includes('if(sdkSingleTrackTestEnabled())') &&
   source.includes('await playbackHandoff(request,'),
   'SDK test must bypass ordinary full-album Web API Play completely');
-assert(android.includes('session.getPlayerApi().play(pendingSdkFirstTrack)') &&
+assert(android.includes('session.getPlayerApi().play(playUri)') &&
   android.includes('sdkPlayAttempted = true;'),
   'Native SDK test sends exactly one first-track Play without auto-retries');
 assert(android.includes('if ("waiting".equals(result.state)) runSdkSingleTrackTest(ticket);'),
@@ -34,6 +34,10 @@ assert(android.includes('getPlayerApi().queue(uri)') &&
   android.includes('waitForSdkFirstTrack(ticket, session, 0)') &&
   android.includes('reportSdkQueueReceipt(ticket,true)'),
   'Full-album mode is the only mode that queues additional tracks');
+assert(android.includes('pendingSdkContextUri = result.sdkContextUri') &&
+  android.includes('sdkAlbumQueueFinished = true;') &&
+  android.includes('session.getPlayerApi().play(playUri)'),
+  'Native exact album context replaces normal playback without duplicate SDK queue appends');
 assert(android.includes('pendingSdkFirstTrack.equals(state.track.uri)') &&
   android.includes('getPlayerState()') &&
   android.includes('No Spotify SDK queue callback') &&
@@ -83,7 +87,8 @@ assert(updater.includes('check(BiConsumer<String, Runnable> offerDownload)') &&
   updater.includes('offerDownload.accept(update.versionName'),
   'Updater sends a validated version to the same integrated dialog');
 assert((android.match(/\.play\(/g)||[]).length===1 &&
-  android.includes('session.getPlayerApi().play(pendingSdkFirstTrack)') &&
+  android.includes('session.getPlayerApi().play(playUri)') &&
+  android.includes('pendingSdkContextUri.isEmpty() ? pendingSdkFirstTrack : pendingSdkContextUri') &&
   android.includes('sdkPlayAttempted = true;') &&
   android.includes('result.sdkTestUri') &&
   android.includes('session.getPlayerApi().queue(uri)') &&
