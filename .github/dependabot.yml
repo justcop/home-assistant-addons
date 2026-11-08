@@ -20,6 +20,10 @@ updates:
       routine-python:
         patterns:
           - "*"
+        # Keep isolated test-only pytest/PyYAML patch PRs separate for review.
+        exclude-patterns:
+          - "pytest"
+          - "PyYAML"
         update-types:
           - "minor"
           - "patch"
