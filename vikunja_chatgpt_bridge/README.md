@@ -6,7 +6,7 @@
 
 ## Installation
 
-1. Update the add-on from this repository. **Version 0.2.0 changes the configuration field names**.
+1. Update the add-on from this repository. **Version 0.2.1 uses the configuration field names**.
 2. In Vikunja 2.7+, open **Settings → MCP**, generate an **MCP token** using the Typed tools read + write preset (exclude deletion initially). This is not a general REST API token.
 3. In Home Assistant add-on Configuration:
    - `vikunja_mcp_url`: `https://vikunja.yourdomain.com/api/v2/mcp`
@@ -26,3 +26,18 @@ The proxy performs dynamic client registration, PKCE-S256 authorization code exc
 It is a **single-owner experimental service**, not a multi-user identity provider. Anyone with the bridge password can obtain the full rights of its configured Vikunja MCP token. Keep the token and secrets inside Home Assistant options, never GitHub. A dedicated Vikunja bot identity with limited project access is recommended. Revoking the MCP token in Vikunja immediately revokes underlying task access.
 
 **Not yet verified end-to-end with ChatGPT or a live Home Assistant deployment.** Test reads before enabling writes; avoid patient-identifiable data. Do not use for production-sensitive information until tested and security reviewed.
+
+## Version 0.2.1: OAuth registration compatibility
+
+The bridge supports dynamic client registration for both public PKCE clients (`none`) and confidential clients (`client_secret_post` and `client_secret_basic`). The registration endpoint is advertised in `/.well-known/oauth-authorization-server` and a registered client secret is returned only for confidential clients. Restart the add-on after updating. If ChatGPT still reports registration failure, check Cloudflare Tunnel's HTTP POST forwarding and inspect the add-on logs for rejected requests; the issue may be network routing or registration metadata rather than these authentication methods.
+
+Local diagnostic (replace hostname, do **not** include any secrets):
+
+```bash
+curl -i https://mcp.example.com/.well-known/oauth-authorization-server
+curl -i -X POST https://mcp.example.com/register \\
+  -H 'Content-Type: application/json' \\
+  -d '{"redirect_uris":["https://chatgpt.com/connector_platform_oauth_redirect"],"token_endpoint_auth_method":"client_secret_post"}'
+```
+
+The POST should return HTTP 201 and a JSON response containing a `client_id` and `client_secret`. The test creates a client, so only run it once. Do not paste client secrets into chats.
