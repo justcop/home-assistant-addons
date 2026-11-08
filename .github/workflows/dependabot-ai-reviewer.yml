@@ -7,8 +7,13 @@ on:
     inputs:
       pr_number:
         description: 'Existing Dependabot pull request number to review'
-        required: true
+        required: false
         type: number
+      auth_only:
+        description: 'Test keyless authentication only, without model requests or PR comments'
+        required: true
+        default: true
+        type: boolean
 
 # This privileged workflow checks out only trusted code from the default branch.
 # NEVER checkout or run PR code here. NEVER grant contents:write.
@@ -35,7 +40,30 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Test keyless authentication only
+        if: github.event_name == 'workflow_dispatch' && inputs.auth_only
+        env:
+          OPENAI_WIF_AUDIENCE: ${{ vars.OPENAI_WIF_AUDIENCE }}
+          OPENAI_IDENTITY_PROVIDER_ID: ${{ vars.OPENAI_IDENTITY_PROVIDER_ID }}
+          OPENAI_SERVICE_ACCOUNT_ID: ${{ vars.OPENAI_SERVICE_ACCOUNT_ID }}
+        run: |
+          python - <<'PY'
+          import os
+          import sys
+          sys.path.insert(0, '.github/scripts/dependency_review')
+          from review import github_oidc_access_token
+          try:
+              token = github_oidc_access_token(os.environ)
+          except Exception as exc:
+              print(f'Authentication failed: {type(exc).__name__}', file=sys.stderr)
+              sys.exit(1)
+          if not token:
+              sys.exit('Authentication returned no access token')
+          del token
+          print('OpenAI keyless authentication succeeded. No model request or PR comment made.')
+          PY
       - name: Review only (no code execution from PR)
+        if: github.event_name != 'workflow_dispatch' || !inputs.auth_only
         env:
           GH_TOKEN: ${{ github.token }}
           OPENAI_WIF_AUDIENCE: ${{ vars.OPENAI_WIF_AUDIENCE }}
