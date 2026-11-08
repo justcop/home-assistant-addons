@@ -1,38 +1,28 @@
-# Vikunja ChatGPT MCP Bridge (experimental)
+# Vikunja Native MCP OAuth Bridge (experimental)
 
-Home Assistant add-on wrapper for the third-party [Jacob-Tate/vikunja-mcp](https://github.com/Jacob-Tate/vikunja-mcp) OAuth-enabled MCP implementation. This is **not** Vikunja's native MCP endpoint; it uses Vikunja's REST API via a dedicated bot API token.
+**This forwards Vikunja's native MCP tools.** It is an OAuth 2.1 authorization wrapper, not a separate MCP implementation using Vikunja REST.
 
-> Experimental and not yet tested end-to-end with ChatGPT or Home Assistant. Review the upstream image before granting wide privileges. The Dockerfile uses a floating upstream image tag; pin an audited immutable digest for production.
+`ChatGPT → OAuth bridge → Vikunja /api/v2/mcp`
 
-## Installation from this repository
+## Installation
 
-1. In Home Assistant, ensure the repository `https://github.com/justcop/home-assistant-addons` is added in Settings → Add-ons → Add-on Store → Repositories.
-2. Refresh the add-on store. Install **Vikunja ChatGPT MCP Bridge (experimental)**.
-3. In Vikunja, create a dedicated bot user, share only the projects it should manage, and issue an API token in **Settings → API Tokens**. This bridge does **not** use Vikunja's native MCP token.
-4. In the add-on Configuration tab, configure:
-   - `vikunja_url`: your existing public Vikunja URL, e.g. `https://tasks.example.com`.
-   - `mcp_base_url`: a **different** public hostname, e.g. `https://vikunja-mcp.example.com`.
-   - `vikunja_token`: your bot user API token (keep private).
-   - `mcp_auth_password`: a separate long unique password for the OAuth login page.
-   - `jwt_secret`: random string of at least 32 characters; keep stable between restarts (for example `openssl rand -hex 32`).
-5. Start the add-on and inspect its logs. Only amd64 is currently declared.
+1. Update the add-on from this repository. **Version 0.2.0 changes the configuration field names**.
+2. In Vikunja 2.7+, open **Settings → MCP**, generate an **MCP token** using the Typed tools read + write preset (exclude deletion initially). This is not a general REST API token.
+3. In Home Assistant add-on Configuration:
+   - `vikunja_mcp_url`: `https://vikunja.yourdomain.com/api/v2/mcp`
+   - `mcp_base_url`: `https://vikunja-mcp.yourdomain.com`
+   - `vikunja_mcp_token`: the token from Vikunja **Settings → MCP**
+   - `oauth_password`: a unique password of at least 16 characters
+   - `session_secret`: a stable random string of at least 32 characters, e.g. `openssl rand -hex 32`
+4. Start the add-on.
+5. In the **existing Cloudflare Tunnel**, add another public hostname `vikunja-mcp.yourdomain.com` pointing at `http://HOME_ASSISTANT_LAN_IP:3000`. Do not expose router port 3000 or place a Cloudflare Access login interstitial in front of this OAuth service.
+6. Confirm `https://vikunja-mcp.yourdomain.com/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server` return JSON.
+7. In ChatGPT Plugins, add a custom MCP server pointing to `https://vikunja-mcp.yourdomain.com/mcp` and authenticate using OAuth. The authorization page asks for `oauth_password`.
 
-## Cloudflare Tunnel
+## Implementation and security
 
-You already expose Vikunja through Cloudflare Tunnel. Add **another Public Hostname** to that tunnel, such as `vikunja-mcp.example.com` with service `http://<HOME_ASSISTANT_LAN_IP>:3000`. Use your Home Assistant host's LAN IP, **not** the Vikunja URL and not the Home Assistant ingress URL.
+The proxy performs dynamic client registration, PKCE-S256 authorization code exchange and rotating refresh-token issuance, then forwards authenticated MCP HTTP requests to Vikunja with the native MCP token. OAuth metadata is served at the standard well-known endpoints. The bridge stores OAuth state in its private `/data/oauth-state.json` and survives restarts.
 
-- Set `mcp_base_url` to the new hostname with `https://`, no trailing path.
-- Cloudflare manages public TLS; the tunnel forwards to the local HTTP add-on port.
-- Keep the add-on port local to your trusted network; do **not** forward port 3000 from your router.
-- Do **not** put Cloudflare Access interstitial or email OTP in front of the MCP hostname, as ChatGPT cannot complete that additional challenge in normal MCP discovery/OAuth requests.
-- Confirm `https://vikunja-mcp.example.com/.well-known/oauth-authorization-server` is reachable and shows authorization metadata. If not, check add-on and tunnel logs.
-- In ChatGPT, add a custom MCP server pointing to `https://vikunja-mcp.example.com/mcp` and select OAuth.
+It is a **single-owner experimental service**, not a multi-user identity provider. Anyone with the bridge password can obtain the full rights of its configured Vikunja MCP token. Keep the token and secrets inside Home Assistant options, never GitHub. A dedicated Vikunja bot identity with limited project access is recommended. Revoking the MCP token in Vikunja immediately revokes underlying task access.
 
-## Security and limitations
-
-- **Do not commit credentials to GitHub**. Enter them only in Home Assistant add-on Configuration.
-- Initially use read-only token scopes to validate listing, then enable task/project/label/comment writes, excluding permanent deletion.
-- Do not grant bot access to patient-identifiable clinical information.
-- ChatGPT OAuth compatibility of the third-party server is **unverified**; dynamic client registration and OAuth metadata may require upstream changes.
-- The add-on inherits a third-party image which has not been independently audited. It must not be treated as production-ready without testing.
-- To revoke: revoke the Vikunja bot API token, rotate `jwt_secret`, and remove the custom ChatGPT connection.
+**Not yet verified end-to-end with ChatGPT or a live Home Assistant deployment.** Test reads before enabling writes; avoid patient-identifiable data. Do not use for production-sensitive information until tested and security reviewed.

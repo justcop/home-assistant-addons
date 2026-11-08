@@ -1,26 +1,26 @@
-name: "Vikunja ChatGPT MCP Bridge (experimental)"
-version: "0.1.0"
-slug: "vikunja_chatgpt_bridge"
-description: "OAuth-enabled Vikunja MCP adapter for ChatGPT, based on Jacob-Tate/vikunja-mcp"
-url: "https://github.com/Jacob-Tate/vikunja-mcp"
+name: Vikunja Native MCP OAuth Bridge
+version: 0.2.0
+slug: vikunja_chatgpt_bridge
+description: OAuth bridge for Vikunja's built-in MCP server
 init: false
 startup: services
 boot: auto
 arch:
   - amd64
+  - aarch64
 ports:
   3000/tcp: 3000
 ports_description:
-  3000/tcp: "MCP OAuth HTTP service (behind Cloudflare Tunnel)"
+  3000/tcp: MCP OAuth bridge (use HTTPS Cloudflare Tunnel)
 options:
-  vikunja_url: "https://vikunja.example.com"
+  vikunja_mcp_url: "https://vikunja.example.com/api/v2/mcp"
   mcp_base_url: "https://mcp.example.com"
-  vikunja_token: ""
-  mcp_auth_password: ""
-  jwt_secret: ""
+  vikunja_mcp_token: ""
+  oauth_password: ""
+  session_secret: ""
 schema:
-  vikunja_url: str
+  vikunja_mcp_url: str
   mcp_base_url: str
-  vikunja_token: password
-  mcp_auth_password: password
-  jwt_secret: password
+  vikunja_mcp_token: password
+  oauth_password: password
+  session_secret: password
