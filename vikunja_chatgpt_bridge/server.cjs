@@ -30,12 +30,27 @@ function token(req){const m=/^Bearer (.+)$/i.exec(req.headers.authorization||'')
 function unauthorized(res){json(res,401,{error:'unauthorized'},{'www-authenticate':'Bearer resource_metadata="'+issuer+'/.well-known/oauth-protected-resource"'})}
 function goodRedirect(s){try{const u=new URL(s);return (u.protocol==='https:'||(u.protocol==='http:'&&['127.0.0.1','localhost'].includes(u.hostname)))&&!u.hash&&!u.username&&!u.password}catch{return false}}
 const attempts=new Map();
-async function proxy(req,res){if(!token(req))return unauthorized(res);const headers={...req.headers};delete headers.host;delete headers.authorization;delete headers['content-length'];headers.authorization='Bearer '+cfg.vikunja_mcp_token;headers['accept-encoding']='identity';
+async function proxy(req,res){
+if(!token(req)){console.log('[MCP] incoming request unauthorised');return unauthorized(res);}
+const headers={...req.headers};
+delete headers.host;delete headers.authorization;delete headers['content-length'];delete headers['transfer-encoding'];delete headers.connection;
+headers.authorization='Bearer '+cfg.vikunja_mcp_token;headers['accept-encoding']='identity';
 const url=new URL(upstream);url.search=new URL(req.url,issuer).search;
-try{const reply=await fetch(url,{method:req.method,headers,body:['GET','HEAD'].includes(req.method)?undefined:req,duplex:'half',redirect:'manual',signal:AbortSignal.timeout(120000)});
-const out={};for(const [k,v] of reply.headers)if(!['content-length','content-encoding','connection','transfer-encoding','set-cookie','www-authenticate'].includes(k.toLowerCase()))out[k]=v;
-res.writeHead(reply.status,out);if(reply.body)Readable.fromWeb(reply.body).pipe(res);else res.end()
-}catch(e){console.error('Proxy:',e.message);if(!res.headersSent)fail(res,502,'bad_gateway');else res.destroy()}}
+let method='unknown', payload;
+try {
+ if(req.method==='POST'){
+  const raw=await read(req);
+  payload=Buffer.from(raw);
+  try{const m=JSON.parse(raw);method=Array.isArray(m)?m.map(x=>x.method||'response').join(','):m.method||'response';}catch{method='non-json';}
+ }
+ console.log('[MCP]',req.method,'method:',String(method).slice(0,160),'session:',headers['mcp-session-id']?'present':'absent');
+ const reply=await fetch(url,{method:req.method,headers,body:payload,redirect:'manual',signal:AbortSignal.timeout(120000)});
+ console.log('[MCP] upstream HTTP',reply.status,'type:',reply.headers.get('content-type')||'none','session:',reply.headers.has('mcp-session-id')?'present':'absent');
+ const out={};for(const [k,v] of reply.headers)if(!['content-length','content-encoding','connection','transfer-encoding','set-cookie','www-authenticate'].includes(k.toLowerCase()))out[k]=v;
+ res.writeHead(reply.status,out);
+ if(reply.body)Readable.fromWeb(reply.body).pipe(res);else res.end();
+}catch(e){console.error('[MCP] proxy error:',e.message);if(!res.headersSent)fail(res,502,'bad_gateway');else res.destroy()}
+}
 http.createServer(async(req,res)=>{try{const u=new URL(req.url,issuer),p=u.pathname;
 const trace=['/mcp','/.well-known/oauth-protected-resource','/.well-known/oauth-protected-resource/mcp','/.well-known/oauth-authorization-server','/register','/authorize','/token'].includes(p);
 if(trace){console.log('[OAuth]',req.method,p,'requested');res.once('finish',()=>console.log('[OAuth]',req.method,p,'HTTP',res.statusCode));}
