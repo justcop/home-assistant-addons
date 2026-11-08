@@ -49,8 +49,19 @@ jobs:
             sleep 1
           done
           LOGIN_SCREENSHOT="$RUNNER_TEMP/listening-analytics-ui/login-mobile.png" node tests/auth_ui.cjs
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
       - name: Build add-on container
-        run: docker build --build-arg BUILD_VERSION=0.2.12 --build-arg BUILD_ARCH=amd64 -t listening-analytics:test .
+        uses: docker/build-push-action@v6
+        with:
+          context: ./lastfm_analytics
+          load: true
+          tags: listening-analytics:test
+          build-args: |
+            BUILD_VERSION=0.2.12
+            BUILD_ARCH=amd64
+          cache-from: type=gha,scope=listening-analytics-tests
+          cache-to: type=gha,scope=listening-analytics-tests,mode=max,ignore-error=true
       - name: Check container health and shutdown
         run: |
           docker run -d --name listening-analytics-smoke listening-analytics:test
