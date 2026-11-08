@@ -41,3 +41,14 @@ curl -i -X POST https://mcp.example.com/register \\
 ```
 
 The POST should return HTTP 201 and a JSON response containing a `client_id` and `client_secret`. The test creates a client, so only run it once. Do not paste client secrets into chats.
+
+## OAuth registration diagnostics (v0.2.2)
+
+The bridge logs request **methods, paths, response status codes**, and DCR client authentication method, but does **not** log passwords, API tokens, authorization codes, or registered client secrets. This update also serves protected-resource metadata at both `/.well-known/oauth-protected-resource` and `/.well-known/oauth-protected-resource/mcp`.
+
+1. Update to **0.2.2** and start the add-on.
+2. Open `https://YOUR-MCP-HOST/.well-known/oauth-authorization-server` in a browser and confirm JSON including `registration_endpoint`.
+3. Attempt to add the connector in ChatGPT again.
+4. Copy only the `[OAuth]` log lines (not credentials). A `POST /register HTTP 400` indicates validation rejection. No `POST /register` indicates discovery or Cloudflare routing failure. A `POST /register HTTP 201` means registration succeeded and the error originates after successful registration.
+
+A public MCP HTTPS hostname must forward to `http://HOME_ASSISTANT_LAN_IP:3000` via Cloudflare Tunnel, without a Cloudflare Access challenge or a redirect to Vikunja's own UI. The add-on cannot be validated against your Cloudflare route without knowing that hostname.
