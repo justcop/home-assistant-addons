@@ -52,3 +52,9 @@ The bridge logs request **methods, paths, response status codes**, and DCR clien
 4. Copy only the `[OAuth]` log lines (not credentials). A `POST /register HTTP 400` indicates validation rejection. No `POST /register` indicates discovery or Cloudflare routing failure. A `POST /register HTTP 201` means registration succeeded and the error originates after successful registration.
 
 A public MCP HTTPS hostname must forward to `http://HOME_ASSISTANT_LAN_IP:3000` via Cloudflare Tunnel, without a Cloudflare Access challenge or a redirect to Vikunja's own UI. The add-on cannot be validated against your Cloudflare route without knowing that hostname.
+
+## v0.2.3: OAuth callback redirect fix
+
+The authorization page previously sent `Content-Security-Policy: form-action 'self'`. Browsers can enforce `form-action` on form-submission **redirects**, preventing navigation from the successful `POST /authorize` (HTTP 302) to ChatGPT's cross-origin callback. The form itself always submits locally to `/authorize`, and registered client callback URLs are separately validated against the client registration. We therefore removed the `form-action` CSP directive while retaining `default-src 'none'` and `frame-ancestors 'none'`.
+
+After updating the add-on to 0.2.3, **close the old OAuth page and begin a fresh ChatGPT connection**. The earlier page may retain the old Content Security Policy and its authorization request may have expired. Verify in Home Assistant logs that `POST /authorize HTTP 302` is followed by `POST /token HTTP 200`. Never share the callback `code`, `state`, or token values.

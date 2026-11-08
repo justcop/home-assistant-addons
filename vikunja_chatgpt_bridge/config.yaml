@@ -1,5 +1,5 @@
 name: Vikunja Native MCP OAuth Bridge
-version: 0.2.2
+version: 0.2.3
 slug: vikunja_chatgpt_bridge
 description: OAuth bridge for Vikunja's built-in MCP server
 init: false
