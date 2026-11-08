@@ -9,30 +9,71 @@ sends a bounded evidence packet to the OpenAI Responses API, and writes or
 updates one advisory comment per PR. It never checks out PR code, runs PR
 scripts with API secrets, or merges anything.
 
-## Setup
+## Setup: keyless GitHub Actions workload identity federation
 
-1. In repository Settings → Secrets and variables → Actions, add
-   **repository secret `OPENAI_API_KEY`** using your own OpenAI API key.
-   API billing is separate from ChatGPT. Do not put the key in code.
-2. After merging the workflow, manually dispatch **Dependabot AI review
-   (no auto-merge)** with a Dependabot PR number to test it, or wait for a
-   newly opened / updated Dependabot PR. Previous PRs are not backfilled
-   automatically.
-3. Read the review comment. It distinguishes evidence from uncertainty.
-   Use the relevant app's CI and manual checks before merging.
-4. If the API key is absent, the workflow exits successfully without
-   posting a review. An absent review means **no approval**.
+No permanent OpenAI API key or GitHub Actions secret is required.
+Create an OpenAI Platform project and a dedicated service account with
+permission for model requests. Then in **Organization Settings → Security →
+Workload Identity Provider**, configure:
 
-The workflow's `pull_request_target` event executes **only trusted
-default-branch code**. It never checks out the PR head. PR descriptions,
-patches and changelogs are untrusted model inputs. The GitHub token has
-`contents: read` and `pull-requests: write` only; the model has no GitHub
-tool privileges. No GitHub secrets are sent to OpenAI.
+- Provider name: `GitHub Dependabot Reviewer`
+- OIDC issuer: `https://token.actions.githubusercontent.com`
+- Audience: `https://api.openai.com/v1`
+- Use uploaded JWKS: **off** (GitHub OIDC discovery)
 
-The AI model is configured in the workflow's `AI_REVIEW_MODEL` variable.
-If the model or API is unavailable, the review fails closed; it never
-marks a PR safe or merges it. This is a risk-oriented advisory, not an
-independent live vulnerability scan or a substitute for tests.
+Create a **service account mapping** for that provider using the exact
+key/value restrictions below. These are assertions on the signed GitHub
+OIDC JWT, not shell environment variables:
+
+| Claim key | Required value |
+| --- | --- |
+| `iss` | `https://token.actions.githubusercontent.com` |
+| `aud` | `https://api.openai.com/v1` |
+| `repository` | `justcop/home-assistant-addons` |
+| `ref` | `refs/heads/main` |
+| `workflow_ref` | `justcop/home-assistant-addons/.github/workflows/dependabot-ai-reviewer.yml@refs/heads/main` |
+
+Map these claims to the dedicated service account in the chosen project.
+Set the mapping's API permissions to **model requests only**
+(`api.model.request`, where offered). Check that the service account's
+project permissions are no broader than necessary.
+
+In **GitHub repository Settings → Secrets and variables → Actions →
+Variables**, create these **three repository variables** (not secrets):
+
+| Variable | Value |
+| --- | --- |
+| `OPENAI_WIF_AUDIENCE` | `https://api.openai.com/v1` |
+| `OPENAI_IDENTITY_PROVIDER_ID` | the actual provider ID from OpenAI Platform |
+| `OPENAI_SERVICE_ACCOUNT_ID` | the actual mapped service account ID |
+
+Do not use display names in place of IDs. The workflow requests a GitHub
+OIDC JWT via `id-token: write`, then POSTs the JWT to
+`https://auth.openai.com/oauth/token` with OAuth token-exchange parameters.
+OpenAI validates its signature, audience and **all** mapping assertions
+before returning a short-lived bearer token for the Responses API.
+The GitHub OIDC JWT and exchanged token are never stored in GitHub secrets
+or deliberately logged. Neither is bound to a device, so a leaked temporary
+bearer token must still be treated as sensitive.
+
+After this pull request is merged and the mapping/variables are configured,
+manually dispatch **Dependabot AI review (no auto-merge)** with an existing
+Dependabot PR number to test it. Previous PRs are not backfilled automatically.
+The workflow stays advisory-only. Missing configuration safely skips review;
+an identity exchange failure fails the job without authorising any merge.
+
+The `pull_request_target` job uses **only trusted default-branch code**,
+never PR-head code. The GitHub token has `contents: read`,
+`checks: read`, `pull-requests: write` (comments) and `id-token: write`.
+No GitHub credential is sent to OpenAI. PR descriptions, patches and
+changelogs are untrusted model inputs. The model has no GitHub tools.
+An absent review is **not approval**. OpenAI API usage is billed
+separately from ChatGPT.
+
+The model is configured using `AI_REVIEW_MODEL` in the workflow. If the
+model, GitHub OIDC endpoint or OpenAI token exchange is unavailable, the
+review fails closed and never merges. The AI cannot independently verify
+all security vulnerabilities or live application behavior.
 
 ## Fixed policy
 

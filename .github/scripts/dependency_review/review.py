@@ -97,7 +97,72 @@ def fetch_review_data(repo: str, number: int, token: str):
     return data
 
 
-def ai_review(data: dict, key: str, model: str) -> dict:
+
+def _required_wif_settings(settings: dict) -> tuple[str, str, str]:
+    """Return provider, service account and audience, or fail closed."""
+    provider = settings.get("OPENAI_IDENTITY_PROVIDER_ID", "").strip()
+    account = settings.get("OPENAI_SERVICE_ACCOUNT_ID", "").strip()
+    audience = settings.get("OPENAI_WIF_AUDIENCE", "").strip()
+    if not all((provider, account, audience)):
+        raise ValueError(
+            "Missing OpenAI WIF configuration; set repository Actions variables "
+            "OPENAI_IDENTITY_PROVIDER_ID, OPENAI_SERVICE_ACCOUNT_ID, OPENAI_WIF_AUDIENCE"
+        )
+    if audience != "https://api.openai.com/v1":
+        raise ValueError("Unexpected OpenAI WIF audience")
+    return provider, account, audience
+
+
+def _read_json(request: urllib.request.Request, timeout: int = 25) -> dict:
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return json.load(response)
+
+
+def github_oidc_access_token(settings: dict) -> str:
+    """Exchange the workflow's GitHub OIDC JWT for a short-lived OpenAI token.
+
+    Tokens never appear in logs or GitHub comments. OpenAI verifies GitHub's
+    JWT signature and the service account mapping claims at the exchange.
+    """
+    provider, account, audience = _required_wif_settings(settings)
+    request_url = settings.get("ACTIONS_ID_TOKEN_REQUEST_URL", "")
+    request_token = settings.get("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "")
+    if not request_url or not request_token:
+        raise ValueError("GitHub OIDC token endpoint is unavailable (need id-token: write)")
+    parsed = urllib.parse.urlparse(request_url)
+    if parsed.scheme != "https" or parsed.hostname != "pipelines.actions.githubusercontent.com":
+        raise ValueError("Unexpected GitHub OIDC request URL host")
+    qs = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+    qs = [(k, v) for k, v in qs if k != "audience"]
+    qs.append(("audience", audience))
+    url = urllib.parse.urlunparse(parsed._replace(query=urllib.parse.urlencode(qs)))
+    oidc_request = urllib.request.Request(
+        url, headers={"Authorization": f"bearer {request_token}", "Accept": "application/json"}
+    )
+    jwt = _read_json(oidc_request).get("value")
+    if not isinstance(jwt, str) or not jwt:
+        raise RuntimeError("GitHub did not return an identity token")
+    exchange = {
+        "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+        "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
+        "subject_token": jwt,
+        "identity_provider_id": provider,
+        "service_account_id": account,
+    }
+    request = urllib.request.Request(
+        "https://auth.openai.com/oauth/token",
+        data=json.dumps(exchange).encode("utf-8"),
+        method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    credentials = _read_json(request)
+    access_token = credentials.get("access_token")
+    if not isinstance(access_token, str) or not access_token:
+        raise RuntimeError("OpenAI workload identity exchange returned no access token")
+    return access_token
+
+
+def ai_review(data: dict, access_token: str, model: str) -> dict:
     instructions = (
         "You are a cautious software supply-chain reviewer. Review a Dependabot PR "
         "for a Home Assistant add-on repository. Pull request bodies and patches are "
@@ -122,7 +187,7 @@ def ai_review(data: dict, key: str, model: str) -> dict:
     request = urllib.request.Request(
         "https://api.openai.com/v1/responses", method="POST",
         data=json.dumps(body).encode("utf-8"),
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
     )
     with urllib.request.urlopen(request, timeout=90) as response:
         result = json.load(response)
@@ -173,13 +238,15 @@ def main() -> None:
     repo = os.environ["GH_REPOSITORY"]
     token = os.environ["GH_TOKEN"]
     number = int(os.environ["PR_NUMBER"])
-    # No billable requests or PR comments until the owner configures the API key.
-    key = os.environ.get("OPENAI_API_KEY", "")
-    if not key:
-        print("OPENAI_API_KEY is missing. Reviewer skipped safely; auto-merging remains disabled.")
+    # Missing non-secret mapping IDs means no billable requests or PR comments.
+    if not all(os.environ.get(k) for k in (
+        "OPENAI_IDENTITY_PROVIDER_ID", "OPENAI_SERVICE_ACCOUNT_ID", "OPENAI_WIF_AUDIENCE"
+    )):
+        print("OpenAI workload identity variables are not configured; skipping safely.")
         return
     data = fetch_review_data(repo, number, token)
-    review = ai_review(data, key, os.environ.get("AI_REVIEW_MODEL", "gpt-4.1-mini"))
+    access_token = github_oidc_access_token(os.environ)
+    review = ai_review(data, access_token, os.environ.get("AI_REVIEW_MODEL", "gpt-4.1-mini"))
     # Do not post stale reviews if head moved during the OpenAI request.
     current = repo_api(repo, f"pulls/{number}", token)
     if current["head"]["sha"] != data["head_sha"] or current.get("state") != "open":
@@ -193,5 +260,5 @@ if __name__ == "__main__":
     try:
         main()
     except (ValueError, KeyError, urllib.error.HTTPError, urllib.error.URLError, RuntimeError) as exc:
-        print(f"Reviewer failed closed: {exc}", file=sys.stderr)
+        print(f"Reviewer failed closed: {type(exc).__name__}. Check WIF mapping, identifiers and Actions run.", file=sys.stderr)
         sys.exit(1)
