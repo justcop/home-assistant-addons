@@ -1,14 +1,6 @@
 FROM ghcr.io/home-assistant/base-python:3.13-alpine3.24-2026.06.1
 
-ARG BUILD_VERSION="dev"
-ARG BUILD_ARCH="unknown"
-
 ENV LANG=C.UTF-8
-
-LABEL \
-    io.hass.version="${BUILD_VERSION}" \
-    io.hass.type="app" \
-    io.hass.arch="${BUILD_ARCH}"
 
 COPY requirements.txt /tmp/requirements.txt
 
@@ -27,6 +19,13 @@ RUN apk add --no-cache \
     && python3 -m pip install --no-cache-dir -r /tmp/requirements.txt \
     && apk del .build-deps \
     && rm -f /tmp/requirements.txt
+
+ARG BUILD_VERSION="dev"
+ARG BUILD_ARCH="unknown"
+LABEL \
+    io.hass.version="${BUILD_VERSION}" \
+    io.hass.type="app" \
+    io.hass.arch="${BUILD_ARCH}"
 
 WORKDIR /usr/src/app
 
