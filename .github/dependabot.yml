@@ -1,0 +1,86 @@
+# Dependency update proposals only. Nothing here enables auto-merge or deployment.
+# Routine PR limits are per ecosystem entry: 2 + 1 + 1 + 1 = 5 total.
+# Security-update PRs are managed separately by GitHub and may exceed this limit.
+version: 2
+updates:
+  # Includes requirements-dev.txt in lastfm_analytics.
+  - package-ecosystem: "pip"
+    directories:
+      - "/vinyl_guardian"
+      - "/audioshelf"
+      - "/lastfm_analytics"
+      - "/work_audit"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/London"
+    open-pull-requests-limit: 2
+    groups:
+      routine-python:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Checks base-image tags in all Dockerfiles; does not cover apk packages
+  # installed inside images or images pinned to an unversioned 'latest' tag.
+  - package-ecosystem: "docker"
+    directories:
+      - "/vinyl_guardian"
+      - "/audioshelf"
+      - "/lastfm_analytics"
+      - "/money_locations"
+      - "/music_video_companion"
+      - "/python"
+      - "/vikunja_chatgpt_bridge"
+      - "/work_audit"
+      - "/github_actions_cleanup"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:30"
+      timezone: "Europe/London"
+    open-pull-requests-limit: 1
+    groups:
+      routine-docker:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # AudioShelf's Android helper (Gradle/Maven dependencies).
+  - package-ecosystem: "gradle"
+    directory: "/audioshelf/android-helper"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+      timezone: "Europe/London"
+    open-pull-requests-limit: 1
+    groups:
+      routine-gradle:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # GitHub Actions workflow dependencies.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:30"
+      timezone: "Europe/London"
+    open-pull-requests-limit: 1
+    groups:
+      routine-actions:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
