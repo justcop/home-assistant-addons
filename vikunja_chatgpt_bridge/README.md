@@ -64,3 +64,9 @@ After updating the add-on to 0.2.3, **close the old OAuth page and begin a fresh
 After OAuth succeeds, the MCP bridge logs the JSON-RPC **method name only** (for example `initialize`, `notifications/initialized`, `tools/list`), the upstream HTTP status, upstream content type, and whether an MCP session ID is present. It does not log message bodies, token values, task data, or session identifiers. Retains the upstream stream and MCP session headers. The request body is buffered up to 64 KiB for method-name inspection.
 
 If ChatGPT reports **Authentication succeeded, action discovery failed**, copy only `[MCP]` and `[OAuth] POST /mcp` log lines from the connection attempt. An upstream HTTP 401/403 indicates an upstream credential or permission error; HTTP 404 suggests an incorrect Vikunja MCP endpoint; HTTP 200 with `text/event-stream` or `application/json` suggests that further MCP protocol or schema inspection is needed. Also check that the `vikunja_mcp_url` is the Vikunja endpoint ending in `/api/v2/mcp`, and the ChatGPT connection URL is the bridge endpoint ending in `/mcp`.
+
+## v0.2.5 MCP tool discovery response diagnostics
+
+When the upstream response is for `tools/list` or `server/discover`, the bridge forwards every byte unchanged but also examines up to 256 KiB of the response to log safe metadata: JSON-RPC result/error, count of tools, count of missing or structurally invalid `inputSchema` objects, whether pagination is indicated, or result field names. It does **not** log tool contents, arguments, task data, tokens, or MCP session identifiers. If the response is streaming and never ends, summary diagnostics may not appear until it closes.
+
+After installing v0.2.5, retry ChatGPT connection or tool discovery and collect the `[MCP] diagnostic` lines along with the upstream status. HTTP 200 alone isn't enough to establish that `tools/list` supplied a usable result.

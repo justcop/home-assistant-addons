@@ -48,7 +48,44 @@ try {
  console.log('[MCP] upstream HTTP',reply.status,'type:',reply.headers.get('content-type')||'none','session:',reply.headers.has('mcp-session-id')?'present':'absent');
  const out={};for(const [k,v] of reply.headers)if(!['content-length','content-encoding','connection','transfer-encoding','set-cookie','www-authenticate'].includes(k.toLowerCase()))out[k]=v;
  res.writeHead(reply.status,out);
- if(reply.body)Readable.fromWeb(reply.body).pipe(res);else res.end();
+ if(reply.body){
+  if(method==='tools/list'||method==='server/discover'){
+    const chunks=[];let collected=0;
+    const diagnostic=new (require('node:stream').Transform)({
+      transform(chunk,encoding,callback){
+        if(collected<262144){const cut=chunk.subarray(0,262144-collected);chunks.push(cut);collected+=cut.length;}
+        callback(null,chunk);
+      },
+      flush(callback){
+        try{
+          const payload=Buffer.concat(chunks).toString('utf8');
+          let messages=[];
+          if(payload.trim().startsWith('{'))messages=[JSON.parse(payload)];
+          else{
+            const events=payload.split(/\r?\n\r?\n/);
+            for(const event of events){
+              const data=event.split(/\r?\n/).filter(line=>line.startsWith('data:')).map(line=>line.slice(5).trimStart()).join('\n');
+              if(data&&data!=='[DONE]'){try{messages.push(JSON.parse(data));}catch{}}
+            }
+          }
+          if(!messages.length)console.log('[MCP] diagnostic',method,'no parseable JSON-RPC messages; captured bytes:',collected);
+          for(const m of messages.slice(0,5)){
+            if(m.error)console.log('[MCP] diagnostic',method,'JSON-RPC error code:',m.error.code,'message:',String(m.error.message||'').slice(0,160));
+            else if(m.result){
+              const tools=Array.isArray(m.result.tools)?m.result.tools:null;
+              if(tools){
+                const malformed=tools.filter(t=>!t.name||!t.inputSchema||t.inputSchema.type!=='object').length;
+                console.log('[MCP] diagnostic',method,'tools:',tools.length,'missing/invalid inputSchema:',malformed,'has nextCursor:',!!m.result.nextCursor);
+              }else console.log('[MCP] diagnostic',method,'result keys:',Object.keys(m.result).slice(0,12).join(','));
+            }else console.log('[MCP] diagnostic',method,'message keys:',Object.keys(m).slice(0,12).join(','));
+          }
+        }catch(e){console.log('[MCP] diagnostic parse failed:',e.message)}
+        callback();
+      }
+    });
+    Readable.fromWeb(reply.body).pipe(diagnostic).pipe(res);
+  }else Readable.fromWeb(reply.body).pipe(res);
+}else res.end();
 }catch(e){console.error('[MCP] proxy error:',e.message);if(!res.headersSent)fail(res,502,'bad_gateway');else res.destroy()}
 }
 http.createServer(async(req,res)=>{try{const u=new URL(req.url,issuer),p=u.pathname;
