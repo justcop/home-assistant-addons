@@ -41,13 +41,20 @@ jobs:
           fi
       - name: Run runtime tests
         run: python -m unittest discover -s vinyl_guardian/tests -p 'test_*.py' -v
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
       - name: Build Vinyl Guardian image
-        run: |
-          docker build --pull \
-            --build-arg BUILD_VERSION=test \
-            --build-arg BUILD_ARCH=amd64 \
-            -t vinyl-guardian-test \
-            vinyl_guardian
+        uses: docker/build-push-action@v6
+        with:
+          context: ./vinyl_guardian
+          pull: true
+          load: true
+          tags: vinyl-guardian-test:latest
+          build-args: |
+            BUILD_VERSION=test
+            BUILD_ARCH=amd64
+          cache-from: type=gha,scope=vinyl-guardian-tests
+          cache-to: type=gha,scope=vinyl-guardian-tests,mode=max,ignore-error=true
       - name: Smoke-test runtime imports in built image
         run: |
           docker run --rm --entrypoint python3 vinyl-guardian-test -c "import audioop; from shazamio import Shazam; import pydub; print('Shazam runtime imports OK')"
