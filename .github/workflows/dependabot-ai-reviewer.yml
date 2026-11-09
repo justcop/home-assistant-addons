@@ -1,98 +1,15 @@
-name: Dependabot AI review (no auto-merge)
+name: Dependabot API reviewer (retired)
 
+# Reviews now run through ChatGPT Work/Codex using the ChatGPT plan.
+# No automatic triggers, OpenAI credentials, model requests, or merge permissions.
 on:
-  pull_request_target:
-    types: [opened, reopened, synchronize]
   workflow_dispatch:
-    inputs:
-      pr_number:
-        description: 'Existing Dependabot pull request number to review'
-        required: false
-        type: number
-      auth_only:
-        description: 'Test keyless authentication only, without model requests or PR comments'
-        required: true
-        default: true
-        type: boolean
 
-# This privileged workflow checks out only trusted code from the default branch.
-# NEVER checkout or run PR code here. NEVER grant contents:write.
 permissions:
   contents: read
-  checks: read
-  id-token: write
-  pull-requests: write
-
-concurrency:
-  group: dependabot-ai-review-${{ github.event.pull_request.number || inputs.pr_number }}
-  cancel-in-progress: true
 
 jobs:
-  review:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.user.login == 'dependabot[bot]'
+  retired:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          persist-credentials: false
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Test keyless authentication only
-        if: github.event_name == 'workflow_dispatch' && inputs.auth_only
-        env:
-          OPENAI_WIF_AUDIENCE: ${{ vars.OPENAI_WIF_AUDIENCE }}
-          OPENAI_IDENTITY_PROVIDER_ID: ${{ vars.OPENAI_IDENTITY_PROVIDER_ID }}
-          OPENAI_SERVICE_ACCOUNT_ID: ${{ vars.OPENAI_SERVICE_ACCOUNT_ID }}
-        run: |
-          python - <<'PY'
-          import os
-          import sys
-          import urllib.parse
-          sys.path.insert(0, '.github/scripts/dependency_review')
-          from review import github_oidc_access_token
-          endpoint = urllib.parse.urlparse(os.environ.get('ACTIONS_ID_TOKEN_REQUEST_URL', ''))
-          print(f'GitHub OIDC endpoint: scheme={endpoint.scheme}, host={endpoint.hostname}')
-          print('GitHub OIDC credentials available:', bool(os.environ.get('ACTIONS_ID_TOKEN_REQUEST_TOKEN')))
-          try:
-              token = github_oidc_access_token(os.environ)
-          except ValueError as exc:
-              print(f'Authentication validation failed: {exc}', file=sys.stderr)
-              sys.exit(1)
-          except Exception as exc:
-              print(f'Authentication failed: {type(exc).__name__}, HTTP status={getattr(exc, "code", "n/a")}', file=sys.stderr)
-              sys.exit(1)
-          if not token:
-              sys.exit('Authentication returned no access token')
-          del token
-          print('OpenAI keyless authentication succeeded. No model request or PR comment made.')
-          PY
-      - name: Review only (no code execution from PR)
-        if: github.event_name != 'workflow_dispatch' || !inputs.auth_only
-        env:
-          GH_TOKEN: ${{ github.token }}
-          OPENAI_WIF_AUDIENCE: ${{ vars.OPENAI_WIF_AUDIENCE }}
-          OPENAI_IDENTITY_PROVIDER_ID: ${{ vars.OPENAI_IDENTITY_PROVIDER_ID }}
-          OPENAI_SERVICE_ACCOUNT_ID: ${{ vars.OPENAI_SERVICE_ACCOUNT_ID }}
-          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
-          GH_REPOSITORY: ${{ github.repository }}
-          AI_REVIEW_MODEL: gpt-4.1-mini
-        run: python .github/scripts/dependency_review/review.py
-
-  policy-tests:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.user.login == 'dependabot[bot]'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          persist-credentials: false
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - run: python -m unittest discover -s .github/scripts/dependency_review -p 'test_*.py' -v
-
+      - run: echo 'The API reviewer is retired. Use ChatGPT Work maintenance recommendations or Codex GitHub reviews. Automatic merging remains disabled.'
