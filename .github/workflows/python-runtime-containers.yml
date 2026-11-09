@@ -1,0 +1,81 @@
+name: Python runtime containers
+on:
+  pull_request:
+    paths:
+      - '**/Dockerfile'
+      - '**/requirements*.txt'
+      - '.github/scripts/check_python_runtime.py'
+      - '.github/workflows/python-runtime-containers.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        addon: [audioshelf, lastfm_analytics, money_locations, music_video_companion, work_audit, vinyl_guardian, python]
+        platform:
+          - runner: ubuntu-latest
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+        exclude:
+          - addon: vinyl_guardian
+            platform:
+              runner: ubuntu-24.04-arm
+              arch: aarch64
+    runs-on: ${{ matrix.platform.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./${{ matrix.addon }}
+          load: true
+          tags: runtime:test
+          build-args: |
+            BUILD_VERSION=test
+            BUILD_ARCH=${{ matrix.platform.arch }}
+          cache-from: type=gha,scope=runtime-${{ matrix.addon }}-${{ matrix.platform.arch }}
+          cache-to: type=gha,scope=runtime-${{ matrix.addon }}-${{ matrix.platform.arch }},mode=max,ignore-error=true
+      - name: Verify actual interpreter, native imports and offline functionality
+        run: |
+          interpreter=/usr/local/bin/python3
+          case '${{ matrix.addon }}' in audioshelf|lastfm_analytics) interpreter=/opt/venv/bin/python ;; esac
+          docker run --rm --network none --entrypoint "$interpreter" \
+            -v "$PWD/.github/scripts/check_python_runtime.py:/tmp/check_runtime.py:ro" \
+            runtime:test -X faulthandler -u /tmp/check_runtime.py '${{ matrix.addon }}'
+      - name: Verify server startup, access boundary and shutdown
+        if: matrix.addon != 'vinyl_guardian' && matrix.addon != 'python'
+        run: |
+          docker run -d --network none --name runtime-smoke runtime:test
+          trap 'docker logs runtime-smoke; docker rm -f runtime-smoke >/dev/null' EXIT
+          interpreter=/usr/local/bin/python3
+          case '${{ matrix.addon }}' in audioshelf|lastfm_analytics) interpreter=/opt/venv/bin/python ;; esac
+          for attempt in $(seq 1 15); do
+            if docker exec runtime-smoke "$interpreter" -c "import urllib.request,urllib.error; url='http://127.0.0.1:8099/'+('' if '${{ matrix.addon }}'=='work_audit' else 'health'); expected=403 if '${{ matrix.addon }}'=='work_audit' else 200
+          try:
+              response=urllib.request.urlopen(url); status=response.status
+          except urllib.error.HTTPError as exc:
+              status=exc.code
+          assert status==expected, status"; then
+              docker stop --time 15 runtime-smoke
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1
+  money-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.15'
+      - run: python -m unittest discover -s money_locations/tests -p 'test_*.py' -v
+      - name: Install release automation test dependencies
+        run: python -m pip install --disable-pip-version-check PyYAML==6.0.2
+      - name: Validate release automation on the selected Python version
+        run: python -m unittest discover -s .github/scripts/tests -v

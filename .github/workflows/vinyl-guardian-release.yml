@@ -33,7 +33,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-python@v7
         with:
-          python-version: '3.12'
+          python-version: '3.15'
       - name: Install configuration parser
         run: python -m pip install --disable-pip-version-check PyYAML
       - name: Validate release automation and stable runtime

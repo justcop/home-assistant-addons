@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.15.2-slim-bookworm
 
 # Install SSH server, bash, dos2unix, AND jq
 RUN apt-get update && apt-get install -y \
