@@ -50,8 +50,12 @@ jobs:
           python - <<'PY'
           import os
           import sys
+          import urllib.parse
           sys.path.insert(0, '.github/scripts/dependency_review')
           from review import github_oidc_access_token
+          endpoint = urllib.parse.urlparse(os.environ.get('ACTIONS_ID_TOKEN_REQUEST_URL', ''))
+          print(f'GitHub OIDC endpoint: scheme={endpoint.scheme}, host={endpoint.hostname}')
+          print('GitHub OIDC credentials available:', bool(os.environ.get('ACTIONS_ID_TOKEN_REQUEST_TOKEN')))
           try:
               token = github_oidc_access_token(os.environ)
           except Exception as exc:
