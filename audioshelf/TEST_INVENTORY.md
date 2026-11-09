@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-11-02T12:39:22.171+00:00 (Europe/London).
+Reviewed: 2026-11-09T08:17:11+00:00 (Europe/London).
 
-Reviewed 424 collected Python test cases after adding three distinct regression tests for exact Spotify album-context selection, zero SDK queue appends for native album contexts, and independent rejection of stale manually queued tracks. The existing full-album and vinyl-side handoff tests remain. Manual Spotify Next in queue songs cannot be cleared via public APIs, so the UI must report unconfirmed playback instead of claiming full replacement. Android live device verification remains outstanding.
+Reviewed all test and CI source differences from the previous inventory commit 6758ac6. Test bodies and the 424 backend cases are unchanged. CI adds reviewed Docker Buildx caching and this PR changes setup-python to v7 while preserving Python 3.12 and every test step. This records CI changes without bypassing checks; live Android device verification remains outstanding.
 
-<!-- inventory: {"reviewed_at":"2026-11-02T12:39:22.171+00:00","review_note":"Reviewed 424 collected Python test cases after adding three distinct regression tests for exact Spotify album-context selection, zero SDK queue appends for native album contexts, and independent rejection of stale manually queued tracks. The existing full-album and vinyl-side handoff tests remain. Manual Spotify Next in queue songs cannot be cleared via public APIs, so the UI must report unconfirmed playback instead of claiming full replacement. Android live device verification remains outstanding.","source_sha256":"67d873012f20b2ba5f97f274fba90b1b99ca916748b47a72e72c3921e9b8e8a8"} -->
+<!-- inventory: {"reviewed_at": "2026-11-09T08:17:11+00:00", "review_note": "Reviewed all test and CI source differences from the previous inventory commit 6758ac6. Test bodies and the 424 backend cases are unchanged. CI adds reviewed Docker Buildx caching and this PR changes setup-python to v7 while preserving Python 3.12 and every test step. This records CI changes without bypassing checks; live Android device verification remains outstanding.", "source_sha256": "66aee12ae594710b8e3b473249a344e116b95425793775552455026eef29585a"} -->
 
 ## Backend cases (424)
 
