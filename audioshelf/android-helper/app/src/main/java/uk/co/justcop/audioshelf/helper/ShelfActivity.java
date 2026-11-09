@@ -195,7 +195,8 @@ public final class ShelfActivity extends Activity {
         updaterStatus.setText("Check for Android updates");
         updater = new HelperUpdater(this, updaterStatus);
         SpotifyMediaListener.attach(this);
-        ShelfShortcuts.install(this);
+        // Shortcut publication may perform disk IPC and is a worker-thread API.
+        executor.execute(() -> ShelfShortcuts.install(getApplicationContext()));
         web.loadUrl(trustedOrigin + (ACTION_NOW_PLAYING.equals(getIntent().getAction()) ? "/#shelf" : "/#shelf"));
     }
 
