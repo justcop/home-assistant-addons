@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-11-09T13:39:46+00:00 (Europe/London).
+Reviewed: 2026-11-09T13:44:35+00:00 (Europe/London).
 
-Reviewed Cloudflare identity validation, automatic account isolation, legacy-login rejection and one-use PKCE regression cases. Android device sign-in still requires on-device verification; native endpoint Access exceptions await approval.
+Reviewed Cloudflare identity validation, automatic account isolation, legacy-login rejection and one-use PKCE regression cases using the CI-pinned pytest 8.4.2. Android device sign-in still requires on-device verification; native endpoint Access exceptions await approval.
 
-<!-- inventory: {"reviewed_at": "2026-11-09T13:39:46+00:00", "review_note": "Reviewed Cloudflare identity validation, automatic account isolation, legacy-login rejection and one-use PKCE regression cases. Android device sign-in still requires on-device verification; native endpoint Access exceptions await approval.", "source_sha256": "b21f8a26b6e5a63d24931a17cbf52f806eacf41bf0f7c86a9164706174de6037"} -->
+<!-- inventory: {"reviewed_at": "2026-11-09T13:44:35+00:00", "review_note": "Reviewed Cloudflare identity validation, automatic account isolation, legacy-login rejection and one-use PKCE regression cases using the CI-pinned pytest 8.4.2. Android device sign-in still requires on-device verification; native endpoint Access exceptions await approval.", "source_sha256": "b21f8a26b6e5a63d24931a17cbf52f806eacf41bf0f7c86a9164706174de6037"} -->
 
 ## Backend cases (437)
 
@@ -347,7 +347,7 @@ Reviewed Cloudflare identity validation, automatic account isolation, legacy-log
 337. `audioshelf/tests/test_security.py::test_password_change_invalidates_existing_sessions`
 338. `audioshelf/tests/test_security.py::test_reset_option_rejects_invalid_configuration_without_disabling_factor[123]`
 339. `audioshelf/tests/test_security.py::test_reset_option_rejects_invalid_configuration_without_disabling_factor[True]`
-340. `audioshelf/tests/test_security.py::test_reset_option_rejects_invalid_configuration_without_disabling_factor[value2]`
+340. `audioshelf/tests/test_security.py::test_reset_option_rejects_invalid_configuration_without_disabling_factor[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]`
 341. `audioshelf/tests/test_security.py::test_security_changes_require_fresh_owner_factor_even_on_trusted_browser`
 342. `audioshelf/tests/test_security.py::test_sessions_and_factor_setup_survive_restarts_and_setup_expires`
 343. `audioshelf/tests/test_security.py::test_setup_bruteforce_and_expiry_are_limited`
