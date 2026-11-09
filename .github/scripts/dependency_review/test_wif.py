@@ -44,6 +44,24 @@ class WifTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             github_oidc_access_token({**SETTINGS, "ACTIONS_ID_TOKEN_REQUEST_URL": "https://evil.example/id"})
 
+    def test_observed_regional_oidc_host(self):
+        regional = {**SETTINGS, "ACTIONS_ID_TOKEN_REQUEST_URL":
+                    "https://run-actions-2-azure-eastus.actions.githubusercontent.com/abc?id=1"}
+        with patch("urllib.request.urlopen", side_effect=[
+            StubResponse({"value": "jwt"}),
+            StubResponse({"access_token": "short-lived-token"}),
+        ]):
+            self.assertEqual(github_oidc_access_token(regional), "short-lived-token")
+
+    def test_oidc_url_rejections_do_not_send_credentials(self):
+        host = "run-actions-2-azure-eastus.actions.githubusercontent.com"
+        for url in (f"http://{host}/id", f"https://{host}.evil.example/id",
+                    f"https://{host}:444/id", f"https://user@{host}/id"):
+            with self.subTest(url=url), patch("urllib.request.urlopen") as request:
+                with self.assertRaises(ValueError):
+                    github_oidc_access_token({**SETTINGS, "ACTIONS_ID_TOKEN_REQUEST_URL": url})
+                request.assert_not_called()
+
     def test_exact_token_exchange_payload(self):
         requests = []
 
