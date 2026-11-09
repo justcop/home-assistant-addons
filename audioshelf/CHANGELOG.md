@@ -1,3 +1,10 @@
+## 0.6.44
+
+- Add a separate Listening Room with a single Listening Pile using the existing vinyl shelf furniture. Owned albums can stay on their main shelves while temporarily appearing in the pile.
+- Borrow albums straight from the Record Store with the same fully verified MusicBrainz and Spotify edition picker used by Add to Shelf. Loans appear only in the Listening Pile with a corner LOAN sticker.
+- Keep borrowed records by adding them to the permanent shelf without changing the chosen edition or removing them from the pile. Return loans or remove owned albums from the pile independently.
+- Include persistence and ownership/loan regression tests. No listening reasons, targets or automatic removals.
+
 ## 0.6.43
 
 - Display the Google profile name supplied through Cloudflare login instead of the internal owner username. Keep account identifiers, libraries and permissions unchanged; retain the last known name for Home Assistant ingress and temporary identity-service outages.
