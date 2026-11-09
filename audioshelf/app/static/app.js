@@ -1379,7 +1379,8 @@ document.addEventListener('click',async event=>{
       statusInfo.preferred_device=result.preferred_device;modal.close();await route();toast('Playback device saved.');
     }
     if(action==='play'){
-      if(checkingPlayback){toast('Waiting for Spotify to finish starting playback.');return;}
+      // A status poll must not discard an explicit new Play. startPlayback
+      // supersedes the old request, and polling checks request ownership.
       if(!statusInfo.spotify_connected)throw new Error('Connect Spotify in Settings first.');
       if(!currentAlbum.canonical_reviewed)throw new Error('Check the displayed original tracklist, then choose “This tracklist is correct” before first playback.');
       const disc=button.dataset.disc?(button.dataset.disc.includes(':')?button.dataset.disc:Number(button.dataset.disc)):null;
