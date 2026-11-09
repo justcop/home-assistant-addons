@@ -259,7 +259,10 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     // Background handoff preserves the selected disc and queues it once.
     await fixtureOptions({phone_available:false,disc:2});
     await page.evaluate(()=>{currentAlbum.tracks[1].disc_number=2;content.innerHTML=albumPage(currentAlbum);});
+    // Simulate a status read still in flight when the user chooses new music.
+    await page.evaluate(()=>{checkingPlayback=true;});
     await page.getByRole('button',{name:'Play disc 2'}).click();
+    await page.evaluate(()=>{checkingPlayback=false;});
     await page.getByRole('heading',{name:'Starting playback on Fixture phone',exact:true}).waitFor();
     await page.getByRole('link',{name:'Open Spotify',exact:true}).click();
     await fixtureOptions({phone_available:true});
