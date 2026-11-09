@@ -1,6 +1,11 @@
 name: Docker registry login compatibility
 
 on:
+  push:
+    branches:
+      - 'dependabot/github_actions/docker/login-action-4'
+    paths:
+      - '.github/workflows/docker-login-compatibility.yml'
   pull_request:
     paths:
       - '.github/workflows/vinyl-guardian-release.yml'
