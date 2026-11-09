@@ -26,6 +26,6 @@ The replacement combines the ShazamIO 0.9 dependency update already merged in #1
 
 Python CI uses 3.15. The runtime workflow builds native images on amd64 and ARM64 runners, asserts the actual 3.15.2 interpreter, checks independent and combined imports, verifies image decode/resize/encode, and checks server startup and ingress access boundaries. Existing application and browser suites remain in place. Older CI interpreters are not a substitute for testing production images.
 
-No add-on versions are bumped here. Do not merge a failing PR or claim green tests prove Home Assistant, audio hardware, Spotify or external-service compatibility. After manual review, release through the existing controlled process and validate those integrations on the actual installation. Automatic merging remains disabled.
+No add-on versions are bumped in these proposed source changes. Merging Vinyl Guardian changes to main invokes the existing delivery workflow, which can bump its version and publish an image. Do not merge a failing PR or claim green tests prove Home Assistant, audio hardware, Spotify or external-service compatibility. After manual review, release through the existing controlled process and validate those integrations on the actual installation. Automatic merging remains disabled.
 
 Sources: https://www.python.org/downloads/ , https://github.com/home-assistant/docker-base/releases/tag/2026.11.0 , official image manifests, and the linked CI diagnostic.
