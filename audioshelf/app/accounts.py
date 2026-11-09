@@ -33,6 +33,9 @@ class Accounts:
                 CREATE TABLE IF NOT EXISTS accounts (
                     id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL,
                     password_hash TEXT, disabled INTEGER NOT NULL DEFAULT 0);
+                CREATE TABLE IF NOT EXISTS access_identities (
+                    issuer TEXT NOT NULL, subject TEXT NOT NULL, account_id TEXT NOT NULL,
+                    email TEXT NOT NULL, PRIMARY KEY(issuer,subject));
                 CREATE TABLE IF NOT EXISTS oauth (
                     state TEXT PRIMARY KEY, account_id TEXT NOT NULL, expires REAL NOT NULL);
             ''')
@@ -152,6 +155,33 @@ class Accounts:
                 db.execute('DELETE FROM oauth WHERE account_id=?', (identifier,))
             self.contexts.pop(identifier, None)
             return self.get(identifier)
+
+    def from_access(self, claims, owner_email):
+        """Provision once per signed subject; only the configured email bootstraps owner."""
+        issuer, subject, email = claims['iss'], claims['sub'], claims['email'].strip().lower()
+        with self.connect() as db:
+            row = db.execute('SELECT account_id FROM access_identities WHERE issuer=? AND subject=?',
+                             (issuer, subject)).fetchone()
+            if row:
+                identifier = row['account_id']
+            elif email == owner_email:
+                existing = db.execute("SELECT subject FROM access_identities WHERE account_id='owner'").fetchone()
+                if existing:
+                    raise AppError('This Google identity is not linked to the owner account.', 403)
+                identifier = 'owner'
+            else:
+                if db.execute('SELECT count(*) FROM accounts').fetchone()[0] >= 50:
+                    raise AppError('AudioShelf supports up to 50 accounts.', 403)
+                identifier = secrets.token_hex(16)
+                # Email is a display name only. It never chooses another existing account.
+                db.execute('INSERT INTO accounts(id,username) VALUES (?,?)',
+                           (identifier, email if not db.execute('SELECT 1 FROM accounts WHERE username=?', (email,)).fetchone() else email + ':' + identifier[:8]))
+            db.execute('INSERT OR REPLACE INTO access_identities VALUES (?,?,?,?)',
+                       (issuer, subject, identifier, email))
+            account = dict(db.execute('SELECT * FROM accounts WHERE id=?', (identifier,)).fetchone())
+            if account['disabled']:
+                raise AppError('This AudioShelf account has been disabled.', 403)
+        return account
 
     def bind_oauth(self, url, identifier):
         from urllib.parse import parse_qs, urlsplit

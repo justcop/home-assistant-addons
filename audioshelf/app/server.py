@@ -17,6 +17,7 @@ from werkzeug.security import check_password_hash
 from types import SimpleNamespace
 
 from .accounts import Accounts
+from .cloudflare_access import CloudflareAccess
 from .listening_links import shelf_matches
 from .lastfm_import import LastFmImporter
 
@@ -92,6 +93,8 @@ def create_app(options=None):
                                     playable_releases=playable_releases)
     accounts = Accounts(collection, cache, private_dir, options, owner_context)
     app.extensions['accounts'] = accounts
+    access = CloudflareAccess(options)
+    app.extensions['cloudflare_access'] = access
     lastfm_import = LastFmImporter()
     app.extensions['lastfm_import'] = lastfm_import
     artwork_refresh = ArtworkRefresh()
@@ -114,6 +117,13 @@ def create_app(options=None):
         g.account = accounts.get(session.get('account', 'owner'))
         g.context = owner_context
         g.identity = None
+        g.access_claims = None
+        if access.enabled and not ingress() and not request.path.startswith('/api/helper/playback-handoff/') and request.path not in {'/auth/android/exchange', '/health'}:
+            g.access_claims = access.verify(request.headers.get('Cf-Access-Jwt-Assertion'))
+            g.account = accounts.from_access(g.access_claims, access.owner_email)
+        elif access.enabled:
+            # Legacy browser cookies never select accounts in Cloudflare mode.
+            g.account = accounts.get('owner')
         if g.account and not g.account['disabled']:
             g.context = accounts.context(g.account['id'])
 
@@ -124,6 +134,11 @@ def create_app(options=None):
     def identity():
         if not g.account or g.account['disabled']:
             return None
+        if access.enabled:
+            if g.access_claims:
+                return {'role': 'owner', 'cloudflare': True, 'expires': g.access_claims['exp'],
+                        'token': hashlib.sha256((g.access_claims['iss'] + ':' + g.access_claims['sub']).encode()).hexdigest()}
+            return {'role': 'owner', 'ingress': True} if ingress() else None
         # Ingress grants implicit access only to the existing owner library.
         # Explicit sessions take precedence, including when using ingress.
         if session.get('sid'):
@@ -137,6 +152,12 @@ def create_app(options=None):
 
     @app.before_request
     def protect():
+        if access.enabled and (request.path in {'/api/login', '/api/login/ingress', '/api/accounts'} and request.method == 'POST'
+                               or request.path.startswith('/api/security/') and request.method != 'GET'):
+            raise AppError('Login and account security are managed through Cloudflare and Google.', 403)
+        if access.enabled and request.path.startswith('/api/accounts/') and request.method == 'PUT':
+            if set(request.get_json(silent=True) or {}) != {'disabled'}:
+                raise AppError('Only account status can be changed. Login is managed by Cloudflare.', 403)
         if request.method in {'POST','PUT','PATCH','DELETE'}:
             if request.headers.get('X-AudioShelf-Request') != '1' or not request.is_json:
                 raise AppError('Please perform this action from AudioShelf.', 403)
@@ -171,7 +192,7 @@ def create_app(options=None):
     def owner_reauth():
         if not g.identity or g.identity['role'] != 'owner':
             raise AppError('Owner access required.', 403)
-        if g.identity.get('ingress'):
+        if g.identity.get('ingress') or g.identity.get('cloudflare'):
             return
         security.throttle(request.remote_addr)
         if not security.owner_credentials(request.json.get('password'), request.json.get('code')):
@@ -243,12 +264,57 @@ def create_app(options=None):
         response.headers['Cache-Control'] = 'no-store'
         return response
 
+    @app.get('/auth/android/start')
+    def android_login_start():
+        from urllib.parse import urlencode
+        import re
+        if not access.enabled or not g.access_claims:
+            raise AppError('Cloudflare login is required.', 403)
+        challenge, state = request.args.get('challenge', ''), request.args.get('state', '')
+        if not re.fullmatch(r'[A-Za-z0-9_-]{43}', challenge) or not re.fullmatch(r'[A-Za-z0-9_-]{32,128}', state):
+            raise AppError('Start sign-in again from the AudioShelf app.', 400)
+        code = secrets.token_urlsafe(32)
+        with accounts.connect() as db:
+            db.execute('CREATE TABLE IF NOT EXISTS android_login (code TEXT PRIMARY KEY, challenge TEXT, token TEXT, expires REAL)')
+            db.execute('DELETE FROM android_login WHERE expires<?', (time.time(),))
+            db.execute('INSERT INTO android_login VALUES (?,?,?,?)',
+                       (hashlib.sha256(code.encode()).hexdigest(), challenge,
+                        request.headers['Cf-Access-Jwt-Assertion'], min(time.time()+60, g.access_claims['exp'])))
+        callback = 'audioshelf-login://callback?' + urlencode({'code': code, 'state': state})
+        return render_template('android_login.html', callback=callback)
+
+    @app.post('/auth/android/exchange')
+    def android_login_exchange():
+        import base64
+        import hmac
+        import re
+        if not access.enabled:
+            raise AppError('Cloudflare login is not configured.', 403)
+        owner_context.security.throttle(request.remote_addr)
+        code, verifier = request.json.get('code', ''), request.json.get('verifier', '')
+        if not isinstance(code, str) or not isinstance(verifier, str) or not re.fullmatch(r'[A-Za-z0-9_-]{43,128}', verifier):
+            raise AppError('Invalid app sign-in.', 400)
+        challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip('=')
+        with accounts.connect() as db:
+            db.execute('CREATE TABLE IF NOT EXISTS android_login (code TEXT PRIMARY KEY, challenge TEXT, token TEXT, expires REAL)')
+            row = db.execute('SELECT * FROM android_login WHERE code=?', (hashlib.sha256(code.encode()).hexdigest(),)).fetchone()
+            if not row or row['expires'] <= time.time() or not hmac.compare_digest(row['challenge'], challenge):
+                raise AppError('App sign-in expired. Sign in again.', 401)
+            db.execute('DELETE FROM android_login WHERE code=?', (row['code'],))
+        claims = access.verify(row['token'])
+        accounts.from_access(claims, access.owner_email)
+        owner_context.security.clear_attempts(request.remote_addr)
+        return jsonify(access_token=row['token'], expires=claims['exp'])
+
     @app.get('/api/status')
     def status():
         # Do not launch expensive catalogue scans from ordinary navigation or
         # playback-status requests. Imports, OAuth and Matching Settings kick
         # the independent worker instead.
         result = {'build':build,'authenticated':authenticated(),'password_required':not bool((identity() or {}).get('ingress')), 'password_configured':bool(password) or len(accounts.listing()) > 1, 'two_factor_enabled':bool(security.get('totp')), 'ingress_available':ingress()}
+        if access.enabled:
+            result.update(auth_provider='cloudflare', password_required=False, password_configured=False,
+                          two_factor_enabled=False)
         if authenticated():
             result.update(account={'id':g.account['id'], 'username':g.account['username'], 'admin':g.account['id']=='owner' and identity()['role']=='owner'}, role=identity()['role'], spotify_configured=spotify.configured, spotify_connected=spotify.connected,
                           spotify_redirect_uri=spotify.redirect_uri, spotify_client_id=spotify.client_id, data_directory=str(store.directory), cache_directory=str(store.cache_directory), market=spotify.market,
@@ -355,7 +421,7 @@ def create_app(options=None):
         handoff.cancel_all('logout')
         security.logout(session.get('sid')); security.forget_trust(request.cookies.get('audioshelf_trusted')); session.clear()
         session['require_login'] = True
-        response = jsonify(ok=True)
+        response = jsonify(ok=True, logout_url='/cdn-cgi/access/logout' if access.enabled else None)
         response.delete_cookie('audioshelf_trusted', secure=True, httponly=True, samesite='Lax')
         return response
 
@@ -399,6 +465,9 @@ def create_app(options=None):
 
     @app.get('/api/security')
     def security_overview():
+        if access.enabled:
+            return jsonify(auth_provider='cloudflare', two_factor=False, ingress=ingress(),
+                           email=g.access_claims['email'] if g.access_claims else None)
         return jsonify({**security.overview(), 'ingress':bool(g.identity.get('ingress'))})
 
     @app.post('/api/security/totp/start')
@@ -876,12 +945,18 @@ def create_app(options=None):
         spotify.play_tracks(album, disc)  # Validate before accepting background work.
         token = session.get('sid')
         ingress_request = bool(g.identity.get('ingress'))
+        access_expiry = g.identity.get('expires') if g.identity.get('cloudflare') else None
         context = g.context  # Capture real objects: workers have no Flask request context.
         identifier = g.account['id']
         version = context.security.version()
         def authorized():
             enabled = accounts.enabled(identifier)
-            person = context.security.identity(token) if not ingress_request else {'role': 'owner'}
+            if ingress_request:
+                person = {'role': 'owner'}
+            elif access.enabled:
+                person = {'role': 'owner'} if access_expiry and time.time() < access_expiry else None
+            else:
+                person = context.security.identity(token)
             return bool(enabled and context.security.version() == version
                         and person and person['role'] in ('owner', 'control'))
         return jsonify(handoff.start(album, disc, preferred, playback_owner(), authorized,
@@ -996,6 +1071,8 @@ def create_app(options=None):
     def callback():
         try:
             identifier = accounts.oauth_account(request.args.get('state',''))
+            if access.enabled and identifier != g.account['id']:
+                raise AppError('Connect Spotify from the same Google account that started the request.', 403)
             g.context = accounts.context(identifier)
             spotify.callback(request.args.get('code',''),request.args.get('state',''),bool(request.args.get('error')))
             g.context.store.set_setting(PAUSE_UNTIL, 0)  # A new authorization clears old outage backoff.

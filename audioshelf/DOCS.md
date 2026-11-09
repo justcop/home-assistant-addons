@@ -26,3 +26,21 @@ Update both add-ons. Set `audioshelf_url` in Listening Analytics to the HTTPS Au
 “On your shelf” appears only after an authenticated check finds matching owned records. Artist links open the full shelf and scroll to that artist. Album links open the saved album page. Song links use saved tracklists, preferring the album from listening history. Multiple matching albums show separate links. “Find in record store” remains available regardless of ownership and opens a search. No credentials or shelf data are copied to Listening Analytics.
 
 The browser must permit the AudioShelf session cookie for the check. Using HTTPS subdomains of the same domain works with the existing cookie settings. Across unrelated domains, browser cookie restrictions may prevent shelf checks; record store links still work. In Home Assistant ingress, use the origin of the Home Assistant page as `listening_analytics_origin`.
+
+## Cloudflare Google login
+
+Create a self-hosted Access application for the full AudioShelf hostname, allow only Google as its identity provider, and approve the intended email addresses in its Allow policy. Set these AudioShelf add-on options together:
+
+- `cloudflare_team_domain`: your team hostname, for example `justcop.cloudflareaccess.com`.
+- `cloudflare_audience`: this AudioShelf application's AUD, not another application's AUD.
+- `cloudflare_owner_email`: the Google email to link to the existing owner library.
+
+Restart the add-on. The backend verifies the JWT signature, issuer, audience, expiry, application type and human subject on every standalone request. Existing AudioShelf passwords and 2FA cannot authenticate in this mode. Each new approved Cloudflare identity gets a separate library and Spotify connection automatically. Account disable controls still apply. The owner email is used only for the first owner link; the signed subject then determines the account. Removing an Allow rule does not revoke existing Access tokens immediately; revoke that user's Access sessions as well when removing access. Google login does not by itself guarantee that the Google account has two-step verification enabled.
+
+Use `/health` for deployment health checks. Home Assistant's trusted ingress proxy continues to open the owner library. Direct standalone access without an Access assertion is denied.
+
+Android 0.2.22 and later opens Google authentication in the system browser, then automatically returns to the integrated app. The return code lasts at most 60 seconds, is single use and requires the app's original PKCE verifier. It transfers the already verified Access cookie into the app's private WebView; it does not create an independent AudioShelf login session. The app must be updated for this flow.
+
+Native operation requires two narrowly scoped Access applications with a Bypass policy: exact path `/auth/android/exchange` and path `/api/helper/playback-handoff/*`. Only the code exchange and job callbacks bypass the browser login screen. AudioShelf still enforces one-use PKCE or short-lived job-scoped bearer authentication at these endpoints. Never bypass `/api/*`, `/auth/*`, or the complete hostname. Keep these exceptions absent until their access scope has been approved. The website login works without them, but Android sign-in exchange and native playback callbacks require them.
+
+Cloudflare controls the Google login session duration and logout at `/cdn-cgi/access/logout`. Spotify connection remains a separate permission grant to play music, not a second AudioShelf login.
