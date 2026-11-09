@@ -1071,6 +1071,8 @@ def create_app(options=None):
     def callback():
         try:
             identifier = accounts.oauth_account(request.args.get('state',''))
+            if access.enabled and identifier != g.account['id']:
+                raise AppError('Connect Spotify from the same Google account that started the request.', 403)
             g.context = accounts.context(identifier)
             spotify.callback(request.args.get('code',''),request.args.get('state',''),bool(request.args.get('error')))
             g.context.store.set_setting(PAUSE_UNTIL, 0)  # A new authorization clears old outage backoff.

@@ -105,3 +105,14 @@ def test_helper_endpoint_keeps_job_bearer_boundary(access):
     app,_,_,_=access
     c=app.test_client()
     assert c.get('/api/helper/playback-handoff/owner/'+'a'*32).status_code in (401,404)
+
+
+def test_spotify_callback_cannot_cross_google_account_boundary(access,monkeypatch):
+    app,client,_,_=access
+    accounts=app.extensions['accounts']
+    accounts.bind_oauth('https://spotify.example/authorize?state=owner-flow','owner')
+    calls=[]
+    monkeypatch.setattr(accounts.owner.spotify,'callback',lambda *args: calls.append(args))
+    response=client('alice@gmail.com','alice').get('/auth/spotify/callback?state=owner-flow&code=other-user')
+    assert response.status_code==400 and 'same Google account' in response.text
+    assert calls==[]
