@@ -1,0 +1,30 @@
+name: Docker registry login compatibility
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/vinyl-guardian-release.yml'
+      - '.github/workflows/docker-login-compatibility.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  login-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify Docker Login Action v4 against GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify credentials are available to Docker
+        run: |
+          test -f "$HOME/.docker/config.json"
+          docker info >/dev/null
+      - name: Log out
+        if: always()
+        run: docker logout ghcr.io || true
