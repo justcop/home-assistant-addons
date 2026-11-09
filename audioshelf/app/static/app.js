@@ -1515,13 +1515,13 @@ document.addEventListener('click',async event=>{
       const state=releasePicker;
       if(!state||!button.dataset.spotifyId)return;
       if(state.mode==='tracks'&&!confirm('Replace the original tracklist and its Spotify mappings with this fully matched edition?'))return;
-      const album=await api(`albums/${id(state.album)}/${state.mode==='add'?'shelf':'release'}`,'POST',
+      const album=await api(`albums/${id(state.album)}/${state.mode==='add'?'shelf':state.mode==='borrow'?'borrow':'release'}`,'POST',
         {release_id:button.dataset.id,spotify_album_id:button.dataset.spotifyId,confirmed:true,
           split_sides:!!state.splitSides});
       if(generation!==routeGeneration)return;
-      modal.close();markCollected(album.id);
-      if(state.mode==='add'){
-        toast(`${album.title} added to your shelf, with every track matched on Spotify.`);
+      modal.close();if(state.mode==='add')markCollected(album.id);
+      if(state.mode==='add'||state.mode==='borrow'){
+        toast(state.mode==='borrow'?`${album.title} is now on loan in your Listening Pile.`:`${album.title} added to your shelf, with every track matched on Spotify.`);
         if(location.hash.startsWith('#album/')){currentAlbum=album;content.innerHTML=albumPage(album);}
         else await route();
       }else{
