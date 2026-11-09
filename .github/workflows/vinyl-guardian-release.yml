@@ -6,7 +6,6 @@ on:
     paths:
       - 'vinyl_guardian/**'
       - '.github/scripts/vinyl_guardian_release.py'
-      - '.github/workflows/vinyl-guardian-release.yml'
   workflow_dispatch:
     inputs:
       bump:
