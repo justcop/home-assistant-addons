@@ -1,4 +1,4 @@
-FROM ghcr.io/home-assistant/base:3.22
+FROM ghcr.io/home-assistant/base:3.24
 ENV LANG=C.UTF-8 PYTHONUNBUFFERED=1
 RUN apk add --no-cache python3 py3-pip tzdata && python3 -m venv /opt/venv
 COPY requirements.txt /tmp/requirements.txt

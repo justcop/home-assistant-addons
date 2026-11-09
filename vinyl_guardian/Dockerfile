@@ -1,4 +1,4 @@
-FROM ghcr.io/home-assistant/base-python:3.13-alpine3.24-2026.06.1
+FROM ghcr.io/home-assistant/base-python:3.14-alpine3.24-2026.06.1
 
 ENV LANG=C.UTF-8
 
