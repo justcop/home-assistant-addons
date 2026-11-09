@@ -47,3 +47,31 @@ jobs:
           docker run --rm --network none --entrypoint "$interpreter" \
             -v "$PWD/.github/scripts/check_python_runtime.py:/tmp/check_runtime.py:ro" \
             runtime:test -X faulthandler -u /tmp/check_runtime.py '${{ matrix.addon }}'
+      - name: Verify server startup, access boundary and shutdown
+        if: matrix.addon != 'vinyl_guardian'
+        run: |
+          docker run -d --network none --name runtime-smoke runtime:test
+          trap 'docker logs runtime-smoke; docker rm -f runtime-smoke >/dev/null' EXIT
+          interpreter=/usr/local/bin/python3
+          case '${{ matrix.addon }}' in audioshelf|lastfm_analytics) interpreter=/opt/venv/bin/python ;; esac
+          for attempt in $(seq 1 15); do
+            if docker exec runtime-smoke "$interpreter" -c "import urllib.request,urllib.error; url='http://127.0.0.1:8099/'+('' if '${{ matrix.addon }}'=='work_audit' else 'health'); expected=403 if '${{ matrix.addon }}'=='work_audit' else 200
+          try:
+              response=urllib.request.urlopen(url); status=response.status
+          except urllib.error.HTTPError as exc:
+              status=exc.code
+          assert status==expected, status"; then
+              docker stop --time 15 runtime-smoke
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1
+  money-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.15'
+      - run: python -m unittest discover -s money_locations/tests -p 'test_*.py' -v
