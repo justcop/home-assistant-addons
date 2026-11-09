@@ -33,6 +33,7 @@ class Accounts:
                 CREATE TABLE IF NOT EXISTS accounts (
                     id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL,
                     password_hash TEXT, disabled INTEGER NOT NULL DEFAULT 0);
+                CREATE TABLE IF NOT EXISTS account_profiles (account_id TEXT PRIMARY KEY, name TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS access_identities (
                     issuer TEXT NOT NULL, subject TEXT NOT NULL, account_id TEXT NOT NULL,
                     email TEXT NOT NULL, PRIMARY KEY(issuer,subject));
@@ -155,6 +156,17 @@ class Accounts:
                 db.execute('DELETE FROM oauth WHERE account_id=?', (identifier,))
             self.contexts.pop(identifier, None)
             return self.get(identifier)
+
+    def display_name(self, identifier, name=None):
+        with self.connect() as db:
+            if name:
+                db.execute('INSERT OR REPLACE INTO account_profiles VALUES (?,?)', (identifier, name))
+            profile = db.execute('SELECT name FROM account_profiles WHERE account_id=?', (identifier,)).fetchone()
+            if profile:
+                return profile['name']
+            identity = db.execute('SELECT email FROM access_identities WHERE account_id=?', (identifier,)).fetchone()
+            account = db.execute('SELECT username FROM accounts WHERE id=?', (identifier,)).fetchone()
+            return identity['email'] if identity else account['username']
 
     def from_access(self, claims, owner_email):
         """Provision once per signed subject; only the configured email bootstraps owner."""

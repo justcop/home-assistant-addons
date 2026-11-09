@@ -316,7 +316,9 @@ def create_app(options=None):
             result.update(auth_provider='cloudflare', password_required=False, password_configured=False,
                           two_factor_enabled=False)
         if authenticated():
-            result.update(account={'id':g.account['id'], 'username':g.account['username'], 'admin':g.account['id']=='owner' and identity()['role']=='owner'}, role=identity()['role'], spotify_configured=spotify.configured, spotify_connected=spotify.connected,
+            if access.enabled and g.access_claims:
+                accounts.display_name(g.account['id'], access.display_name(request.headers.get('Cf-Access-Jwt-Assertion'), g.access_claims))
+            result.update(account={'id':g.account['id'], 'username':accounts.display_name(g.account['id']) if access.enabled else g.account['username'], 'admin':g.account['id']=='owner' and identity()['role']=='owner'}, role=identity()['role'], spotify_configured=spotify.configured, spotify_connected=spotify.connected,
                           spotify_redirect_uri=spotify.redirect_uri, spotify_client_id=spotify.client_id, data_directory=str(store.directory), cache_directory=str(store.cache_directory), market=spotify.market,
                           release_filters=store.release_filters(), interface=store.setting('interface', 'vinyl'), shelf_style=store.setting('shelf_style', 'floating'), theme=store.setting('theme', 'record-store'), themes=THEMES, preferred_device=store.setting('preferred_device'), show_skip_controls=store.setting('show_skip_controls', False))
         return jsonify(result)
@@ -434,7 +436,11 @@ def create_app(options=None):
     @app.get('/api/accounts')
     def list_accounts():
         require_admin()
-        return jsonify(accounts=accounts.listing())
+        rows = accounts.listing()
+        if access.enabled:
+            for row in rows:
+                row['username'] = accounts.display_name(row['id'])
+        return jsonify(accounts=rows)
 
     @app.post('/api/accounts')
     def create_account():
@@ -516,7 +522,7 @@ def create_app(options=None):
         name = request.args.get('name', '')[:256]
         albums = request.args.getlist('album')[:10]
         return jsonify(matches=shelf_matches(store, kind, artist, name, albums),
-                       account=g.account['username'])
+                       account=accounts.display_name(g.account['id']) if access.enabled else g.account['username'])
 
     def lastfm_owner():
         if not g.identity or g.identity['role'] != 'owner':
@@ -1078,7 +1084,7 @@ def create_app(options=None):
             g.context.store.set_setting(PAUSE_UNTIL, 0)  # A new authorization clears old outage backoff.
             spotify_matching.ensure_started(identifier, g.context.store, g.context.spotify,
                 g.context.playable_releases, enabled=accounts.enabled)
-            message = 'Spotify is connected for '+accounts.get(identifier)['username']+'. Return to that AudioShelf account and play an album.'
+            message = 'Spotify is connected for '+(accounts.display_name(identifier) if access.enabled else accounts.get(identifier)['username'])+'. Return to that AudioShelf account and play an album.'
             ok = True
         except AppError as error:
             message,ok = str(error),False

@@ -1,3 +1,7 @@
+## 0.6.43
+
+- Display the Google profile name supplied through Cloudflare login instead of the internal owner username. Keep account identifiers, libraries and permissions unchanged; retain the last known name for Home Assistant ingress and temporary identity-service outages.
+
 ## 0.6.42
 
 - Add Cloudflare Access Google single sign-on, with verified JWT identity on every standalone request. Link the configured owner email to the existing library; automatically create separate accounts for other approved identities.
