@@ -204,3 +204,9 @@
 [data-interface=vinyl] .listening-sleeve .album-flip-face{box-shadow:3px 3px 0 var(--line),7px 8px 16px #0002}
 [data-interface=vinyl] .listening-sleeve .album-flip:hover:not(:disabled){filter:brightness(1.02)}
 @media(max-width:700px){[data-interface=vinyl] .listening-sleeve .album-flip{width:calc(100% - 20px);max-width:420px}}
+
+/* A Listening Pile uses the same sleeve/ledge furniture as the owned collection. */
+.listening-pile .shelf-rack{width:100%}
+.store-card-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.store-ticket .store-card-actions .card-action{flex:1;min-width:68px;margin:0}
+@media(max-width:700px){.store-ticket .store-card-actions .card-action{min-height:44px;padding:7px 6px;font-size:9px}[data-interface=vinyl] .bottom-nav a{font-size:10px;padding:11px 3px}[data-interface=vinyl] .bottom-nav span{font-size:13px;margin-right:3px}}
