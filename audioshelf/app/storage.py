@@ -19,7 +19,7 @@ class Store:
         self.catalogue_lock = threading.RLock()
         with self.connect() as db:
             version = db.execute('PRAGMA user_version').fetchone()[0]
-            if version > 6:
+            if version > 5:
                 raise RuntimeError('This database needs a newer AudioShelf version.')
             db.executescript('''
                 CREATE TABLE IF NOT EXISTS artists (
@@ -58,7 +58,7 @@ class Store:
                 db.execute("ALTER TABLE tracks ADD COLUMN recording_aliases TEXT NOT NULL DEFAULT '[]'")
             if 'artist_names' not in columns:
                 db.execute("ALTER TABLE tracks ADD COLUMN artist_names TEXT NOT NULL DEFAULT '[]'")
-            db.execute('PRAGMA user_version=6')
+            db.execute('PRAGMA user_version=5')
             db.commit()
             if version == 1:
                 db.execute('VACUUM')
