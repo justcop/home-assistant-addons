@@ -569,6 +569,10 @@ def create_app(options=None):
     def shelf():
         return jsonify(artists=store.artists(),albums=store.albums(owned=True))
 
+    @app.get('/api/listening-pile')
+    def listening_pile():
+        return jsonify(albums=store.albums(pile=True))
+
     @app.get('/api/search')
     def search():
         query = request.args.get('q','').strip()[:160]
@@ -645,7 +649,8 @@ def create_app(options=None):
             existing = store.album(album_id)
             # An unresolved shelf album must not accidentally regain the
             # first unverified MusicBrainz pressing when its page is opened.
-            return jsonify(existing if existing['on_shelf'] else musicbrainz.ensure_tracks(album_id))
+            return jsonify(existing if existing['on_shelf'] or existing['in_listening_pile']
+                           else musicbrainz.ensure_tracks(album_id))
 
     @app.post('/api/artwork/refresh')
     def begin_artwork_refresh():
@@ -781,6 +786,12 @@ def create_app(options=None):
                     payload['spotify_album_id'], reviewed=False, add_to_shelf=True,
                     split_sides=payload.get('split_sides', False))
                 return jsonify(album)
+            # A borrowed, Spotify-verified record is already fully prepared;
+            # keeping it must not clear its chosen edition or track mappings.
+            existing = store.album(album_id)
+            if existing['on_loan'] and existing['playable']:
+                store.shelf(album_id, True)
+                return jsonify(store.album(album_id))
             # Compatibility route: add an album identity but do not accept
             # an unverified MusicBrainz tracklist as the final edition.
             store.clear_unverified_edition(album_id)
@@ -788,6 +799,50 @@ def create_app(options=None):
             spotify_matching.start(g.account['id'], g.context.store,
                 g.context.spotify, g.context.playable_releases,
                 enabled=accounts.enabled, automatic=True)
+            return jsonify(store.album(album_id))
+
+    @app.post('/api/albums/<album_id>/borrow')
+    def borrow_album(album_id):
+        album_id = mbid(album_id)
+        payload = request.get_json(silent=True) or {}
+        if (payload.get('confirmed') is not True or not payload.get('release_id')
+                or not payload.get('spotify_album_id')):
+            raise AppError('Choose a fully Spotify-matched edition to borrow.')
+        with store.catalogue_lock:
+            musicbrainz.ensure_group(album_id)
+            current = store.album(album_id)
+            if current['on_shelf']:
+                raise AppError('This record is already yours. Add it to the Listening Pile instead.', 409)
+            if current['on_loan']:
+                return jsonify(current)
+            playable_releases.select(album_id, payload['release_id'],
+                payload['spotify_album_id'], reviewed=False,
+                split_sides=payload.get('split_sides', False))
+            store.pile(album_id, True)
+            return jsonify(store.album(album_id))
+
+    @app.post('/api/albums/<album_id>/listening-pile')
+    def add_to_listening_pile(album_id):
+        album_id = mbid(album_id)
+        with store.catalogue_lock:
+            try:
+                album = store.album(album_id)
+            except KeyError:
+                raise AppError('Add this record to your shelf or borrow it first.', 404) from None
+            if not album['on_shelf']:
+                raise AppError('Borrow this record before putting it in your Listening Pile.', 409)
+            store.pile(album_id, True)
+            return jsonify(store.album(album_id))
+
+    @app.delete('/api/albums/<album_id>/listening-pile')
+    def remove_from_listening_pile(album_id):
+        album_id = mbid(album_id)
+        with store.catalogue_lock:
+            try:
+                store.album(album_id)
+            except KeyError:
+                raise AppError('Record not found.', 404) from None
+            store.pile(album_id, False)
             return jsonify(store.album(album_id))
 
     @app.delete('/api/albums/<album_id>/shelf')
@@ -835,7 +890,8 @@ def create_app(options=None):
             raise AppError('Confirm the edition change. It replaces the canonical tracks and clears Spotify mappings.')
         with store.catalogue_lock:
             payload = request.json
-            if store.album(mbid(album_id))['on_shelf'] and not payload.get('spotify_album_id'):
+            if (store.album(mbid(album_id))['on_shelf'] or
+                    store.album(mbid(album_id))['in_listening_pile']) and not payload.get('spotify_album_id'):
                 raise AppError('A shelf edition must have every track verified on Spotify before it can be saved.', 409)
             if payload.get('spotify_album_id'):
                 return jsonify(playable_releases.select(mbid(album_id), payload.get('release_id'),
@@ -866,7 +922,7 @@ def create_app(options=None):
     def resolve(album_id):
         with store.catalogue_lock:
             album = store.album(mbid(album_id))
-            if album['on_shelf'] and not album['tracks']:
+            if (album['on_shelf'] or album['in_listening_pile']) and not album['tracks']:
                 raise AppError('No verified canonical tracklist is saved. Choose Find playable edition first.', 409)
             if not album['tracks']:
                 album = musicbrainz.ensure_tracks(mbid(album_id))
