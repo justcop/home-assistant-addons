@@ -1,3 +1,9 @@
+## 0.6.42
+
+- Add Cloudflare Access Google single sign-on, with verified JWT identity on every standalone request. Link the configured owner email to the existing library; automatically create separate accounts for other approved identities.
+- Cloudflare mode removes the separate AudioShelf password, authenticator, trusted-browser and support-login flows. Home Assistant ingress remains available to the owner.
+- Android 0.2.22 signs in through the system browser and returns using a one-use PKCE exchange. Native playback retains its existing per-job bearer tokens.
+
 # 0.6.41 — Verified Spotify album playback context
 
 - Android App Remote starts a Spotify album context instead of appending individual songs when the exact complete Spotify album tracklist matches AudioShelf's verified canonical album.
