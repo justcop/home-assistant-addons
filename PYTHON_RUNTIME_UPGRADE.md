@@ -10,9 +10,9 @@ Reviewed 9 November 2026 for #131. Python.org lists 3.15.2 as the current stable
 | Music Video Companion | HA Python 3.15.2, Alpine 3.24 | amd64, aarch64 |
 | Vinyl Guardian | HA Python 3.15.2, Alpine 3.24 | amd64 |
 | Work Audit | official Python 3.15.2, Alpine 3.24 | amd64, aarch64 |
-| Python Venv SSH | existing Python 3.11 image, outstanding | amd64, aarch64, armv7, armhf, i386 |
+| Python Venv SSH | official Python 3.15.2, Debian bookworm | amd64, aarch64; armv7/i386 manifest-only; armhf blocked |
 
-The SSH add-on remains a separate blocker. The official 3.15.2-slim-bookworm manifest has amd64, arm64, arm/v7 and 386, but no arm/v6 image for its advertised armhf support. Updating its FROM line would silently break that architecture. A verified source build for armhf, or an explicit decision to retire that architecture, is required before upgrading it. No advertised architecture was removed here. The Node bridge and curl/jq cleanup add-ons do not run Python.
+The SSH add-on now uses Python 3.15.2 too, with native amd64/ARM64 venv creation checks. Its official slim-bookworm manifest also includes arm/v7 and 386, but no arm/v6 image for advertised armhf support. The current 3.11.18-slim-bookworm and 3.13.18-slim-bookworm manifests likewise lack arm/v6, so this is a pre-existing architecture-support gap, not a reason to freeze the other architectures. A verified source build for armhf, or an explicit decision to retire that architecture, is still required. No advertised architecture was removed here. Native 32-bit execution and SSH integration remain unverified. The Node bridge and curl/jq cleanup add-ons do not run Python.
 
 ## Vinyl Guardian crash
 

@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        addon: [audioshelf, lastfm_analytics, money_locations, music_video_companion, work_audit, vinyl_guardian]
+        addon: [audioshelf, lastfm_analytics, money_locations, music_video_companion, work_audit, vinyl_guardian, python]
         platform:
           - runner: ubuntu-latest
             arch: amd64
@@ -48,7 +48,7 @@ jobs:
             -v "$PWD/.github/scripts/check_python_runtime.py:/tmp/check_runtime.py:ro" \
             runtime:test -X faulthandler -u /tmp/check_runtime.py '${{ matrix.addon }}'
       - name: Verify server startup, access boundary and shutdown
-        if: matrix.addon != 'vinyl_guardian'
+        if: matrix.addon != 'vinyl_guardian' && matrix.addon != 'python'
         run: |
           docker run -d --network none --name runtime-smoke runtime:test
           trap 'docker logs runtime-smoke; docker rm -f runtime-smoke >/dev/null' EXIT

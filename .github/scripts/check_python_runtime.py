@@ -8,6 +8,7 @@ sys.path.insert(0, os.getcwd())
 addon = sys.argv[1]
 assert sys.version_info[:3] == (3, 15, 2), sys.version
 modules = {
+    'python': ['ssl', 'sqlite3', 'venv', 'ensurepip'],
     'audioshelf': ['flask', 'requests', 'waitress', 'PIL.Image', 'qrcode', 'app'],
     'lastfm_analytics': ['flask', 'waitress', 'PIL.Image', 'analytics'],
     'money_locations': ['sqlite3', 'ssl', 'zoneinfo', 'server'],
@@ -22,6 +23,14 @@ for name in modules:
 # Check imports together too, since extension load order can matter.
 for name in modules:
     importlib.import_module(name)
+
+if addon == 'python':
+    import tempfile
+    from pathlib import Path
+    with tempfile.TemporaryDirectory() as directory:
+        subprocess.run([sys.executable, '-m', 'venv', directory], check=True)
+        subprocess.run([str(Path(directory) / 'bin/python'), '-c',
+                        'import sys; assert sys.version_info[:3] == (3, 15, 2)'], check=True)
 
 if addon in ('audioshelf', 'lastfm_analytics'):
     import io
