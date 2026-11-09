@@ -1,7 +1,7 @@
 plugins { id 'com.android.application' }
 android {
     namespace 'uk.co.justcop.audioshelf.helper'
-    compileSdk 37
+    compileSdk { version = release(37) { minorApiLevel = 0 } }
     buildFeatures { buildConfig true }
     defaultConfig {
         applicationId 'uk.co.justcop.audioshelf.helper'
