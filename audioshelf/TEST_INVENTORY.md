@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-11-02T12:39:22.171+00:00 (Europe/London).
+Reviewed: 2026-11-09T08:18:16+00:00 (Europe/London).
 
-Reviewed 424 collected Python test cases after adding three distinct regression tests for exact Spotify album-context selection, zero SDK queue appends for native album contexts, and independent rejection of stale manually queued tracks. The existing full-album and vinyl-side handoff tests remain. Manual Spotify Next in queue songs cannot be cleared via public APIs, so the UI must report unconfirmed playback instead of claiming full replacement. Android live device verification remains outstanding.
+Reviewed test and CI sources against 6758ac6: all 424 backend cases and all browser tests are unchanged. The baseline workflow adds Docker Buildx caching in 0787648. Record that CI change while retaining the full suite; dependency compatibility is checked separately by this PR CI. Live Android device verification remains outstanding.
 
-<!-- inventory: {"reviewed_at":"2026-11-02T12:39:22.171+00:00","review_note":"Reviewed 424 collected Python test cases after adding three distinct regression tests for exact Spotify album-context selection, zero SDK queue appends for native album contexts, and independent rejection of stale manually queued tracks. The existing full-album and vinyl-side handoff tests remain. Manual Spotify Next in queue songs cannot be cleared via public APIs, so the UI must report unconfirmed playback instead of claiming full replacement. Android live device verification remains outstanding.","source_sha256":"67d873012f20b2ba5f97f274fba90b1b99ca916748b47a72e72c3921e9b8e8a8"} -->
+<!-- inventory: {"reviewed_at": "2026-11-09T08:18:16+00:00", "review_note": "Reviewed test and CI sources against 6758ac6: all 424 backend cases and all browser tests are unchanged. The baseline workflow adds Docker Buildx caching in 0787648. Record that CI change while retaining the full suite; dependency compatibility is checked separately by this PR CI. Live Android device verification remains outstanding.", "source_sha256": "511977ad8530dc302c292ffe52b25351c5b9f55ef76bfddad6f11249abfe86f0"} -->
 
 ## Backend cases (424)
 

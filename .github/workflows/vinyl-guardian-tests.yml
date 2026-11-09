@@ -57,7 +57,25 @@ jobs:
           cache-to: type=gha,scope=vinyl-guardian-tests,mode=max,ignore-error=true
       - name: Smoke-test runtime imports in built image
         run: |
-          docker run --rm --entrypoint python3 vinyl-guardian-test -c "import audioop; from shazamio import Shazam; import pydub; print('Shazam runtime imports OK')"
+          docker run --rm -i --entrypoint python3 vinyl-guardian-test -X faulthandler -u - <<'PY'
+          import asyncio
+          import importlib
+          import inspect
+          for name in ('audioop', 'numpy', 'alsaaudio', 'paho.mqtt.client', 'requests', 'pylast', 'shazamio'):
+              print(f'Importing {name}', flush=True)
+              importlib.import_module(name)
+          from shazamio import Shazam
+          async def check_client():
+              client = Shazam()
+              assert callable(client.recognize)
+              close = getattr(client, 'close', None)
+              if callable(close):
+                  result = close()
+                  if inspect.isawaitable(result):
+                      await result
+          asyncio.run(check_client())
+          print('Installed runtime dependencies and Shazam client OK; no network recognition request made')
+          PY
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
