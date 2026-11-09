@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.parse
@@ -132,9 +133,11 @@ def github_oidc_access_token(settings: dict) -> str:
     parsed = urllib.parse.urlparse(request_url)
     allowed_oidc_hosts = {
         "pipelines.actions.githubusercontent.com",
-        "run-actions-2-azure-eastus.actions.githubusercontent.com",
+        
     }
-    if (parsed.scheme != "https" or parsed.hostname not in allowed_oidc_hosts
+    if (parsed.scheme != "https" or not (parsed.hostname in allowed_oidc_hosts or re.fullmatch(
+                r"run-actions-[0-9]+-azure-eastus\.actions\.githubusercontent\.com",
+                parsed.hostname or ""))
             or parsed.username is not None or parsed.password is not None
             or parsed.port not in (None, 443)):
         raise ValueError("Unexpected GitHub OIDC request URL host")
