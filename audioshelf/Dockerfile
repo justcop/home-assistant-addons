@@ -1,6 +1,6 @@
-FROM ghcr.io/home-assistant/base:3.22
+FROM ghcr.io/home-assistant/base-python:3.15-alpine3.24-2026.11.0
 ENV LANG=C.UTF-8 PYTHONUNBUFFERED=1
-RUN apk add --no-cache python3 py3-pip && python3 -m venv /opt/venv
+RUN python3 -m venv /opt/venv
 COPY requirements.txt /tmp/requirements.txt
 RUN /opt/venv/bin/pip install --no-cache-dir -r /tmp/requirements.txt
 ARG BUILD_VERSION=0.6.27

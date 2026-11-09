@@ -1,0 +1,49 @@
+name: Python runtime containers
+on:
+  pull_request:
+    paths:
+      - '**/Dockerfile'
+      - '**/requirements*.txt'
+      - '.github/scripts/check_python_runtime.py'
+      - '.github/workflows/python-runtime-containers.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        addon: [audioshelf, lastfm_analytics, money_locations, music_video_companion, work_audit, vinyl_guardian]
+        platform:
+          - runner: ubuntu-latest
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+        exclude:
+          - addon: vinyl_guardian
+            platform:
+              runner: ubuntu-24.04-arm
+              arch: aarch64
+    runs-on: ${{ matrix.platform.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./${{ matrix.addon }}
+          load: true
+          tags: runtime:test
+          build-args: |
+            BUILD_VERSION=test
+            BUILD_ARCH=${{ matrix.platform.arch }}
+          cache-from: type=gha,scope=runtime-${{ matrix.addon }}-${{ matrix.platform.arch }}
+          cache-to: type=gha,scope=runtime-${{ matrix.addon }}-${{ matrix.platform.arch }},mode=max,ignore-error=true
+      - name: Verify actual interpreter, native imports and offline functionality
+        run: |
+          interpreter=/usr/local/bin/python3
+          case '${{ matrix.addon }}' in audioshelf|lastfm_analytics) interpreter=/opt/venv/bin/python ;; esac
+          docker run --rm --network none --entrypoint "$interpreter" \
+            -v "$PWD/.github/scripts/check_python_runtime.py:/tmp/check_runtime.py:ro" \
+            runtime:test -X faulthandler -u /tmp/check_runtime.py '${{ matrix.addon }}'

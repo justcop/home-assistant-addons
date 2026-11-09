@@ -1,0 +1,28 @@
+name: Python crash diagnostic
+on:
+  pull_request:
+    paths: ['.github/workflows/python-crash-diagnostic.yml']
+permissions:
+  contents: read
+jobs:
+  isolate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Build exact failing PR 122 source
+        run: |
+          mkdir "$RUNNER_TEMP/legacy-vinyl"
+          git archive 25465bd39c14328eddfb3aa3b8f0561c2c9de4b6 vinyl_guardian | tar -x -C "$RUNNER_TEMP/legacy-vinyl" --strip-components=1
+          docker build -t legacy-vinyl "$RUNNER_TEMP/legacy-vinyl"
+      - name: Isolate each import and load order without network
+        run: |
+          failed=0
+          for name in audioop numpy alsaaudio paho.mqtt.client requests pylast shazamio pydub; do
+            echo "Testing legacy import: $name"
+            docker run --rm --network none --entrypoint python3 legacy-vinyl -X faulthandler -u -c "import importlib; importlib.import_module('$name'); print('Import OK')" || failed=1
+          done
+          echo "Testing original import order"
+          docker run --rm --network none --entrypoint python3 legacy-vinyl -X faulthandler -u -c "print('audioop',flush=True); import audioop; print('Shazam',flush=True); from shazamio import Shazam; print('pydub',flush=True); import pydub; print('OK')" || failed=1
+          echo "Legacy diagnostic failures present: $failed"

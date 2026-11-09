@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-11-09T08:29:22+00:00 (Europe/London).
+Reviewed: 2026-11-09T08:56:03+00:00 (Europe/London).
 
-Reviewed unchanged 424 backend cases and existing browser flows. Record Docker Buildx caching and setup-python v7 CI changes. The disc-play regression now simulates an in-flight status read so explicit Play cannot be discarded by the background polling lock. Retained the preference-only no-replay check. Live Android device verification is not claimed.
+Reviewed unchanged 424 backend cases and retained browser regressions. CI interpreter moves from 3.12 to stable 3.15; actual production image imports and native audio checks are added separately. Live Spotify, ALSA hardware and recognition service checks remain outstanding.
 
-<!-- inventory: {"reviewed_at": "2026-11-09T08:29:22+00:00", "review_note": "Reviewed unchanged 424 backend cases and existing browser flows. Record Docker Buildx caching and setup-python v7 CI changes. The disc-play regression now simulates an in-flight status read so explicit Play cannot be discarded by the background polling lock. Retained the preference-only no-replay check. Live Android device verification is not claimed.", "source_sha256": "878b66296aa4f1798a6226b5f5046b91473f71a25e8f07fcd2c990f6fc4d89fc"} -->
+<!-- inventory: {"reviewed_at": "2026-11-09T08:56:03+00:00", "review_note": "Reviewed unchanged 424 backend cases and retained browser regressions. CI interpreter moves from 3.12 to stable 3.15; actual production image imports and native audio checks are added separately. Live Spotify, ALSA hardware and recognition service checks remain outstanding.", "source_sha256": "51cb866a1c5edd0fd6037bbe6d07381d0bc0f7efd82980a7fafb2d24b844d70d"} -->
 
 ## Backend cases (424)
 

@@ -1,4 +1,4 @@
-FROM ghcr.io/home-assistant/base-python:3.13-alpine3.24-2026.06.1
+FROM ghcr.io/home-assistant/base-python:3.15-alpine3.24-2026.11.0
 
 ENV LANG=C.UTF-8
 
@@ -14,7 +14,6 @@ RUN apk add --no-cache \
     && apk add --no-cache --virtual .build-deps \
         gcc \
         musl-dev \
-        python3-dev \
         alsa-lib-dev \
     && python3 -m pip install --no-cache-dir -r /tmp/requirements.txt \
     && apk del .build-deps \
