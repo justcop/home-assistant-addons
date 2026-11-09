@@ -58,8 +58,11 @@ jobs:
           print('GitHub OIDC credentials available:', bool(os.environ.get('ACTIONS_ID_TOKEN_REQUEST_TOKEN')))
           try:
               token = github_oidc_access_token(os.environ)
+          except ValueError as exc:
+              print(f'Authentication validation failed: {exc}', file=sys.stderr)
+              sys.exit(1)
           except Exception as exc:
-              print(f'Authentication failed: {type(exc).__name__}', file=sys.stderr)
+              print(f'Authentication failed: {type(exc).__name__}, HTTP status={getattr(exc, "code", "n/a")}', file=sys.stderr)
               sys.exit(1)
           if not token:
               sys.exit('Authentication returned no access token')
