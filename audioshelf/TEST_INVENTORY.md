@@ -4,7 +4,7 @@ Reviewed: 2026-11-09T15:07:38.757+00:00 (Europe/London).
 
 Reviewed Listening Room tests for loan-only visibility, owned collection independence, persistence, removal, verified-edition borrowing and keeping an album without clearing mappings. Existing authentication, playback and UI regression tests remain in place.
 
-<!-- inventory: {"reviewed_at":"2026-11-09T15:07:38.757+00:00","review_note":"Reviewed Listening Room tests for loan-only visibility, owned collection independence, persistence, removal, verified-edition borrowing and keeping an album without clearing mappings. Existing authentication, playback and UI regression tests remain in place.","source_sha256":"8dd44e7933344f456eae557088b4ee2f7271d845b873795c3e8237d4749b8b71"} -->
+<!-- inventory: {"reviewed_at":"2026-11-09T15:07:38.757+00:00","review_note":"Reviewed Listening Room tests for loan-only visibility, owned collection independence, persistence, removal, verified-edition borrowing and keeping an album without clearing mappings. Existing authentication, playback and UI regression tests remain in place.","source_sha256":"9ee0a83e503a4e89631280aa4bbe8b462b73a1de6ed0d245dec23f147b7b3f6d"} -->
 
 ## Backend cases (448)
 
