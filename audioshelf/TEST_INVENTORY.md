@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-11-09T08:29:23+00:00 (Europe/London).
+Reviewed: 2026-11-09T08:29:22+00:00 (Europe/London).
 
-Reviewed unchanged 424 backend cases and existing browser flows; record baseline Docker Buildx caching. The disc-play regression now simulates an in-flight status read so explicit Play cannot be discarded by the polling lock. Retained the preference-only no-replay check. Runtime dependency compatibility is checked by container smoke tests; live Android device verification is not claimed.
+Reviewed unchanged 424 backend cases and existing browser flows. Record Docker Buildx caching and setup-python v7 CI changes. The disc-play regression now simulates an in-flight status read so explicit Play cannot be discarded by the background polling lock. Retained the preference-only no-replay check. Live Android device verification is not claimed.
 
-<!-- inventory: {"reviewed_at": "2026-11-09T08:29:23+00:00", "review_note": "Reviewed unchanged 424 backend cases and existing browser flows; record baseline Docker Buildx caching. The disc-play regression now simulates an in-flight status read so explicit Play cannot be discarded by the polling lock. Retained the preference-only no-replay check. Runtime dependency compatibility is checked by container smoke tests; live Android device verification is not claimed.", "source_sha256": "93fffa37f577bf13b9c9fa90c92dfc1cd58e229baf3d28bc3564534a7ca8a537"} -->
+<!-- inventory: {"reviewed_at": "2026-11-09T08:29:22+00:00", "review_note": "Reviewed unchanged 424 backend cases and existing browser flows. Record Docker Buildx caching and setup-python v7 CI changes. The disc-play regression now simulates an in-flight status read so explicit Play cannot be discarded by the background polling lock. Retained the preference-only no-replay check. Live Android device verification is not claimed.", "source_sha256": "878b66296aa4f1798a6226b5f5046b91473f71a25e8f07fcd2c990f6fc4d89fc"} -->
 
 ## Backend cases (424)
 
