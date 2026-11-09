@@ -20,6 +20,7 @@ def access(tmp_path, monkeypatch):
              'cloudflare_team_domain':'justcop.cloudflareaccess.com','cloudflare_audience':'test-audience',
              'cloudflare_owner_email':'justcop@gmail.com','web_password':'old-password'}
     app=create_app(options);app.config['TESTING']=True
+    monkeypatch.setattr(app.extensions['cloudflare_access'], 'display_name', lambda token, claims: claims.get('name', ''))
     def signed(email='justcop@gmail.com',sub='owner-subject',**overrides):
         claims={'iss':'https://justcop.cloudflareaccess.com','sub':sub,'email':email,'aud':['test-audience'],
                 'iat':int(time.time()),'exp':int(time.time()+600),'type':'app',**overrides}
@@ -116,3 +117,42 @@ def test_spotify_callback_cannot_cross_google_account_boundary(access,monkeypatc
     response=client('alice@gmail.com','alice').get('/auth/spotify/callback?state=owner-flow&code=other-user')
     assert response.status_code==400 and 'same Google account' in response.text
     assert calls==[]
+
+
+def test_google_name_is_display_only_and_survives_ingress_and_restart(access):
+    app,client,_,options=access
+    c=client(name='Justin Copitch')
+    status=c.get('/api/status').json
+    assert status['account']['username']=='Justin Copitch'
+    assert status['account']['id']=='owner' and status['account']['admin']
+    assert app.extensions['accounts'].get('owner')['username']=='owner'
+    assert c.get('/api/accounts').json['accounts'][0]['username']=='Justin Copitch'
+    ingress=app.test_client()
+    ingress.environ_base.update(REMOTE_ADDR='172.30.32.2', HTTP_X_INGRESS_PATH='/test')
+    assert ingress.get('/api/status').json['account']['username']=='Justin Copitch'
+    restarted=create_app(options)
+    assert restarted.extensions['accounts'].display_name('owner')=='Justin Copitch'
+
+
+def test_cloudflare_profile_lookup_is_cached_and_matches_verified_email(access,monkeypatch):
+    from app.cloudflare_access import CloudflareAccess
+    _,_,_,options=access
+    cloudflare=CloudflareAccess(options)
+    calls=[]
+    def get(url,**kwargs):
+        calls.append((url,kwargs))
+        return SimpleNamespace(raise_for_status=lambda:None, json=lambda:{'email':'justcop@gmail.com','name':'Justin Copitch'})
+    monkeypatch.setattr('app.cloudflare_access.requests.get',get)
+    claims={'sub':'owner-subject','email':'justcop@gmail.com'}
+    assert cloudflare.display_name('verified-token',claims)=='Justin Copitch'
+    assert cloudflare.display_name('verified-token',claims)=='Justin Copitch'
+    assert len(calls)==1
+    assert calls[0][1]['cookies']=={'CF_Authorization':'verified-token'}
+    assert calls[0][1]['allow_redirects'] is False
+    assert cloudflare.display_name('verified-token',{'sub':'alice','email':'alice@gmail.com'})==''
+
+
+def test_missing_profile_does_not_erase_saved_google_name(access,monkeypatch):
+    app,client,_,_=access
+    c=client(name='Justin Copitch');c.get('/api/status')
+    assert client().get('/api/status').json['account']['username']=='Justin Copitch'
