@@ -210,3 +210,46 @@
 .store-card-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
 .store-ticket .store-card-actions .card-action{flex:1;min-width:68px;margin:0}
 @media(max-width:700px){.store-ticket .store-card-actions .card-action{min-height:44px;padding:7px 6px;font-size:9px}[data-interface=vinyl] .bottom-nav a{font-size:10px;padding:11px 3px}[data-interface=vinyl] .bottom-nav span{font-size:13px;margin-right:3px}}
+
+
+/* Keep record-store navigation visible without overlapping the branding. */
+@media(min-width:701px){
+  [data-interface=vinyl] .bottom-nav{position:fixed;top:12px;z-index:25;
+    box-shadow:0 5px 20px #0002;backdrop-filter:blur(14px)}
+}
+@media(min-width:701px) and (max-width:820px){
+  [data-interface=vinyl] .brand>span{display:none}
+}
+/* The artist furniture uses fixed white paper: its links need dark ink,
+   not theme accents that can be yellow or pale on white. */
+.collection-shelves .shelf-artist-link{color:#58252c;font-size:13px;font-weight:650}
+.collection-shelves .shelf-artist-link:hover,
+.collection-shelves .shelf-artist-link:focus-visible{color:#3e171d;background:#f3ece9}
+:root[data-theme="high-contrast"] .shelf-artist-toggle{color:#000;background:#fff}
+:root[data-theme="high-contrast"] .shelf-artist-toggle>span{color:#202020}
+:root[data-theme="high-contrast"] .collection-shelves .shelf-artist-link{color:#4c1720}
+/* Visible track-matching status and accessible controls on all input modes. */
+.record-liner .track-row small.unmapped{display:block;font-size:12px;line-height:1.4;
+  margin-top:3px;color:var(--match-red)}
+@media(hover:none),(pointer:coarse){
+  .record-liner .track-row .quiet{opacity:1;min-height:40px}
+}
+@media(max-width:700px){
+  [data-interface=vinyl] .store-search input{font-size:16px}
+  [data-interface=vinyl] .store-ticket .store-card-actions .card-action{font-size:13px;min-height:44px}
+  [data-interface=vinyl] .bottom-nav a{font-size:12px}
+  [data-interface=vinyl] .bottom-nav span{font-size:15px}
+  [data-interface=vinyl] .section-label{font-size:12px}
+  [data-interface=vinyl] .sleeve-caption .album-meta,
+  [data-interface=vinyl] .store-ticket,
+  [data-interface=vinyl] .store-ticket>span:first-child{font-size:12px}
+  [data-interface=vinyl] .eyebrow{font-size:12px}
+  [data-interface=vinyl] #turntable small,
+  [data-interface=vinyl] #turntable .now-playing-details small{font-size:12px;letter-spacing:0}
+  [data-interface=vinyl] #turntable .now-playing-details>span,
+  [data-interface=vinyl] #turntable .track-progress span{font-size:12px}
+  [data-interface=vinyl] main{padding-bottom:130px}
+}
+@media(max-width:370px){
+  [data-interface=vinyl] #turntable .now-playing-details small{font-size:12px}
+}
