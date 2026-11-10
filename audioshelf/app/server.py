@@ -590,6 +590,26 @@ def create_app(options=None):
         return jsonify(issues=issues, pending=pending,
                        job=spotify_matching.status(g.account['id'], g.context.store)['job'])
 
+    @app.post('/api/spotify/matching/issues/<album_id>/retry')
+    def spotify_matching_retry_album(album_id):
+        if g.identity['role'] != 'owner':
+            raise AppError('Only the account owner can retry Spotify matching.', 403)
+        album_id = mbid(album_id)
+        album = store.album(album_id)
+        if not eligible(album):
+            raise AppError('This album has already been matched or is not on your shelf.', 409)
+        if not g.context.spotify.connected:
+            raise AppError('Connect Spotify in Settings before retrying.', 409)
+        with store.catalogue_lock:
+            saved = store.setting('spotify_matching_failures_v1', {}) or {}
+            if album_id in saved:
+                saved.pop(album_id)
+                store.set_setting('spotify_matching_failures_v1', saved)
+            spotify_matching.enqueue(g.account['id'], g.context.store,
+                g.context.spotify, g.context.playable_releases, album_id,
+                enabled=accounts.enabled)
+        return jsonify(queued=True, album_id=album_id), 202
+
     @app.get('/api/listening-pile')
     def listening_pile():
         return jsonify(albums=store.albums(pile=True))
