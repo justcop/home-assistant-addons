@@ -40,7 +40,7 @@ function vinylSearchResults(){
   if(storeSearch.kind==='artist')return `<div class="artist-bins">${results.map((a,index)=>`<a class="artist-bin search-result" href="#artist/${id(a.id)}/store"><span class="bin-index">${String(index+1).padStart(2,'0')}</span><strong>${escapeHtml(a.name)}</strong><small>${escapeHtml([a.disambiguation,a.country,a.type].filter(Boolean).join(' · '))} ↗</small></a>`).join('')}</div>`;
   const groups=new Map();
   for(const album of results){const artist=album.artists?.[0]||{id:'',name:'Albums'};if(!groups.has(artist.id))groups.set(artist.id,{artist,albums:[]});groups.get(artist.id).albums.push(album);}
-  return [...groups.values()].map(({artist,albums})=>`<section class="store-bin">${artistDivider(artist,albums.length,true)}${vinylCards(albums,'store')}</section>`).join('');
+  return [...groups.values()].sort((a,b)=>a.artist.name.localeCompare(b.artist.name,undefined,{sensitivity:'base'})).map(({artist,albums})=>`<section class="store-bin">${artistDivider(artist,albums.length,true)}${vinylCards(albums,'store')}</section>`).join('');
 }
 function vinylArtist(result,key,mode){
   const store=mode==='store';
