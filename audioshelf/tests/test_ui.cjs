@@ -298,8 +298,16 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert.equal(discCalls.length,4);
     assert.deepEqual(discCalls[3],{uris:['spotify:track:'+'b'.repeat(22)],position_ms:0});
     await fixtureOptions({phone_available:false,external_album:false});
+    // This case tests cancelling a pending server handoff, not Spotify's
+    // device discovery (covered separately). Force the initial Play to
+    // report an unavailable phone so this remains deterministic even if
+    // Spotify's previous Connect state briefly appears active.
+    const unavailableDiscRoute=route=>route.fulfill({status:409,contentType:'application/json',
+      body:JSON.stringify({error:'Your preferred Spotify device is unavailable. Open Spotify on it, or choose another device.'})});
+    await page.route('**/api/albums/*/play',unavailableDiscRoute);
     await page.getByRole('button',{name:'Play disc 2'}).click();
     await expectHandoff();
+    await page.unroute('**/api/albums/*/play',unavailableDiscRoute);
     const cancelledJob=await page.evaluate(()=>pendingPlayback.job);
     await page.getByRole('button',{name:'Cancel playback',exact:true}).click();
     await page.waitForFunction(()=>pendingPlayback===null);
