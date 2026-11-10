@@ -9,7 +9,7 @@ permissions:
   contents: read
 # Multiple commits on a PR should not leave expensive duplicate test runs.
 concurrency:
-  group: audioshelf-tests-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  group: audioshelf-tests-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 jobs:
   test:
@@ -22,8 +22,6 @@ jobs:
       - run: pip install -r audioshelf/requirements.txt pytest==8.4.2 PyYAML==6.0.2
       - name: Check reviewed test inventory
         run: python audioshelf/scripts/test_inventory.py
-      - run: python -m pytest audioshelf/tests -q
-      - run: python -m compileall -q audioshelf/app && bash -n audioshelf/run.sh
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -34,6 +32,8 @@ jobs:
       - run: node audioshelf/tests/test_integrated_android.cjs && node audioshelf/tests/test_android_helper.cjs && node audioshelf/tests/test_ui.cjs && node audioshelf/tests/test_vinyl_ui.cjs && node audioshelf/tests/test_accounts_ui.cjs
         env:
           AUDIOSHELF_TEST_BROWSER: /usr/bin/google-chrome
+      - run: python -m pytest audioshelf/tests -q
+      - run: python -m compileall -q audioshelf/app && bash -n audioshelf/run.sh
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Build add-on container
