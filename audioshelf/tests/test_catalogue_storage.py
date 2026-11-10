@@ -102,3 +102,21 @@ def test_future_schema_does_not_get_downgraded(application):
     store=application.extensions['store']
     with store.connect() as db: db.execute('PRAGMA user_version=99')
     with pytest.raises(RuntimeError,match='newer AudioShelf'):Store(store.directory)
+
+
+def test_shelf_artists_sort_by_display_name_not_surname(application):
+    store = application.extensions['store']
+    for i, (name, sort_name) in enumerate([
+        ('Neil Young', 'Young, Neil'),
+        ('Paul McCartney', 'McCartney, Paul'),
+        ('David Bowie', 'Bowie, David'),
+    ], 1):
+        group_id = str(i).zfill(8) + '-1234-4321-1234-' + str(i).zfill(12)
+        artist_id = str(i).zfill(8) + '-4321-1234-4321-' + str(i).zfill(12)
+        store.catalogue([{'id': group_id, 'title': name+' Album', 'first-release-date': '2000',
+                         'artist-credit': [{'artist': {'id': artist_id, 'name': name,
+                                                      'sort-name': sort_name}}]}])
+        store.shelf(group_id, True)
+    store.shelf(ALBUM, True)
+    assert [a['name'] for a in store.artists()] == [
+        'David Bowie', 'Neil Young', 'Paul McCartney', 'The Artist']
