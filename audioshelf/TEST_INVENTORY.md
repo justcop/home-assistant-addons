@@ -1,12 +1,12 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-11-09T15:07:38.757+00:00 (Europe/London).
+Reviewed: 2026-11-10T11:26:48.612+00:00 (Europe/London).
 
-Reviewed Listening Room tests for loan-only visibility, owned collection independence, persistence, removal, verified-edition borrowing and keeping an album without clearing mappings. Existing authentication, playback and UI regression tests remain in place.
+Reviewed Spotify album selection and instant-add regressions: truly identical recordings, distinct ISRCs and bonus material, clean edition preference, preserving existing mappings and tracklists, prompt shelf membership, visible review queue, ambiguous background choices and display-name artist sorting. No real Spotify or Android playback is asserted by these fixture tests.
 
-<!-- inventory: {"reviewed_at":"2026-11-09T15:07:38.757+00:00","review_note":"Reviewed Listening Room tests for loan-only visibility, owned collection independence, persistence, removal, verified-edition borrowing and keeping an album without clearing mappings. Existing authentication, playback and UI regression tests remain in place.","source_sha256":"9ee0a83e503a4e89631280aa4bbe8b462b73a1de6ed0d245dec23f147b7b3f6d"} -->
+<!-- inventory: {"reviewed_at":"2026-11-10T11:26:48.612+00:00","review_note":"Reviewed Spotify album selection and instant-add regressions: truly identical recordings, distinct ISRCs and bonus material, clean edition preference, preserving existing mappings and tracklists, prompt shelf membership, visible review queue, ambiguous background choices and display-name artist sorting. No real Spotify or Android playback is asserted by these fixture tests.","source_sha256":"b1f74a8c740753fdc222299f923562d6b68c75c054a38649f62a55a4d82e21d6"} -->
 
-## Backend cases (448)
+## Backend cases (460)
 
 1. `audioshelf/tests/test_accounts.py::test_account_creation_and_management_require_admin_and_fresh_password`
 2. `audioshelf/tests/test_accounts.py::test_background_playback_is_account_and_session_scoped`
@@ -123,339 +123,351 @@ Reviewed Listening Room tests for loan-only visibility, owned collection indepen
 113. `audioshelf/tests/test_catalogue_storage.py::test_future_schema_does_not_get_downgraded`
 114. `audioshelf/tests/test_catalogue_storage.py::test_manual_mapping_survives_automatic_reresolution`
 115. `audioshelf/tests/test_catalogue_storage.py::test_original_two_disc_album_retains_both_discs`
-116. `audioshelf/tests/test_catalogue_storage.py::test_shelf_persists_across_restart_and_remove_retains_mapping`
-117. `audioshelf/tests/test_catalogue_storage.py::test_unresolved_manual_edition_can_be_fixed_by_automatic_matching`
-118. `audioshelf/tests/test_cloudflare_access.py::test_android_code_requires_pkce_expires_and_is_one_use`
-119. `audioshelf/tests/test_cloudflare_access.py::test_cloudflare_profile_lookup_is_cached_and_matches_verified_email`
-120. `audioshelf/tests/test_cloudflare_access.py::test_google_name_is_display_only_and_survives_ingress_and_restart`
-121. `audioshelf/tests/test_cloudflare_access.py::test_helper_endpoint_keeps_job_bearer_boundary`
-122. `audioshelf/tests/test_cloudflare_access.py::test_identity_rechecked_even_with_previous_owner_browser_session`
-123. `audioshelf/tests/test_cloudflare_access.py::test_missing_profile_does_not_erase_saved_google_name`
-124. `audioshelf/tests/test_cloudflare_access.py::test_no_password_session_or_forged_email_header_can_bypass_access`
-125. `audioshelf/tests/test_cloudflare_access.py::test_owner_library_and_spotify_remain_and_no_second_login`
-126. `audioshelf/tests/test_cloudflare_access.py::test_reject_wrong_or_nonhuman_signed_identity[claims0]`
-127. `audioshelf/tests/test_cloudflare_access.py::test_reject_wrong_or_nonhuman_signed_identity[claims1]`
-128. `audioshelf/tests/test_cloudflare_access.py::test_reject_wrong_or_nonhuman_signed_identity[claims2]`
-129. `audioshelf/tests/test_cloudflare_access.py::test_reject_wrong_or_nonhuman_signed_identity[claims3]`
-130. `audioshelf/tests/test_cloudflare_access.py::test_reject_wrong_or_nonhuman_signed_identity[claims4]`
-131. `audioshelf/tests/test_cloudflare_access.py::test_reject_wrong_or_nonhuman_signed_identity[claims5]`
-132. `audioshelf/tests/test_cloudflare_access.py::test_reject_wrong_or_nonhuman_signed_identity[claims6]`
-133. `audioshelf/tests/test_cloudflare_access.py::test_spotify_callback_cannot_cross_google_account_boundary`
-134. `audioshelf/tests/test_cloudflare_access.py::test_users_provision_once_isolate_data_and_cannot_become_admin`
-135. `audioshelf/tests/test_generic_catalogues.py::test_catalogue_decisions_depend_on_membership_and_types_not_names[A film composer-Original score]`
-136. `audioshelf/tests/test_generic_catalogues.py::test_catalogue_decisions_depend_on_membership_and_types_not_names[A new band-Second album]`
-137. `audioshelf/tests/test_generic_catalogues.py::test_catalogue_decisions_depend_on_membership_and_types_not_names[An unfamiliar artist-Regional LP]`
-138. `audioshelf/tests/test_generic_catalogues.py::test_catalogue_discovery_uses_artist_name_and_returns_only_release_group_series`
-139. `audioshelf/tests/test_generic_catalogues.py::test_clearing_series_restores_generic_rules_and_keeps_shelf`
-140. `audioshelf/tests/test_generic_catalogues.py::test_collaborative_catalogue_rules_do_not_depend_on_credit_order`
-141. `audioshelf/tests/test_generic_catalogues.py::test_curated_rules_handle_soundtracks_for_every_artist[secondary0-True]`
-142. `audioshelf/tests/test_generic_catalogues.py::test_curated_rules_handle_soundtracks_for_every_artist[secondary1-True]`
-143. `audioshelf/tests/test_generic_catalogues.py::test_curated_rules_handle_soundtracks_for_every_artist[secondary2-False]`
-144. `audioshelf/tests/test_generic_catalogues.py::test_curated_rules_handle_soundtracks_for_every_artist[secondary3-False]`
-145. `audioshelf/tests/test_generic_catalogues.py::test_curated_rules_handle_soundtracks_for_every_artist[secondary4-False]`
-146. `audioshelf/tests/test_generic_catalogues.py::test_explicit_catalogue_and_country_choices_survive_upgrade_and_restart`
-147. `audioshelf/tests/test_generic_catalogues.py::test_no_artist_or_album_has_a_built_in_catalogue_exception`
-148. `audioshelf/tests/test_generic_catalogues.py::test_old_cached_series_members_gain_a_persistent_snapshot`
-149. `audioshelf/tests/test_generic_catalogues.py::test_series_snapshot_survives_restart_and_deleted_replaceable_cache`
-150. `audioshelf/tests/test_generic_catalogues.py::test_unrelated_series_cannot_replace_selected_catalogue`
-151. `audioshelf/tests/test_lastfm_import.py::test_import_adds_existing_group_without_duplicates_and_reports_skips`
-152. `audioshelf/tests/test_lastfm_import.py::test_lastfm_edition_and_artist_aliases`
-153. `audioshelf/tests/test_lastfm_import.py::test_lastfm_exact_match_rejects_ambiguity_and_wrong_artist`
-154. `audioshelf/tests/test_lastfm_import.py::test_lastfm_import_separated_per_collection`
-155. `audioshelf/tests/test_lastfm_import.py::test_lastfm_looks_up_edition_by_artist_instead_of_title_only`
-156. `audioshelf/tests/test_lastfm_import.py::test_lastfm_opt_in_credentials_public_history_and_exact_selection`
-157. `audioshelf/tests/test_lastfm_import.py::test_lastfm_self_titled_album_remains_ambiguous`
-158. `audioshelf/tests/test_listening_links.py::test_authenticated_endpoint_and_no_cors_by_default`
-159. `audioshelf/tests/test_listening_links.py::test_cors_limited_to_configured_origin`
-160. `audioshelf/tests/test_listening_links.py::test_only_owned_records_and_song_album_links`
-161. `audioshelf/tests/test_listening_pile.py::test_borrow_requires_verified_selection`
-162. `audioshelf/tests/test_listening_pile.py::test_borrow_then_keep_does_not_clear_selected_recordings`
-163. `audioshelf/tests/test_listening_pile.py::test_borrowed_album_is_only_in_listening_pile`
-164. `audioshelf/tests/test_listening_pile.py::test_owned_pile_routes_leave_collection_unchanged`
-165. `audioshelf/tests/test_listening_pile.py::test_owned_record_can_remain_in_both_places`
-166. `audioshelf/tests/test_listening_pile.py::test_pile_routes_do_not_treat_loans_as_owned`
-167. `audioshelf/tests/test_listening_pile.py::test_return_loan_keeps_catalogue_and_tracklist`
-168. `audioshelf/tests/test_matching.py::test_acoustic_version_label_matches_same_acoustic_recording_but_not_studio`
-169. `audioshelf/tests/test_matching.py::test_album_version_with_interlude_needs_same_full_audio_and_independent_album_context`
-170. `audioshelf/tests/test_matching.py::test_alternative_recordings_not_silently_accepted[Opening (Demo)]`
-171. `audioshelf/tests/test_matching.py::test_alternative_recordings_not_silently_accepted[Opening - Acoustic]`
-172. `audioshelf/tests/test_matching.py::test_alternative_recordings_not_silently_accepted[Opening - Instrumental]`
-173. `audioshelf/tests/test_matching.py::test_alternative_recordings_not_silently_accepted[Opening - Live]`
-174. `audioshelf/tests/test_matching.py::test_alternative_recordings_not_silently_accepted[Opening - Radio Edit]`
-175. `audioshelf/tests/test_matching.py::test_alternative_recordings_not_silently_accepted[Opening - Remix]`
-176. `audioshelf/tests/test_matching.py::test_bonus_track_remaster_year_does_not_change_album_preference`
-177. `audioshelf/tests/test_matching.py::test_clean_standard_edition_wins_equal_matching`
-178. `audioshelf/tests/test_matching.py::test_compact_track_titles_accept_spacing_but_not_reordered_words`
-179. `audioshelf/tests/test_matching.py::test_contextual_minor_title_change_must_have_unique_position_duration_and_artist`
-180. `audioshelf/tests/test_matching.py::test_dated_studio_mix_matches_but_dance_remix_still_rejected`
-181. `audioshelf/tests/test_matching.py::test_deluxe_bonus_tracks_are_never_mapped`
-182. `audioshelf/tests/test_matching.py::test_descriptive_spotify_parody_source_credits_preserve_full_album`
-183. `audioshelf/tests/test_matching.py::test_duplicate_titles_use_distinct_ordered_recordings`
-184. `audioshelf/tests/test_matching.py::test_edition_labels_and_part_abbreviations_are_same_recording`
-185. `audioshelf/tests/test_matching.py::test_editorial_subtitles_use_main_title_and_duration_but_not_versions`
-186. `audioshelf/tests/test_matching.py::test_extended_combined_track_title_requires_duration_artist_and_version_agreement`
-187. `audioshelf/tests/test_matching.py::test_featured_artist_credit_requires_primary_artist_and_guest_evidence`
-188. `audioshelf/tests/test_matching.py::test_full_album_with_editorial_subtitles_is_verified_in_canonical_order`
-189. `audioshelf/tests/test_matching.py::test_full_length_hidden_track_composites_never_substitute_the_short_single`
-190. `audioshelf/tests/test_matching.py::test_hidden_label_can_match_contiguous_recording_but_not_erase_separate_musicbrainz_track`
-191. `audioshelf/tests/test_matching.py::test_incomplete_recent_remaster_does_not_beat_complete_older_edition`
-192. `audioshelf/tests/test_matching.py::test_latest_labelled_remaster_wins_even_with_bonus_tracks`
-193. `audioshelf/tests/test_matching.py::test_missing_track_is_not_replaced_by_a_bonus_track`
-194. `audioshelf/tests/test_matching.py::test_mono_stereo_labels_do_not_erase_live_or_remix_identity`
-195. `audioshelf/tests/test_matching.py::test_normalization_keeps_meaningful_version_labels`
-196. `audioshelf/tests/test_matching.py::test_numbered_part_roman_numerals_match_arabic_spotify_titles`
-197. `audioshelf/tests/test_matching.py::test_parody_annotation_does_not_erase_recording_versions_or_unplayable`
-198. `audioshelf/tests/test_matching.py::test_punchup_editorial_subtitle_accepts_compound_spacing_not_different_song`
-199. `audioshelf/tests/test_matching.py::test_recent_reissue_date_does_not_prove_new_remaster`
-200. `audioshelf/tests/test_matching.py::test_same_title_with_different_duration_needs_review`
-201. `audioshelf/tests/test_matching.py::test_short_original_song_prefix_is_only_verifiable_in_strict_album_context`
-202. `audioshelf/tests/test_matching.py::test_shortened_album_medley_requires_matching_artist_duration_and_position`
-203. `audioshelf/tests/test_matching.py::test_single_duration_discrepancy_can_be_corroborated_by_entire_album`
-204. `audioshelf/tests/test_matching.py::test_two_spotify_performers_satisfy_a_joint_musicbrainz_artist_but_not_solo`
-205. `audioshelf/tests/test_matching.py::test_wrong_artist_and_unavailable_tracks_are_rejected`
-206. `audioshelf/tests/test_musicbrainz_transport.py::test_artist_discography_paginates_filters_and_sorts`
-207. `audioshelf/tests/test_musicbrainz_transport.py::test_first_tracklist_selection_and_group_validation`
-208. `audioshelf/tests/test_musicbrainz_transport.py::test_lucene_special_characters_are_literal`
-209. `audioshelf/tests/test_musicbrainz_transport.py::test_musicbrainz_requests_cache_and_wait_between_calls`
-210. `audioshelf/tests/test_musicbrainz_transport.py::test_release_pagination_increments_actual_page_size`
-211. `audioshelf/tests/test_now_playing.py::test_external_studio_album_opens_record_store_and_reuses_canonical_group`
-212. `audioshelf/tests/test_now_playing.py::test_live_album_does_not_redirect_to_original_studio_album`
-213. `audioshelf/tests/test_now_playing.py::test_now_playing_artwork_and_album_resolution_for_uncollected_record`
-214. `audioshelf/tests/test_now_playing.py::test_same_title_different_artist_cannot_open_a_wrong_album`
-215. `audioshelf/tests/test_now_playing.py::test_settings_default_and_skip_control_authorisation`
-216. `audioshelf/tests/test_now_playing.py::test_spotify_album_images_are_selected_and_untrusted_urls_excluded`
-217. `audioshelf/tests/test_now_playing.py::test_strip_edition_without_changing_canonical_album[Another Country-Another Country]`
-218. `audioshelf/tests/test_now_playing.py::test_strip_edition_without_changing_canonical_album[Revolver (2022 Remaster)-Revolver]`
-219. `audioshelf/tests/test_now_playing.py::test_strip_edition_without_changing_canonical_album[The Album (Deluxe Edition)-The Album]`
-220. `audioshelf/tests/test_now_playing.py::test_strip_edition_without_changing_canonical_album[The Album - 2019 Remaster-The Album]`
-221. `audioshelf/tests/test_now_playing.py::test_verified_studio_track_opens_its_own_shelf`
-222. `audioshelf/tests/test_playable_releases.py::test_change_tracklist_is_atomic_and_only_accepts_full_match`
-223. `audioshelf/tests/test_playable_releases.py::test_invalid_cursor_is_rejected`
-224. `audioshelf/tests/test_playable_releases.py::test_later_batched_editions_can_be_discovered`
-225. `audioshelf/tests/test_playable_releases.py::test_matching_original_album_uses_isrc_for_unlabelled_version_not_shortcuts`
-226. `audioshelf/tests/test_playable_releases.py::test_original_musicbrainz_tracklist_ignores_spotify_bonus_tracks_even_in_labelled_editions[10-11-Deluxe Edition]`
-227. `audioshelf/tests/test_playable_releases.py::test_original_musicbrainz_tracklist_ignores_spotify_bonus_tracks_even_in_labelled_editions[14-2-Explicit Version]`
-228. `audioshelf/tests/test_playable_releases.py::test_picker_hides_partially_matched_musicbrainz_edition_and_does_not_mutate`
-229. `audioshelf/tests/test_playable_releases.py::test_shelf_add_commits_whole_album_mapping_and_requires_review`
-230. `audioshelf/tests/test_playable_releases.py::test_shelf_add_rejects_incomplete_mapping_before_mutation`
-231. `audioshelf/tests/test_playable_releases.py::test_unconnected_spotify_has_clear_feedback_without_mutation`
-232. `audioshelf/tests/test_playback_audit.py::test_catalogue_api_failure_cannot_interrupt_accepted_play`
-233. `audioshelf/tests/test_playback_audit.py::test_catalogue_probe_reports_playability_relinking_and_restrictions_without_raw_ids`
-234. `audioshelf/tests/test_playback_audit.py::test_post_play_catalogue_audit_samples_actual_canonical_queue_without_control_commands`
-235. `audioshelf/tests/test_playback_handoff.py::test_album_context_does_not_confirm_stale_manual_queue`
-236. `audioshelf/tests/test_playback_handoff.py::test_ambiguous_play_transport_failure_never_claims_accepted_or_requeues`
-237. `audioshelf/tests/test_playback_handoff.py::test_cancel_reason_identifies_explicit_user_action_but_not_untrusted_text`
-238. `audioshelf/tests/test_playback_handoff.py::test_cancel_replacement_revocation_and_expiry_prevent_dispatch[cancel]`
-239. `audioshelf/tests/test_playback_handoff.py::test_cancel_replacement_revocation_and_expiry_prevent_dispatch[expire]`
-240. `audioshelf/tests/test_playback_handoff.py::test_cancel_replacement_revocation_and_expiry_prevent_dispatch[replace]`
-241. `audioshelf/tests/test_playback_handoff.py::test_cancel_replacement_revocation_and_expiry_prevent_dispatch[revoke]`
-242. `audioshelf/tests/test_playback_handoff.py::test_cancellation_just_before_direct_play_prevents_queue`
-243. `audioshelf/tests/test_playback_handoff.py::test_cold_start_polling_is_fast_only_during_initial_phone_discovery`
-244. `audioshelf/tests/test_playback_handoff.py::test_handoff_direct_play_skips_stale_transfer_and_corrects_modes`
-245. `audioshelf/tests/test_playback_handoff.py::test_handoff_mode_retry_does_not_repeat_accepted_play`
-246. `audioshelf/tests/test_playback_handoff.py::test_handoff_reuses_first_verified_device_without_second_discovery`
-247. `audioshelf/tests/test_playback_handoff.py::test_handoff_routes_validate_and_keep_status_private`
-248. `audioshelf/tests/test_playback_handoff.py::test_helper_feedback_includes_bounded_track_mismatch_without_private_payloads`
-249. `audioshelf/tests/test_playback_handoff.py::test_helper_feedback_remains_readable_while_spotify_play_is_blocked`
-250. `audioshelf/tests/test_playback_handoff.py::test_helper_token_revoked_on_job_replacement_and_cannot_access_other_jobs`
-251. `audioshelf/tests/test_playback_handoff.py::test_new_job_replaces_prior_job_with_safe_reason`
-252. `audioshelf/tests/test_playback_handoff.py::test_owner_snapshot_exposes_safe_progress_but_not_playback_capability`
-253. `audioshelf/tests/test_playback_handoff.py::test_play_acceptance_is_published_before_device_and_track_confirmation`
-254. `audioshelf/tests/test_playback_handoff.py::test_revoking_real_session_cancels_server_job`
-255. `audioshelf/tests/test_playback_handoff.py::test_sdk_exact_album_context_avoids_queue_appends`
-256. `audioshelf/tests/test_playback_handoff.py::test_sdk_full_album_exposes_exact_canonical_sequence_without_web_play`
-257. `audioshelf/tests/test_playback_handoff.py::test_sdk_full_album_mismatched_queue_is_not_confirmed`
-258. `audioshelf/tests/test_playback_handoff.py::test_sdk_full_album_partial_enqueue_exposes_failure_without_retry`
-259. `audioshelf/tests/test_playback_handoff.py::test_sdk_single_track_handoff_exposes_first_uri_only_to_trusted_helper_without_web_play`
-260. `audioshelf/tests/test_playback_handoff.py::test_sdk_single_track_requires_phone_and_does_not_expose_uri_before_discovery`
-261. `audioshelf/tests/test_playback_handoff.py::test_spotify_player_confirmation_polling_is_fast_after_play_then_tapers`
-262. `audioshelf/tests/test_playback_handoff.py::test_verification_observation_distinguishes_old_track_missing_item_and_linked_track`
-263. `audioshelf/tests/test_playback_handoff.py::test_waits_for_snapshot_phone_then_dispatches_exact_disc_once`
-264. `audioshelf/tests/test_playback_handoff.py::test_worker_stops_on_spotify_errors_without_repeating_queue`
-265. `audioshelf/tests/test_playback_handoff.py::test_wrong_track_or_wrong_device_never_falsely_confirm_playback`
-266. `audioshelf/tests/test_recording_metadata.py::test_any_artist_can_match_the_linked_recording_names[Other spelling - 2022 Mix]`
-267. `audioshelf/tests/test_recording_metadata.py::test_any_artist_can_match_the_linked_recording_names[Other spelling]`
-268. `audioshelf/tests/test_recording_metadata.py::test_any_artist_can_match_the_linked_recording_names[Recording title]`
-269. `audioshelf/tests/test_recording_metadata.py::test_existing_shelf_enriches_unmatched_tracks_and_preserves_manual_corrections[False]`
-270. `audioshelf/tests/test_recording_metadata.py::test_existing_shelf_enriches_unmatched_tracks_and_preserves_manual_corrections[True]`
-271. `audioshelf/tests/test_recording_metadata.py::test_metadata_outage_keeps_saved_names_and_mappings`
-272. `audioshelf/tests/test_recording_metadata.py::test_no_radiohead_specific_exception_remains`
-273. `audioshelf/tests/test_recording_metadata.py::test_real_version_three_migration_preserves_collection_and_manual_mapping`
-274. `audioshelf/tests/test_recording_metadata.py::test_recording_aliases_keep_identity_duration_and_version_safeguards[changes0-Other spelling]`
-275. `audioshelf/tests/test_recording_metadata.py::test_recording_aliases_keep_identity_duration_and_version_safeguards[changes1-Other spelling]`
-276. `audioshelf/tests/test_recording_metadata.py::test_recording_aliases_keep_identity_duration_and_version_safeguards[changes2-Other spelling]`
-277. `audioshelf/tests/test_recording_metadata.py::test_recording_aliases_keep_identity_duration_and_version_safeguards[changes3-Other spelling]`
-278. `audioshelf/tests/test_recording_metadata.py::test_recording_aliases_keep_identity_duration_and_version_safeguards[changes4-Other spelling]`
-279. `audioshelf/tests/test_recording_metadata.py::test_recording_aliases_keep_identity_duration_and_version_safeguards[changes5-Other spelling - Live]`
-280. `audioshelf/tests/test_recording_metadata.py::test_recording_aliases_keep_identity_duration_and_version_safeguards[changes6-Other spelling - Demo]`
-281. `audioshelf/tests/test_recording_metadata.py::test_recording_aliases_keep_identity_duration_and_version_safeguards[changes7-Other spelling - 2022 Remix]`
-282. `audioshelf/tests/test_recording_metadata.py::test_recording_metadata_survives_save_and_restart`
-283. `audioshelf/tests/test_recording_metadata.py::test_verified_manual_track_does_not_trigger_recording_lookup`
-284. `audioshelf/tests/test_recording_metadata.py::test_wrong_recording_response_cannot_supply_aliases`
-285. `audioshelf/tests/test_release_filters.py::test_album_country_preference_does_not_change_other_albums`
-286. `audioshelf/tests/test_release_filters.py::test_ambiguous_track_count_without_corrobation_preserves_old_selection_order`
-287. `audioshelf/tests/test_release_filters.py::test_any_country_can_be_preferred_without_hidden_country_penalties[AU]`
-288. `audioshelf/tests/test_release_filters.py::test_any_country_can_be_preferred_without_hidden_country_penalties[JP]`
-289. `audioshelf/tests/test_release_filters.py::test_any_country_can_be_preferred_without_hidden_country_penalties[US]`
-290. `audioshelf/tests/test_release_filters.py::test_automatic_import_prefers_common_original_track_count_without_changing_preferences`
-291. `audioshelf/tests/test_release_filters.py::test_browse_and_automatic_selection_skip_early_cassette`
-292. `audioshelf/tests/test_release_filters.py::test_country_and_format_priorities_with_original_reissue_safeguard`
-293. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[GB-formats0-True]`
-294. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[GB-formats1-True]`
-295. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[GB-formats10-False]`
-296. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[GB-formats11-False]`
-297. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[GB-formats12-False]`
-298. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[GB-formats13-False]`
-299. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[GB-formats2-True]`
-300. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[GB-formats3-True]`
-301. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[GB-formats4-True]`
-302. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[GB-formats5-True]`
-303. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[GB-formats6-True]`
-304. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[GB-formats7-True]`
-305. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[GB-formats8-False]`
-306. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[GB-formats9-False]`
-307. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[None-formats17-True]`
-308. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[US-formats14-True]`
-309. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[XE-formats16-True]`
-310. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[XW-formats15-True]`
-311. `audioshelf/tests/test_release_filters.py::test_direct_selection_cannot_bypass_filters_or_clear_mappings`
-312. `audioshelf/tests/test_release_filters.py::test_filter_change_applies_to_cached_raw_pages`
-313. `audioshelf/tests/test_release_filters.py::test_invalid_settings_leave_preferences_unchanged[None]`
-314. `audioshelf/tests/test_release_filters.py::test_invalid_settings_leave_preferences_unchanged[value1]`
-315. `audioshelf/tests/test_release_filters.py::test_invalid_settings_leave_preferences_unchanged[value2]`
-316. `audioshelf/tests/test_release_filters.py::test_invalid_settings_leave_preferences_unchanged[value3]`
-317. `audioshelf/tests/test_release_filters.py::test_invalid_settings_leave_preferences_unchanged[value4]`
-318. `audioshelf/tests/test_release_filters.py::test_invalid_settings_leave_preferences_unchanged[value5]`
-319. `audioshelf/tests/test_release_filters.py::test_invalid_settings_leave_preferences_unchanged[value6]`
-320. `audioshelf/tests/test_release_filters.py::test_invalid_settings_leave_preferences_unchanged[value7]`
-321. `audioshelf/tests/test_release_filters.py::test_invalid_settings_leave_preferences_unchanged[value8]`
-322. `audioshelf/tests/test_release_filters.py::test_invalid_settings_leave_preferences_unchanged[value9]`
-323. `audioshelf/tests/test_release_filters.py::test_multiple_release_events_include_gb_but_missing_area_does_not`
-324. `audioshelf/tests/test_release_filters.py::test_no_country_preference_uses_date_and_format_equally_for_all_countries`
-325. `audioshelf/tests/test_release_filters.py::test_no_matching_editions_has_settings_guidance_without_fallback`
-326. `audioshelf/tests/test_release_filters.py::test_paginated_picker_filters_each_page_and_keeps_raw_cursor`
-327. `audioshelf/tests/test_release_filters.py::test_preferences_persist_preserve_mappings_and_are_backed_up`
-328. `audioshelf/tests/test_release_filters.py::test_settings_mutations_require_application_header`
-329. `audioshelf/tests/test_release_filters.py::test_strict_country_setting_is_optional_and_validated`
-330. `audioshelf/tests/test_release_filters.py::test_upgrade_from_version_two_keeps_collection_and_sets_defaults`
-331. `audioshelf/tests/test_routes.py::test_callback_bad_state_does_not_connect`
-332. `audioshelf/tests/test_routes.py::test_canonical_change_requires_confirmation`
-333. `audioshelf/tests/test_routes.py::test_export_contains_library_without_tokens_or_oauth`
-334. `audioshelf/tests/test_routes.py::test_ingress_assets_and_urls_are_prefixed`
-335. `audioshelf/tests/test_routes.py::test_invalid_ids_rejected_without_remote_request`
-336. `audioshelf/tests/test_routes.py::test_mutations_require_same_origin_custom_header`
-337. `audioshelf/tests/test_routes.py::test_password_protection_and_spoofed_ingress_header`
-338. `audioshelf/tests/test_routes.py::test_preferred_device_settings_validation_and_clear`
-339. `audioshelf/tests/test_routes.py::test_shell_assets_share_content_version_and_update_worker_is_not_cached`
-340. `audioshelf/tests/test_routes.py::test_shell_health_and_empty_shelf`
-341. `audioshelf/tests/test_security.py::test_blank_password_locks_standalone_but_ingress_still_works`
-342. `audioshelf/tests/test_security.py::test_blank_reset_option_does_not_disable_enrolled_factor`
-343. `audioshelf/tests/test_security.py::test_cross_origin_mutation_is_rejected`
-344. `audioshelf/tests/test_security.py::test_ha_option_recovers_lost_factor_and_preserves_password_spotify_and_collection`
-345. `audioshelf/tests/test_security.py::test_ha_reset_is_once_per_changed_value_even_after_clearing_and_reenrolling`
-346. `audioshelf/tests/test_security.py::test_home_assistant_can_recover_totp_without_factor_but_spoofed_header_cannot`
-347. `audioshelf/tests/test_security.py::test_login_throttle_survives_restart_and_ignores_forwarded_ip`
-348. `audioshelf/tests/test_security.py::test_password_change_invalidates_existing_sessions`
-349. `audioshelf/tests/test_security.py::test_reset_option_rejects_invalid_configuration_without_disabling_factor[123]`
-350. `audioshelf/tests/test_security.py::test_reset_option_rejects_invalid_configuration_without_disabling_factor[True]`
-351. `audioshelf/tests/test_security.py::test_reset_option_rejects_invalid_configuration_without_disabling_factor[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]`
-352. `audioshelf/tests/test_security.py::test_security_changes_require_fresh_owner_factor_even_on_trusted_browser`
-353. `audioshelf/tests/test_security.py::test_sessions_and_factor_setup_survive_restarts_and_setup_expires`
-354. `audioshelf/tests/test_security.py::test_setup_bruteforce_and_expiry_are_limited`
-355. `audioshelf/tests/test_security.py::test_standard_sessions_are_secure_expire_and_logout_revokes`
-356. `audioshelf/tests/test_security.py::test_support_disabled_by_default_and_secrets_not_in_collection`
-357. `audioshelf/tests/test_security.py::test_support_master_toggle_revokes_existing_and_prevents_resurrection`
-358. `audioshelf/tests/test_security.py::test_support_permissions_expiry_and_revocation_are_server_enforced[control]`
-359. `audioshelf/tests/test_security.py::test_support_permissions_expiry_and_revocation_are_server_enforced[view]`
-360. `audioshelf/tests/test_security.py::test_totp_matches_rfc_vector`
-361. `audioshelf/tests/test_security.py::test_totp_requires_factor_rejects_replay_and_recovery_is_single_use`
-362. `audioshelf/tests/test_security.py::test_trusted_browser_credential_is_revoked_on_logout`
-363. `audioshelf/tests/test_security.py::test_trusted_browser_still_needs_password_and_is_revocable`
-364. `audioshelf/tests/test_shelf_edition_audit.py::test_audit_abstains_on_conflicting_origins_instead_of_shortest_guess`
-365. `audioshelf/tests/test_shelf_edition_audit.py::test_audit_accepts_genuine_standard_double_album`
-366. `audioshelf/tests/test_shelf_edition_audit.py::test_audit_does_not_infer_count_from_single_original_or_later_editions`
-367. `audioshelf/tests/test_shelf_edition_audit.py::test_audit_flags_bonus_editions_without_modifying_original`
-368. `audioshelf/tests/test_shelf_edition_audit.py::test_audit_flags_deluxe_label_even_without_reference_and_preserves_original`
-369. `audioshelf/tests/test_shelf_edition_audit.py::test_audit_marks_albums_without_selected_tracklists_as_unresolved`
-370. `audioshelf/tests/test_shelf_edition_audit.py::test_edition_audit_api_runs_across_entire_shelf_without_mutating`
-371. `audioshelf/tests/test_spotify_auth_playback.py::test_album_tracks_pagination_is_complete`
-372. `audioshelf/tests/test_spotify_auth_playback.py::test_api_401_refreshes_once`
-373. `audioshelf/tests/test_spotify_auth_playback.py::test_candidate_search_reaches_new_remaster_on_next_page`
-374. `audioshelf/tests/test_spotify_auth_playback.py::test_disc_playback_excludes_other_discs_and_allows_unmapped_other_disc`
-375. `audioshelf/tests/test_spotify_auth_playback.py::test_expired_oauth_is_consumed_without_exchange`
-376. `audioshelf/tests/test_spotify_auth_playback.py::test_explicit_phone_play_when_paused_transfer_does_not_update_stale_player`
-377. `audioshelf/tests/test_spotify_auth_playback.py::test_fallback_candidate_search_paginates_when_structured_search_is_empty`
-378. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[-1]`
-379. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[0]`
-380. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[1.5]`
-381. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[1]`
-382. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[3]`
-383. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[True]`
-384. `audioshelf/tests/test_spotify_auth_playback.py::test_labelled_album_search_finds_explicit_and_regional_editions_without_special_cases`
-385. `audioshelf/tests/test_spotify_auth_playback.py::test_missing_active_player_is_treated_as_idle_not_missing_phone`
-386. `audioshelf/tests/test_spotify_auth_playback.py::test_no_active_device_has_actionable_error`
-387. `audioshelf/tests/test_spotify_auth_playback.py::test_no_active_player_with_multiple_or_restricted_devices_never_guesses[devices0]`
-388. `audioshelf/tests/test_spotify_auth_playback.py::test_no_active_player_with_multiple_or_restricted_devices_never_guesses[devices1]`
-389. `audioshelf/tests/test_spotify_auth_playback.py::test_no_active_player_with_multiple_or_restricted_devices_never_guesses[devices2]`
-390. `audioshelf/tests/test_spotify_auth_playback.py::test_partial_mapping_cannot_play`
-391. `audioshelf/tests/test_spotify_auth_playback.py::test_pkce_and_single_use_oauth_state`
-392. `audioshelf/tests/test_spotify_auth_playback.py::test_play_route_requires_choice_even_when_a_speaker_is_active`
-393. `audioshelf/tests/test_spotify_auth_playback.py::test_playback_sends_only_exact_track_uris_and_turns_off_shuffle_repeat`
-394. `audioshelf/tests/test_spotify_auth_playback.py::test_preferred_device_transfer_preserves_exact_disc_queue`
-395. `audioshelf/tests/test_spotify_auth_playback.py::test_preferred_device_transfer_timeout_never_starts_tracks`
-396. `audioshelf/tests/test_spotify_auth_playback.py::test_refresh_preserves_old_refresh_token_and_survives_restart`
-397. `audioshelf/tests/test_spotify_auth_playback.py::test_sdk_album_context_requires_identical_full_release`
-398. `audioshelf/tests/test_spotify_auth_playback.py::test_shuffle_not_acknowledged_does_not_start_album`
-399. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_album_link_formats[aaaaaaaaaaaaaaaaaaaaaa]`
-400. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_album_link_formats[https://open.spotify.com/album/aaaaaaaaaaaaaaaaaaaaaa?si=hello]`
-401. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_album_link_formats[https://open.spotify.com/intl-de/album/aaaaaaaaaaaaaaaaaaaaaa]`
-402. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_album_link_formats[spotify:album:aaaaaaaaaaaaaaaaaaaaaa]`
-403. `audioshelf/tests/test_spotify_auth_playback.py::test_unavailable_or_ambiguous_preference_never_plays_elsewhere[devices0]`
-404. `audioshelf/tests/test_spotify_auth_playback.py::test_unavailable_or_ambiguous_preference_never_plays_elsewhere[devices1]`
-405. `audioshelf/tests/test_spotify_auth_playback.py::test_unavailable_or_ambiguous_preference_never_plays_elsewhere[devices2]`
-406. `audioshelf/tests/test_spotify_auth_playback.py::test_unreviewed_tracklist_cannot_play`
-407. `audioshelf/tests/test_spotify_auth_playback.py::test_untrusted_spotify_urls_not_fetched`
-408. `audioshelf/tests/test_spotify_matching.py::test_background_import_prefers_original_tracklist_even_with_spotify_deluxe_bonus_tracks`
-409. `audioshelf/tests/test_spotify_matching.py::test_background_verifies_alternate_release_after_unplayable_first_release`
-410. `audioshelf/tests/test_spotify_matching.py::test_bulk_import_rejects_fully_playable_deluxe_if_two_originals_disagree`
-411. `audioshelf/tests/test_spotify_matching.py::test_bulk_routes_restrict_access_and_expose_copyable_report`
-412. `audioshelf/tests/test_spotify_matching.py::test_invalid_manual_track_choices_are_replaced_with_complete_edition`
-413. `audioshelf/tests/test_spotify_matching.py::test_partial_candidates_are_reported_and_never_persisted`
-414. `audioshelf/tests/test_spotify_matching.py::test_removed_or_fixed_album_drops_from_failure_report`
-415. `audioshelf/tests/test_spotify_matching.py::test_report_distinguishes_out_of_order_track_from_arbitrary_fallback`
-416. `audioshelf/tests/test_spotify_matching.py::test_reviewed_canonical_edition_remains_reviewed_when_fully_matched`
-417. `audioshelf/tests/test_spotify_matching.py::test_reviewed_manual_edition_without_spotify_match_is_wiped`
-418. `audioshelf/tests/test_spotify_matching.py::test_reviewed_replacement_edition_requires_new_confirmation`
-419. `audioshelf/tests/test_spotify_matching.py::test_spotify_album_title_only_search_recovers_split_artist_credits`
-420. `audioshelf/tests/test_spotify_matching.py::test_unresolved_album_stays_on_shelf_without_repopulating_unverified_tracks`
-421. `audioshelf/tests/test_spotify_matching.py::test_unresolved_report_shows_spotify_album_and_musicbrainz_version_evidence`
-422. `audioshelf/tests/test_spotify_matching.py::test_verified_bulk_match_saves_tracks_but_does_not_review_album`
-423. `audioshelf/tests/test_track_artist_credits.py::test_artist_safeguard_stays_strict_for_uncredited_and_wrong_credit`
-424. `audioshelf/tests/test_track_artist_credits.py::test_complete_soundtrack_matches_without_special_cases`
-425. `audioshelf/tests/test_track_artist_credits.py::test_musicbrainz_track_performers_are_extracted_from_each_medium`
-426. `audioshelf/tests/test_track_artist_credits.py::test_performer_credits_are_general_for_any_collaborative_album`
-427. `audioshelf/tests/test_track_artist_credits.py::test_selecting_soundtrack_maps_every_track_and_keeps_review`
-428. `audioshelf/tests/test_track_artist_credits.py::test_store_migration_keeps_shelf_and_hand_mappings`
-429. `audioshelf/tests/test_tracklist_variants.py::test_browse_only_shows_spotify_verified_grouped_tracklists`
-430. `audioshelf/tests/test_tracklist_variants.py::test_edition_picker_only_counts_gb_worldwide_and_us_releases`
-431. `audioshelf/tests/test_tracklist_variants.py::test_equivalent_layout_tries_later_pressing_if_first_cannot_match`
-432. `audioshelf/tests/test_tracklist_variants.py::test_equivalent_pressings_collapse_despite_remaster_and_recording_ids`
-433. `audioshelf/tests/test_tracklist_variants.py::test_invalid_tracklist_page_is_rejected`
-434. `audioshelf/tests/test_tracklist_variants.py::test_long_unplayable_editions_do_not_trigger_many_recording_requests`
-435. `audioshelf/tests/test_tracklist_variants.py::test_matching_fallback_when_structured_search_has_no_complete_album`
-436. `audioshelf/tests/test_tracklist_variants.py::test_multidisc_layout_kept_independent_of_same_song_sequence`
-437. `audioshelf/tests/test_tracklist_variants.py::test_scanning_continues_across_all_eligible_pages`
-438. `audioshelf/tests/test_tracklist_variants.py::test_select_vinyl_sides_preserves_disc_and_canonical_mapping`
-439. `audioshelf/tests/test_tracklist_variants.py::test_side_choice_validation_and_stored_album_intact_on_failure`
-440. `audioshelf/tests/test_tracklist_variants.py::test_successful_page_cached_for_retry_without_refetching`
-441. `audioshelf/tests/test_tracklist_variants.py::test_unconnected_account_cannot_see_unverified_tracklists`
-442. `audioshelf/tests/test_tracklist_variants.py::test_unknown_or_inconsistent_vinyl_numbers_do_not_create_fictitious_sides`
-443. `audioshelf/tests/test_tracklist_variants.py::test_unmatched_album_has_reasons_and_no_selectable_tracklists`
-444. `audioshelf/tests/test_tracklist_variants.py::test_unverified_disc_layout_not_offered_even_with_same_song_sequence`
-445. `audioshelf/tests/test_vinyl.py::test_interface_persists_and_invalid_choice_is_atomic`
-446. `audioshelf/tests/test_vinyl.py::test_playback_does_not_misidentify_shared_or_uncollected_tracks`
-447. `audioshelf/tests/test_vinyl.py::test_playback_tracks_spotify_pause_and_relinked_library_track`
-448. `audioshelf/tests/test_vinyl.py::test_shelf_furniture_persists_and_rejects_invalid_choices`
+116. `audioshelf/tests/test_catalogue_storage.py::test_shelf_artists_sort_by_display_name_not_surname`
+117. `audioshelf/tests/test_catalogue_storage.py::test_shelf_persists_across_restart_and_remove_retains_mapping`
+118. `audioshelf/tests/test_catalogue_storage.py::test_unresolved_manual_edition_can_be_fixed_by_automatic_matching`
+119. `audioshelf/tests/test_cloudflare_access.py::test_android_code_requires_pkce_expires_and_is_one_use`
+120. `audioshelf/tests/test_cloudflare_access.py::test_cloudflare_profile_lookup_is_cached_and_matches_verified_email`
+121. `audioshelf/tests/test_cloudflare_access.py::test_google_name_is_display_only_and_survives_ingress_and_restart`
+122. `audioshelf/tests/test_cloudflare_access.py::test_helper_endpoint_keeps_job_bearer_boundary`
+123. `audioshelf/tests/test_cloudflare_access.py::test_identity_rechecked_even_with_previous_owner_browser_session`
+124. `audioshelf/tests/test_cloudflare_access.py::test_missing_profile_does_not_erase_saved_google_name`
+125. `audioshelf/tests/test_cloudflare_access.py::test_no_password_session_or_forged_email_header_can_bypass_access`
+126. `audioshelf/tests/test_cloudflare_access.py::test_owner_library_and_spotify_remain_and_no_second_login`
+127. `audioshelf/tests/test_cloudflare_access.py::test_reject_wrong_or_nonhuman_signed_identity[claims0]`
+128. `audioshelf/tests/test_cloudflare_access.py::test_reject_wrong_or_nonhuman_signed_identity[claims1]`
+129. `audioshelf/tests/test_cloudflare_access.py::test_reject_wrong_or_nonhuman_signed_identity[claims2]`
+130. `audioshelf/tests/test_cloudflare_access.py::test_reject_wrong_or_nonhuman_signed_identity[claims3]`
+131. `audioshelf/tests/test_cloudflare_access.py::test_reject_wrong_or_nonhuman_signed_identity[claims4]`
+132. `audioshelf/tests/test_cloudflare_access.py::test_reject_wrong_or_nonhuman_signed_identity[claims5]`
+133. `audioshelf/tests/test_cloudflare_access.py::test_reject_wrong_or_nonhuman_signed_identity[claims6]`
+134. `audioshelf/tests/test_cloudflare_access.py::test_spotify_callback_cannot_cross_google_account_boundary`
+135. `audioshelf/tests/test_cloudflare_access.py::test_users_provision_once_isolate_data_and_cannot_become_admin`
+136. `audioshelf/tests/test_generic_catalogues.py::test_catalogue_decisions_depend_on_membership_and_types_not_names[A film composer-Original score]`
+137. `audioshelf/tests/test_generic_catalogues.py::test_catalogue_decisions_depend_on_membership_and_types_not_names[A new band-Second album]`
+138. `audioshelf/tests/test_generic_catalogues.py::test_catalogue_decisions_depend_on_membership_and_types_not_names[An unfamiliar artist-Regional LP]`
+139. `audioshelf/tests/test_generic_catalogues.py::test_catalogue_discovery_uses_artist_name_and_returns_only_release_group_series`
+140. `audioshelf/tests/test_generic_catalogues.py::test_clearing_series_restores_generic_rules_and_keeps_shelf`
+141. `audioshelf/tests/test_generic_catalogues.py::test_collaborative_catalogue_rules_do_not_depend_on_credit_order`
+142. `audioshelf/tests/test_generic_catalogues.py::test_curated_rules_handle_soundtracks_for_every_artist[secondary0-True]`
+143. `audioshelf/tests/test_generic_catalogues.py::test_curated_rules_handle_soundtracks_for_every_artist[secondary1-True]`
+144. `audioshelf/tests/test_generic_catalogues.py::test_curated_rules_handle_soundtracks_for_every_artist[secondary2-False]`
+145. `audioshelf/tests/test_generic_catalogues.py::test_curated_rules_handle_soundtracks_for_every_artist[secondary3-False]`
+146. `audioshelf/tests/test_generic_catalogues.py::test_curated_rules_handle_soundtracks_for_every_artist[secondary4-False]`
+147. `audioshelf/tests/test_generic_catalogues.py::test_explicit_catalogue_and_country_choices_survive_upgrade_and_restart`
+148. `audioshelf/tests/test_generic_catalogues.py::test_no_artist_or_album_has_a_built_in_catalogue_exception`
+149. `audioshelf/tests/test_generic_catalogues.py::test_old_cached_series_members_gain_a_persistent_snapshot`
+150. `audioshelf/tests/test_generic_catalogues.py::test_series_snapshot_survives_restart_and_deleted_replaceable_cache`
+151. `audioshelf/tests/test_generic_catalogues.py::test_unrelated_series_cannot_replace_selected_catalogue`
+152. `audioshelf/tests/test_lastfm_import.py::test_import_adds_existing_group_without_duplicates_and_reports_skips`
+153. `audioshelf/tests/test_lastfm_import.py::test_lastfm_edition_and_artist_aliases`
+154. `audioshelf/tests/test_lastfm_import.py::test_lastfm_exact_match_rejects_ambiguity_and_wrong_artist`
+155. `audioshelf/tests/test_lastfm_import.py::test_lastfm_import_separated_per_collection`
+156. `audioshelf/tests/test_lastfm_import.py::test_lastfm_looks_up_edition_by_artist_instead_of_title_only`
+157. `audioshelf/tests/test_lastfm_import.py::test_lastfm_opt_in_credentials_public_history_and_exact_selection`
+158. `audioshelf/tests/test_lastfm_import.py::test_lastfm_self_titled_album_remains_ambiguous`
+159. `audioshelf/tests/test_listening_links.py::test_authenticated_endpoint_and_no_cors_by_default`
+160. `audioshelf/tests/test_listening_links.py::test_cors_limited_to_configured_origin`
+161. `audioshelf/tests/test_listening_links.py::test_only_owned_records_and_song_album_links`
+162. `audioshelf/tests/test_listening_pile.py::test_borrow_requires_verified_selection`
+163. `audioshelf/tests/test_listening_pile.py::test_borrow_then_keep_does_not_clear_selected_recordings`
+164. `audioshelf/tests/test_listening_pile.py::test_borrowed_album_is_only_in_listening_pile`
+165. `audioshelf/tests/test_listening_pile.py::test_owned_pile_routes_leave_collection_unchanged`
+166. `audioshelf/tests/test_listening_pile.py::test_owned_record_can_remain_in_both_places`
+167. `audioshelf/tests/test_listening_pile.py::test_pile_routes_do_not_treat_loans_as_owned`
+168. `audioshelf/tests/test_listening_pile.py::test_return_loan_keeps_catalogue_and_tracklist`
+169. `audioshelf/tests/test_matching.py::test_acoustic_version_label_matches_same_acoustic_recording_but_not_studio`
+170. `audioshelf/tests/test_matching.py::test_album_version_with_interlude_needs_same_full_audio_and_independent_album_context`
+171. `audioshelf/tests/test_matching.py::test_alternative_recordings_not_silently_accepted[Opening (Demo)]`
+172. `audioshelf/tests/test_matching.py::test_alternative_recordings_not_silently_accepted[Opening - Acoustic]`
+173. `audioshelf/tests/test_matching.py::test_alternative_recordings_not_silently_accepted[Opening - Instrumental]`
+174. `audioshelf/tests/test_matching.py::test_alternative_recordings_not_silently_accepted[Opening - Live]`
+175. `audioshelf/tests/test_matching.py::test_alternative_recordings_not_silently_accepted[Opening - Radio Edit]`
+176. `audioshelf/tests/test_matching.py::test_alternative_recordings_not_silently_accepted[Opening - Remix]`
+177. `audioshelf/tests/test_matching.py::test_bonus_track_remaster_year_does_not_change_album_preference`
+178. `audioshelf/tests/test_matching.py::test_clean_standard_edition_wins_equal_matching`
+179. `audioshelf/tests/test_matching.py::test_compact_track_titles_accept_spacing_but_not_reordered_words`
+180. `audioshelf/tests/test_matching.py::test_contextual_minor_title_change_must_have_unique_position_duration_and_artist`
+181. `audioshelf/tests/test_matching.py::test_dated_studio_mix_matches_but_dance_remix_still_rejected`
+182. `audioshelf/tests/test_matching.py::test_deluxe_bonus_tracks_are_never_mapped`
+183. `audioshelf/tests/test_matching.py::test_descriptive_spotify_parody_source_credits_preserve_full_album`
+184. `audioshelf/tests/test_matching.py::test_duplicate_titles_use_distinct_ordered_recordings`
+185. `audioshelf/tests/test_matching.py::test_edition_labels_and_part_abbreviations_are_same_recording`
+186. `audioshelf/tests/test_matching.py::test_editorial_subtitles_use_main_title_and_duration_but_not_versions`
+187. `audioshelf/tests/test_matching.py::test_extended_combined_track_title_requires_duration_artist_and_version_agreement`
+188. `audioshelf/tests/test_matching.py::test_featured_artist_credit_requires_primary_artist_and_guest_evidence`
+189. `audioshelf/tests/test_matching.py::test_full_album_with_editorial_subtitles_is_verified_in_canonical_order`
+190. `audioshelf/tests/test_matching.py::test_full_length_hidden_track_composites_never_substitute_the_short_single`
+191. `audioshelf/tests/test_matching.py::test_hidden_label_can_match_contiguous_recording_but_not_erase_separate_musicbrainz_track`
+192. `audioshelf/tests/test_matching.py::test_incomplete_recent_remaster_does_not_beat_complete_older_edition`
+193. `audioshelf/tests/test_matching.py::test_latest_labelled_remaster_wins_even_with_bonus_tracks`
+194. `audioshelf/tests/test_matching.py::test_missing_track_is_not_replaced_by_a_bonus_track`
+195. `audioshelf/tests/test_matching.py::test_mono_stereo_labels_do_not_erase_live_or_remix_identity`
+196. `audioshelf/tests/test_matching.py::test_normalization_keeps_meaningful_version_labels`
+197. `audioshelf/tests/test_matching.py::test_numbered_part_roman_numerals_match_arabic_spotify_titles`
+198. `audioshelf/tests/test_matching.py::test_parody_annotation_does_not_erase_recording_versions_or_unplayable`
+199. `audioshelf/tests/test_matching.py::test_punchup_editorial_subtitle_accepts_compound_spacing_not_different_song`
+200. `audioshelf/tests/test_matching.py::test_recent_reissue_date_does_not_prove_new_remaster`
+201. `audioshelf/tests/test_matching.py::test_same_title_with_different_duration_needs_review`
+202. `audioshelf/tests/test_matching.py::test_short_original_song_prefix_is_only_verifiable_in_strict_album_context`
+203. `audioshelf/tests/test_matching.py::test_shortened_album_medley_requires_matching_artist_duration_and_position`
+204. `audioshelf/tests/test_matching.py::test_single_duration_discrepancy_can_be_corroborated_by_entire_album`
+205. `audioshelf/tests/test_matching.py::test_two_spotify_performers_satisfy_a_joint_musicbrainz_artist_but_not_solo`
+206. `audioshelf/tests/test_matching.py::test_wrong_artist_and_unavailable_tracks_are_rejected`
+207. `audioshelf/tests/test_musicbrainz_transport.py::test_artist_discography_paginates_filters_and_sorts`
+208. `audioshelf/tests/test_musicbrainz_transport.py::test_first_tracklist_selection_and_group_validation`
+209. `audioshelf/tests/test_musicbrainz_transport.py::test_lucene_special_characters_are_literal`
+210. `audioshelf/tests/test_musicbrainz_transport.py::test_musicbrainz_requests_cache_and_wait_between_calls`
+211. `audioshelf/tests/test_musicbrainz_transport.py::test_release_pagination_increments_actual_page_size`
+212. `audioshelf/tests/test_now_playing.py::test_external_studio_album_opens_record_store_and_reuses_canonical_group`
+213. `audioshelf/tests/test_now_playing.py::test_live_album_does_not_redirect_to_original_studio_album`
+214. `audioshelf/tests/test_now_playing.py::test_now_playing_artwork_and_album_resolution_for_uncollected_record`
+215. `audioshelf/tests/test_now_playing.py::test_same_title_different_artist_cannot_open_a_wrong_album`
+216. `audioshelf/tests/test_now_playing.py::test_settings_default_and_skip_control_authorisation`
+217. `audioshelf/tests/test_now_playing.py::test_spotify_album_images_are_selected_and_untrusted_urls_excluded`
+218. `audioshelf/tests/test_now_playing.py::test_strip_edition_without_changing_canonical_album[Another Country-Another Country]`
+219. `audioshelf/tests/test_now_playing.py::test_strip_edition_without_changing_canonical_album[Revolver (2022 Remaster)-Revolver]`
+220. `audioshelf/tests/test_now_playing.py::test_strip_edition_without_changing_canonical_album[The Album (Deluxe Edition)-The Album]`
+221. `audioshelf/tests/test_now_playing.py::test_strip_edition_without_changing_canonical_album[The Album - 2019 Remaster-The Album]`
+222. `audioshelf/tests/test_now_playing.py::test_verified_studio_track_opens_its_own_shelf`
+223. `audioshelf/tests/test_playable_releases.py::test_change_tracklist_is_atomic_and_only_accepts_full_match`
+224. `audioshelf/tests/test_playable_releases.py::test_invalid_cursor_is_rejected`
+225. `audioshelf/tests/test_playable_releases.py::test_later_batched_editions_can_be_discovered`
+226. `audioshelf/tests/test_playable_releases.py::test_matching_original_album_uses_isrc_for_unlabelled_version_not_shortcuts`
+227. `audioshelf/tests/test_playable_releases.py::test_original_musicbrainz_tracklist_ignores_spotify_bonus_tracks_even_in_labelled_editions[10-11-Deluxe Edition]`
+228. `audioshelf/tests/test_playable_releases.py::test_original_musicbrainz_tracklist_ignores_spotify_bonus_tracks_even_in_labelled_editions[14-2-Explicit Version]`
+229. `audioshelf/tests/test_playable_releases.py::test_picker_hides_partially_matched_musicbrainz_edition_and_does_not_mutate`
+230. `audioshelf/tests/test_playable_releases.py::test_shelf_add_commits_whole_album_mapping_and_requires_review`
+231. `audioshelf/tests/test_playable_releases.py::test_shelf_add_rejects_incomplete_mapping_before_mutation`
+232. `audioshelf/tests/test_playable_releases.py::test_unconnected_spotify_has_clear_feedback_without_mutation`
+233. `audioshelf/tests/test_playback_audit.py::test_catalogue_api_failure_cannot_interrupt_accepted_play`
+234. `audioshelf/tests/test_playback_audit.py::test_catalogue_probe_reports_playability_relinking_and_restrictions_without_raw_ids`
+235. `audioshelf/tests/test_playback_audit.py::test_post_play_catalogue_audit_samples_actual_canonical_queue_without_control_commands`
+236. `audioshelf/tests/test_playback_handoff.py::test_album_context_does_not_confirm_stale_manual_queue`
+237. `audioshelf/tests/test_playback_handoff.py::test_ambiguous_play_transport_failure_never_claims_accepted_or_requeues`
+238. `audioshelf/tests/test_playback_handoff.py::test_cancel_reason_identifies_explicit_user_action_but_not_untrusted_text`
+239. `audioshelf/tests/test_playback_handoff.py::test_cancel_replacement_revocation_and_expiry_prevent_dispatch[cancel]`
+240. `audioshelf/tests/test_playback_handoff.py::test_cancel_replacement_revocation_and_expiry_prevent_dispatch[expire]`
+241. `audioshelf/tests/test_playback_handoff.py::test_cancel_replacement_revocation_and_expiry_prevent_dispatch[replace]`
+242. `audioshelf/tests/test_playback_handoff.py::test_cancel_replacement_revocation_and_expiry_prevent_dispatch[revoke]`
+243. `audioshelf/tests/test_playback_handoff.py::test_cancellation_just_before_direct_play_prevents_queue`
+244. `audioshelf/tests/test_playback_handoff.py::test_cold_start_polling_is_fast_only_during_initial_phone_discovery`
+245. `audioshelf/tests/test_playback_handoff.py::test_handoff_direct_play_skips_stale_transfer_and_corrects_modes`
+246. `audioshelf/tests/test_playback_handoff.py::test_handoff_mode_retry_does_not_repeat_accepted_play`
+247. `audioshelf/tests/test_playback_handoff.py::test_handoff_reuses_first_verified_device_without_second_discovery`
+248. `audioshelf/tests/test_playback_handoff.py::test_handoff_routes_validate_and_keep_status_private`
+249. `audioshelf/tests/test_playback_handoff.py::test_helper_feedback_includes_bounded_track_mismatch_without_private_payloads`
+250. `audioshelf/tests/test_playback_handoff.py::test_helper_feedback_remains_readable_while_spotify_play_is_blocked`
+251. `audioshelf/tests/test_playback_handoff.py::test_helper_token_revoked_on_job_replacement_and_cannot_access_other_jobs`
+252. `audioshelf/tests/test_playback_handoff.py::test_new_job_replaces_prior_job_with_safe_reason`
+253. `audioshelf/tests/test_playback_handoff.py::test_owner_snapshot_exposes_safe_progress_but_not_playback_capability`
+254. `audioshelf/tests/test_playback_handoff.py::test_play_acceptance_is_published_before_device_and_track_confirmation`
+255. `audioshelf/tests/test_playback_handoff.py::test_revoking_real_session_cancels_server_job`
+256. `audioshelf/tests/test_playback_handoff.py::test_sdk_exact_album_context_avoids_queue_appends`
+257. `audioshelf/tests/test_playback_handoff.py::test_sdk_full_album_exposes_exact_canonical_sequence_without_web_play`
+258. `audioshelf/tests/test_playback_handoff.py::test_sdk_full_album_mismatched_queue_is_not_confirmed`
+259. `audioshelf/tests/test_playback_handoff.py::test_sdk_full_album_partial_enqueue_exposes_failure_without_retry`
+260. `audioshelf/tests/test_playback_handoff.py::test_sdk_single_track_handoff_exposes_first_uri_only_to_trusted_helper_without_web_play`
+261. `audioshelf/tests/test_playback_handoff.py::test_sdk_single_track_requires_phone_and_does_not_expose_uri_before_discovery`
+262. `audioshelf/tests/test_playback_handoff.py::test_spotify_player_confirmation_polling_is_fast_after_play_then_tapers`
+263. `audioshelf/tests/test_playback_handoff.py::test_verification_observation_distinguishes_old_track_missing_item_and_linked_track`
+264. `audioshelf/tests/test_playback_handoff.py::test_waits_for_snapshot_phone_then_dispatches_exact_disc_once`
+265. `audioshelf/tests/test_playback_handoff.py::test_worker_stops_on_spotify_errors_without_repeating_queue`
+266. `audioshelf/tests/test_playback_handoff.py::test_wrong_track_or_wrong_device_never_falsely_confirm_playback`
+267. `audioshelf/tests/test_recording_metadata.py::test_any_artist_can_match_the_linked_recording_names[Other spelling - 2022 Mix]`
+268. `audioshelf/tests/test_recording_metadata.py::test_any_artist_can_match_the_linked_recording_names[Other spelling]`
+269. `audioshelf/tests/test_recording_metadata.py::test_any_artist_can_match_the_linked_recording_names[Recording title]`
+270. `audioshelf/tests/test_recording_metadata.py::test_existing_shelf_enriches_unmatched_tracks_and_preserves_manual_corrections[False]`
+271. `audioshelf/tests/test_recording_metadata.py::test_existing_shelf_enriches_unmatched_tracks_and_preserves_manual_corrections[True]`
+272. `audioshelf/tests/test_recording_metadata.py::test_metadata_outage_keeps_saved_names_and_mappings`
+273. `audioshelf/tests/test_recording_metadata.py::test_no_radiohead_specific_exception_remains`
+274. `audioshelf/tests/test_recording_metadata.py::test_real_version_three_migration_preserves_collection_and_manual_mapping`
+275. `audioshelf/tests/test_recording_metadata.py::test_recording_aliases_keep_identity_duration_and_version_safeguards[changes0-Other spelling]`
+276. `audioshelf/tests/test_recording_metadata.py::test_recording_aliases_keep_identity_duration_and_version_safeguards[changes1-Other spelling]`
+277. `audioshelf/tests/test_recording_metadata.py::test_recording_aliases_keep_identity_duration_and_version_safeguards[changes2-Other spelling]`
+278. `audioshelf/tests/test_recording_metadata.py::test_recording_aliases_keep_identity_duration_and_version_safeguards[changes3-Other spelling]`
+279. `audioshelf/tests/test_recording_metadata.py::test_recording_aliases_keep_identity_duration_and_version_safeguards[changes4-Other spelling]`
+280. `audioshelf/tests/test_recording_metadata.py::test_recording_aliases_keep_identity_duration_and_version_safeguards[changes5-Other spelling - Live]`
+281. `audioshelf/tests/test_recording_metadata.py::test_recording_aliases_keep_identity_duration_and_version_safeguards[changes6-Other spelling - Demo]`
+282. `audioshelf/tests/test_recording_metadata.py::test_recording_aliases_keep_identity_duration_and_version_safeguards[changes7-Other spelling - 2022 Remix]`
+283. `audioshelf/tests/test_recording_metadata.py::test_recording_metadata_survives_save_and_restart`
+284. `audioshelf/tests/test_recording_metadata.py::test_verified_manual_track_does_not_trigger_recording_lookup`
+285. `audioshelf/tests/test_recording_metadata.py::test_wrong_recording_response_cannot_supply_aliases`
+286. `audioshelf/tests/test_release_filters.py::test_album_country_preference_does_not_change_other_albums`
+287. `audioshelf/tests/test_release_filters.py::test_ambiguous_track_count_without_corrobation_preserves_old_selection_order`
+288. `audioshelf/tests/test_release_filters.py::test_any_country_can_be_preferred_without_hidden_country_penalties[AU]`
+289. `audioshelf/tests/test_release_filters.py::test_any_country_can_be_preferred_without_hidden_country_penalties[JP]`
+290. `audioshelf/tests/test_release_filters.py::test_any_country_can_be_preferred_without_hidden_country_penalties[US]`
+291. `audioshelf/tests/test_release_filters.py::test_automatic_import_prefers_common_original_track_count_without_changing_preferences`
+292. `audioshelf/tests/test_release_filters.py::test_browse_and_automatic_selection_skip_early_cassette`
+293. `audioshelf/tests/test_release_filters.py::test_country_and_format_priorities_with_original_reissue_safeguard`
+294. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[GB-formats0-True]`
+295. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[GB-formats1-True]`
+296. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[GB-formats10-False]`
+297. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[GB-formats11-False]`
+298. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[GB-formats12-False]`
+299. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[GB-formats13-False]`
+300. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[GB-formats2-True]`
+301. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[GB-formats3-True]`
+302. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[GB-formats4-True]`
+303. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[GB-formats5-True]`
+304. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[GB-formats6-True]`
+305. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[GB-formats7-True]`
+306. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[GB-formats8-False]`
+307. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[GB-formats9-False]`
+308. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[None-formats17-True]`
+309. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[US-formats14-True]`
+310. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[XE-formats16-True]`
+311. `audioshelf/tests/test_release_filters.py::test_default_countries_and_all_audio_media[XW-formats15-True]`
+312. `audioshelf/tests/test_release_filters.py::test_direct_selection_cannot_bypass_filters_or_clear_mappings`
+313. `audioshelf/tests/test_release_filters.py::test_filter_change_applies_to_cached_raw_pages`
+314. `audioshelf/tests/test_release_filters.py::test_invalid_settings_leave_preferences_unchanged[None]`
+315. `audioshelf/tests/test_release_filters.py::test_invalid_settings_leave_preferences_unchanged[value1]`
+316. `audioshelf/tests/test_release_filters.py::test_invalid_settings_leave_preferences_unchanged[value2]`
+317. `audioshelf/tests/test_release_filters.py::test_invalid_settings_leave_preferences_unchanged[value3]`
+318. `audioshelf/tests/test_release_filters.py::test_invalid_settings_leave_preferences_unchanged[value4]`
+319. `audioshelf/tests/test_release_filters.py::test_invalid_settings_leave_preferences_unchanged[value5]`
+320. `audioshelf/tests/test_release_filters.py::test_invalid_settings_leave_preferences_unchanged[value6]`
+321. `audioshelf/tests/test_release_filters.py::test_invalid_settings_leave_preferences_unchanged[value7]`
+322. `audioshelf/tests/test_release_filters.py::test_invalid_settings_leave_preferences_unchanged[value8]`
+323. `audioshelf/tests/test_release_filters.py::test_invalid_settings_leave_preferences_unchanged[value9]`
+324. `audioshelf/tests/test_release_filters.py::test_multiple_release_events_include_gb_but_missing_area_does_not`
+325. `audioshelf/tests/test_release_filters.py::test_no_country_preference_uses_date_and_format_equally_for_all_countries`
+326. `audioshelf/tests/test_release_filters.py::test_no_matching_editions_has_settings_guidance_without_fallback`
+327. `audioshelf/tests/test_release_filters.py::test_paginated_picker_filters_each_page_and_keeps_raw_cursor`
+328. `audioshelf/tests/test_release_filters.py::test_preferences_persist_preserve_mappings_and_are_backed_up`
+329. `audioshelf/tests/test_release_filters.py::test_settings_mutations_require_application_header`
+330. `audioshelf/tests/test_release_filters.py::test_strict_country_setting_is_optional_and_validated`
+331. `audioshelf/tests/test_release_filters.py::test_upgrade_from_version_two_keeps_collection_and_sets_defaults`
+332. `audioshelf/tests/test_routes.py::test_callback_bad_state_does_not_connect`
+333. `audioshelf/tests/test_routes.py::test_canonical_change_requires_confirmation`
+334. `audioshelf/tests/test_routes.py::test_export_contains_library_without_tokens_or_oauth`
+335. `audioshelf/tests/test_routes.py::test_ingress_assets_and_urls_are_prefixed`
+336. `audioshelf/tests/test_routes.py::test_invalid_ids_rejected_without_remote_request`
+337. `audioshelf/tests/test_routes.py::test_mutations_require_same_origin_custom_header`
+338. `audioshelf/tests/test_routes.py::test_password_protection_and_spoofed_ingress_header`
+339. `audioshelf/tests/test_routes.py::test_preferred_device_settings_validation_and_clear`
+340. `audioshelf/tests/test_routes.py::test_shell_assets_share_content_version_and_update_worker_is_not_cached`
+341. `audioshelf/tests/test_routes.py::test_shell_health_and_empty_shelf`
+342. `audioshelf/tests/test_security.py::test_blank_password_locks_standalone_but_ingress_still_works`
+343. `audioshelf/tests/test_security.py::test_blank_reset_option_does_not_disable_enrolled_factor`
+344. `audioshelf/tests/test_security.py::test_cross_origin_mutation_is_rejected`
+345. `audioshelf/tests/test_security.py::test_ha_option_recovers_lost_factor_and_preserves_password_spotify_and_collection`
+346. `audioshelf/tests/test_security.py::test_ha_reset_is_once_per_changed_value_even_after_clearing_and_reenrolling`
+347. `audioshelf/tests/test_security.py::test_home_assistant_can_recover_totp_without_factor_but_spoofed_header_cannot`
+348. `audioshelf/tests/test_security.py::test_login_throttle_survives_restart_and_ignores_forwarded_ip`
+349. `audioshelf/tests/test_security.py::test_password_change_invalidates_existing_sessions`
+350. `audioshelf/tests/test_security.py::test_reset_option_rejects_invalid_configuration_without_disabling_factor[123]`
+351. `audioshelf/tests/test_security.py::test_reset_option_rejects_invalid_configuration_without_disabling_factor[True]`
+352. `audioshelf/tests/test_security.py::test_reset_option_rejects_invalid_configuration_without_disabling_factor[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]`
+353. `audioshelf/tests/test_security.py::test_security_changes_require_fresh_owner_factor_even_on_trusted_browser`
+354. `audioshelf/tests/test_security.py::test_sessions_and_factor_setup_survive_restarts_and_setup_expires`
+355. `audioshelf/tests/test_security.py::test_setup_bruteforce_and_expiry_are_limited`
+356. `audioshelf/tests/test_security.py::test_standard_sessions_are_secure_expire_and_logout_revokes`
+357. `audioshelf/tests/test_security.py::test_support_disabled_by_default_and_secrets_not_in_collection`
+358. `audioshelf/tests/test_security.py::test_support_master_toggle_revokes_existing_and_prevents_resurrection`
+359. `audioshelf/tests/test_security.py::test_support_permissions_expiry_and_revocation_are_server_enforced[control]`
+360. `audioshelf/tests/test_security.py::test_support_permissions_expiry_and_revocation_are_server_enforced[view]`
+361. `audioshelf/tests/test_security.py::test_totp_matches_rfc_vector`
+362. `audioshelf/tests/test_security.py::test_totp_requires_factor_rejects_replay_and_recovery_is_single_use`
+363. `audioshelf/tests/test_security.py::test_trusted_browser_credential_is_revoked_on_logout`
+364. `audioshelf/tests/test_security.py::test_trusted_browser_still_needs_password_and_is_revocable`
+365. `audioshelf/tests/test_shelf_edition_audit.py::test_audit_abstains_on_conflicting_origins_instead_of_shortest_guess`
+366. `audioshelf/tests/test_shelf_edition_audit.py::test_audit_accepts_genuine_standard_double_album`
+367. `audioshelf/tests/test_shelf_edition_audit.py::test_audit_does_not_infer_count_from_single_original_or_later_editions`
+368. `audioshelf/tests/test_shelf_edition_audit.py::test_audit_flags_bonus_editions_without_modifying_original`
+369. `audioshelf/tests/test_shelf_edition_audit.py::test_audit_flags_deluxe_label_even_without_reference_and_preserves_original`
+370. `audioshelf/tests/test_shelf_edition_audit.py::test_audit_marks_albums_without_selected_tracklists_as_unresolved`
+371. `audioshelf/tests/test_shelf_edition_audit.py::test_edition_audit_api_runs_across_entire_shelf_without_mutating`
+372. `audioshelf/tests/test_spotify_auth_playback.py::test_album_tracks_pagination_is_complete`
+373. `audioshelf/tests/test_spotify_auth_playback.py::test_api_401_refreshes_once`
+374. `audioshelf/tests/test_spotify_auth_playback.py::test_candidate_search_reaches_new_remaster_on_next_page`
+375. `audioshelf/tests/test_spotify_auth_playback.py::test_disc_playback_excludes_other_discs_and_allows_unmapped_other_disc`
+376. `audioshelf/tests/test_spotify_auth_playback.py::test_expired_oauth_is_consumed_without_exchange`
+377. `audioshelf/tests/test_spotify_auth_playback.py::test_explicit_phone_play_when_paused_transfer_does_not_update_stale_player`
+378. `audioshelf/tests/test_spotify_auth_playback.py::test_fallback_candidate_search_paginates_when_structured_search_is_empty`
+379. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[-1]`
+380. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[0]`
+381. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[1.5]`
+382. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[1]`
+383. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[3]`
+384. `audioshelf/tests/test_spotify_auth_playback.py::test_invalid_disc_never_starts_playback[True]`
+385. `audioshelf/tests/test_spotify_auth_playback.py::test_labelled_album_search_finds_explicit_and_regional_editions_without_special_cases`
+386. `audioshelf/tests/test_spotify_auth_playback.py::test_matching_review_queue_shows_failures_separately_from_pending`
+387. `audioshelf/tests/test_spotify_auth_playback.py::test_missing_active_player_is_treated_as_idle_not_missing_phone`
+388. `audioshelf/tests/test_spotify_auth_playback.py::test_no_active_device_has_actionable_error`
+389. `audioshelf/tests/test_spotify_auth_playback.py::test_no_active_player_with_multiple_or_restricted_devices_never_guesses[devices0]`
+390. `audioshelf/tests/test_spotify_auth_playback.py::test_no_active_player_with_multiple_or_restricted_devices_never_guesses[devices1]`
+391. `audioshelf/tests/test_spotify_auth_playback.py::test_no_active_player_with_multiple_or_restricted_devices_never_guesses[devices2]`
+392. `audioshelf/tests/test_spotify_auth_playback.py::test_one_click_add_saves_existing_album_without_waiting_for_spotify_or_musicbrainz`
+393. `audioshelf/tests/test_spotify_auth_playback.py::test_partial_mapping_cannot_play`
+394. `audioshelf/tests/test_spotify_auth_playback.py::test_pkce_and_single_use_oauth_state`
+395. `audioshelf/tests/test_spotify_auth_playback.py::test_play_route_requires_choice_even_when_a_speaker_is_active`
+396. `audioshelf/tests/test_spotify_auth_playback.py::test_playback_sends_only_exact_track_uris_and_turns_off_shuffle_repeat`
+397. `audioshelf/tests/test_spotify_auth_playback.py::test_preferred_device_transfer_preserves_exact_disc_queue`
+398. `audioshelf/tests/test_spotify_auth_playback.py::test_preferred_device_transfer_timeout_never_starts_tracks`
+399. `audioshelf/tests/test_spotify_auth_playback.py::test_refresh_preserves_old_refresh_token_and_survives_restart`
+400. `audioshelf/tests/test_spotify_auth_playback.py::test_resolve_does_not_save_incomplete_automatic_match`
+401. `audioshelf/tests/test_spotify_auth_playback.py::test_resolve_preserves_existing_playable_choice`
+402. `audioshelf/tests/test_spotify_auth_playback.py::test_resolve_shows_complete_albums_not_single_snippets`
+403. `audioshelf/tests/test_spotify_auth_playback.py::test_sdk_album_context_requires_identical_full_release`
+404. `audioshelf/tests/test_spotify_auth_playback.py::test_shuffle_not_acknowledged_does_not_start_album`
+405. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_album_link_formats[aaaaaaaaaaaaaaaaaaaaaa]`
+406. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_album_link_formats[https://open.spotify.com/album/aaaaaaaaaaaaaaaaaaaaaa?si=hello]`
+407. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_album_link_formats[https://open.spotify.com/intl-de/album/aaaaaaaaaaaaaaaaaaaaaa]`
+408. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_album_link_formats[spotify:album:aaaaaaaaaaaaaaaaaaaaaa]`
+409. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_bonus_tracks_and_edit_labels_remain_distinct`
+410. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_different_recording_isrcs_remain_separate`
+411. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_missing_isrc_never_merges_unverified_recordings`
+412. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_same_isrcs_deduplicate_and_preserve_preferred_id`
+413. `audioshelf/tests/test_spotify_auth_playback.py::test_spotify_same_track_ids_collapse_without_additional_requests`
+414. `audioshelf/tests/test_spotify_auth_playback.py::test_unavailable_or_ambiguous_preference_never_plays_elsewhere[devices0]`
+415. `audioshelf/tests/test_spotify_auth_playback.py::test_unavailable_or_ambiguous_preference_never_plays_elsewhere[devices1]`
+416. `audioshelf/tests/test_spotify_auth_playback.py::test_unavailable_or_ambiguous_preference_never_plays_elsewhere[devices2]`
+417. `audioshelf/tests/test_spotify_auth_playback.py::test_unreviewed_tracklist_cannot_play`
+418. `audioshelf/tests/test_spotify_auth_playback.py::test_untrusted_spotify_urls_not_fetched`
+419. `audioshelf/tests/test_spotify_matching.py::test_background_import_prefers_original_tracklist_even_with_spotify_deluxe_bonus_tracks`
+420. `audioshelf/tests/test_spotify_matching.py::test_background_match_leaves_equally_ranked_distinct_recordings_for_review`
+421. `audioshelf/tests/test_spotify_matching.py::test_background_verifies_alternate_release_after_unplayable_first_release`
+422. `audioshelf/tests/test_spotify_matching.py::test_bulk_import_rejects_fully_playable_deluxe_if_two_originals_disagree`
+423. `audioshelf/tests/test_spotify_matching.py::test_bulk_routes_restrict_access_and_expose_copyable_report`
+424. `audioshelf/tests/test_spotify_matching.py::test_invalid_manual_track_choices_are_replaced_with_complete_edition`
+425. `audioshelf/tests/test_spotify_matching.py::test_partial_candidates_are_reported_and_never_persisted`
+426. `audioshelf/tests/test_spotify_matching.py::test_removed_or_fixed_album_drops_from_failure_report`
+427. `audioshelf/tests/test_spotify_matching.py::test_report_distinguishes_out_of_order_track_from_arbitrary_fallback`
+428. `audioshelf/tests/test_spotify_matching.py::test_reviewed_canonical_edition_remains_reviewed_when_fully_matched`
+429. `audioshelf/tests/test_spotify_matching.py::test_reviewed_manual_edition_without_spotify_match_is_wiped`
+430. `audioshelf/tests/test_spotify_matching.py::test_reviewed_replacement_edition_requires_new_confirmation`
+431. `audioshelf/tests/test_spotify_matching.py::test_spotify_album_title_only_search_recovers_split_artist_credits`
+432. `audioshelf/tests/test_spotify_matching.py::test_unresolved_album_stays_on_shelf_without_repopulating_unverified_tracks`
+433. `audioshelf/tests/test_spotify_matching.py::test_unresolved_report_shows_spotify_album_and_musicbrainz_version_evidence`
+434. `audioshelf/tests/test_spotify_matching.py::test_verified_bulk_match_saves_tracks_but_does_not_review_album`
+435. `audioshelf/tests/test_track_artist_credits.py::test_artist_safeguard_stays_strict_for_uncredited_and_wrong_credit`
+436. `audioshelf/tests/test_track_artist_credits.py::test_complete_soundtrack_matches_without_special_cases`
+437. `audioshelf/tests/test_track_artist_credits.py::test_musicbrainz_track_performers_are_extracted_from_each_medium`
+438. `audioshelf/tests/test_track_artist_credits.py::test_performer_credits_are_general_for_any_collaborative_album`
+439. `audioshelf/tests/test_track_artist_credits.py::test_selecting_soundtrack_maps_every_track_and_keeps_review`
+440. `audioshelf/tests/test_track_artist_credits.py::test_store_migration_keeps_shelf_and_hand_mappings`
+441. `audioshelf/tests/test_tracklist_variants.py::test_browse_only_shows_spotify_verified_grouped_tracklists`
+442. `audioshelf/tests/test_tracklist_variants.py::test_edition_picker_only_counts_gb_worldwide_and_us_releases`
+443. `audioshelf/tests/test_tracklist_variants.py::test_equivalent_layout_tries_later_pressing_if_first_cannot_match`
+444. `audioshelf/tests/test_tracklist_variants.py::test_equivalent_pressings_collapse_despite_remaster_and_recording_ids`
+445. `audioshelf/tests/test_tracklist_variants.py::test_invalid_tracklist_page_is_rejected`
+446. `audioshelf/tests/test_tracklist_variants.py::test_long_unplayable_editions_do_not_trigger_many_recording_requests`
+447. `audioshelf/tests/test_tracklist_variants.py::test_matching_fallback_when_structured_search_has_no_complete_album`
+448. `audioshelf/tests/test_tracklist_variants.py::test_multidisc_layout_kept_independent_of_same_song_sequence`
+449. `audioshelf/tests/test_tracklist_variants.py::test_scanning_continues_across_all_eligible_pages`
+450. `audioshelf/tests/test_tracklist_variants.py::test_select_vinyl_sides_preserves_disc_and_canonical_mapping`
+451. `audioshelf/tests/test_tracklist_variants.py::test_side_choice_validation_and_stored_album_intact_on_failure`
+452. `audioshelf/tests/test_tracklist_variants.py::test_successful_page_cached_for_retry_without_refetching`
+453. `audioshelf/tests/test_tracklist_variants.py::test_unconnected_account_cannot_see_unverified_tracklists`
+454. `audioshelf/tests/test_tracklist_variants.py::test_unknown_or_inconsistent_vinyl_numbers_do_not_create_fictitious_sides`
+455. `audioshelf/tests/test_tracklist_variants.py::test_unmatched_album_has_reasons_and_no_selectable_tracklists`
+456. `audioshelf/tests/test_tracklist_variants.py::test_unverified_disc_layout_not_offered_even_with_same_song_sequence`
+457. `audioshelf/tests/test_vinyl.py::test_interface_persists_and_invalid_choice_is_atomic`
+458. `audioshelf/tests/test_vinyl.py::test_playback_does_not_misidentify_shared_or_uncollected_tracks`
+459. `audioshelf/tests/test_vinyl.py::test_playback_tracks_spotify_pause_and_relinked_library_track`
+460. `audioshelf/tests/test_vinyl.py::test_shelf_furniture_persists_and_rejects_invalid_choices`
 
 ## Other release checks
 
