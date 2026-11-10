@@ -308,6 +308,16 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'Album page overflows phone viewport');
     if(screenshotDir)await page.screenshot({path:path.join(screenshotDir,'album-mobile.png'),fullPage:true});
     await page.getByRole('link',{name:'My shelf',exact:false}).last().click();
+    try {await page.getByRole('heading',{name:'My shelf.',exact:true}).waitFor({timeout:8000});}
+    catch(error){
+      console.error('Shelf navigation state',await page.evaluate(()=>({
+        hash:location.hash, interface:statusInfo.interface, shelfView,
+        text:content.innerText.slice(0,800)})));
+      throw error;
+    }
+    // Exercise the artist list explicitly, independent of the browser's
+    // prior shelf view selection.
+    await page.getByRole('button',{name:'Artists',exact:true}).click();
     await page.locator('.artist-row').waitFor();
     await page.locator('#artist-filter').fill('missing');
     assert.equal(await page.locator('.artist-row:visible').count(),0);
