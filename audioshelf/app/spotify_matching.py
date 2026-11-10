@@ -188,17 +188,26 @@ class SpotifyMatching:
         return {'job': job, 'failures': len(current_failures(store))}
 
     def enqueue(self, account_id, store, spotify, playable, album_id, enabled=None):
-        """Make a newly collected album eligible for the next durable scan.
+        """Schedule a durable background scan without holding up Add to Shelf.
 
-        New adds must not spend time matching or waiting for a running worker.
-        If a pass is already active, its completion picks up fresh additions.
+        The SQLite shelf membership is saved before this call. Expensive
+        pending-album discovery and all Spotify/MusicBrainz requests run off
+        the request thread; interrupted scans restart on the next visit.
         """
-        attempted = store.setting(ATTEMPTS, {}) or {}
-        if album_id in attempted:
-            attempted.pop(album_id, None)
-            store.set_setting(ATTEMPTS, attempted)
-        return self.start(account_id, store, spotify, playable,
-                          enabled=enabled, automatic=True)
+        def launch():
+            try:
+                with self.lock:
+                    attempted = store.setting(ATTEMPTS, {}) or {}
+                    if album_id in attempted:
+                        attempted.pop(album_id)
+                        store.set_setting(ATTEMPTS, attempted)
+                self.start(account_id, store, spotify, playable,
+                           enabled=enabled, automatic=True)
+            except Exception:
+                LOG.exception('Could not schedule background Spotify matching for album %s', album_id)
+
+        threading.Thread(target=launch, daemon=True,
+                         name='audioshelf-spotify-match-enqueue').start()
 
     def ensure_started(self, account_id, store, spotify, playable, enabled=None):
         if not spotify.connected or time.time() < (store.setting(PAUSE_UNTIL, 0) or 0):
