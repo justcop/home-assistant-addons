@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import json
+import logging
 import os
 import re
 import secrets
@@ -13,6 +14,8 @@ import requests
 
 from .errors import AppError
 from .matching import candidate, normalize
+
+LOG = logging.getLogger('audioshelf.spotify')
 
 
 def spotify_id(value, kind):
@@ -240,6 +243,10 @@ class Spotify:
                 sources.extend(result.get('items', []))
                 if not result.get('next'):
                     break
+            LOG.warning('Spotify candidate search query=%r market=%s results=%s',
+                        query, self.market,
+                        [(item.get('id'), item.get('name'), item.get('total_tracks'))
+                         for item in sources])
             return sources
         # The first, fielded search can return albums without the chosen
         # tracklist. The caller can explicitly retry with an unfielded query.
@@ -265,6 +272,24 @@ class Spotify:
             title_options = [item for item in search_pages(f'album:"{title}"')
                              if same_album_family_title(item.get('name', ''), album['title'])]
             consider(title_options)
+        # Diagnostic only: preserve matching behaviour while identifying duplicate editions.
+        fingerprints = {}
+        for entry in candidates:
+            album_id = entry.get('id')
+            try:
+                detail = self.album(album_id)
+                fingerprint = tuple((normalize(t.get('name', '')),
+                                     t.get('duration_ms'))
+                                    for t in detail.get('all_tracks', []))
+                fingerprints.setdefault(fingerprint, []).append(album_id)
+            except Exception as exc:
+                LOG.warning('Spotify candidate fingerprint unavailable id=%s error=%s',
+                            album_id, type(exc).__name__)
+        LOG.warning('Spotify candidate matching album=%r market=%s candidates=%s equivalent_tracklists=%s',
+                    album.get('title'), self.market,
+                    [(c.get('id'), c.get('name'), c.get('verified'), c.get('score'))
+                     for c in candidates],
+                    [ids for ids in fingerprints.values() if len(ids) > 1])
         return sorted(candidates, key=lambda c:c['score'], reverse=True)
 
     def labelled_editions(self, album):
