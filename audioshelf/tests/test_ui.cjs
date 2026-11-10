@@ -327,6 +327,11 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.goto(base+'/#settings');
     await page.getByRole('heading',{name:'Settings.'}).waitFor();
     await page.getByRole('button',{name:'Choose Spotify device'}).click();
+    await page.getByRole('heading',{name:'Choose playback device'}).waitFor();
+    const availableDevices=await page.locator('[data-action="device"]').allTextContents();
+    assert(availableDevices.some(label=>label.includes('Fixture phone')),
+      'Fixture phone missing from device picker: '+JSON.stringify(availableDevices)+
+      '; server devices='+JSON.stringify(await (await fixtureFetch(base+'/api/spotify/devices')).json()));
     await page.getByRole('button',{name:'Fixture phone'}).click();
     await page.locator('#toast').filter({hasText:'Playback device saved.'}).waitFor();
     assert.equal((await (await fixtureFetch(base+'/api/settings')).json()).preferred_device.id,'phone');
