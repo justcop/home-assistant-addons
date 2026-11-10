@@ -468,7 +468,7 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     const code=(await (await fixtureFetch(base+'/__test/current-code')).json()).code;
     await page.getByLabel('Six-digit setup code').fill(code);
     await page.getByRole('button',{name:'Enable two-factor authentication'}).click();
-    const recoveryCodes=(await page.getByLabel('Recovery codes').inputValue()).split('\n');
+    const recoveryCodes=(await page.getByRole('textbox',{name:'Recovery codes',exact:true}).inputValue()).split('\n');
     assert.equal(recoveryCodes.length,10);
     fixtureCookie=(await page.context().cookies()).map(c=>`${c.name}=${c.value}`).join('; ');
     await page.getByRole('button',{name:'I have saved the codes'}).click();
