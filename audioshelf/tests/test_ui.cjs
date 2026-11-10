@@ -356,7 +356,8 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.getByLabel('Country preference order').fill('GB, US');
     await page.getByRole('button',{name:'Move CD earlier',exact:true}).click();
     await page.getByRole('button',{name:'Save release filters'}).click();
-    await page.locator('#toast').filter({hasText:'Release filters saved.'}).waitFor();
+    // Verify the persisted setting rather than a short-lived toast.
+    await page.waitForFunction(()=>statusInfo.release_filters?.countries?.join(',')==='GB,US');
     assert.deepEqual((await (await fixtureFetch(base+'/api/settings')).json()).release_filters,
       {countries:['GB','US'],formats:['cd','vinyl','digital'],strict_countries:false});
     const themes=(await (await fixtureFetch(base+'/api/settings')).json()).themes;
