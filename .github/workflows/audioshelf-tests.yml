@@ -7,9 +7,13 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+# Multiple commits on a PR should not leave expensive duplicate test runs.
+concurrency:
+  group: audioshelf-tests-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v7
@@ -24,8 +28,12 @@ jobs:
         with:
           node-version: "22"
       - run: node --check audioshelf/app/static/app.js && node --check audioshelf/app/static/sw.js && node --check audioshelf/app/static/vinyl.js
-      - run: npm install --no-save playwright@1.62.1 && npx playwright install --with-deps chromium
+      - name: Use preinstalled Chrome
+        run: command -v google-chrome && google-chrome --version
+      - run: npm install --no-save playwright@1.62.1
       - run: node audioshelf/tests/test_integrated_android.cjs && node audioshelf/tests/test_android_helper.cjs && node audioshelf/tests/test_ui.cjs && node audioshelf/tests/test_vinyl_ui.cjs && node audioshelf/tests/test_accounts_ui.cjs
+        env:
+          AUDIOSHELF_TEST_BROWSER: /usr/bin/google-chrome
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Build add-on container
