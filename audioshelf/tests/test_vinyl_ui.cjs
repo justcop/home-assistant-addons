@@ -116,7 +116,7 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert.equal(await page.locator('.sleeve:visible').count(),14);
     const dividers=page.locator('.shelf-artist-toggle');
     assert.equal(await dividers.count(),2);
-    const firstRail=page.locator('.collection-shelves .shelf-rack').first();
+    const firstRail=page.locator('.collection-shelves .artist-shelf[data-shelf-id="f181961b-20f7-459e-89de-920ef03c7ed0"] .shelf-rack');
     assert(await firstRail.evaluate(el=>el.scrollWidth>el.clientWidth),'A long artist collection scrolls sideways');
     assert.equal(await firstRail.locator('.shelf-row').count(),0,'Compact mode has no fragmented grid rows');
     assert.equal(await page.locator('.rail-ledge:visible').count(),2);
