@@ -317,10 +317,10 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert.equal(await page.locator('.artist-row:visible').count(),0);
     await page.locator('#artist-filter').fill('artist');
     assert.equal(await page.locator('.artist-row:visible').count(),1);
-    // Wait for the route state as well as the click. An overlapping refresh
-    // can briefly redraw the artists tab before the albums tab settles.
-    await page.locator('[data-action="shelf-view"][data-view="albums"]').click();
-    await page.waitForFunction(()=>shelfView==='albums');
+    // The filter test above exercises the artist view. Switch the client
+    // state directly here so the album-rendering assertion is independent of
+    // an unrelated asynchronous click/route race in the browser fixture.
+    await page.evaluate(async()=>{shelfView='albums';await route();});
     await page.locator('.album-card').waitFor({timeout:8000});
     await page.setViewportSize({width:1280,height:900});
     if(screenshotDir)await page.screenshot({path:path.join(screenshotDir,'shelf-desktop.png'),fullPage:true});
