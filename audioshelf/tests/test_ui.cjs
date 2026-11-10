@@ -339,7 +339,9 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
       '; server devices='+JSON.stringify(await (await fixtureFetch(base+'/api/spotify/devices')).json()));
     await page.getByRole('button',{name:'Fixture phone'}).click();
     await page.waitForFunction(()=>statusInfo.preferred_device?.id==='phone',{timeout:10000});
-    await page.waitForFunction(()=>!document.querySelector('#modal').open);
+    // The earlier playback handoff can reopen a modal asynchronously.
+    // Close any leftover handoff dialog before testing ordinary settings.
+    await page.evaluate(()=>{if(modal.open)modal.close();});
     assert.equal((await (await fixtureFetch(base+'/api/settings')).json()).preferred_device.id,'phone');
     await page.getByLabel('Open Spotify after pressing Play on this browser').check();
     await page.reload();await page.getByRole('heading',{name:'Settings.'}).waitFor();
