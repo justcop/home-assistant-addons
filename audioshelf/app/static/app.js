@@ -5,7 +5,8 @@ const modalContent = document.querySelector('#modal-content');
 let offlineReadOnly=false, offlineSaving=false;
 let statusInfo = {}, shelfView = 'artists', searchKind = 'artist', currentAlbum = null, routeGeneration = 0, toastTimer, artworkRevision = 0, releasePicker = null, settingsDirty = false;
 const loadedAssets = document.documentElement.dataset.assetVersion;
-let workerRegistration, pendingChanges = 0;
+let workerRegistration, pendingChanges = 0, renderedHash = '';
+const busyButtons=new WeakSet();
 let lastfmRows=[], lastfmSelected=new Set(), lastfmPeriod='overall', lastfmFilter='', lastfmPollHandle=null;
 function noticeUpdate(build){
   if(build?.asset_version && build.asset_version!==loadedAssets)document.querySelector('#app-update').hidden=false;
@@ -38,6 +39,17 @@ const artistNames = album => escapeHtml((album.artists || []).map(a => a.name).j
 const duration = ms => ms ? `${Math.floor(ms/60000)}:${String(Math.floor(ms%60000/1000)).padStart(2,'0')}` : '';
 const loading = message => `<div class="loading">${escapeHtml(message)}</div>`;
 function toast(message) {const el=document.querySelector('#toast');el.textContent=message;el.classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('visible'),6500);}
+function showError(message){
+  if(!modal.open){toast(message);return;}
+  let alert=modalContent.querySelector('#modal-alert');
+  if(!alert){
+    alert=document.createElement('div');alert.id='modal-alert';alert.className='modal-alert';
+    alert.setAttribute('role','alert');alert.setAttribute('aria-live','assertive');alert.tabIndex=-1;
+    modalContent.prepend(alert);
+  }
+  alert.textContent=message;
+  alert.focus({preventScroll:true});
+}
 async function api(path, method='GET', body={}) {
   const options = {method,credentials:'same-origin',cache:'no-store',headers:{}};
   if(statusInfo.account && !['login','status'].includes(path))options.headers['X-AudioShelf-Account']=statusInfo.account.id;
@@ -317,14 +329,13 @@ function backCoverUrl(albumId,size){return `api/albums/${id(albumId)}/artwork/ba
 
 function albumArtwork(album){
   const title=escapeHtml(album.title);
-  return `<button type="button" class="album-flip" data-action="flip-artwork" data-album="${id(album.id)}" data-side="front" aria-pressed="false" aria-label="Show back cover of ${title}" title="Tap to turn over this sleeve"><span class="album-flip-inner"><span class="album-flip-face album-flip-front"><img class="cover" src="${coverUrl(album.id,640)}" alt="${title} front cover" fetchpriority="high"></span><span class="album-flip-face album-flip-back"><img class="cover" alt="${title} back cover"></span></span><span class="album-flip-hint" aria-hidden="true">Turn over ↻</span></button>`;
+  return `<button type="button" class="album-flip" data-action="flip-artwork" data-album="${id(album.id)}" data-side="front" aria-pressed="false" aria-label="Back cover of ${title}" title="Tap to turn over this sleeve"><span class="album-flip-inner"><span class="album-flip-face album-flip-front"><img class="cover" src="${coverUrl(album.id,640)}" alt="${title} front cover" fetchpriority="high"></span><span class="album-flip-face album-flip-back"><img class="cover" alt="${title} back cover"></span></span><span class="album-flip-hint" aria-hidden="true">Turn over ↻</span></button>`;
 }
 function loadAlbumBackCover(button){
   if(button.dataset.side==='back'){
     button.classList.remove('is-flipped');
     button.dataset.side='front';
     button.setAttribute('aria-pressed','false');
-    button.setAttribute('aria-label','Show back cover of '+currentAlbum.title);
     button.querySelector('.album-flip-hint').textContent='Turn over ↻';
     return Promise.resolve();
   }
@@ -333,7 +344,6 @@ function loadAlbumBackCover(button){
     button.classList.add('is-flipped');
     button.dataset.side='back';
     button.setAttribute('aria-pressed','true');
-    button.setAttribute('aria-label','Show front cover of '+currentAlbum.title);
     button.querySelector('.album-flip-hint').textContent='Front cover ↻';
   };
   if(button.dataset.loaded==='true'){flip();return Promise.resolve();}
@@ -447,8 +457,8 @@ function cover(album,large=false,loanSticker=false){return `<a class="cover-wrap
 
 function spotifyReviewMessage(status){
   const count=status?.failures||0, job=status?.job;
-  if(count)return '<strong>'+count+' '+(count===1?'album needs':'albums need')+
-    ' your attention.</strong> <a href="#review">Review unmatched albums ↗</a>';
+  if(count)return '<div class="matching-alert"><strong>'+count+' '+(count===1?'album needs':'albums need')+
+    ' a Spotify match.</strong> <a href="#review">Fix unmatched albums ↗</a></div>';
   if(job?.state==='running')return 'Matching Spotify recordings in the background ('+
     (job.processed||0)+'/'+(job.total||0)+'). You can keep browsing.';
   return '';
@@ -468,7 +478,7 @@ function sortArtistsByName(artists){
 }
 function cards(albums,room='store'){
   if(isVinyl())return vinylCards(albums,room);
-  return `<div class="album-grid">${albums.map(a=>`<article class="album-card">${cover(a,false,room==='listening'&&a.on_loan)}${a.on_shelf?'<span class="badge">On your shelf</span>':''}<a class="album-title" href="#album/${id(a.id)}">${escapeHtml(a.title)}</a><div class="album-meta">${artistNames(a)}<br>${year(a)}</div>${a.on_shelf?'':a.on_loan?'<span class="badge">On loan</span>':`<div class="album-choice-actions"><button class="card-action" data-action="add" data-id="${escapeHtml(a.id)}">+ Add to shelf</button><button class="card-action" data-action="borrow" data-id="${escapeHtml(a.id)}">Borrow</button></div>`}</article>`).join('')}</div>`;
+  return `<div class="album-grid">${albums.map(a=>`<article class="album-card">${cover(a,false,room==='listening'&&a.on_loan)}${a.on_shelf?'<span class="badge">On your shelf</span>':''}${a.on_shelf&&!a.playable&&room!=='store'?'<a class="match-needed-label" href="#review">Needs Spotify match</a>':''}<a class="album-title" href="#album/${id(a.id)}">${escapeHtml(a.title)}</a><div class="album-meta">${artistNames(a)}<br>${year(a)}</div>${a.on_shelf?'':a.on_loan?'<span class="badge">On loan</span>':`<div class="album-choice-actions"><button class="card-action" data-action="add" data-id="${escapeHtml(a.id)}">+ Add to shelf</button><button class="card-action" data-action="borrow" data-id="${escapeHtml(a.id)}">Borrow</button></div>`}</article>`).join('')}</div>`;
 }
 function albumMembershipActions(album){
   if(album.on_loan)return '<button class="secondary" data-action="keep">Add to shelf</button><button class="quiet" data-action="return">Return loan</button>';
@@ -496,13 +506,13 @@ function trackRows(album){
     const tracks=album.tracks.filter(t=>(t.disc_number||1)===disc);
     const sideControls=(album.on_shelf||album.in_listening_pile)?(album.playback_sides||[]).filter(side=>side.disc_number===disc).map(side=>`<button class="secondary" data-action="play" data-disc="${disc}:${side.side}">▶ Side ${side.side}</button>`).join(''):'';
     const heading=discs.length>1?`<div class="actions"><h2>Disc ${disc}</h2><span class="muted">${tracks.length} tracks · ${duration(tracks.reduce((sum,t)=>sum+(t.duration_ms||0),0))}</span>${(album.on_shelf||album.in_listening_pile)?`<button class="secondary" data-action="play" data-disc="${disc}">▶ Play disc ${disc}</button>`:''}${sideControls}</div>`:sideControls?`<div class="actions"><strong>Vinyl sides</strong>${sideControls}</div>`:'';
-    return heading+tracks.map(t=>`<div class="track-row"><span class="track-number">${t.position}</span><span>${escapeHtml(t.title)}<br><small class="${t.verified?'mapped':'unmapped'}">${t.verified?(t.method==='manual'?'Manually mapped':'Mapped to Spotify'):(t.spotify_id?'Check this recording':'Not mapped yet')}</small></span><span class="duration">${duration(t.duration_ms)}</span><button class="quiet" data-action="track" data-position="${t.position}" aria-label="Correct Spotify mapping for ${escapeHtml(t.title)}">Edit</button></div>`).join('');
+    return heading+tracks.map(t=>`<div class="track-row"><span class="track-number">${t.position}</span><span>${escapeHtml(t.title)}<br><small class="${t.verified?'mapped':'unmapped'}">${t.verified?(t.method==='manual'?'Manually mapped':'Mapped to Spotify'):(t.spotify_id?'Check this recording':'Not mapped yet')}</small></span><span class="duration">${duration(t.duration_ms)}</span><button class="quiet" data-action="track" data-position="${t.position}" aria-label="Edit Spotify mapping for ${escapeHtml(t.title)}">Edit</button></div>`).join('');
   }).join('')}</div>`;
 }
 function albumPage(album){
   currentAlbum=album;
   if(isVinyl())return vinylAlbum(album);
-  return `<a class="back" href="${escapeHtml(albumOrigin||'#artist/'+id(album.artists[0]?.id || ''))}">← ${artistNames(album)}</a><div class="album-hero">${albumArtwork(album)}<div><div class="eyebrow">${year(album)} · Studio album</div><h1>${escapeHtml(album.title)}</h1><p class="muted">${artistNames(album)} · ${album.tracks.length} tracks</p><div class="actions">${(album.on_shelf||album.in_listening_pile)?`<button class="primary" data-action="play" ${album.tracks.length?"":"disabled"}>▶ Play album</button>`:`<button class="primary" data-action="add" data-id="${escapeHtml(album.id)}">+ Add to shelf</button>`}${albumMembershipActions(album)}<button class="secondary" data-action="resolve">${album.playable?'Find another edition':'Match Spotify tracks'}</button>${album.on_shelf&&!album.playable?'<button class="secondary" data-action="find-playable-edition">Find playable edition</button>':''}</div><button class="quiet" data-action="devices">Change device</button><button class="quiet" data-action="album-settings">Album settings ↗</button></div></div>${!album.playable?'<div class="note">This album is not fully matched to Spotify. You can try matching its current tracks or choose Find playable edition to select a complete, verified tracklist. Your existing edition is kept until you confirm a replacement.</div>':`<div class="note">Ready to play ${album.tracks.length} mapped tracks, without the extras.${album.spotify_album_name?` Playback edition: ${escapeHtml(album.spotify_album_name)}.`:''} AudioShelf starts your synced tracklist on an available Spotify device.</div>`}${/\bCassette\b/i.test(album.release_label||'')&&!album.release_filters?.formats.includes('cassette')?'<div class="note">This saved tracklist uses a cassette edition outside your current preferences. Album settings lets you choose a vinyl, CD or digital edition. Your current Spotify matches are kept until you replace the tracklist.</div>':''}${!album.tracks.length?`<div class="note">No Spotify-verified original tracklist is saved for this album. AudioShelf keeps it on your shelf while it searches other editions. Choose Find playable edition to pick a complete Spotify match.</div>`:!album.canonical_reviewed&&album.playable?`<div class="note">Original tracklist selected from MusicBrainz: ${escapeHtml(album.release_label)}. If this includes bonus tracks or misses a track, choose another original edition in Album settings. <button class="quiet" data-action="review">This tracklist is correct ✓</button></div>`:''}${trackRows(album)}<p class="footer-note">Catalogue and artwork: <a href="https://musicbrainz.org/release-group/${id(album.id)}" target="_blank" rel="noopener">MusicBrainz / Cover Art Archive ↗</a>${album.spotify_album_id?` · Playback: <a href="https://open.spotify.com/album/${id(album.spotify_album_id)}" target="_blank" rel="noopener">Spotify ↗</a>`:''}</p>`;
+  return `<a class="back" href="${escapeHtml(albumOrigin||'#artist/'+id(album.artists[0]?.id || ''))}">← ${artistNames(album)}</a><div class="album-hero">${albumArtwork(album)}<div><div class="eyebrow">${year(album)} · Studio album</div><h1>${escapeHtml(album.title)}</h1><p class="muted">${artistNames(album)} · ${album.tracks.length} tracks</p><div class="actions">${(album.on_shelf||album.in_listening_pile)?`<button class="primary" data-action="play" ${album.tracks.length?"":"disabled"}>▶ Play album</button>`:`<button class="primary" data-action="add" data-id="${escapeHtml(album.id)}">+ Add to shelf</button>`}${albumMembershipActions(album)}<button class="secondary" data-action="resolve">${album.playable?'Find another edition':'Match Spotify tracks'}</button>${album.on_shelf&&!album.playable?'<button class="secondary" data-action="find-playable-edition">Find playable edition</button>':''}</div><button class="quiet" data-action="devices">Change device</button><button class="quiet" data-action="album-settings">Album settings ↗</button></div></div>${!album.playable?'<div class="matching-alert"><strong>This album needs a Spotify match.</strong> It is saved on your shelf but cannot play yet. <button class="secondary" data-action="fix-match" data-id="${escapeHtml(album.id)}">Fix match</button></div>':`<div class="note">Ready to play ${album.tracks.length} mapped tracks, without the extras.${album.spotify_album_name?` Playback edition: ${escapeHtml(album.spotify_album_name)}.`:''} AudioShelf starts your synced tracklist on an available Spotify device.</div>`}${/\bCassette\b/i.test(album.release_label||'')&&!album.release_filters?.formats.includes('cassette')?'<div class="note">This saved tracklist uses a cassette edition outside your current preferences. Album settings lets you choose a vinyl, CD or digital edition. Your current Spotify matches are kept until you replace the tracklist.</div>':''}${!album.tracks.length?`<div class="note">No Spotify-verified original tracklist is saved for this album. AudioShelf keeps it on your shelf while it searches other editions. Choose Find playable edition to pick a complete Spotify match.</div>`:!album.canonical_reviewed&&album.playable?`<div class="note">Original tracklist selected from MusicBrainz: ${escapeHtml(album.release_label)}. If this includes bonus tracks or misses a track, choose another original edition in Album settings. <button class="quiet" data-action="review">This tracklist is correct ✓</button></div>`:''}${trackRows(album)}<p class="footer-note">Catalogue and artwork: <a href="https://musicbrainz.org/release-group/${id(album.id)}" target="_blank" rel="noopener">MusicBrainz / Cover Art Archive ↗</a>${album.spotify_album_id?` · Playback: <a href="https://open.spotify.com/album/${id(album.spotify_album_id)}" target="_blank" rel="noopener">Spotify ↗</a>`:''}</p>`;
 }
 const themeIds=['record-store','midnight','paper','forest','ocean','sunset','plum','monochrome','amber','high-contrast'];
 function applyTheme(value){
@@ -930,7 +940,7 @@ function pollLastfm(){
 }
 
 function accountSection(){return `<section class="settings-block"><h2>Your account</h2><p>Signed in as <strong>${escapeHtml(statusInfo.account?.username||'owner')}</strong>. Your shelf, Spotify connection and preferences belong to this account.</p><div class="actions"><button class="secondary" data-action="logout">Switch account / Sign out</button>${statusInfo.account?.admin?'<button class="secondary" data-action="accounts">Manage accounts</button>':''}</div></section>`;}
-function settingsPage(){return `<div class="eyebrow">Make yourself at home</div><h1>Settings.</h1>${accountSection()}<section class="settings-block"><h2>Spotify</h2><p>${statusInfo.spotify_connected?'Your Spotify account is connected. Playback uses your chosen device. Unavailable devices are never replaced automatically.':'Connect your Spotify Premium account to match and play albums.'}</p>${!statusInfo.spotify_configured?'<div class="note">In Home Assistant, open AudioShelf configuration and set <code>spotify_client_id</code> and <code>spotify_redirect_uri</code>. Use your HTTPS address followed by <code>/auth/spotify/callback</code>, and add the exact same redirect URL to your Spotify developer app. No client secret is needed.</div>':''}<div class="actions">${statusInfo.role==='owner'?`<button class="primary" data-action="connect">${statusInfo.spotify_connected?'Reconnect Spotify':'Connect Spotify'}</button>${statusInfo.spotify_connected?'<button class="quiet" data-action="disconnect">Disconnect</button>':''}`:''}<button class="quiet" data-action="refresh-status">Refresh connection status</button></div><p class="muted">Catalogue market: ${escapeHtml(statusInfo.market || 'GB')}. Turn Autoplay off in Spotify if you want silence when the album finishes. AudioShelf switches Shuffle and Repeat off before starting an album.</p></section>${statusInfo.role==='owner'?'<section class="settings-block"><h2>Security</h2><p>Manage your sign-in and account security.</p><button class="secondary" data-action="security">Open Security settings</button></section>':'<div class="note">Temporary support login. Access is limited and expires automatically.</div>'}${lastfmSettings()}${spotifyMatchingSettings()}${editionAuditSettings()}${playbackSettings()}${themeSettings()}${releaseFilterSettings()}${serverArtworkSection()}${artworkCacheSection()}${offlineShelfSection()}<section class="settings-block"><h2>Your collection</h2><p>Your shelf belongs to AudioShelf. Adding or removing a record here does not change your saved Spotify albums.</p>${statusInfo.role==='owner'?'<div class="actions"><a class="secondary" href="api/export" download>Export collection</a><button class="secondary" data-action="backup">Download database backup</button></div>':''}<p class="muted">Library: <code>${escapeHtml(statusInfo.data_directory)}</code>. Back up this folder as well as your add-on data.</p><p class="muted">Replaceable artwork and metadata cache: <code>${escapeHtml(statusInfo.cache_directory)}</code>. You can exclude this separate folder from backups. It rebuilds automatically.</p></section><section class="settings-block"><h2>About AudioShelf</h2><p>Albums, in their original order. No singles, compilation appearances or anniversary clutter.</p><p class="muted">Version ${escapeHtml(statusInfo.build?.version)} · ${escapeHtml(statusInfo.build?.channel)} · ${escapeHtml(statusInfo.build?.revision)}</p><p class="footer-note">Install AudioShelf from your phone browser using Add to Home Screen at your standalone HTTPS address.</p></section>`;}
+function settingsPage(){return `<div class="eyebrow">Make yourself at home</div><h1>Settings.</h1><details class="settings-group" open><summary>Account</summary>${accountSection()}${statusInfo.role==='owner'?'<section class="settings-block"><h2>Security</h2><p>Manage your sign-in and account security.</p><button class="secondary" data-action="security">Open Security settings</button></section>':'<div class="note">Temporary support login. Access is limited and expires automatically.</div>'}</details><details class="settings-group" open><summary>Playback</summary><section class="settings-block"><h2>Spotify</h2><p>${statusInfo.spotify_connected?'Your Spotify account is connected. Playback uses your chosen device. Unavailable devices are never replaced automatically.':'Connect your Spotify Premium account to match and play albums.'}</p>${!statusInfo.spotify_configured?'<div class="note">In Home Assistant, open AudioShelf configuration and set <code>spotify_client_id</code> and <code>spotify_redirect_uri</code>. Use your HTTPS address followed by <code>/auth/spotify/callback</code>, and add the exact same redirect URL to your Spotify developer app. No client secret is needed.</div>':''}<div class="actions">${statusInfo.role==='owner'?`<button class="primary" data-action="connect">${statusInfo.spotify_connected?'Reconnect Spotify':'Connect Spotify'}</button>${statusInfo.spotify_connected?'<button class="quiet" data-action="disconnect">Disconnect</button>':''}`:''}<button class="quiet" data-action="refresh-status">Refresh connection status</button></div><p class="muted">Catalogue market: ${escapeHtml(statusInfo.market || 'GB')}. Turn Autoplay off in Spotify if you want silence when the album finishes. AudioShelf switches Shuffle and Repeat off before starting an album.</p></section>${playbackSettings()}</details><details class="settings-group" open><summary>Appearance</summary>${themeSettings()}</details><details class="settings-group" open><summary>Library</summary>${lastfmSettings()}${releaseFilterSettings()}<section class="settings-block"><h2>Your collection</h2><p>Your shelf belongs to AudioShelf. Adding or removing a record here does not change your saved Spotify albums.</p>${statusInfo.role==='owner'?'<div class="actions"><a class="secondary" href="api/export" download>Export collection</a><button class="secondary" data-action="backup">Download database backup</button></div>':''}<p class="muted">Library: <code>${escapeHtml(statusInfo.data_directory)}</code>. Back up this folder as well as your add-on data.</p><p class="muted">Replaceable artwork and metadata cache: <code>${escapeHtml(statusInfo.cache_directory)}</code>. You can exclude this separate folder from backups. It rebuilds automatically.</p></section></details><details class="settings-group"><summary>Advanced &amp; diagnostics</summary>${spotifyMatchingSettings()}${editionAuditSettings()}${serverArtworkSection()}${artworkCacheSection()}${offlineShelfSection()}<section class="settings-block"><h2>About AudioShelf</h2><p>Albums, in their original order. No singles, compilation appearances or anniversary clutter.</p><p class="muted">Version ${escapeHtml(statusInfo.build?.version)} · ${escapeHtml(statusInfo.build?.channel)} · ${escapeHtml(statusInfo.build?.revision)}</p><p class="footer-note">Install AudioShelf from your phone browser using Add to Home Screen at your standalone HTTPS address.</p></section></details>`;}
 async function route(){
   // Routing and WebView focus must not cancel a Spotify wake in progress.
   // The active job is preserved and polled even while browsing another page.
@@ -941,7 +951,11 @@ async function route(){
   const [view,key,mode]=parts;
   const isStore=view==='store'||(view==='artist'&&mode==='store');
   document.documentElement.dataset.room=isStore?'store':view==='listening'||view==='album'&&albumOrigin.includes('listening')?'listening':view==='album'&&albumOrigin.includes('store')?'store':'shelf';
-  document.querySelectorAll('[data-nav]').forEach(el=>el.classList.toggle('active',el.dataset.nav===document.documentElement.dataset.room));
+  document.querySelectorAll('[data-nav]').forEach(el=>{
+    const active=el.dataset.nav===document.documentElement.dataset.room;
+    el.classList.toggle('active',active);
+    if(active)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current');
+  });
   content.innerHTML=loading(view==='album'?'Finding the original album tracklist…':'Opening your collection…');
   try {
     const latest=await api('status');if(accountChanged(latest)){await clearArtworkCaches();await clearOfflineShelf();window.location.reload();return;}statusInfo=latest;document.querySelector('#offline-status').hidden=!offlineReadOnly;await syncArtworkCacheAccount(latest.authenticated?latest.account?.id:null);if(statusInfo.authenticated){applyTheme(statusInfo.theme);applyInterface(statusInfo.interface);}renderTurntable();
@@ -953,22 +967,27 @@ async function route(){
       if(key)shelfFilter='';
       if(key&&!isVinyl())shelfView='artists';
       const shelf=await api('shelf');
-      html=`<div class="eyebrow">The collection</div><div class="shelf-heading"><h1>My shelf.</h1><span class="collection-mark">A little less noise.</span></div><p class="intro">The records you love, all in one place.</p><div id="shelf-match-notice" role="status">${spotifyReviewMessage(shelf.match_status)}</div><div class="toolbar"><div class="segmented"><button class="${shelfView==='artists'?'active':''}" data-action="shelf-view" data-view="artists">Artists</button><button class="${shelfView==='albums'?'active':''}" data-action="shelf-view" data-view="albums">Albums</button></div><span class="count">${shelf.albums.length} ${shelf.albums.length===1?'record':'records'} · ${shelf.artists.length} ${shelf.artists.length===1?'artist':'artists'}</span></div>`;
+      html=`<div class="eyebrow">The collection</div><div class="shelf-heading"><h1>My shelf.</h1><span class="collection-mark">A little less noise.</span></div><p class="intro">The records you love, all in one place.</p><div id="shelf-match-notice" role="status">${spotifyReviewMessage(shelf.match_status)}</div><div class="toolbar"><div class="segmented"><button class="${shelfView==='artists'?'active':''}" data-action="shelf-view" data-view="artists" aria-pressed="${shelfView==='artists'}">Artists</button><button class="${shelfView==='albums'?'active':''}" data-action="shelf-view" data-view="albums" aria-pressed="${shelfView==='albums'}">Albums</button></div><span class="count">${shelf.albums.length} ${shelf.albums.length===1?'record':'records'} · ${shelf.artists.length} ${shelf.artists.length===1?'artist':'artists'}</span></div>`;
       if(!shelf.albums.length)html+=empty('Your first record awaits.','Find an artist, choose an album, make it yours.');
       else if(shelfView==='albums')html+=cards(shelf.albums);
       else html+=`<input class="filter" id="artist-filter" placeholder="Find an artist on your shelf" aria-label="Filter shelf artists"><div class="artist-list">${shelf.artists.map(a=>`<a class="artist-row" data-shelf-id="${escapeHtml(a.id)}" data-filter="${escapeHtml(a.name.toLowerCase())}" href="#artist/${id(a.id)}"><span class="artist-initial">${escapeHtml(a.name[0])}</span><span><span class="artist-name">${escapeHtml(a.name)}</span><span class="artist-note">${a.album_count} ${a.album_count===1?'record':'records'} on your shelf</span></span><span class="row-arrow" aria-hidden="true">↗</span></a>`).join('')}</div>`;
       if(isVinyl())html=vinylShelf(shelf);
     }else if(view==='review'){
       const review=await api('spotify/matching/issues');
+      const issues=review.issues||[];
       html='<a class="back" href="#shelf">← My shelf</a><div class="eyebrow">Your collection</div>'+
-        '<h1>Albums to review.</h1><p class="intro">AudioShelf handles clear matches automatically. These albums need a closer look.</p>'+
+        '<h1>Albums to review.</h1><p class="intro">AudioShelf matches albums automatically. If an album needs help, retry it, choose a complete edition, or supply a Spotify album link.</p>'+
         (review.pending?'<p class="note">'+review.pending+' '+(review.pending===1?'album is':'albums are')+' awaiting background matching.</p>':'')+
-        (review.issues.length?review.issues.map(issue=>'<section class="settings-block"><h2><a href="#album/'+id(issue.album_id)+'">'+escapeHtml(issue.title)+'</a></h2>'+
-          '<p>'+escapeHtml(issue.artist)+'</p><p class="muted">'+escapeHtml(issue.reason)+'</p>'+
-          '<p>'+issue.verified_tracks+'/'+issue.total_tracks+' tracks verified in the closest match.</p>'+
-          '<a class="secondary" href="#album/'+id(issue.album_id)+'">Review album ↗</a></section>').join(''):
-          '<p class="note">No failed matches need attention. Newly added albums are checked in the background.</p>')+
-        '<p><a class="quiet" href="#settings">Background matching details and full report ↗</a></p>';
+        (issues.length?'<p class="matching-alert" role="status"><strong>'+issues.length+' unmatched '+(issues.length===1?'album':'albums')+'</strong> need attention.</p>'+
+          issues.map(issue=>'<section class="matching-issue" aria-label="'+escapeHtml(issue.title)+' needs Spotify matching">'+
+            '<div class="matching-issue-label">Needs Spotify match</div><h2>'+escapeHtml(issue.title)+'</h2>'+
+            '<p class="muted">'+escapeHtml(issue.artist)+'</p><p>'+escapeHtml(issue.reason)+'</p>'+
+            (issue.total_tracks?'<p class="muted">'+issue.verified_tracks+'/'+issue.total_tracks+' tracks in the closest match</p>':'<p class="muted">No verified tracklist yet</p>')+
+            '<div class="actions"><button class="primary" data-action="fix-match" data-id="'+escapeHtml(issue.album_id)+'">Fix match</button>'+
+            '<button class="secondary" data-action="retry-match" data-id="'+escapeHtml(issue.album_id)+'">Retry automatic matching</button>'+
+            '<a class="quiet" href="#album/'+id(issue.album_id)+'">Open album ↗</a></div></section>').join(''):
+          '<p class="note">No unmatched albums need attention. Newly added albums are checked in the background.</p>')+
+        '<p><a class="quiet" href="#settings">Matching history and diagnostics ↗</a></p>';
     }else if(view==='listening'){
       const pile=await api('listening-pile');
       html=`<div class="eyebrow">The Listening Room</div><h1>Listening Pile.</h1><p class="intro">A little more time with records, whether they're yours or on loan.</p><div class="toolbar"><span class="count">${pile.albums.length} ${pile.albums.length===1?'record':'records'}</span><a class="secondary" href="#store">Find another record ↗</a></div>${pile.albums.length?cards(pile.albums,'listening'):empty('Your listening pile is empty.','Borrow a record from the store, or pull one from your shelf.')}`;
@@ -992,7 +1011,7 @@ async function route(){
           album.on_loan=inPile.has(album.id)&&!album.on_shelf;
         }
       }
-      html=`<div class="eyebrow">A proper record store</div><h1>Find your next record.</h1><p class="intro">Explore the studio albums. Collect what you love.</p><div class="segmented"><button class="${searchKind==='artist'?'active':''}" data-action="search-kind" data-kind="artist">Artists</button><button class="${searchKind==='album'?'active':''}" data-action="search-kind" data-kind="album">Albums</button></div><form id="search-form" class="search-form"><input name="q" type="search" placeholder="${searchKind==='artist'?'Search artists':'Search albums'}" aria-label="Search record store" required><button class="primary">Search</button></form><p class="search-hint">Original releases, in chronological order. Singles, live albums and compilations stay outside.</p><div id="search-results">${shelf.artists.length?`<h2>More from your artists</h2>${shelf.artists.map(a=>`<a class="search-result" href="#artist/${id(a.id)}/store"><strong>${escapeHtml(a.name)}</strong><small>Browse their studio albums ↗</small></a>`).join('')}`:'<p class="muted">Start with an artist you love.</p>'}</div>`;
+      html=`<div class="eyebrow">A proper record store</div><h1>Find your next record.</h1><p class="intro">Explore the studio albums. Collect what you love.</p><div class="segmented"><button class="${searchKind==='artist'?'active':''}" data-action="search-kind" data-kind="artist" aria-pressed="${searchKind==='artist'}">Artists</button><button class="${searchKind==='album'?'active':''}" data-action="search-kind" data-kind="album" aria-pressed="${searchKind==='album'}">Albums</button></div><form id="search-form" class="search-form"><input name="q" type="search" placeholder="${searchKind==='artist'?'Search artists':'Search albums'}" aria-label="Search record store" required><button class="primary">Search</button></form><p class="search-hint">Original releases, in chronological order. Singles, live albums and compilations stay outside.</p><div id="search-results">${shelf.artists.length?`<h2>More from your artists</h2>${shelf.artists.map(a=>`<a class="search-result" href="#artist/${id(a.id)}/store"><strong>${escapeHtml(a.name)}</strong><small>Browse their studio albums ↗</small></a>`).join('')}`:'<p class="muted">Start with an artist you love.</p>'}</div>`;
       if(isVinyl())html=vinylStore(shelf);
     }else if(view==='artist'){
       const result=await api(`artists/${id(key)}${mode==='store'?'?store=1':''}`);
@@ -1006,7 +1025,12 @@ async function route(){
     else if(view==='settings')html=settingsPage();
     else {location.hash='shelf';return;}
     if(generation!==routeGeneration)return;
-    content.innerHTML=(statusInfo.role==='view'?'<div class="note">View-only temporary access. Changes and playback are disabled.</div>':'')+html;applyPermissions(content);settingsDirty=false;restoreBrowsing(generation);if(view==='settings'){refreshArtworkCacheSettings();pollServerArtworkRefresh();pollSpotifyMatching();pollEditionAudit();loadLastfmSettings();}refreshPlayback();
+    content.innerHTML=(statusInfo.role==='view'?'<div class="note">View-only temporary access. Changes and playback are disabled.</div>':'')+html;applyPermissions(content);settingsDirty=false;
+    document.title=(content.querySelector('h1')?.textContent.trim()||'AudioShelf')+' · AudioShelf';
+    const navigated=renderedHash!==location.hash;
+    renderedHash=location.hash;
+    restoreBrowsing(generation);
+    if(navigated)content.focus({preventScroll:true});if(view==='settings'){refreshArtworkCacheSettings();pollServerArtworkRefresh();pollSpotifyMatching();pollEditionAudit();loadLastfmSettings();}refreshPlayback();
     if(view==='store'&&['artist','album'].includes(key)&&mode&&!isVinyl()){
       const results=document.querySelector('#search-results');
       results.innerHTML=searchKind==='album'?cards(storeSearch.results):storeSearch.results.map(a=>`<a class="search-result" href="#artist/${id(a.id)}/store"><strong>${escapeHtml(a.name)}</strong></a>`).join('');
@@ -1020,14 +1044,24 @@ function applyPermissions(root){
   root.querySelectorAll('button[data-action]').forEach(button=>{if(!allowed.has(button.dataset.action))button.disabled=true;});
   root.querySelectorAll('form').forEach(form=>{if(form.id!=='search-form')form.querySelectorAll('input,select,button').forEach(control=>control.disabled=true);});
 }
-function showModal(html){modalContent.innerHTML=html;applyPermissions(modalContent);if(!modal.open)modal.showModal();}
+function showModal(html){
+  modalContent.innerHTML=html;applyPermissions(modalContent);
+  modal.setAttribute('aria-label',modalContent.querySelector('h2,h3')?.textContent||'AudioShelf dialogue');
+  if(!modal.open)modal.showModal();
+}
 async function albumSettings(){
   const a=currentAlbum;
   showModal(`<h2>Album settings</h2><p><strong>${escapeHtml(a.title)}</strong><br>Original edition: ${escapeHtml(a.release_label)}</p><button class="secondary" data-action="releases">Change original tracklist</button><form id="album-countries-form"><label for="album-countries">Country preference for this album</label><input id="album-countries" name="countries" value="${escapeHtml((a.release_countries||[]).join(', '))}" placeholder="GB, US, XW, XE"><label class="check-option"><input type="checkbox" name="inherit" ${a.release_countries===null?'checked':''}> Use global country preferences</label><p>Use an album-specific country order when regional editions differ. Leave the global preference enabled to use Settings. Format preferences always come from Settings.</p><button class="secondary">Save album preferences</button></form><p>Changing the original edition clears all Spotify mappings for this album.</p><h3>Album cover</h3><button class="secondary" data-action="cover-editions">Choose cover from another edition</button><p>The automatic cover comes from the album’s MusicBrainz release group. Downloaded covers are cached separately only for albums on your shelf. Store artwork and edition previews are not saved. A cover you upload is saved with your collection.</p><form id="artwork-form"><input type="file" name="image" accept="image/jpeg,image/png,image/webp" aria-label="Choose album cover" required><button class="secondary">Save cover</button></form><button class="quiet" data-action="reset-artwork">Restore automatic cover</button><h3>Spotify playback edition</h3><button class="secondary" data-action="resolve">${a.playable?'Find another edition':'Match Spotify tracks'}</button><p>Automatic matching prefers the newest labelled remaster or dated studio mix with a complete matching tracklist. Your manual choices are kept. Paste any Spotify edition. AudioShelf maps just the original tracks and ignores the extras.</p><form id="mapping-form"><input name="album" placeholder="https://open.spotify.com/album/…" aria-label="Spotify album link" required><button class="primary">Use this Spotify edition</button></form><h3>Report a problem</h3><p>Download this album’s tracklist, matching decisions, edition filters and recent errors. Reproduce the problem first, then send the JSON file for investigation. It contains no account credentials.</p><a class="secondary" href="api/albums/${id(a.id)}/diagnostics" download>Download diagnostic report</a>${a.on_shelf?'<div class="actions"><button class="quiet" data-action="remove">Remove from my shelf</button></div>':''}`);
 }
 document.addEventListener('error',event=>{if(event.target instanceof HTMLImageElement)event.target.classList.add('failed');},true);
 document.querySelector('.close-modal').addEventListener('click',()=>modal.close());
-modal.addEventListener('click',event=>{if(event.target===modal)modal.close();});
+document.querySelector('.modal-close-top').addEventListener('click',()=>modal.close());
+modal.addEventListener('click',event=>{
+  if(event.target!==modal)return;
+  const bounds=modal.getBoundingClientRect();
+  if(event.clientX<bounds.left||event.clientX>bounds.right||
+     event.clientY<bounds.top||event.clientY>bounds.bottom)modal.close();
+});
 function releasePickerHtml(state,error=''){
   const coverMode=state.mode==='cover',adding=state.mode==='add';
   const description=coverMode
@@ -1244,7 +1278,7 @@ document.addEventListener('change',async event=>{
   catch(error){toast(error.message);}finally{select.disabled=false;}
 });
 window.addEventListener('hashchange',event=>{saveBrowsing(new URL(event.oldURL).hash);modal.close();route();});
-window.addEventListener('focus',async()=>{if(statusInfo.authenticated){try{const previousInterface=statusInfo.interface;const latest=await api('status');if(accountChanged(latest)){await clearArtworkCaches();window.location.reload();return;}statusInfo=latest;applyTheme(statusInfo.theme);applyInterface(statusInfo.interface);renderTurntable();refreshPlayback(true);if(previousInterface!==statusInfo.interface&&!unsavedChanges()){await route();return;}if(location.hash==='#settings'&&!settingsDirty){content.innerHTML=settingsPage();applyPermissions(content);refreshArtworkCacheSettings();loadLastfmSettings();}}catch{}}});
+window.addEventListener('focus',async()=>{if(statusInfo.authenticated){try{const previousInterface=statusInfo.interface;const latest=await api('status');if(accountChanged(latest)){await clearArtworkCaches();window.location.reload();return;}statusInfo=latest;applyTheme(statusInfo.theme);applyInterface(statusInfo.interface);renderTurntable();refreshPlayback(true);if(previousInterface!==statusInfo.interface&&!unsavedChanges()){await route();return;}if(location.hash==='#settings'&&!unsavedChanges()){content.innerHTML=settingsPage();applyPermissions(content);refreshArtworkCacheSettings();loadLastfmSettings();}}catch{}}});
 document.addEventListener('change',event=>{
   if(!event.target.matches('input[name="variant-layout"]'))return;
   const state=releasePicker;
@@ -1269,7 +1303,9 @@ document.addEventListener('change',event=>{
 document.addEventListener('input',event=>{if(event.target.id==='artist-filter')document.querySelectorAll('.artist-row').forEach(el=>el.hidden=!el.dataset.filter.includes(event.target.value.toLowerCase()));});
 document.addEventListener('submit',async event=>{
   const form=event.target;if(!['search-form','login-form','mapping-form','track-form','artwork-form','release-filters-form','album-countries-form','catalogue-series-form','catalogue-search-form','security-form','lastfm-connect-form'].includes(form.id)&&!form.matches('[data-security-form], [data-account-form]'))return;
-  event.preventDefault();const button=form.querySelector('button');button.disabled=true;
+  event.preventDefault();const button=form.querySelector('button');
+  if(busyButtons.has(button))return;
+  busyButtons.add(button);form.setAttribute('aria-busy','true');
   const generation=routeGeneration;
   try {
     const data=new FormData(form);
@@ -1350,7 +1386,9 @@ document.addEventListener('submit',async event=>{
     if(form.id==='mapping-form'){
       const result=await api(`albums/${id(currentAlbum.id)}/mapping`,'POST',{spotify_album_id:data.get('album')});
       if(generation!==routeGeneration)return;
-      currentAlbum=result.album;modal.close();content.innerHTML=albumPage(currentAlbum);toast(`${result.candidate.verified} of ${currentAlbum.tracks.length} tracks verified. Review any remaining tracks using Edit.`);
+      currentAlbum=result.album;modal.close();
+      if(location.hash==='#review')await route();else content.innerHTML=albumPage(currentAlbum);
+      toast(`${result.candidate.verified} of ${currentAlbum.tracks.length} tracks verified. Review any remaining tracks using Edit.`);
     }
     if(form.id==='track-form'){
       const track=await api('spotify/track?id='+id(data.get('track')));
@@ -1362,15 +1400,37 @@ document.addEventListener('submit',async event=>{
       currentAlbum=album;
       modal.close();content.innerHTML=albumPage(currentAlbum);toast('Track mapping saved.');
     }
-  }catch(error){toast(error.message);if(form.id==='search-form'){const target=document.querySelector('#search-results');if(target)target.innerHTML=`<p class="muted">${escapeHtml(error.message)}</p>`;}}
-  finally{button.disabled=false;}
+  }catch(error){showError(error.message);if(form.id==='search-form'){const target=document.querySelector('#search-results');if(target)target.innerHTML=`<p class="muted">${escapeHtml(error.message)}</p>`;}}
+  finally{
+    busyButtons.delete(button);form.removeAttribute('aria-busy');
+    if(button.isConnected&&document.activeElement===document.body&&!modal.open)button.focus({preventScroll:true});
+  }
 });
 document.addEventListener('click',async event=>{
-  const button=event.target.closest('[data-action]');if(!button||button.disabled)return;
-  const action=button.dataset.action;button.disabled=true;
+  const button=event.target.closest('[data-action]');
+  if(!button||button.disabled||busyButtons.has(button))return;
+  const action=button.dataset.action;busyButtons.add(button);button.setAttribute('aria-busy','true');
   const generation=routeGeneration;
   try {
     if(action==='retry'||action==='refresh-status')await route();
+    if(action==='fix-match'){
+      currentAlbum=await api('albums/'+id(button.dataset.id));
+      if(generation!==routeGeneration)return;
+      const a=currentAlbum;
+      showModal('<h2>Fix Spotify match</h2><p><strong>'+escapeHtml(a.title)+'</strong> by '+artistNames(a)+'</p>'+
+        '<p>Choose a complete playable tracklist or supply a Spotify album link. Your album stays on your shelf.</p>'+
+        '<div class="actions"><button class="primary" data-action="find-playable-edition">Find matching album edition</button>'+
+        (a.tracks.length?'<button class="secondary" data-action="resolve">Find Spotify recordings for these tracks</button>':'')+'</div>'+
+        (a.tracks.length?'<form id="mapping-form"><label for="review-spotify-album">Or paste a Spotify album link</label>'+
+          '<input id="review-spotify-album" name="album" required placeholder="https://open.spotify.com/album/…" />'+
+          '<button class="secondary">Try this Spotify album</button></form>':'<p class="note">No tracklist is saved yet. Start by finding a matching album edition.</p>')+
+        '<p><a href="#album/'+id(a.id)+'">Open this album to edit individual tracks ↗</a></p>');
+    }
+    if(action==='retry-match'){
+      await api('spotify/matching/issues/'+id(button.dataset.id)+'/retry','POST');
+      if(generation!==routeGeneration)return;
+      await route();toast('Album queued for another automatic Spotify check.');
+    }
     if(action==='interface'){const result=await api('settings','PUT',{interface:button.dataset.id});statusInfo.interface=result.interface;applyInterface(result.interface);await route();toast(`${result.interface==='vinyl'?'Vinyl':'Classic'} interface saved.`);}
     if(action==='flip-artwork')await loadAlbumBackCover(button);
     if(action==='shelf-expand-all')toggleAllShelves();
@@ -1493,7 +1553,7 @@ document.addEventListener('click',async event=>{
       const result=await api(`albums/${id(currentAlbum.id)}/resolve`,'POST');if(generation!==routeGeneration)return;currentAlbum=result.album;content.innerHTML=albumPage(currentAlbum);
       showModal(`<h2>Spotify editions</h2><p>Fully verified editions are offered first. Your existing playable selection is not changed just by opening this list. Releases with the same title are kept separate if their recordings cannot be proven identical. Bonus tracks are excluded from playback.</p>${result.candidates.map(c=>`<button class="choice" data-action="choose-mapping" data-id="${escapeHtml(c.id)}">${escapeHtml(c.name)}<small>${escapeHtml(c.release_date)}${c.edition_year?` · ${c.edition_year} remaster/mix`:""} · ${c.track_count} Spotify tracks · ${c.verified}/${currentAlbum.tracks.length} verified${spotifyDuplicateHint(result.candidates,c,'id')}</small></button>`).join('')}`);
     }
-    if(action==='choose-mapping'){const result=await api(`albums/${id(currentAlbum.id)}/mapping`,'POST',{spotify_album_id:button.dataset.id});if(generation!==routeGeneration)return;modal.close();content.innerHTML=albumPage(result.album);toast('Spotify edition saved.');}
+    if(action==='choose-mapping'){const result=await api(`albums/${id(currentAlbum.id)}/mapping`,'POST',{spotify_album_id:button.dataset.id});if(generation!==routeGeneration)return;modal.close();if(location.hash==='#review')await route();else content.innerHTML=albumPage(result.album);toast('Spotify edition saved.');}
     if(action==='reset-artwork'){
       await api(`albums/${id(currentAlbum.id)}/artwork`,'DELETE');
       if(generation!==routeGeneration)return;
@@ -1577,7 +1637,8 @@ document.addEventListener('click',async event=>{
         if(location.hash.startsWith('#album/')){currentAlbum=album;content.innerHTML=albumPage(album);}
         else await route();
       }else{
-        currentAlbum=album;content.innerHTML=albumPage(album);
+        currentAlbum=album;
+        if(location.hash==='#review')await route();else content.innerHTML=albumPage(album);
         toast('Original tracklist and all Spotify mappings updated.');
       }
     }
@@ -1598,8 +1659,11 @@ document.addEventListener('click',async event=>{
       const response=await api('backup','POST');const blob=await response.blob();const url=URL.createObjectURL(blob);
       const link=document.createElement('a');link.href=url;link.download='audioshelf-backup.db';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Database backup downloaded.');
     }
-  }catch(error){toast(error.message);}
-  finally{button.disabled=false;}
+  }catch(error){showError(error.message);}
+  finally{
+    busyButtons.delete(button);button.removeAttribute('aria-busy');
+    if(button.isConnected&&document.activeElement===document.body&&!modal.open)button.focus({preventScroll:true});
+  }
 });
 let lastNativeMediaAt=0;
 if(typeof window!=='undefined')window.addEventListener('audioshelf-native-playback',()=>{

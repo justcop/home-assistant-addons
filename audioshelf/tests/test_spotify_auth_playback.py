@@ -509,3 +509,38 @@ def test_matching_review_queue_shows_failures_separately_from_pending(applicatio
     assert after.json['pending'] == 0
     assert len(after.json['issues']) == 1
     assert after.json['issues'][0]['album_id'] == ALBUM
+
+
+def test_retry_one_unmatched_album_preserves_shelf_and_queues_only_that_album(application, client, monkeypatch):
+    from app.spotify_matching import ATTEMPTS, FAILURES, failure
+    from conftest import post
+    store=application.extensions['store']
+    store.shelf(ALBUM, True)
+    store.set_setting(FAILURES, {ALBUM: failure(store.album(ALBUM), 'No Spotify candidate')})
+    matcher=application.extensions['spotify_matching']
+    enqueue=Mock()
+    monkeypatch.setattr(matcher, 'enqueue', enqueue)
+    spotify=application.extensions['spotify']
+    monkeypatch.setattr(type(spotify), 'connected', property(lambda self: True))
+    response=post(client, '/api/spotify/matching/issues/'+ALBUM+'/retry')
+    assert response.status_code == 202
+    assert response.json == {'queued':True,'album_id':ALBUM}
+    assert enqueue.call_count == 1
+    assert enqueue.call_args.args[4] == ALBUM
+    assert store.album(ALBUM)['on_shelf']
+    assert ALBUM not in store.setting(FAILURES, {})
+
+
+def test_retry_album_requires_a_real_unmatched_shelf_album(application, client, monkeypatch):
+    from conftest import post
+    spotify=application.extensions['spotify']
+    monkeypatch.setattr(type(spotify), 'connected', property(lambda self: True))
+    response=post(client, '/api/spotify/matching/issues/'+ALBUM+'/retry')
+    assert response.status_code == 409
+    store=application.extensions['store']
+    store.shelf(ALBUM, True)
+    with store.connect() as db:
+        db.execute('UPDATE tracks SET spotify_id=?,verified=1',('x'*22,))
+        db.execute('UPDATE albums SET spotify_album_id=?',( 'y'*22,))
+    response=post(client, '/api/spotify/matching/issues/'+ALBUM+'/retry')
+    assert response.status_code == 409
