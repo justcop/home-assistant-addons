@@ -936,8 +936,21 @@ def create_app(options=None):
                 c if n < 3 else {k: v for k, v in c.items() if k != 'mappings'} for n, c in enumerate(candidates[:30])]})
             if not candidates:
                 raise AppError('No Spotify edition found. Paste a Spotify album link in album settings.')
-            store.mapping(album_id,candidates[0])
-            return jsonify(album=store.album(album_id),candidates=candidates)
+            count = len(album['tracks'])
+            complete = [c for c in candidates if count and c['verified'] == count
+                        and c['matched'] == count]
+            # Don't show singles or live snippets beside complete playable albums.
+            # If no full release exists, keep useful near-matches for manual repair.
+            alternatives = complete or [
+                c for c in candidates if c['track_count'] >= count and c['verified']
+            ] or candidates[:5]
+            alternatives = spotify.distinct_candidates(
+                alternatives, preferred_id=album.get('spotify_album_id'))
+            # Finding alternatives is not consent to replace a user's current
+            # playable mapping. Also never persist a partial automatic match.
+            if complete and not album['playable']:
+                store.mapping(album_id, complete[0])
+            return jsonify(album=store.album(album_id), candidates=alternatives)
 
     @app.post('/api/albums/<album_id>/mapping')
     def choose_mapping(album_id):
