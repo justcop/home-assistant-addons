@@ -23,7 +23,7 @@ from .lastfm_import import LastFmImporter
 
 from .artwork import Artwork
 from .artwork_refresh import ArtworkRefresh
-from .spotify_matching import SpotifyMatching, report_text, PAUSE_UNTIL
+from .spotify_matching import SpotifyMatching, report_text, PAUSE_UNTIL, current_failures, eligible
 from .shelf_edition_audit import ShelfEditionAudit, audit_report
 from .errors import AppError
 from .matching import candidate, track_score
@@ -567,7 +567,28 @@ def create_app(options=None):
 
     @app.get('/api/shelf')
     def shelf():
-        return jsonify(artists=store.artists(),albums=store.albums(owned=True))
+        status = spotify_matching.status(g.account['id'], g.context.store)
+        return jsonify(artists=store.artists(), albums=store.albums(owned=True),
+                       match_status=status)
+
+    @app.get('/api/spotify/matching/issues')
+    def spotify_matching_issues():
+        if g.identity['role'] != 'owner':
+            raise AppError('Only the account owner can review Spotify matching.', 403)
+        failures = current_failures(g.context.store)
+        # Pending albums have not failed; keep them separate from decisions
+        # actually requiring user attention.
+        pending = sum(1 for row in g.context.store.albums(owned=True)
+                      if eligible(g.context.store.album(row['id']))
+                      and row['id'] not in failures)
+        issues = [{'album_id': issue['album_id'], 'title': issue['title'],
+                   'artist': issue['artist'], 'reason': issue['reason'],
+                   'verified_tracks': issue.get('verified_tracks', 0),
+                   'total_tracks': issue.get('total_tracks', 0)}
+                  for issue in failures.values()]
+        issues.sort(key=lambda item: (item['artist'].casefold(), item['title'].casefold()))
+        return jsonify(issues=issues, pending=pending,
+                       job=spotify_matching.status(g.account['id'], g.context.store)['job'])
 
     @app.get('/api/listening-pile')
     def listening_pile():
