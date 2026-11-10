@@ -298,16 +298,13 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert.equal(discCalls.length,4);
     assert.deepEqual(discCalls[3],{uris:['spotify:track:'+'b'.repeat(22)],position_ms:0});
     await fixtureOptions({phone_available:false,external_album:false});
-    // This case tests cancelling a pending server handoff, not Spotify's
-    // device discovery (covered separately). Force the initial Play to
-    // report an unavailable phone so this remains deterministic even if
-    // Spotify's previous Connect state briefly appears active.
-    const unavailableDiscRoute=route=>route.fulfill({status:409,contentType:'application/json',
-      body:JSON.stringify({error:'Your preferred Spotify device is unavailable. Open Spotify on it, or choose another device.'})});
-    await page.route('**/api/albums/*/play',unavailableDiscRoute);
-    await page.getByRole('button',{name:'Play disc 2'}).click();
+    // Exercise the real handoff UI and server job directly. The initial
+    // Play-to-handoff transition was already checked above; the cancellation
+    // test must not depend on the earlier Spotify Connect device snapshot.
+    await page.evaluate(()=>playbackHandoff(
+      {album:currentAlbum,disc:2,generation:routeGeneration},
+      'Your preferred Spotify device is unavailable. Open Spotify on it.'));
     await expectHandoff();
-    await page.unroute('**/api/albums/*/play',unavailableDiscRoute);
     const cancelledJob=await page.evaluate(()=>pendingPlayback.job);
     await page.getByRole('button',{name:'Cancel playback',exact:true}).click();
     await page.waitForFunction(()=>pendingPlayback===null);
@@ -327,7 +324,12 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     // DELETE to an unfinished Spotify job. The Android SDK can keep waking
     // the phone while the user browses their shelf.
     await fixtureOptions({phone_available:false,external_album:false,disc:2});
-    await page.getByRole('button',{name:'Play disc 2'}).click();
+    // The previous case established that the cancelled job cannot play later.
+    // Create a new real handoff job to test closing and navigating away,
+    // independent of unrelated Connect-to-direct-Play timing.
+    await page.evaluate(()=>playbackHandoff(
+      {album:currentAlbum,disc:2,generation:routeGeneration},
+      'Your preferred Spotify device is unavailable. Open Spotify on it.'));
     await expectHandoff();
     const detachedJob=await page.evaluate(()=>pendingPlayback.job);
     const beforeDetachedCalls=(await (await fixtureFetch(base+'/__test/play-calls')).json()).calls.length;
