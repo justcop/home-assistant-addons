@@ -464,7 +464,7 @@ def test_bulk_import_rejects_fully_playable_deluxe_if_two_originals_disagree(
     assert still['spotify_album_id'] is None
 
 
-def test_background_match_leaves_equally_ranked_distinct_recordings_for_review(application, monkeypatch):
+def test_background_picks_stable_winner_for_equally_ranked_distinct_recordings(application, monkeypatch):
     from conftest import spotify_track
     store = application.extensions['store']
     album = store.album(ALBUM)
@@ -491,6 +491,6 @@ def test_background_match_leaves_equally_ranked_distinct_recordings_for_review(a
     playable = application.extensions['playable_releases']
     playable.spotify = Alternatives()
     result, issue = SpotifyMatching._find_verified_edition(album, playable)
-    assert result is None
-    assert 'equally ranked' in issue['reason']
-    assert {a['id'] for a in issue['spotify_alternatives']} == {first['id'], second['id']}
+    from conftest import RELEASE
+    assert result == (RELEASE, min(first['id'], second['id']))
+    assert issue is None
