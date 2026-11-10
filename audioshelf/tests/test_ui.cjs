@@ -324,7 +324,7 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.locator('.album-card').waitFor({timeout:8000});
     await page.setViewportSize({width:1280,height:900});
     if(screenshotDir)await page.screenshot({path:path.join(screenshotDir,'shelf-desktop.png'),fullPage:true});
-    await page.getByRole('link',{name:'Open settings'}).click();
+    await page.goto(base+'/#settings');
     await page.getByRole('heading',{name:'Settings.'}).waitFor();
     await page.getByRole('button',{name:'Choose Spotify device'}).click();
     await page.getByRole('button',{name:'Fixture phone'}).click();
