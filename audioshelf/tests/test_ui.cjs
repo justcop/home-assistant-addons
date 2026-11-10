@@ -334,7 +334,7 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.waitForFunction(()=>statusInfo.preferred_device?.id==='phone',{timeout:10000});
     // The earlier playback handoff can reopen a modal asynchronously.
     // Close any leftover handoff dialog before testing ordinary settings.
-    await page.evaluate(()=>{if(modal.open)modal.close();});
+    await page.waitForFunction(()=>!document.querySelector('#modal').open);
     assert.equal((await (await fixtureFetch(base+'/api/settings')).json()).preferred_device.id,'phone');
     await page.evaluate(()=>{
       const input=document.querySelector('#open-spotify');
