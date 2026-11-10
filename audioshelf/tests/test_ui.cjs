@@ -271,7 +271,8 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.evaluate(()=>{checkingPlayback=true;});
     await page.getByRole('button',{name:'Play disc 2'}).click();
     await page.evaluate(()=>{checkingPlayback=false;});
-    await page.getByRole('heading',{name:'Starting playback on Fixture phone',exact:true}).waitFor();
+    try {await page.getByRole('heading',{name:'Starting playback on Fixture phone',exact:true}).waitFor({timeout:8000});}
+    catch(error){console.error('Disc playback state',await page.evaluate(()=>({modal:document.querySelector('#modal')?.innerText,toast:document.querySelector('#toast')?.textContent,checkingPlayback,routeGeneration})));throw error;}
     await page.getByRole('link',{name:'Open Spotify',exact:true}).click();
     await fixtureOptions({phone_available:true});
     await page.waitForFunction(()=>!document.querySelector('#modal').open);
