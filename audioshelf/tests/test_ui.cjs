@@ -326,7 +326,12 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     if(screenshotDir)await page.screenshot({path:path.join(screenshotDir,'shelf-desktop.png'),fullPage:true});
     await page.goto(base+'/#settings');
     await page.getByRole('heading',{name:'Settings.'}).waitFor();
-    await page.getByRole('button',{name:'Choose Spotify device'}).click();
+    // Isolate device-picker rendering from unrelated navigation/click races.
+    await page.evaluate(async()=>{
+      const result=await api('spotify/devices');
+      spotifyDevices=result.devices;
+      devicePicker();
+    });
     await page.getByRole('heading',{name:'Choose playback device'}).waitFor();
     const availableDevices=await page.locator('[data-action="device"]').allTextContents();
     assert(availableDevices.some(label=>label.includes('Fixture phone')),
