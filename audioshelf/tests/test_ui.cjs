@@ -219,9 +219,24 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.getByRole('button',{name:'Fixture phone',exact:false}).click();
     await page.locator('#toast').filter({hasText:'Playing 2 tracks on Fixture phone.'}).waitFor();
     const fixtureOptions=body=>fixtureFetch(base+'/__test/playback-options',{method:'POST',headers:{'Content-Type':'application/json','X-AudioShelf-Request':'1'},body:JSON.stringify(body)});
+    async function expectHandoff(){
+      try {await page.getByRole('heading',{name:'Starting playback on Fixture phone',exact:true}).waitFor({timeout:8000});}
+      catch(error){
+        console.error('Disc handoff UI',await page.evaluate(()=>({
+          modal:document.querySelector('#modal')?.innerText,
+          toast:document.querySelector('#toast')?.textContent,
+          pending:!!pendingPlayback,
+          pendingDisc:pendingPlayback?.disc,
+          detached:pendingPlayback?.detached,
+          checkingPlayback,
+          routeGeneration
+        })));
+        throw error;
+      }
+    }
     await fixtureOptions({phone_available:false});
     await page.getByRole('button',{name:'Play album'}).click();
-    await page.getByRole('heading',{name:'Starting playback on Fixture phone',exact:true}).waitFor();
+    await expectHandoff();
     await page.locator('#playback-handoff-status').waitFor();
     assert((await page.locator('#playback-handoff-status').textContent()).length>0,
       'Live startup progress must be visible before opening Spotify');
@@ -271,8 +286,7 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.evaluate(()=>{checkingPlayback=true;});
     await page.getByRole('button',{name:'Play disc 2'}).click();
     await page.evaluate(()=>{checkingPlayback=false;});
-    try {await page.getByRole('heading',{name:'Starting playback on Fixture phone',exact:true}).waitFor({timeout:8000});}
-    catch(error){console.error('Disc playback state',await page.evaluate(()=>({modal:document.querySelector('#modal')?.innerText,toast:document.querySelector('#toast')?.textContent,checkingPlayback,routeGeneration})));throw error;}
+    await expectHandoff();
     await page.getByRole('link',{name:'Open Spotify',exact:true}).click();
     await fixtureOptions({phone_available:true});
     await page.waitForFunction(()=>!document.querySelector('#modal').open);
@@ -281,7 +295,7 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert.deepEqual(discCalls[3],{uris:['spotify:track:'+'b'.repeat(22)],position_ms:0});
     await fixtureOptions({phone_available:false});
     await page.getByRole('button',{name:'Play disc 2'}).click();
-    await page.getByRole('heading',{name:'Starting playback on Fixture phone',exact:true}).waitFor();
+    await expectHandoff();
     const cancelledJob=await page.evaluate(()=>pendingPlayback.job);
     await page.getByRole('button',{name:'Cancel playback',exact:true}).click();
     await page.waitForFunction(()=>pendingPlayback===null);
@@ -302,7 +316,7 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     // the phone while the user browses their shelf.
     await fixtureOptions({phone_available:false,disc:2});
     await page.getByRole('button',{name:'Play disc 2'}).click();
-    await page.getByRole('heading',{name:'Starting playback on Fixture phone',exact:true}).waitFor();
+    await expectHandoff();
     const detachedJob=await page.evaluate(()=>pendingPlayback.job);
     const beforeDetachedCalls=(await (await fixtureFetch(base+'/__test/play-calls')).json()).calls.length;
     await page.getByRole('button',{name:'Close',exact:true}).click();
