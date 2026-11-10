@@ -317,9 +317,11 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert.equal(await page.locator('.artist-row:visible').count(),0);
     await page.locator('#artist-filter').fill('artist');
     assert.equal(await page.locator('.artist-row:visible').count(),1);
+    // Wait for the route state as well as the click. An overlapping refresh
+    // can briefly redraw the artists tab before the albums tab settles.
     await page.locator('[data-action="shelf-view"][data-view="albums"]').click();
-    try {await page.locator('.album-card').waitFor({timeout:8000});}
-    catch(error){console.error('Album shelf test diagnostic',await page.evaluate(()=>({hash:location.hash,view:shelfView,screen:content.innerText.slice(0,300)})));throw error;}
+    await page.waitForFunction(()=>shelfView==='albums');
+    await page.locator('.album-card').waitFor({timeout:8000});
     await page.setViewportSize({width:1280,height:900});
     if(screenshotDir)await page.screenshot({path:path.join(screenshotDir,'shelf-desktop.png'),fullPage:true});
     await page.getByRole('link',{name:'Open settings'}).click();
