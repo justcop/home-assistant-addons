@@ -484,6 +484,8 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.goto(base+'/#settings');
     await page.getByRole('heading',{name:'Settings.'}).waitFor();
     await page.getByLabel('Country preference order').fill('US, GB');
+    // Diagnostic tools are intentionally collapsed in the shorter settings page.
+    await page.locator('details.settings-group').filter({has:page.locator('summary').getByText('Advanced & diagnostics')}).locator('summary').click();
     // The standalone PWA retains private shelf thumbnails across app updates.
     assert.equal(await page.getByRole('heading',{name:'Offline artwork'}).count(),1);
     await page.waitForFunction(()=>!!navigator.serviceWorker.controller);
@@ -558,6 +560,31 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert(!accountSwap.includes(cacheBefore.name),'Switching accounts must discard the previous account’s artwork');
 
 
+    // Two matching issues are visible in red and are repairable in place.
+    await page.route('**/api/spotify/matching/issues',route=>route.fulfill({
+      status:200,contentType:'application/json',
+      body:JSON.stringify({issues:[
+        {album_id:'f5093c06-23e3-4f01-aeaa-40f72885ee3a',title:'The Original Album',
+         artist:'The Artist',reason:'No full Spotify match',verified_tracks:1,total_tracks:2},
+        {album_id:'f5093c06-23e3-4f01-aeaa-40f72885ee3a',title:'Second Edition',
+         artist:'The Artist',reason:'No verified release',verified_tracks:0,total_tracks:2}
+      ],pending:0,job:null})
+    }));
+    await page.goto(base+'/#review');
+    await page.getByRole('heading',{name:'Albums to review.'}).waitFor();
+    assert.equal(await page.locator('.matching-issue').count(),2);
+    const warning=page.locator('.matching-issue-label').first();
+    assert((await warning.evaluate(el=>getComputedStyle(el).color))!==(await warning.evaluate(el=>getComputedStyle(document.body).color)),
+      'Unmatched albums must use a visible red warning');
+    await page.locator('[data-action="fix-match"]').first().click();
+    await page.getByRole('heading',{name:'Fix Spotify match'}).waitFor();
+    assert.equal(await page.getByRole('button',{name:'Find matching album edition'}).count(),1);
+    await page.evaluate(()=>showError('Invalid Spotify album link'));
+    assert.equal(await page.locator('#modal-alert').textContent(),'Invalid Spotify album link');
+    await page.locator('#modal').click({position:{x:9,y:9}});
+    assert(await page.locator('#modal').evaluate(el=>el.open),'Tapping dialog padding must not discard edits');
+    await page.getByRole('button',{name:'Close dialog'}).click();
+    await page.unroute('**/api/spotify/matching/issues');
     console.log('Browser checks passed: collection, artwork selection, edition retry, track review and playback, release preferences, all 10 themes and contrast, catalogue overrides, diagnostics, desktop and ingress.');
   }finally{if(browser)await browser.close();server.kill('SIGTERM');}
 })().catch(error=>{console.error(error);process.exitCode=1;});
