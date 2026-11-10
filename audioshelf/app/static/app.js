@@ -445,6 +445,27 @@ new MutationObserver(records=>{
 
 function cover(album,large=false,loanSticker=false){return `<a class="cover-wrap" href="#album/${id(album.id)}" aria-label="Open ${escapeHtml(album.title)}"><img class="cover" data-cover-src="${coverUrl(album.id,large?640:320)}" data-cover-srcset="${[128,320,640].map(size=>`${coverUrl(album.id,size)} ${size}w`).join(', ')}" sizes="${large?'(max-width: 700px) 85vw, 480px':'(max-width: 700px) 44vw, 260px'}" decoding="async" alt="${escapeHtml(album.title)} album cover" ${large?'fetchpriority="high"':'loading="lazy"'}>${loanSticker?'<span class="loan-sticker" aria-label="On loan">LOAN</span>':''}</a>`;}
 
+function spotifyReviewMessage(status){
+  const count=status?.failures||0, job=status?.job;
+  if(count)return '<strong>'+count+' '+(count===1?'album needs':'albums need')+
+    ' your attention.</strong> <a href="#review">Review unmatched albums ↗</a>';
+  if(job?.state==='running')return 'Matching Spotify recordings in the background ('+
+    (job.processed||0)+'/'+(job.total||0)+'). You can keep browsing.';
+  return '';
+}
+async function refreshShelfReviewNotice(){
+  const node=document.querySelector('#shelf-match-notice');
+  if(!node||document.hidden||offlineReadOnly||statusInfo.role!=='owner')return;
+  try{
+    const data=await api('spotify/matching/issues');
+    if(node.isConnected)node.innerHTML=spotifyReviewMessage({failures:data.issues.length,job:data.job});
+  }catch{}
+}
+setInterval(refreshShelfReviewNotice,12000);
+function sortArtistsByName(artists){
+  return [...artists].sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),undefined,{sensitivity:'base'})||
+                                  String(a.id||'').localeCompare(String(b.id||'')));
+}
 function cards(albums,room='store'){
   if(isVinyl())return vinylCards(albums,room);
   return `<div class="album-grid">${albums.map(a=>`<article class="album-card">${cover(a,false,room==='listening'&&a.on_loan)}${a.on_shelf?'<span class="badge">On your shelf</span>':''}<a class="album-title" href="#album/${id(a.id)}">${escapeHtml(a.title)}</a><div class="album-meta">${artistNames(a)}<br>${year(a)}</div>${a.on_shelf?'':a.on_loan?'<span class="badge">On loan</span>':`<div class="album-choice-actions"><button class="card-action" data-action="add" data-id="${escapeHtml(a.id)}">+ Add to shelf</button><button class="card-action" data-action="borrow" data-id="${escapeHtml(a.id)}">Borrow</button></div>`}</article>`).join('')}</div>`;
@@ -932,11 +953,22 @@ async function route(){
       if(key)shelfFilter='';
       if(key&&!isVinyl())shelfView='artists';
       const shelf=await api('shelf');
-      html=`<div class="eyebrow">The collection</div><div class="shelf-heading"><h1>My shelf.</h1><span class="collection-mark">A little less noise.</span></div><p class="intro">The records you love, all in one place.</p><div class="toolbar"><div class="segmented"><button class="${shelfView==='artists'?'active':''}" data-action="shelf-view" data-view="artists">Artists</button><button class="${shelfView==='albums'?'active':''}" data-action="shelf-view" data-view="albums">Albums</button></div><span class="count">${shelf.albums.length} ${shelf.albums.length===1?'record':'records'} · ${shelf.artists.length} ${shelf.artists.length===1?'artist':'artists'}</span></div>`;
+      html=`<div class="eyebrow">The collection</div><div class="shelf-heading"><h1>My shelf.</h1><span class="collection-mark">A little less noise.</span></div><p class="intro">The records you love, all in one place.</p><div id="shelf-match-notice" role="status">${spotifyReviewMessage(shelf.match_status)}</div><div class="toolbar"><div class="segmented"><button class="${shelfView==='artists'?'active':''}" data-action="shelf-view" data-view="artists">Artists</button><button class="${shelfView==='albums'?'active':''}" data-action="shelf-view" data-view="albums">Albums</button></div><span class="count">${shelf.albums.length} ${shelf.albums.length===1?'record':'records'} · ${shelf.artists.length} ${shelf.artists.length===1?'artist':'artists'}</span></div>`;
       if(!shelf.albums.length)html+=empty('Your first record awaits.','Find an artist, choose an album, make it yours.');
       else if(shelfView==='albums')html+=cards(shelf.albums);
       else html+=`<input class="filter" id="artist-filter" placeholder="Find an artist on your shelf" aria-label="Filter shelf artists"><div class="artist-list">${shelf.artists.map(a=>`<a class="artist-row" data-shelf-id="${escapeHtml(a.id)}" data-filter="${escapeHtml(a.name.toLowerCase())}" href="#artist/${id(a.id)}"><span class="artist-initial">${escapeHtml(a.name[0])}</span><span><span class="artist-name">${escapeHtml(a.name)}</span><span class="artist-note">${a.album_count} ${a.album_count===1?'record':'records'} on your shelf</span></span><span class="row-arrow" aria-hidden="true">↗</span></a>`).join('')}</div>`;
       if(isVinyl())html=vinylShelf(shelf);
+    }else if(view==='review'){
+      const review=await api('spotify/matching/issues');
+      html='<a class="back" href="#shelf">← My shelf</a><div class="eyebrow">Your collection</div>'+
+        '<h1>Albums to review.</h1><p class="intro">AudioShelf handles clear matches automatically. These albums need a closer look.</p>'+
+        (review.pending?'<p class="note">'+review.pending+' '+(review.pending===1?'album is':'albums are')+' awaiting background matching.</p>':'')+
+        (review.issues.length?review.issues.map(issue=>'<section class="settings-block"><h2><a href="#album/'+id(issue.album_id)+'">'+escapeHtml(issue.title)+'</a></h2>'+
+          '<p>'+escapeHtml(issue.artist)+'</p><p class="muted">'+escapeHtml(issue.reason)+'</p>'+
+          '<p>'+issue.verified_tracks+'/'+issue.total_tracks+' tracks verified in the closest match.</p>'+
+          '<a class="secondary" href="#album/'+id(issue.album_id)+'">Review album ↗</a></section>').join(''):
+          '<p class="note">No failed matches need attention. Newly added albums are checked in the background.</p>')+
+        '<p><a class="quiet" href="#settings">Background matching details and full report ↗</a></p>';
     }else if(view==='listening'){
       const pile=await api('listening-pile');
       html=`<div class="eyebrow">The Listening Room</div><h1>Listening Pile.</h1><p class="intro">A little more time with records, whether they're yours or on loan.</p><div class="toolbar"><span class="count">${pile.albums.length} ${pile.albums.length===1?'record':'records'}</span><a class="secondary" href="#store">Find another record ↗</a></div>${pile.albums.length?cards(pile.albums,'listening'):empty('Your listening pile is empty.','Borrow a record from the store, or pull one from your shelf.')}`;
@@ -947,7 +979,7 @@ async function route(){
         storeSearch={kind:key,query:decodeURIComponent(mode),results:null};
         const result=await api(`search?q=${id(storeSearch.query)}&kind=${key}`);
         if(generation!==routeGeneration)return;
-        storeSearch.results=result.results;
+        storeSearch.results=key==='artist'?sortArtistsByName(result.results):result.results;
       }
       const shelf=await api('shelf');
       const pile=await api('listening-pile');
@@ -1303,9 +1335,9 @@ document.addEventListener('submit',async event=>{
       resultEl.innerHTML=loading('Looking through the record store…');
       const result=await api(`search?q=${id(data.get('q'))}&kind=${searchKind}`);
       if(generation!==routeGeneration)return;
-      storeSearch.results=result.results;
+      storeSearch.results=searchKind==='artist'?sortArtistsByName(result.results):result.results;
       if(isVinyl()){resultEl.innerHTML=vinylSearchResults();applyPermissions(resultEl);return;}
-      resultEl.innerHTML=result.results.length?(searchKind==='album'?cards(result.results):result.results.map(a=>`<a class="search-result" href="#artist/${id(a.id)}/store"><strong>${escapeHtml(a.name)}</strong><small>${escapeHtml([a.disambiguation,a.country,a.type].filter(Boolean).join(' · '))}</small></a>`).join('')):'<p class="muted">No studio albums or artists found. Try a different spelling.</p>';
+      resultEl.innerHTML=storeSearch.results.length?(searchKind==='album'?cards(storeSearch.results):storeSearch.results.map(a=>`<a class="search-result" href="#artist/${id(a.id)}/store"><strong>${escapeHtml(a.name)}</strong><small>${escapeHtml([a.disambiguation,a.country,a.type].filter(Boolean).join(' · '))}</small></a>`).join('')):'<p class="muted">No studio albums or artists found. Try a different spelling.</p>';
     }
     if(form.id==='artwork-form'){
       const file=data.get('image');
@@ -1369,7 +1401,23 @@ document.addEventListener('click',async event=>{
     if(action==='artwork-cache-clear'){await caches.delete(artworkCacheName());await refreshArtworkCacheSettings();toast('Downloaded artwork cleared on this device.');}
     if(action==='search-kind'){searchKind=button.dataset.kind;storeSearch={kind:searchKind,query:'',results:null};await route();}
     if(action==='add'){
-      await openPlayableReleasePicker(button.dataset.id,'add');
+      const added=await api(`albums/${id(button.dataset.id)}/shelf`,'POST');
+      markCollected(added.id);
+      if(generation!==routeGeneration)return;
+      if(currentAlbum?.id===added.id){
+        currentAlbum=added;
+        content.innerHTML=albumPage(added);
+      }else{
+        // Replace just this record's card; do not redirect or block browsing.
+        const card=button.closest('.album-card');
+        if(card){
+          const box=document.createElement('div');
+          box.innerHTML=isVinyl()?vinylCards([added],'store'):cards([added],'store');
+          const replacement=box.querySelector('.album-card');
+          if(replacement)card.replaceWith(replacement);
+        }
+      }
+      toast(added.playable?'Added to your shelf.':'Added to your shelf. Spotify matching continues in the background.');
     }
     if(action==='borrow')await openPlayableReleasePicker(button.dataset.id,'borrow');
     if(action==='pile-add'||action==='pile-remove'||action==='return'){
