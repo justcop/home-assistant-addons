@@ -23,7 +23,8 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     browser=await chromium.launch({headless:true,executablePath:process.env.AUDIOSHELF_TEST_BROWSER || undefined,
       args:process.env.AUDIOSHELF_TEST_BROWSER ? ['--no-sandbox','--disable-dev-shm-usage'] : []});
     const errors=[];
-    let page=await browser.newPage({viewport:{width:390,height:844}});
+    const context=await browser.newContext({viewport:{width:390,height:844}});
+    let page=await context.newPage();
     page.on('pageerror',error=>errors.push(error.message));
     await page.route('https://coverartarchive.org/**',route=>route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="500" height="500"><rect width="500" height="500" fill="#486359"/><circle cx="250" cy="250" r="180" fill="#282b27"/><circle cx="250" cy="250" r="50" fill="#e4d1a3"/></svg>'}));
     await page.goto(base);
