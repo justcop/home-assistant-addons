@@ -1404,7 +1404,7 @@ document.addEventListener('click',async event=>{
       const added=await api(`albums/${id(button.dataset.id)}/shelf`,'POST');
       markCollected(added.id);
       if(generation!==routeGeneration)return;
-      if(currentAlbum?.id===added.id){
+      if(location.hash.startsWith('#album/')&&currentAlbum?.id===added.id){
         currentAlbum=added;
         content.innerHTML=albumPage(added);
       }else{
