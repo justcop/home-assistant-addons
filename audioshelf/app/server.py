@@ -777,7 +777,12 @@ def create_app(options=None):
     def add_shelf(album_id):
         album_id = mbid(album_id)
         with store.catalogue_lock:
-            musicbrainz.ensure_group(album_id)
+            # Record Store searches already save and validate album identities.
+            # Don't refetch MusicBrainz (or wait for Spotify) on every add.
+            try:
+                existing = store.album(album_id)
+            except KeyError:
+                existing = musicbrainz.ensure_group(album_id)
             payload = request.get_json(silent=True) or {}
             if payload.get('release_id') or payload.get('spotify_album_id'):
                 if not payload.get('release_id') or not payload.get('spotify_album_id'):
@@ -788,17 +793,18 @@ def create_app(options=None):
                 return jsonify(album)
             # A borrowed, Spotify-verified record is already fully prepared;
             # keeping it must not clear its chosen edition or track mappings.
-            existing = store.album(album_id)
+            if existing['on_shelf']:
+                return jsonify(existing)
             if existing['on_loan'] and existing['playable']:
                 store.shelf(album_id, True)
                 return jsonify(store.album(album_id))
-            # Compatibility route: add an album identity but do not accept
-            # an unverified MusicBrainz tracklist as the final edition.
-            store.clear_unverified_edition(album_id)
-            store.shelf(album_id,True)
-            spotify_matching.start(g.account['id'], g.context.store,
-                g.context.spotify, g.context.playable_releases,
-                enabled=accounts.enabled, automatic=True)
+            # Membership is committed immediately. Do not resolve, clear or
+            # replace a user-selected tracklist as a side effect of adding.
+            store.shelf(album_id, True)
+            if not existing['playable']:
+                spotify_matching.enqueue(g.account['id'], g.context.store,
+                    g.context.spotify, g.context.playable_releases, album_id,
+                    enabled=accounts.enabled)
             return jsonify(store.album(album_id))
 
     @app.post('/api/albums/<album_id>/borrow')
