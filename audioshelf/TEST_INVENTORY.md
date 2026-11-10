@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-11-10T11:26:48.612+00:00 (Europe/London).
+Reviewed: 2026-11-10T11:35:14.905+00:00 (Europe/London).
 
-Reviewed Spotify album selection and instant-add regressions: truly identical recordings, distinct ISRCs and bonus material, clean edition preference, preserving existing mappings and tracklists, prompt shelf membership, visible review queue, ambiguous background choices and display-name artist sorting. No real Spotify or Android playback is asserted by these fixture tests.
+Reviewed instant-add and Spotify candidate regression coverage: immediate collection independent of Spotify, durable nonblocking matching, review of genuine failures, deterministic choice of equally ranked fully verified releases, conservative preservation of distinct recordings, standard versus deluxe preference, and alphabetical ordering by artist display name. Updated browser journeys for new one-click collection. Live Spotify playback and Android behaviour require post-deployment verification.
 
-<!-- inventory: {"reviewed_at":"2026-11-10T11:26:48.612+00:00","review_note":"Reviewed Spotify album selection and instant-add regressions: truly identical recordings, distinct ISRCs and bonus material, clean edition preference, preserving existing mappings and tracklists, prompt shelf membership, visible review queue, ambiguous background choices and display-name artist sorting. No real Spotify or Android playback is asserted by these fixture tests.","source_sha256":"b1f74a8c740753fdc222299f923562d6b68c75c054a38649f62a55a4d82e21d6"} -->
+<!-- inventory: {"reviewed_at":"2026-11-10T11:35:14.905+00:00","review_note":"Reviewed instant-add and Spotify candidate regression coverage: immediate collection independent of Spotify, durable nonblocking matching, review of genuine failures, deterministic choice of equally ranked fully verified releases, conservative preservation of distinct recordings, standard versus deluxe preference, and alphabetical ordering by artist display name. Updated browser journeys for new one-click collection. Live Spotify playback and Android behaviour require post-deployment verification.","source_sha256":"5d8904fe0c97baa974ecae45f168017731632fdb714015ae451a1e495f2a97b7"} -->
 
 ## Backend cases (460)
 
@@ -427,7 +427,7 @@ Reviewed Spotify album selection and instant-add regressions: truly identical re
 417. `audioshelf/tests/test_spotify_auth_playback.py::test_unreviewed_tracklist_cannot_play`
 418. `audioshelf/tests/test_spotify_auth_playback.py::test_untrusted_spotify_urls_not_fetched`
 419. `audioshelf/tests/test_spotify_matching.py::test_background_import_prefers_original_tracklist_even_with_spotify_deluxe_bonus_tracks`
-420. `audioshelf/tests/test_spotify_matching.py::test_background_match_leaves_equally_ranked_distinct_recordings_for_review`
+420. `audioshelf/tests/test_spotify_matching.py::test_background_picks_stable_winner_for_equally_ranked_distinct_recordings`
 421. `audioshelf/tests/test_spotify_matching.py::test_background_verifies_alternate_release_after_unplayable_first_release`
 422. `audioshelf/tests/test_spotify_matching.py::test_bulk_import_rejects_fully_playable_deluxe_if_two_originals_disagree`
 423. `audioshelf/tests/test_spotify_matching.py::test_bulk_routes_restrict_access_and_expose_copyable_report`
