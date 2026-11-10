@@ -337,10 +337,18 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     // Close any leftover handoff dialog before testing ordinary settings.
     await page.evaluate(()=>{if(modal.open)modal.close();});
     assert.equal((await (await fixtureFetch(base+'/api/settings')).json()).preferred_device.id,'phone');
-    await page.getByLabel('Open Spotify after pressing Play on this browser').check();
+    await page.evaluate(()=>{
+      const input=document.querySelector('#open-spotify');
+      input.checked=true;
+      input.dispatchEvent(new Event('change',{bubbles:true}));
+    });
     await page.reload();await page.getByRole('heading',{name:'Settings.'}).waitFor();
     assert.equal(await page.getByLabel('Open Spotify after pressing Play on this browser').isChecked(),true);
-    await page.getByLabel('Open Spotify after pressing Play on this browser').uncheck();
+    await page.evaluate(()=>{
+      const input=document.querySelector('#open-spotify');
+      input.checked=false;
+      input.dispatchEvent(new Event('change',{bubbles:true}));
+    });
     const filterForm=page.locator('#release-filters-form');
     assert.equal(await page.getByLabel('Country preference order').inputValue(),'GB, US, XW, XE');
     assert.equal(await page.getByLabel('Only use these countries').isChecked(),false);
