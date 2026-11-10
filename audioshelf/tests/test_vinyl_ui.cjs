@@ -210,13 +210,9 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert.equal(await page.locator('.sleeve').count(),17);
     await noOverflow();await shot('store-desktop');
     await page.getByRole('button',{name:'Add Open Windows to shelf',exact:true}).click();
-    await page.getByRole('heading',{name:'Choose the album tracklist'}).waitFor();
-    await page.locator('[data-action="select-variant"]').first().click();
-    await page.getByRole('heading',{name:'Disc and side layout'}).waitFor();
-    await page.getByRole('button',{name:'Choose verified Spotify edition'}).click();
-    await page.getByRole('heading',{name:'Choose Spotify recordings'}).waitFor();
-    await page.locator('[data-action="choose-release"][data-spotify-id]').first().click();
-    await page.locator('#toast').filter({hasText:'Open Windows added'}).waitFor();
+    await page.locator('#toast').filter({hasText:'Added to your shelf'}).waitFor();
+    assert.equal(await page.getByRole('heading',{name:'Choose the album tracklist'}).count(),0,
+      'Adding a vinyl record must not interrupt browsing to verify Spotify');
     assert(page.url().endsWith('#store'));
     await page.getByRole('link',{name:'Open Windows',exact:true}).click();
     await page.getByRole('heading',{name:'Open Windows',exact:true}).waitFor();
