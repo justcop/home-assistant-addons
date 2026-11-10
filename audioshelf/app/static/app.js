@@ -479,7 +479,7 @@ function sortArtistsByName(artists){
 }
 function cards(albums,room='store'){
   if(isVinyl())return vinylCards(albums,room);
-  return `<div class="album-grid">${albums.map(a=>`<article class="album-card">${cover(a,false,room==='listening'&&a.on_loan)}${a.on_shelf?'<span class="badge">On your shelf</span>':''}<a class="album-title" href="#album/${id(a.id)}">${escapeHtml(a.title)}</a><div class="album-meta">${artistNames(a)}<br>${year(a)}</div>${a.on_shelf?'':a.on_loan?'<span class="badge">On loan</span>':`<div class="album-choice-actions"><button class="card-action" data-action="add" data-id="${escapeHtml(a.id)}">+ Add to shelf</button><button class="card-action" data-action="borrow" data-id="${escapeHtml(a.id)}">Borrow</button></div>`}</article>`).join('')}</div>`;
+  return `<div class="album-grid">${albums.map(a=>`<article class="album-card">${cover(a,false,room==='listening'&&a.on_loan)}${a.on_shelf?'<span class="badge">On your shelf</span>':''}${a.on_shelf&&!a.playable&&room!=='store'?'<a class="match-needed-label" href="#review">Needs Spotify match</a>':''}<a class="album-title" href="#album/${id(a.id)}">${escapeHtml(a.title)}</a><div class="album-meta">${artistNames(a)}<br>${year(a)}</div>${a.on_shelf?'':a.on_loan?'<span class="badge">On loan</span>':`<div class="album-choice-actions"><button class="card-action" data-action="add" data-id="${escapeHtml(a.id)}">+ Add to shelf</button><button class="card-action" data-action="borrow" data-id="${escapeHtml(a.id)}">Borrow</button></div>`}</article>`).join('')}</div>`;
 }
 function albumMembershipActions(album){
   if(album.on_loan)return '<button class="secondary" data-action="keep">Add to shelf</button><button class="quiet" data-action="return">Return loan</button>';
@@ -1303,7 +1303,9 @@ document.addEventListener('change',event=>{
 document.addEventListener('input',event=>{if(event.target.id==='artist-filter')document.querySelectorAll('.artist-row').forEach(el=>el.hidden=!el.dataset.filter.includes(event.target.value.toLowerCase()));});
 document.addEventListener('submit',async event=>{
   const form=event.target;if(!['search-form','login-form','mapping-form','track-form','artwork-form','release-filters-form','album-countries-form','catalogue-series-form','catalogue-search-form','security-form','lastfm-connect-form'].includes(form.id)&&!form.matches('[data-security-form], [data-account-form]'))return;
-  event.preventDefault();const button=form.querySelector('button');button.disabled=true;
+  event.preventDefault();const button=form.querySelector('button');
+  if(busyButtons.has(button))return;
+  busyButtons.add(button);form.setAttribute('aria-busy','true');
   const generation=routeGeneration;
   try {
     const data=new FormData(form);
@@ -1384,7 +1386,9 @@ document.addEventListener('submit',async event=>{
     if(form.id==='mapping-form'){
       const result=await api(`albums/${id(currentAlbum.id)}/mapping`,'POST',{spotify_album_id:data.get('album')});
       if(generation!==routeGeneration)return;
-      currentAlbum=result.album;modal.close();content.innerHTML=albumPage(currentAlbum);toast(`${result.candidate.verified} of ${currentAlbum.tracks.length} tracks verified. Review any remaining tracks using Edit.`);
+      currentAlbum=result.album;modal.close();
+      if(location.hash==='#review')await route();else content.innerHTML=albumPage(currentAlbum);
+      toast(`${result.candidate.verified} of ${currentAlbum.tracks.length} tracks verified. Review any remaining tracks using Edit.`);
     }
     if(form.id==='track-form'){
       const track=await api('spotify/track?id='+id(data.get('track')));
@@ -1397,11 +1401,15 @@ document.addEventListener('submit',async event=>{
       modal.close();content.innerHTML=albumPage(currentAlbum);toast('Track mapping saved.');
     }
   }catch(error){showError(error.message);if(form.id==='search-form'){const target=document.querySelector('#search-results');if(target)target.innerHTML=`<p class="muted">${escapeHtml(error.message)}</p>`;}}
-  finally{button.disabled=false;}
+  finally{
+    busyButtons.delete(button);form.removeAttribute('aria-busy');
+    if(button.isConnected&&document.activeElement===document.body&&!modal.open)button.focus({preventScroll:true});
+  }
 });
 document.addEventListener('click',async event=>{
-  const button=event.target.closest('[data-action]');if(!button||button.disabled)return;
-  const action=button.dataset.action;button.disabled=true;
+  const button=event.target.closest('[data-action]');
+  if(!button||button.disabled||busyButtons.has(button))return;
+  const action=button.dataset.action;busyButtons.add(button);button.setAttribute('aria-busy','true');
   const generation=routeGeneration;
   try {
     if(action==='retry'||action==='refresh-status')await route();
@@ -1545,7 +1553,7 @@ document.addEventListener('click',async event=>{
       const result=await api(`albums/${id(currentAlbum.id)}/resolve`,'POST');if(generation!==routeGeneration)return;currentAlbum=result.album;content.innerHTML=albumPage(currentAlbum);
       showModal(`<h2>Spotify editions</h2><p>Fully verified editions are offered first. Your existing playable selection is not changed just by opening this list. Releases with the same title are kept separate if their recordings cannot be proven identical. Bonus tracks are excluded from playback.</p>${result.candidates.map(c=>`<button class="choice" data-action="choose-mapping" data-id="${escapeHtml(c.id)}">${escapeHtml(c.name)}<small>${escapeHtml(c.release_date)}${c.edition_year?` · ${c.edition_year} remaster/mix`:""} · ${c.track_count} Spotify tracks · ${c.verified}/${currentAlbum.tracks.length} verified${spotifyDuplicateHint(result.candidates,c,'id')}</small></button>`).join('')}`);
     }
-    if(action==='choose-mapping'){const result=await api(`albums/${id(currentAlbum.id)}/mapping`,'POST',{spotify_album_id:button.dataset.id});if(generation!==routeGeneration)return;modal.close();content.innerHTML=albumPage(result.album);toast('Spotify edition saved.');}
+    if(action==='choose-mapping'){const result=await api(`albums/${id(currentAlbum.id)}/mapping`,'POST',{spotify_album_id:button.dataset.id});if(generation!==routeGeneration)return;modal.close();if(location.hash==='#review')await route();else content.innerHTML=albumPage(result.album);toast('Spotify edition saved.');}
     if(action==='reset-artwork'){
       await api(`albums/${id(currentAlbum.id)}/artwork`,'DELETE');
       if(generation!==routeGeneration)return;
@@ -1629,7 +1637,8 @@ document.addEventListener('click',async event=>{
         if(location.hash.startsWith('#album/')){currentAlbum=album;content.innerHTML=albumPage(album);}
         else await route();
       }else{
-        currentAlbum=album;content.innerHTML=albumPage(album);
+        currentAlbum=album;
+        if(location.hash==='#review')await route();else content.innerHTML=albumPage(album);
         toast('Original tracklist and all Spotify mappings updated.');
       }
     }
@@ -1651,7 +1660,10 @@ document.addEventListener('click',async event=>{
       const link=document.createElement('a');link.href=url;link.download='audioshelf-backup.db';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Database backup downloaded.');
     }
   }catch(error){showError(error.message);}
-  finally{button.disabled=false;}
+  finally{
+    busyButtons.delete(button);button.removeAttribute('aria-busy');
+    if(button.isConnected&&document.activeElement===document.body&&!modal.open)button.focus({preventScroll:true});
+  }
 });
 let lastNativeMediaAt=0;
 if(typeof window!=='undefined')window.addEventListener('audioshelf-native-playback',()=>{
