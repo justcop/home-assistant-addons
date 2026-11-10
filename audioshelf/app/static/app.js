@@ -5,7 +5,7 @@ const modalContent = document.querySelector('#modal-content');
 let offlineReadOnly=false, offlineSaving=false;
 let statusInfo = {}, shelfView = 'artists', searchKind = 'artist', currentAlbum = null, routeGeneration = 0, toastTimer, artworkRevision = 0, releasePicker = null, settingsDirty = false;
 const loadedAssets = document.documentElement.dataset.assetVersion;
-let workerRegistration, pendingChanges = 0;
+let workerRegistration, pendingChanges = 0, renderedHash = '';
 let lastfmRows=[], lastfmSelected=new Set(), lastfmPeriod='overall', lastfmFilter='', lastfmPollHandle=null;
 function noticeUpdate(build){
   if(build?.asset_version && build.asset_version!==loadedAssets)document.querySelector('#app-update').hidden=false;
@@ -38,6 +38,17 @@ const artistNames = album => escapeHtml((album.artists || []).map(a => a.name).j
 const duration = ms => ms ? `${Math.floor(ms/60000)}:${String(Math.floor(ms%60000/1000)).padStart(2,'0')}` : '';
 const loading = message => `<div class="loading">${escapeHtml(message)}</div>`;
 function toast(message) {const el=document.querySelector('#toast');el.textContent=message;el.classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('visible'),6500);}
+function showError(message){
+  if(!modal.open){toast(message);return;}
+  let alert=modalContent.querySelector('#modal-alert');
+  if(!alert){
+    alert=document.createElement('div');alert.id='modal-alert';alert.className='modal-alert';
+    alert.setAttribute('role','alert');alert.setAttribute('aria-live','assertive');alert.tabIndex=-1;
+    modalContent.prepend(alert);
+  }
+  alert.textContent=message;
+  alert.focus({preventScroll:true});
+}
 async function api(path, method='GET', body={}) {
   const options = {method,credentials:'same-origin',cache:'no-store',headers:{}};
   if(statusInfo.account && !['login','status'].includes(path))options.headers['X-AudioShelf-Account']=statusInfo.account.id;
@@ -941,7 +952,11 @@ async function route(){
   const [view,key,mode]=parts;
   const isStore=view==='store'||(view==='artist'&&mode==='store');
   document.documentElement.dataset.room=isStore?'store':view==='listening'||view==='album'&&albumOrigin.includes('listening')?'listening':view==='album'&&albumOrigin.includes('store')?'store':'shelf';
-  document.querySelectorAll('[data-nav]').forEach(el=>el.classList.toggle('active',el.dataset.nav===document.documentElement.dataset.room));
+  document.querySelectorAll('[data-nav]').forEach(el=>{
+    const active=el.dataset.nav===document.documentElement.dataset.room;
+    el.classList.toggle('active',active);
+    if(active)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current');
+  });
   content.innerHTML=loading(view==='album'?'Finding the original album tracklist…':'Opening your collection…');
   try {
     const latest=await api('status');if(accountChanged(latest)){await clearArtworkCaches();await clearOfflineShelf();window.location.reload();return;}statusInfo=latest;document.querySelector('#offline-status').hidden=!offlineReadOnly;await syncArtworkCacheAccount(latest.authenticated?latest.account?.id:null);if(statusInfo.authenticated){applyTheme(statusInfo.theme);applyInterface(statusInfo.interface);}renderTurntable();
@@ -1011,7 +1026,12 @@ async function route(){
     else if(view==='settings')html=settingsPage();
     else {location.hash='shelf';return;}
     if(generation!==routeGeneration)return;
-    content.innerHTML=(statusInfo.role==='view'?'<div class="note">View-only temporary access. Changes and playback are disabled.</div>':'')+html;applyPermissions(content);settingsDirty=false;restoreBrowsing(generation);if(view==='settings'){refreshArtworkCacheSettings();pollServerArtworkRefresh();pollSpotifyMatching();pollEditionAudit();loadLastfmSettings();}refreshPlayback();
+    content.innerHTML=(statusInfo.role==='view'?'<div class="note">View-only temporary access. Changes and playback are disabled.</div>':'')+html;applyPermissions(content);settingsDirty=false;
+    document.title=(content.querySelector('h1')?.textContent.trim()||'AudioShelf')+' · AudioShelf';
+    const navigated=renderedHash!==location.hash;
+    renderedHash=location.hash;
+    restoreBrowsing(generation);
+    if(navigated)content.focus({preventScroll:true});if(view==='settings'){refreshArtworkCacheSettings();pollServerArtworkRefresh();pollSpotifyMatching();pollEditionAudit();loadLastfmSettings();}refreshPlayback();
     if(view==='store'&&['artist','album'].includes(key)&&mode&&!isVinyl()){
       const results=document.querySelector('#search-results');
       results.innerHTML=searchKind==='album'?cards(storeSearch.results):storeSearch.results.map(a=>`<a class="search-result" href="#artist/${id(a.id)}/store"><strong>${escapeHtml(a.name)}</strong></a>`).join('');
@@ -1025,14 +1045,23 @@ function applyPermissions(root){
   root.querySelectorAll('button[data-action]').forEach(button=>{if(!allowed.has(button.dataset.action))button.disabled=true;});
   root.querySelectorAll('form').forEach(form=>{if(form.id!=='search-form')form.querySelectorAll('input,select,button').forEach(control=>control.disabled=true);});
 }
-function showModal(html){modalContent.innerHTML=html;applyPermissions(modalContent);if(!modal.open)modal.showModal();}
+function showModal(html){
+  modalContent.innerHTML=html;applyPermissions(modalContent);
+  modal.setAttribute('aria-label',modalContent.querySelector('h2,h3')?.textContent||'AudioShelf dialogue');
+  if(!modal.open)modal.showModal();
+}
 async function albumSettings(){
   const a=currentAlbum;
   showModal(`<h2>Album settings</h2><p><strong>${escapeHtml(a.title)}</strong><br>Original edition: ${escapeHtml(a.release_label)}</p><button class="secondary" data-action="releases">Change original tracklist</button><form id="album-countries-form"><label for="album-countries">Country preference for this album</label><input id="album-countries" name="countries" value="${escapeHtml((a.release_countries||[]).join(', '))}" placeholder="GB, US, XW, XE"><label class="check-option"><input type="checkbox" name="inherit" ${a.release_countries===null?'checked':''}> Use global country preferences</label><p>Use an album-specific country order when regional editions differ. Leave the global preference enabled to use Settings. Format preferences always come from Settings.</p><button class="secondary">Save album preferences</button></form><p>Changing the original edition clears all Spotify mappings for this album.</p><h3>Album cover</h3><button class="secondary" data-action="cover-editions">Choose cover from another edition</button><p>The automatic cover comes from the album’s MusicBrainz release group. Downloaded covers are cached separately only for albums on your shelf. Store artwork and edition previews are not saved. A cover you upload is saved with your collection.</p><form id="artwork-form"><input type="file" name="image" accept="image/jpeg,image/png,image/webp" aria-label="Choose album cover" required><button class="secondary">Save cover</button></form><button class="quiet" data-action="reset-artwork">Restore automatic cover</button><h3>Spotify playback edition</h3><button class="secondary" data-action="resolve">${a.playable?'Find another edition':'Match Spotify tracks'}</button><p>Automatic matching prefers the newest labelled remaster or dated studio mix with a complete matching tracklist. Your manual choices are kept. Paste any Spotify edition. AudioShelf maps just the original tracks and ignores the extras.</p><form id="mapping-form"><input name="album" placeholder="https://open.spotify.com/album/…" aria-label="Spotify album link" required><button class="primary">Use this Spotify edition</button></form><h3>Report a problem</h3><p>Download this album’s tracklist, matching decisions, edition filters and recent errors. Reproduce the problem first, then send the JSON file for investigation. It contains no account credentials.</p><a class="secondary" href="api/albums/${id(a.id)}/diagnostics" download>Download diagnostic report</a>${a.on_shelf?'<div class="actions"><button class="quiet" data-action="remove">Remove from my shelf</button></div>':''}`);
 }
 document.addEventListener('error',event=>{if(event.target instanceof HTMLImageElement)event.target.classList.add('failed');},true);
 document.querySelector('.close-modal').addEventListener('click',()=>modal.close());
-modal.addEventListener('click',event=>{if(event.target===modal)modal.close();});
+modal.addEventListener('click',event=>{
+  if(event.target!==modal)return;
+  const bounds=modal.getBoundingClientRect();
+  if(event.clientX<bounds.left||event.clientX>bounds.right||
+     event.clientY<bounds.top||event.clientY>bounds.bottom)modal.close();
+});
 function releasePickerHtml(state,error=''){
   const coverMode=state.mode==='cover',adding=state.mode==='add';
   const description=coverMode
@@ -1249,7 +1278,7 @@ document.addEventListener('change',async event=>{
   catch(error){toast(error.message);}finally{select.disabled=false;}
 });
 window.addEventListener('hashchange',event=>{saveBrowsing(new URL(event.oldURL).hash);modal.close();route();});
-window.addEventListener('focus',async()=>{if(statusInfo.authenticated){try{const previousInterface=statusInfo.interface;const latest=await api('status');if(accountChanged(latest)){await clearArtworkCaches();window.location.reload();return;}statusInfo=latest;applyTheme(statusInfo.theme);applyInterface(statusInfo.interface);renderTurntable();refreshPlayback(true);if(previousInterface!==statusInfo.interface&&!unsavedChanges()){await route();return;}if(location.hash==='#settings'&&!settingsDirty){content.innerHTML=settingsPage();applyPermissions(content);refreshArtworkCacheSettings();loadLastfmSettings();}}catch{}}});
+window.addEventListener('focus',async()=>{if(statusInfo.authenticated){try{const previousInterface=statusInfo.interface;const latest=await api('status');if(accountChanged(latest)){await clearArtworkCaches();window.location.reload();return;}statusInfo=latest;applyTheme(statusInfo.theme);applyInterface(statusInfo.interface);renderTurntable();refreshPlayback(true);if(previousInterface!==statusInfo.interface&&!unsavedChanges()){await route();return;}if(location.hash==='#settings'&&!unsavedChanges()){content.innerHTML=settingsPage();applyPermissions(content);refreshArtworkCacheSettings();loadLastfmSettings();}}catch{}}});
 document.addEventListener('change',event=>{
   if(!event.target.matches('input[name="variant-layout"]'))return;
   const state=releasePicker;
@@ -1367,7 +1396,7 @@ document.addEventListener('submit',async event=>{
       currentAlbum=album;
       modal.close();content.innerHTML=albumPage(currentAlbum);toast('Track mapping saved.');
     }
-  }catch(error){toast(error.message);if(form.id==='search-form'){const target=document.querySelector('#search-results');if(target)target.innerHTML=`<p class="muted">${escapeHtml(error.message)}</p>`;}}
+  }catch(error){showError(error.message);if(form.id==='search-form'){const target=document.querySelector('#search-results');if(target)target.innerHTML=`<p class="muted">${escapeHtml(error.message)}</p>`;}}
   finally{button.disabled=false;}
 });
 document.addEventListener('click',async event=>{
@@ -1621,7 +1650,7 @@ document.addEventListener('click',async event=>{
       const response=await api('backup','POST');const blob=await response.blob();const url=URL.createObjectURL(blob);
       const link=document.createElement('a');link.href=url;link.download='audioshelf-backup.db';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Database backup downloaded.');
     }
-  }catch(error){toast(error.message);}
+  }catch(error){showError(error.message);}
   finally{button.disabled=false;}
 });
 let lastNativeMediaAt=0;
