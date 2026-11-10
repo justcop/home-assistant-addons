@@ -1,7 +1,6 @@
 import base64
 import hashlib
 import json
-import logging
 import os
 import re
 import secrets
@@ -14,8 +13,6 @@ import requests
 
 from .errors import AppError
 from .matching import candidate, normalize
-
-LOG = logging.getLogger('audioshelf.spotify')
 
 
 def spotify_id(value, kind):
@@ -243,10 +240,6 @@ class Spotify:
                 sources.extend(result.get('items', []))
                 if not result.get('next'):
                     break
-            LOG.warning('Spotify candidate search query=%r market=%s results=%s',
-                        query, self.market,
-                        [(item.get('id'), item.get('name'), item.get('total_tracks'))
-                         for item in sources])
             return sources
         # The first, fielded search can return albums without the chosen
         # tracklist. The caller can explicitly retry with an unfielded query.
@@ -272,70 +265,79 @@ class Spotify:
             title_options = [item for item in search_pages(f'album:"{title}"')
                              if same_album_family_title(item.get('name', ''), album['title'])]
             consider(title_options)
-        # Diagnostic only. Keep all candidate IDs and the existing matching behaviour.
-        fingerprints = {}
-        details = {}
-        for entry in candidates:
-            album_id = entry.get('id')
-            try:
-                detail = self.album(album_id)
-                details[album_id] = detail
-                tracks = detail.get('all_tracks', [])
-                fingerprint = tuple((normalize(t.get('name', '')),
-                                     t.get('duration_ms')) for t in tracks)
-                fingerprints.setdefault(fingerprint, []).append(album_id)
-                LOG.warning('Spotify candidate detail album=%r id=%s name=%r total=%s release_date=%s album_type=%s restrictions=%s tracks=%s',
-                            album.get('title'), album_id, detail.get('name'),
-                            detail.get('total_tracks'), detail.get('release_date'),
-                            detail.get('album_type'), detail.get('restrictions'),
-                            [(t.get('disc_number'), t.get('track_number'), t.get('name'),
-                              t.get('id'), t.get('duration_ms'),
-                              (t.get('linked_from') or {}).get('id'),
-                              t.get('is_playable'), (t.get('external_ids') or {}).get('isrc'))
-                             for t in tracks])
-            except Exception as exc:
-                LOG.warning('Spotify candidate detail unavailable id=%s error=%s',
-                            album_id, type(exc).__name__)
-        # Spotify album-track objects may omit ISRC. Fetch complete track objects
-        # only for the first few duplicate-looking editions, bounded to avoid
-        # excessive API calls and rate limits during a diagnostic run.
-        by_edition = {}
-        for entry in candidates:
-            detail = details.get(entry.get('id'))
-            if detail is not None:
-                key = (normalize(detail.get('name', '')),
-                       entry.get('verified'))
-                by_edition.setdefault(key, []).append(detail)
-        remaining = 24
-        for editions in by_edition.values():
-            if len(editions) < 2:
-                continue
-            for detail in editions[:2]:
-                track_info = []
-                for item in detail.get('all_tracks', []):
-                    if remaining <= 0:
-                        break
-                    track_id = item.get('id')
-                    if not track_id:
-                        continue
-                    remaining -= 1
-                    try:
-                        full = self.track(track_id)
-                        track_info.append((track_id, (full.get('external_ids') or {}).get('isrc'),
-                                           (full.get('linked_from') or {}).get('id'),
-                                           full.get('is_playable')))
-                    except Exception as exc:
-                        LOG.warning('Spotify diagnostic track lookup failed id=%s error=%s',
-                                    track_id, type(exc).__name__)
-                LOG.warning('Spotify candidate ISRC sample album=%r id=%s tracks=%s truncated=%s',
-                            album.get('title'), detail.get('id'), track_info,
-                            len(track_info) < len(detail.get('all_tracks', [])))
-        LOG.warning('Spotify candidate matching album=%r market=%s candidates=%s equivalent_tracklists=%s',
-                    album.get('title'), self.market,
-                    [(c.get('id'), c.get('name'), c.get('verified'), c.get('score'))
-                     for c in candidates],
-                    [ids for ids in fingerprints.values() if len(ids) > 1])
         return sorted(candidates, key=lambda c:c['score'], reverse=True)
+
+    def distinct_candidates(self, candidates, preferred_id=None):
+        """Hide only demonstrably equivalent Spotify catalogue entries.
+
+        Spotify sometimes returns multiple album IDs with identical recordings,
+        but titles, durations and even track counts alone do NOT prove identity.
+        Keep distinct releases when ISRCs differ or evidence is missing. This
+        user-facing step is deliberately separate from discovery/matching so a
+        collapsed display cannot remove an otherwise valid matching source.
+        """
+        if len(candidates) < 2:
+            return candidates
+        kept, groups, isrc_cache = [], {}, {}
+        remaining_lookups = 48  # Bound extra Spotify requests per picker.
+
+        def isrc(track):
+            nonlocal remaining_lookups
+            track_id = track.get('id')
+            if not track_id:
+                return None
+            if track_id in isrc_cache:
+                return isrc_cache[track_id]
+            code = (track.get('external_ids') or {}).get('isrc')
+            if not code and remaining_lookups:
+                remaining_lookups -= 1
+                try:
+                    code = (self.track(track_id).get('external_ids') or {}).get('isrc')
+                except (AppError, requests.RequestException):
+                    pass  # Inconclusive: retain both editions.
+            isrc_cache[track_id] = code.upper() if isinstance(code, str) and code else None
+            return isrc_cache[track_id]
+
+        for choice in candidates:
+            try:
+                source = self.album(choice['id'])
+            except (AppError, requests.RequestException):
+                kept.append(choice)
+                continue
+            tracks = source.get('all_tracks') or []
+            if not tracks:
+                kept.append(choice)
+                continue
+            # Strict equivalence requires the same *whole* release, including
+            # bonus material, disc order, titles, durations and edition label.
+            signature = (
+                normalize(source.get('name', '')),
+                source.get('album_type', ''),
+                tuple((t.get('disc_number', 1), t.get('track_number'),
+                       normalize(t.get('name', '')), t.get('duration_ms'))
+                      for t in tracks),
+            )
+            equivalent_index = None
+            for index, other_tracks in groups.get(signature, []):
+                if all(a.get('id') and a.get('id') == b.get('id')
+                       for a, b in zip(tracks, other_tracks)):
+                    equivalent_index = index
+                    break
+                # Spotify track IDs can differ for the same registered audio.
+                # Without complete matching ISRC evidence, do not collapse.
+                if all(a.get('id') and b.get('id') and isrc(a) and isrc(a) == isrc(b)
+                       for a, b in zip(tracks, other_tracks)):
+                    equivalent_index = index
+                    break
+            if equivalent_index is None:
+                index = len(kept)
+                kept.append(choice)
+                groups.setdefault(signature, []).append((index, tracks))
+            elif choice['id'] == preferred_id:
+                # Keep an existing user selection stable when two entries
+                # demonstrably contain the same audio.
+                kept[equivalent_index] = choice
+        return kept
 
     def labelled_editions(self, album):
         """Discover alternate Spotify edition labels once per unresolved album.
