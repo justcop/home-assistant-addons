@@ -234,7 +234,7 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
         throw error;
       }
     }
-    await fixtureOptions({phone_available:false});
+    await fixtureOptions({phone_available:false,external_album:false});
     await page.getByRole('button',{name:'Play album'}).click();
     await expectHandoff();
     await page.locator('#playback-handoff-status').waitFor();
@@ -280,7 +280,7 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.getByRole('button',{name:'Close',exact:true}).click();
     await page.evaluate(()=>localStorage.removeItem('audioshelf-open-spotify'));
     // Background handoff preserves the selected disc and queues it once.
-    await fixtureOptions({phone_available:false,disc:2});
+    await fixtureOptions({phone_available:false,external_album:false,disc:2});
     await page.evaluate(()=>{currentAlbum.tracks[1].disc_number=2;content.innerHTML=albumPage(currentAlbum);});
     // Simulate a status read still in flight when the user chooses new music.
     await page.evaluate(()=>{checkingPlayback=true;});
@@ -293,7 +293,7 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     const discCalls=(await (await fixtureFetch(base+'/__test/play-calls')).json()).calls;
     assert.equal(discCalls.length,4);
     assert.deepEqual(discCalls[3],{uris:['spotify:track:'+'b'.repeat(22)],position_ms:0});
-    await fixtureOptions({phone_available:false});
+    await fixtureOptions({phone_available:false,external_album:false});
     await page.getByRole('button',{name:'Play disc 2'}).click();
     await expectHandoff();
     const cancelledJob=await page.evaluate(()=>pendingPlayback.job);
@@ -314,7 +314,7 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     // A dismissed progress dialog and a hash navigation must NEVER send
     // DELETE to an unfinished Spotify job. The Android SDK can keep waking
     // the phone while the user browses their shelf.
-    await fixtureOptions({phone_available:false,disc:2});
+    await fixtureOptions({phone_available:false,external_album:false,disc:2});
     await page.getByRole('button',{name:'Play disc 2'}).click();
     await expectHandoff();
     const detachedJob=await page.evaluate(()=>pendingPlayback.job);
