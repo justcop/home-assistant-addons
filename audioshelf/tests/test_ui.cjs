@@ -99,15 +99,21 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.locator('.search-result').filter({hasText:'The Artist'}).click();
     await page.getByRole('heading',{name:'The Artist',exact:true}).waitFor();
     await page.getByRole('button',{name:'Add to shelf'}).click();
+    await page.locator('.album-card .badge').filter({hasText:'On your shelf'}).waitFor();
+    assert.equal(await page.getByRole('heading',{name:'Choose the album tracklist'}).count(),0,
+      'Instant addition should never open the Spotify verification picker');
+    await page.locator('.album-title').click();
+    await page.getByRole('heading',{name:'The Original Album',exact:true}).waitFor();
+    // Choosing an original edition remains available, but is separate from adding.
+    await page.getByRole('button',{name:'Album settings'}).click();
+    await page.getByRole('button',{name:'Change original tracklist'}).click();
     await page.getByRole('heading',{name:'Choose the album tracklist'}).waitFor();
     await page.locator('[data-action="select-variant"]').first().click();
     await page.getByRole('heading',{name:'Disc and side layout'}).waitFor();
     await page.getByRole('button',{name:'Choose verified Spotify edition'}).click();
     await page.getByRole('heading',{name:'Choose Spotify recordings'}).waitFor();
+    page.once('dialog',dialog=>dialog.accept());
     await page.locator('[data-action="choose-release"][data-spotify-id]').first().click();
-    await page.locator('.album-card .badge').filter({hasText:'On your shelf'}).waitFor();
-    await page.locator('.album-title').click();
-    await page.getByRole('heading',{name:'The Original Album',exact:true}).waitFor();
     assert.equal(await page.locator('.track-row').count(),2);
     // Sleeve flipping adds a lazy-loaded back-cover image. Check the front
     // explicitly so the reverse scan cannot make image selectors ambiguous.
