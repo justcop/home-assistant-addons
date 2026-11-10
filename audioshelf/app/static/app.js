@@ -6,6 +6,7 @@ let offlineReadOnly=false, offlineSaving=false;
 let statusInfo = {}, shelfView = 'artists', searchKind = 'artist', currentAlbum = null, routeGeneration = 0, toastTimer, artworkRevision = 0, releasePicker = null, settingsDirty = false;
 const loadedAssets = document.documentElement.dataset.assetVersion;
 let workerRegistration, pendingChanges = 0, renderedHash = '';
+const busyButtons=new WeakSet();
 let lastfmRows=[], lastfmSelected=new Set(), lastfmPeriod='overall', lastfmFilter='', lastfmPollHandle=null;
 function noticeUpdate(build){
   if(build?.asset_version && build.asset_version!==loadedAssets)document.querySelector('#app-update').hidden=false;
