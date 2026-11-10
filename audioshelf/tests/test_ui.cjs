@@ -307,6 +307,7 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     const playbackPage=page;
     page=await playbackPage.context().newPage();
     page.on('pageerror',error=>errors.push(error.message));
+    await page.route('https://coverartarchive.org/**',route=>route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="500" height="500"><rect width="500" height="500" fill="#486359"/><circle cx="250" cy="250" r="180" fill="#282b27"/><circle cx="250" cy="250" r="50" fill="#e4d1a3"/></svg>'}));
     await playbackPage.close();
     await page.goto(base+'/#shelf');
     await page.getByRole('heading',{name:'My shelf.',exact:true}).waitFor();
@@ -316,21 +317,14 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert.equal(await page.locator('.artist-row:visible').count(),0);
     await page.locator('#artist-filter').fill('artist');
     assert.equal(await page.locator('.artist-row:visible').count(),1);
-    // The filter test above exercises the artist view. Switch the client
-    // state directly here so the album-rendering assertion is independent of
-    // an unrelated asynchronous click/route race in the browser fixture.
-    await page.evaluate(async()=>{shelfView='albums';await route();});
+    // Exercise the actual shelf-view control in a clean browser page.
+    await page.locator('[data-action="shelf-view"][data-view="albums"]').click();
     await page.locator('.album-card').waitFor({timeout:8000});
     await page.setViewportSize({width:1280,height:900});
     if(screenshotDir)await page.screenshot({path:path.join(screenshotDir,'shelf-desktop.png'),fullPage:true});
     await page.goto(base+'/#settings');
     await page.getByRole('heading',{name:'Settings.'}).waitFor();
-    // Isolate device-picker rendering from unrelated navigation/click races.
-    await page.evaluate(async()=>{
-      const result=await api('spotify/devices');
-      spotifyDevices=result.devices;
-      devicePicker();
-    });
+    await page.getByRole('button',{name:'Choose Spotify device'}).click();
     await page.getByRole('heading',{name:'Choose playback device'}).waitFor();
     const availableDevices=await page.locator('[data-action="device"]').allTextContents();
     assert(availableDevices.some(label=>label.includes('Fixture phone')),
