@@ -187,6 +187,19 @@ class SpotifyMatching:
             job = dict(job, state='interrupted')
         return {'job': job, 'failures': len(current_failures(store))}
 
+    def enqueue(self, account_id, store, spotify, playable, album_id, enabled=None):
+        """Make a newly collected album eligible for the next durable scan.
+
+        New adds must not spend time matching or waiting for a running worker.
+        If a pass is already active, its completion picks up fresh additions.
+        """
+        attempted = store.setting(ATTEMPTS, {}) or {}
+        if album_id in attempted:
+            attempted.pop(album_id, None)
+            store.set_setting(ATTEMPTS, attempted)
+        return self.start(account_id, store, spotify, playable,
+                          enabled=enabled, automatic=True)
+
     def ensure_started(self, account_id, store, spotify, playable, enabled=None):
         if not spotify.connected or time.time() < (store.setting(PAUSE_UNTIL, 0) or 0):
             return None
