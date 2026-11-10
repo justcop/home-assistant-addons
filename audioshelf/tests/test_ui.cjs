@@ -290,6 +290,10 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.getByRole('link',{name:'Open Spotify',exact:true}).click();
     await fixtureOptions({phone_available:true});
     await page.waitForFunction(()=>!document.querySelector('#modal').open);
+    // The handoff may dismiss its dialog as soon as Spotify accepts Play,
+    // while server-side verification is still running. Don't start the next
+    // scenario until that job has actually finished.
+    await page.waitForFunction(()=>pendingPlayback===null);
     const discCalls=(await (await fixtureFetch(base+'/__test/play-calls')).json()).calls;
     assert.equal(discCalls.length,4);
     assert.deepEqual(discCalls[3],{uris:['spotify:track:'+'b'.repeat(22)],position_ms:0});
