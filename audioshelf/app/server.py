@@ -23,7 +23,7 @@ from .lastfm_import import LastFmImporter
 
 from .artwork import Artwork
 from .artwork_refresh import ArtworkRefresh
-from .spotify_matching import SpotifyMatching, report_text, PAUSE_UNTIL
+from .spotify_matching import SpotifyMatching, report_text, PAUSE_UNTIL, current_failures, eligible
 from .shelf_edition_audit import ShelfEditionAudit, audit_report
 from .errors import AppError
 from .matching import candidate, track_score
@@ -567,7 +567,28 @@ def create_app(options=None):
 
     @app.get('/api/shelf')
     def shelf():
-        return jsonify(artists=store.artists(),albums=store.albums(owned=True))
+        status = spotify_matching.status(g.account['id'], g.context.store)
+        return jsonify(artists=store.artists(), albums=store.albums(owned=True),
+                       match_status=status)
+
+    @app.get('/api/spotify/matching/issues')
+    def spotify_matching_issues():
+        if g.identity['role'] != 'owner':
+            raise AppError('Only the account owner can review Spotify matching.', 403)
+        failures = current_failures(g.context.store)
+        # Pending albums have not failed; keep them separate from decisions
+        # actually requiring user attention.
+        pending = sum(1 for row in g.context.store.albums(owned=True)
+                      if eligible(g.context.store.album(row['id']))
+                      and row['id'] not in failures)
+        issues = [{'album_id': issue['album_id'], 'title': issue['title'],
+                   'artist': issue['artist'], 'reason': issue['reason'],
+                   'verified_tracks': issue.get('verified_tracks', 0),
+                   'total_tracks': issue.get('total_tracks', 0)}
+                  for issue in failures.values()]
+        issues.sort(key=lambda item: (item['artist'].casefold(), item['title'].casefold()))
+        return jsonify(issues=issues, pending=pending,
+                       job=spotify_matching.status(g.account['id'], g.context.store)['job'])
 
     @app.get('/api/listening-pile')
     def listening_pile():
@@ -777,7 +798,12 @@ def create_app(options=None):
     def add_shelf(album_id):
         album_id = mbid(album_id)
         with store.catalogue_lock:
-            musicbrainz.ensure_group(album_id)
+            # Record Store searches already save and validate album identities.
+            # Don't refetch MusicBrainz (or wait for Spotify) on every add.
+            try:
+                existing = store.album(album_id)
+            except KeyError:
+                existing = musicbrainz.ensure_group(album_id)
             payload = request.get_json(silent=True) or {}
             if payload.get('release_id') or payload.get('spotify_album_id'):
                 if not payload.get('release_id') or not payload.get('spotify_album_id'):
@@ -788,17 +814,18 @@ def create_app(options=None):
                 return jsonify(album)
             # A borrowed, Spotify-verified record is already fully prepared;
             # keeping it must not clear its chosen edition or track mappings.
-            existing = store.album(album_id)
+            if existing['on_shelf']:
+                return jsonify(existing)
             if existing['on_loan'] and existing['playable']:
                 store.shelf(album_id, True)
                 return jsonify(store.album(album_id))
-            # Compatibility route: add an album identity but do not accept
-            # an unverified MusicBrainz tracklist as the final edition.
-            store.clear_unverified_edition(album_id)
-            store.shelf(album_id,True)
-            spotify_matching.start(g.account['id'], g.context.store,
-                g.context.spotify, g.context.playable_releases,
-                enabled=accounts.enabled, automatic=True)
+            # Membership is committed immediately. Do not resolve, clear or
+            # replace a user-selected tracklist as a side effect of adding.
+            store.shelf(album_id, True)
+            if not existing['playable']:
+                spotify_matching.enqueue(g.account['id'], g.context.store,
+                    g.context.spotify, g.context.playable_releases, album_id,
+                    enabled=accounts.enabled)
             return jsonify(store.album(album_id))
 
     @app.post('/api/albums/<album_id>/borrow')
@@ -936,8 +963,21 @@ def create_app(options=None):
                 c if n < 3 else {k: v for k, v in c.items() if k != 'mappings'} for n, c in enumerate(candidates[:30])]})
             if not candidates:
                 raise AppError('No Spotify edition found. Paste a Spotify album link in album settings.')
-            store.mapping(album_id,candidates[0])
-            return jsonify(album=store.album(album_id),candidates=candidates)
+            count = len(album['tracks'])
+            complete = [c for c in candidates if count and c['verified'] == count
+                        and c['matched'] == count]
+            # Don't show singles or live snippets beside complete playable albums.
+            # If no full release exists, keep useful near-matches for manual repair.
+            alternatives = complete or [
+                c for c in candidates if c['track_count'] >= count and c['verified']
+            ] or candidates[:5]
+            alternatives = spotify.distinct_candidates(
+                alternatives, preferred_id=album.get('spotify_album_id'))
+            # Finding alternatives is not consent to replace a user's current
+            # playable mapping. Also never persist a partial automatic match.
+            if complete and not album['playable']:
+                store.mapping(album_id, complete[0])
+            return jsonify(album=store.album(album_id), candidates=alternatives)
 
     @app.post('/api/albums/<album_id>/mapping')
     def choose_mapping(album_id):

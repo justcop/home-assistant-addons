@@ -172,7 +172,7 @@ class Store:
         with self.connect() as db:
             return [dict(row) for row in db.execute('''SELECT a.*,count(DISTINCT s.album_id) AS album_count
                 FROM artists a JOIN album_artists aa ON aa.artist_id=a.id JOIN shelf s ON s.album_id=aa.album_id
-                GROUP BY a.id ORDER BY a.sort_name COLLATE NOCASE''')]
+                GROUP BY a.id ORDER BY a.name COLLATE NOCASE, a.id''')]
 
     def albums(self, artist_id=None, owned=False, pile=False):
         query = ('''SELECT a.*,s.added_at IS NOT NULL AS on_shelf,

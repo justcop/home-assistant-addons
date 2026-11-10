@@ -18,7 +18,8 @@ def test_shell_assets_share_content_version_and_update_worker_is_not_cached(clie
 def test_shell_health_and_empty_shelf(client):
     assert client.get('/').status_code==200
     assert client.get('/health').json['ok']
-    assert client.get('/api/shelf').json=={'artists':[],'albums':[]}
+    assert client.get('/api/shelf').json=={'artists':[],'albums':[],
+        'match_status':{'job':None,'failures':0}}
     assert client.get('/').headers['Cache-Control']=='no-store'
 
 

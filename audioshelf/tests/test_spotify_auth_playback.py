@@ -344,3 +344,168 @@ def test_sdk_album_context_requires_identical_full_release(application, monkeypa
     assert spotify.sdk_verified_album_context(album,None,expected[:1]) is None
     assert spotify.sdk_verified_album_context(album,None,list(reversed(expected))) is None
     assert spotify.sdk_verified_album_context({**album,'spotify_album_id':None},None,expected) is None
+
+
+def test_spotify_same_track_ids_collapse_without_additional_requests(application, monkeypatch):
+    spotify = application.extensions['spotify']
+    from conftest import spotify_track
+    tracks = [spotify_track('Opening', 'x'*22), spotify_track('Closing', 'y'*22, 240000)]
+    sources = {identifier: {'id': identifier, 'name': 'The Album', 'album_type': 'album',
+                            'all_tracks': tracks} for identifier in ('a'*22, 'b'*22)}
+    monkeypatch.setattr(spotify, 'album', lambda identifier: sources[identifier])
+    request = Mock(side_effect=AssertionError('No track metadata request is needed'))
+    monkeypatch.setattr(spotify, 'track', request)
+    choices = [{'id': 'a'*22}, {'id': 'b'*22}]
+    assert spotify.distinct_candidates(choices) == choices[:1]
+    request.assert_not_called()
+
+
+def test_spotify_different_recording_isrcs_remain_separate(application, monkeypatch):
+    spotify = application.extensions['spotify']
+    from conftest import spotify_track
+    first = [spotify_track('Opening', 'x'*22), spotify_track('Closing', 'y'*22, 240000)]
+    second = [spotify_track('Opening', 'm'*22), spotify_track('Closing', 'n'*22, 240000)]
+    sources = {'a'*22: {'id': 'a'*22, 'name': 'The Album', 'album_type': 'album', 'all_tracks': first},
+               'b'*22: {'id': 'b'*22, 'name': 'The Album', 'album_type': 'album', 'all_tracks': second}}
+    recording_ids = {'x'*22: 'GB001', 'm'*22: 'GB001', 'y'*22: 'GB002', 'n'*22: 'GB999'}
+    monkeypatch.setattr(spotify, 'album', lambda identifier: sources[identifier])
+    monkeypatch.setattr(spotify, 'track', lambda identifier: {'external_ids': {'isrc': recording_ids[identifier]}})
+    choices = [{'id': 'a'*22}, {'id': 'b'*22}]
+    assert spotify.distinct_candidates(choices) == choices
+
+
+def test_spotify_same_isrcs_deduplicate_and_preserve_preferred_id(application, monkeypatch):
+    spotify = application.extensions['spotify']
+    from conftest import spotify_track
+    first = [spotify_track('Opening', 'x'*22), spotify_track('Closing', 'y'*22, 240000)]
+    second = [spotify_track('Opening', 'm'*22), spotify_track('Closing', 'n'*22, 240000)]
+    sources = {'a'*22: {'id': 'a'*22, 'name': 'The Album', 'album_type': 'album', 'all_tracks': first},
+               'b'*22: {'id': 'b'*22, 'name': 'The Album', 'album_type': 'album', 'all_tracks': second}}
+    recordings = {'x'*22: 'GB001', 'm'*22: 'GB001', 'y'*22: 'GB002', 'n'*22: 'GB002'}
+    monkeypatch.setattr(spotify, 'album', lambda identifier: sources[identifier])
+    monkeypatch.setattr(spotify, 'track', lambda identifier: {'external_ids': {'isrc': recordings[identifier]}})
+    choices = [{'id': 'a'*22}, {'id': 'b'*22}]
+    assert spotify.distinct_candidates(choices, preferred_id='b'*22) == choices[1:]
+
+
+def test_spotify_missing_isrc_never_merges_unverified_recordings(application, monkeypatch):
+    spotify = application.extensions['spotify']
+    from conftest import spotify_track
+    sources = {
+        'a'*22: {'id': 'a'*22, 'name': 'The Album',
+                 'all_tracks': [spotify_track('Opening', 'x'*22)]},
+        'b'*22: {'id': 'b'*22, 'name': 'The Album',
+                 'all_tracks': [spotify_track('Opening', 'y'*22)]},
+    }
+    monkeypatch.setattr(spotify, 'album', lambda identifier: sources[identifier])
+    monkeypatch.setattr(spotify, 'track', Mock(side_effect=AppError('Spotify unavailable', 503)))
+    choices = [{'id': 'a'*22}, {'id': 'b'*22}]
+    assert spotify.distinct_candidates(choices) == choices
+
+
+def test_spotify_bonus_tracks_and_edit_labels_remain_distinct(application, monkeypatch):
+    spotify = application.extensions['spotify']
+    from conftest import spotify_track
+    tracks = [spotify_track('Opening', 'x'*22), spotify_track('Closing', 'y'*22, 240000)]
+    sources = {
+        'a'*22: {'id': 'a'*22, 'name': 'The Album', 'all_tracks': tracks},
+        'b'*22: {'id': 'b'*22, 'name': 'The Album',
+                 'all_tracks': tracks + [spotify_track('Bonus', 'z'*22)]},
+        'c'*22: {'id': 'c'*22, 'name': 'The Album (2022 Remaster)', 'all_tracks': tracks},
+    }
+    monkeypatch.setattr(spotify, 'album', lambda identifier: sources[identifier])
+    monkeypatch.setattr(spotify, 'track', Mock(side_effect=AssertionError('Metadata not needed')))
+    choices = [{'id': key} for key in sources]
+    assert spotify.distinct_candidates(choices) == choices
+
+
+def test_resolve_shows_complete_albums_not_single_snippets(application, client, monkeypatch):
+    from app.matching import candidate
+    from conftest import post, spotify_track
+    store = application.extensions['store']
+    spotify = application.extensions['spotify']
+    source = {'id': 'a'*22, 'name': 'The Album', 'release_date': '2007',
+              'all_tracks': [spotify_track('Opening', 'x'*22),
+                             spotify_track('Closing', 'y'*22, 240000)]}
+    single = {'id': 's'*22, 'name': 'The Album', 'album_type': 'single',
+              'all_tracks': [spotify_track('Opening', 'm'*22)]}
+    monkeypatch.setattr(spotify, 'candidates',
+                        lambda album: [candidate(album, source), candidate(album, single)])
+    monkeypatch.setattr(spotify, 'album', lambda identifier: {'a'*22: source, 's'*22: single}[identifier])
+    response = post(client, '/api/albums/'+ALBUM+'/resolve')
+    assert response.status_code == 200
+    assert [item['id'] for item in response.json['candidates']] == ['a'*22]
+    assert store.album(ALBUM)['spotify_album_id'] == 'a'*22
+
+
+def test_resolve_preserves_existing_playable_choice(application, client, monkeypatch):
+    from app.matching import candidate
+    from conftest import post, spotify_track
+    store = application.extensions['store']
+    spotify = application.extensions['spotify']
+    chosen = {'id': 'b'*22, 'name': 'The Album', 'release_date': '2007',
+              'all_tracks': [spotify_track('Opening', 'm'*22),
+                             spotify_track('Closing', 'n'*22, 240000)]}
+    alternative = {'id': 'a'*22, 'name': 'The Album', 'release_date': '2007',
+                   'all_tracks': [spotify_track('Opening', 'x'*22),
+                                  spotify_track('Closing', 'y'*22, 240000)]}
+    store.mapping(ALBUM, candidate(store.album(ALBUM), chosen), manual=True)
+    assert store.album(ALBUM)['playable']
+    monkeypatch.setattr(spotify, 'candidates',
+                        lambda album: [candidate(album, alternative), candidate(album, chosen)])
+    monkeypatch.setattr(spotify, 'album', lambda identifier: {chosen['id']: chosen,
+                                                              alternative['id']: alternative}[identifier])
+    monkeypatch.setattr(spotify, 'track', lambda identifier: {'external_ids': {'isrc': identifier}})
+    response = post(client, '/api/albums/'+ALBUM+'/resolve')
+    assert response.status_code == 200
+    assert len(response.json['candidates']) == 2
+    assert store.album(ALBUM)['spotify_album_id'] == chosen['id']
+
+
+def test_resolve_does_not_save_incomplete_automatic_match(application, client, monkeypatch):
+    from app.matching import candidate
+    from conftest import post, spotify_track
+    store = application.extensions['store']
+    spotify = application.extensions['spotify']
+    partial = {'id': 's'*22, 'name': 'The Album', 'release_date': '2007',
+               'all_tracks': [spotify_track('Opening', 'm'*22)]}
+    monkeypatch.setattr(spotify, 'candidates', lambda album: [candidate(album, partial)])
+    response = post(client, '/api/albums/'+ALBUM+'/resolve')
+    assert response.status_code == 200
+    assert response.json['candidates'][0]['verified'] == 1
+    assert store.album(ALBUM)['spotify_album_id'] is None
+
+
+def test_one_click_add_saves_existing_album_without_waiting_for_spotify_or_musicbrainz(application, client, monkeypatch):
+    from conftest import post
+    store = application.extensions['store']
+    spy = Mock()
+    monkeypatch.setattr(application.extensions['musicbrainz'], 'ensure_group',
+                        Mock(side_effect=AssertionError('Already catalogued; no network read')))
+    monkeypatch.setattr(application.extensions['spotify_matching'], 'enqueue', spy)
+    monkeypatch.setattr(store, 'clear_unverified_edition',
+                        Mock(side_effect=AssertionError('Do not throw away unverified tracklists')))
+    response = post(client, '/api/albums/'+ALBUM+'/shelf')
+    assert response.status_code == 200
+    assert response.json['on_shelf'] is True
+    assert len(response.json['tracks']) == 2
+    assert not response.json['playable']
+    assert spy.call_count == 1
+    assert spy.call_args.args[4] == ALBUM
+    assert store.album(ALBUM)['on_shelf']
+
+
+def test_matching_review_queue_shows_failures_separately_from_pending(application, client):
+    from app.spotify_matching import FAILURES, failure
+    store = application.extensions['store']
+    store.shelf(ALBUM, True)
+    before = client.get('/api/spotify/matching/issues')
+    assert before.status_code == 200
+    assert before.json['pending'] == 1
+    assert before.json['issues'] == []
+    store.set_setting(FAILURES, {ALBUM: failure(store.album(ALBUM), 'Choose a recording')})
+    after = client.get('/api/spotify/matching/issues')
+    assert after.status_code == 200
+    assert after.json['pending'] == 0
+    assert len(after.json['issues']) == 1
+    assert after.json['issues'][0]['album_id'] == ALBUM

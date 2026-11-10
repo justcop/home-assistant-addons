@@ -462,3 +462,35 @@ def test_bulk_import_rejects_fully_playable_deluxe_if_two_originals_disagree(
     still=store.album(ALBUM)
     assert still['on_shelf'] and still['tracks']==[]
     assert still['spotify_album_id'] is None
+
+
+def test_background_picks_stable_winner_for_equally_ranked_distinct_recordings(application, monkeypatch):
+    from conftest import spotify_track
+    store = application.extensions['store']
+    album = store.album(ALBUM)
+    musicbrainz = application.extensions['musicbrainz']
+    fake_original_releases(application, monkeypatch)
+    first = source_album()
+    second = {'id': 't'*22, 'name': 'The Album', 'release_date': first['release_date'],
+              'all_tracks': [spotify_track('Opening', 'c'*22),
+                             spotify_track('Closing', 'd'*22, 240000)]}
+
+    class Alternatives:
+        connected = True
+        market = 'GB'
+
+        def candidates(self, probe, broad=False):
+            return [candidate(probe, first), candidate(probe, second)]
+
+        def album(self, identifier):
+            return {first['id']: first, second['id']: second}[identifier]
+
+        def distinct_candidates(self, choices):
+            return choices
+
+    playable = application.extensions['playable_releases']
+    playable.spotify = Alternatives()
+    result, issue = SpotifyMatching._find_verified_edition(album, playable)
+    from conftest import RELEASE
+    assert result == (RELEASE, min(first['id'], second['id']))
+    assert issue is None

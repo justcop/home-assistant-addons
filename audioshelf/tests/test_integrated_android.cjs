@@ -187,7 +187,9 @@ async function testStickyMobileHeader(){
   const script=vm.runInNewContext(expression,{cssTop:50});
   const style=fs.readFileSync(path.join(directory,'app/static/style.css'),'utf8');
   const vinyl=fs.readFileSync(path.join(directory,'app/static/vinyl.css'),'utf8');
-  const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
+  const browser=await chromium.launch({headless:true,
+    executablePath:process.env.AUDIOSHELF_TEST_BROWSER||undefined,
+    args:['--no-sandbox','--disable-dev-shm-usage']});
   try{
     const page=await browser.newPage({viewport:{width:393,height:852},deviceScaleFactor:2});
     const pageHtml=`<!doctype html><html lang="en" data-interface="vinyl" class="native-android">

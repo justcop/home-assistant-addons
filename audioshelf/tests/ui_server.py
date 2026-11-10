@@ -95,7 +95,14 @@ def spotify_api(method,path,params=None,body=None):
         return {'albums':{'items':[{'id':album_id}]}}
     if path=='albums/'+album_id:return source
     if path=='albums/'+open_windows_id:return open_windows_source
-    if path=='me/player':return {'device':{'id':'phone','name':'Fixture phone'},'shuffle_state':False,'repeat_state':'off',**playback_state}
+    if path=='me/player':
+        # Match the device inventory. An unavailable phone cannot still be
+        # advertised as the active player, or the test skips the handoff.
+        if not phone_available:
+            return {'device': {'id':'speaker','name':'Speaker'},
+                    'shuffle_state':False,'repeat_state':'off'}
+        return {'device':{'id':'phone','name':'Fixture phone'},
+                'shuffle_state':False,'repeat_state':'off',**playback_state}
     if path=='me/player/pause':
         playback_state['is_playing']=False
         return {}
