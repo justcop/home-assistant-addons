@@ -152,3 +152,7 @@ button[aria-busy="true"]:after{content:"…";font-weight:800}
   .search-form input,.store-search input,input[type="search"]{font-size:16px}
   .bottom-nav a{font-size:12px}
 }
+
+/* An ID-scoped modal label rule must not break checkbox alignment. */
+#modal form label.check-option{display:flex;align-items:center;gap:10px}
+#modal form label.check-option input[type=checkbox]{width:18px;flex:none;margin:0}
