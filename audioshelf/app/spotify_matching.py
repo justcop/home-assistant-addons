@@ -394,6 +394,24 @@ class SpotifyMatching:
             examined += 1
             matches, assessments = playable.verified_choices(probe, album)
             if matches:
+                # A standard edition beats deluxe via the existing candidate
+                # score. Equally ranked, independently playable recordings are
+                # ambiguous: don't silently pick one merely by Spotify search
+                # order. Album IDs with provably equivalent full recordings
+                # can still be consolidated.
+                best_score = matches[0]['score']
+                tied = [choice for choice in matches if choice['score'] == best_score]
+                if len(tied) > 1 and hasattr(playable.spotify, 'distinct_candidates'):
+                    tied = playable.spotify.distinct_candidates(tied)
+                if len(tied) > 1:
+                    issue = failure(probe,
+                                    'More than one equally ranked Spotify edition has distinct or unverified recording identities. Choose the preferred recording in the album editor.',
+                                    tied[0])
+                    issue['spotify_alternatives'] = [
+                        {'id': choice['id'], 'name': choice['name'],
+                         'track_count': choice['track_count']}
+                        for choice in tied[:8]]
+                    return None, issue
                 return (release['id'], matches[0]['id']), None
             if assessments:
                 top = max(assessments, key=lambda c: (c['verified'], c['matched'], c['score']))
