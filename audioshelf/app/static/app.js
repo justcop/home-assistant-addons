@@ -447,8 +447,8 @@ function cover(album,large=false,loanSticker=false){return `<a class="cover-wrap
 
 function spotifyReviewMessage(status){
   const count=status?.failures||0, job=status?.job;
-  if(count)return '<strong>'+count+' '+(count===1?'album needs':'albums need')+
-    ' your attention.</strong> <a href="#review">Review unmatched albums ↗</a>';
+  if(count)return '<div class="matching-alert"><strong>'+count+' '+(count===1?'album needs':'albums need')+
+    ' a Spotify match.</strong> <a href="#review">Fix unmatched albums ↗</a></div>';
   if(job?.state==='running')return 'Matching Spotify recordings in the background ('+
     (job.processed||0)+'/'+(job.total||0)+'). You can keep browsing.';
   return '';
@@ -960,15 +960,20 @@ async function route(){
       if(isVinyl())html=vinylShelf(shelf);
     }else if(view==='review'){
       const review=await api('spotify/matching/issues');
+      const issues=review.issues||[];
       html='<a class="back" href="#shelf">← My shelf</a><div class="eyebrow">Your collection</div>'+
-        '<h1>Albums to review.</h1><p class="intro">AudioShelf handles clear matches automatically. These albums need a closer look.</p>'+
+        '<h1>Albums to review.</h1><p class="intro">AudioShelf matches albums automatically. If an album needs help, retry it, choose a complete edition, or supply a Spotify album link.</p>'+
         (review.pending?'<p class="note">'+review.pending+' '+(review.pending===1?'album is':'albums are')+' awaiting background matching.</p>':'')+
-        (review.issues.length?review.issues.map(issue=>'<section class="settings-block"><h2><a href="#album/'+id(issue.album_id)+'">'+escapeHtml(issue.title)+'</a></h2>'+
-          '<p>'+escapeHtml(issue.artist)+'</p><p class="muted">'+escapeHtml(issue.reason)+'</p>'+
-          '<p>'+issue.verified_tracks+'/'+issue.total_tracks+' tracks verified in the closest match.</p>'+
-          '<a class="secondary" href="#album/'+id(issue.album_id)+'">Review album ↗</a></section>').join(''):
-          '<p class="note">No failed matches need attention. Newly added albums are checked in the background.</p>')+
-        '<p><a class="quiet" href="#settings">Background matching details and full report ↗</a></p>';
+        (issues.length?'<p class="matching-alert" role="status"><strong>'+issues.length+' unmatched '+(issues.length===1?'album':'albums')+'</strong> need attention.</p>'+
+          issues.map(issue=>'<section class="matching-issue" aria-label="'+escapeHtml(issue.title)+' needs Spotify matching">'+
+            '<div class="matching-issue-label">Needs Spotify match</div><h2>'+escapeHtml(issue.title)+'</h2>'+
+            '<p class="muted">'+escapeHtml(issue.artist)+'</p><p>'+escapeHtml(issue.reason)+'</p>'+
+            (issue.total_tracks?'<p class="muted">'+issue.verified_tracks+'/'+issue.total_tracks+' tracks in the closest match</p>':'<p class="muted">No verified tracklist yet</p>')+
+            '<div class="actions"><button class="primary" data-action="fix-match" data-id="'+escapeHtml(issue.album_id)+'">Fix match</button>'+
+            '<button class="secondary" data-action="retry-match" data-id="'+escapeHtml(issue.album_id)+'">Retry automatic matching</button>'+
+            '<a class="quiet" href="#album/'+id(issue.album_id)+'">Open album ↗</a></div></section>').join(''):
+          '<p class="note">No unmatched albums need attention. Newly added albums are checked in the background.</p>')+
+        '<p><a class="quiet" href="#settings">Matching history and diagnostics ↗</a></p>';
     }else if(view==='listening'){
       const pile=await api('listening-pile');
       html=`<div class="eyebrow">The Listening Room</div><h1>Listening Pile.</h1><p class="intro">A little more time with records, whether they're yours or on loan.</p><div class="toolbar"><span class="count">${pile.albums.length} ${pile.albums.length===1?'record':'records'}</span><a class="secondary" href="#store">Find another record ↗</a></div>${pile.albums.length?cards(pile.albums,'listening'):empty('Your listening pile is empty.','Borrow a record from the store, or pull one from your shelf.')}`;
@@ -1371,6 +1376,24 @@ document.addEventListener('click',async event=>{
   const generation=routeGeneration;
   try {
     if(action==='retry'||action==='refresh-status')await route();
+    if(action==='fix-match'){
+      currentAlbum=await api('albums/'+id(button.dataset.id));
+      if(generation!==routeGeneration)return;
+      const a=currentAlbum;
+      showModal('<h2>Fix Spotify match</h2><p><strong>'+escapeHtml(a.title)+'</strong> by '+artistNames(a)+'</p>'+
+        '<p>Choose a complete playable tracklist or supply a Spotify album link. Your album stays on your shelf.</p>'+
+        '<div class="actions"><button class="primary" data-action="find-playable-edition">Find matching album edition</button>'+
+        (a.tracks.length?'<button class="secondary" data-action="resolve">Find Spotify recordings for these tracks</button>':'')+'</div>'+
+        (a.tracks.length?'<form id="mapping-form"><label for="review-spotify-album">Or paste a Spotify album link</label>'+
+          '<input id="review-spotify-album" name="album" required placeholder="https://open.spotify.com/album/…" />'+
+          '<button class="secondary">Try this Spotify album</button></form>':'<p class="note">No tracklist is saved yet. Start by finding a matching album edition.</p>')+
+        '<p><a href="#album/'+id(a.id)+'">Open this album to edit individual tracks ↗</a></p>');
+    }
+    if(action==='retry-match'){
+      await api('spotify/matching/issues/'+id(button.dataset.id)+'/retry','POST');
+      if(generation!==routeGeneration)return;
+      await route();toast('Album queued for another automatic Spotify check.');
+    }
     if(action==='interface'){const result=await api('settings','PUT',{interface:button.dataset.id});statusInfo.interface=result.interface;applyInterface(result.interface);await route();toast(`${result.interface==='vinyl'?'Vinyl':'Classic'} interface saved.`);}
     if(action==='flip-artwork')await loadAlbumBackCover(button);
     if(action==='shelf-expand-all')toggleAllShelves();
