@@ -317,7 +317,7 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert.equal(await page.locator('.artist-row:visible').count(),0);
     await page.locator('#artist-filter').fill('artist');
     assert.equal(await page.locator('.artist-row:visible').count(),1);
-    await page.getByRole('button',{name:'Albums',exact:true}).click();
+    await page.locator('[data-action="shelf-view"][data-view="albums"]').click();
     try {await page.locator('.album-card').waitFor({timeout:8000});}
     catch(error){console.error('Album shelf test diagnostic',await page.evaluate(()=>({hash:location.hash,view:shelfView,screen:content.innerText.slice(0,300)})));throw error;}
     await page.setViewportSize({width:1280,height:900});
