@@ -220,19 +220,13 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.locator('#toast').filter({hasText:'Playing 2 tracks on Fixture phone.'}).waitFor();
     const fixtureOptions=body=>fixtureFetch(base+'/__test/playback-options',{method:'POST',headers:{'Content-Type':'application/json','X-AudioShelf-Request':'1'},body:JSON.stringify(body)});
     async function expectHandoff(){
-      try {await page.getByRole('heading',{name:'Starting playback on Fixture phone',exact:true}).waitFor({timeout:8000});}
-      catch(error){
-        console.error('Disc handoff UI',await page.evaluate(()=>({
-          modal:document.querySelector('#modal')?.innerText,
-          toast:document.querySelector('#toast')?.textContent,
-          pending:!!pendingPlayback,
-          pendingDisc:pendingPlayback?.disc,
-          detached:pendingPlayback?.detached,
-          checkingPlayback,
-          routeGeneration
-        })));
-        throw error;
-      }
+      // The fixture can confirm playback before Playwright observes the
+      // intermediate "Starting playback" heading. Both states are valid.
+      await page.waitForFunction(()=>{
+        const text=document.querySelector('#modal')?.innerText||'';
+        return text.includes('Starting playback on Fixture phone')||
+               text.includes('Playing on Fixture phone');
+      },null,{timeout:8000});
     }
     await fixtureOptions({phone_available:false,external_album:false});
     await page.getByRole('button',{name:'Play album'}).click();
