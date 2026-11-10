@@ -474,3 +474,38 @@ def test_resolve_does_not_save_incomplete_automatic_match(application, client, m
     assert response.status_code == 200
     assert response.json['candidates'][0]['verified'] == 1
     assert store.album(ALBUM)['spotify_album_id'] is None
+
+
+def test_one_click_add_saves_existing_album_without_waiting_for_spotify_or_musicbrainz(application, client, monkeypatch):
+    from conftest import post
+    store = application.extensions['store']
+    spy = Mock()
+    monkeypatch.setattr(application.extensions['musicbrainz'], 'ensure_group',
+                        Mock(side_effect=AssertionError('Already catalogued; no network read')))
+    monkeypatch.setattr(application.extensions['spotify_matching'], 'enqueue', spy)
+    monkeypatch.setattr(store, 'clear_unverified_edition',
+                        Mock(side_effect=AssertionError('Do not throw away unverified tracklists')))
+    response = post(client, '/api/albums/'+ALBUM+'/shelf')
+    assert response.status_code == 200
+    assert response.json['on_shelf'] is True
+    assert len(response.json['tracks']) == 2
+    assert not response.json['playable']
+    assert spy.call_count == 1
+    assert spy.call_args.args[4] == ALBUM
+    assert store.album(ALBUM)['on_shelf']
+
+
+def test_matching_review_queue_shows_failures_separately_from_pending(application, client):
+    from app.spotify_matching import FAILURES, failure
+    store = application.extensions['store']
+    store.shelf(ALBUM, True)
+    before = client.get('/api/spotify/matching/issues')
+    assert before.status_code == 200
+    assert before.json['pending'] == 1
+    assert before.json['issues'] == []
+    store.set_setting(FAILURES, {ALBUM: failure(store.album(ALBUM), 'Choose a recording')})
+    after = client.get('/api/spotify/matching/issues')
+    assert after.status_code == 200
+    assert after.json['pending'] == 0
+    assert len(after.json['issues']) == 1
+    assert after.json['issues'][0]['album_id'] == ALBUM
