@@ -192,8 +192,10 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     if(screenshotDir)await page.screenshot({path:path.join(screenshotDir,'cover-picker-mobile.png'),fullPage:true});
     await page.locator('[data-action="choose-cover"]').first().click();
     await page.locator('#toast').filter({hasText:'Edition cover saved.'}).waitFor();
-    await page.getByRole('button',{name:'This tracklist is correct'}).click();
-    await page.getByRole('button',{name:'This tracklist is correct'}).waitFor({state:'hidden'});
+    // Choosing a verified replacement edition explicitly confirms the
+    // tracklist. The old first-add flow needed a separate review button.
+    assert.equal(await page.evaluate(()=>!!currentAlbum?.canonical_reviewed),true,
+      'Explicitly chosen tracklist should already be reviewed');
     await page.getByRole('button',{name:'Find another edition'}).click();
     await page.getByRole('heading',{name:'Spotify editions'}).waitFor();
     await page.getByRole('button',{name:'Close',exact:true}).click();
