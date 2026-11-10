@@ -272,19 +272,64 @@ class Spotify:
             title_options = [item for item in search_pages(f'album:"{title}"')
                              if same_album_family_title(item.get('name', ''), album['title'])]
             consider(title_options)
-        # Diagnostic only: preserve matching behaviour while identifying duplicate editions.
+        # Diagnostic only. Keep all candidate IDs and the existing matching behaviour.
         fingerprints = {}
+        details = {}
         for entry in candidates:
             album_id = entry.get('id')
             try:
                 detail = self.album(album_id)
+                details[album_id] = detail
+                tracks = detail.get('all_tracks', [])
                 fingerprint = tuple((normalize(t.get('name', '')),
-                                     t.get('duration_ms'))
-                                    for t in detail.get('all_tracks', []))
+                                     t.get('duration_ms')) for t in tracks)
                 fingerprints.setdefault(fingerprint, []).append(album_id)
+                LOG.warning('Spotify candidate detail album=%r id=%s name=%r total=%s release_date=%s album_type=%s restrictions=%s tracks=%s',
+                            album.get('title'), album_id, detail.get('name'),
+                            detail.get('total_tracks'), detail.get('release_date'),
+                            detail.get('album_type'), detail.get('restrictions'),
+                            [(t.get('disc_number'), t.get('track_number'), t.get('name'),
+                              t.get('id'), t.get('duration_ms'),
+                              (t.get('linked_from') or {}).get('id'),
+                              t.get('is_playable'), (t.get('external_ids') or {}).get('isrc'))
+                             for t in tracks])
             except Exception as exc:
-                LOG.warning('Spotify candidate fingerprint unavailable id=%s error=%s',
+                LOG.warning('Spotify candidate detail unavailable id=%s error=%s',
                             album_id, type(exc).__name__)
+        # Spotify album-track objects may omit ISRC. Fetch complete track objects
+        # only for the first few duplicate-looking editions, bounded to avoid
+        # excessive API calls and rate limits during a diagnostic run.
+        by_edition = {}
+        for entry in candidates:
+            detail = details.get(entry.get('id'))
+            if detail is not None:
+                key = (normalize(detail.get('name', '')),
+                       entry.get('verified'))
+                by_edition.setdefault(key, []).append(detail)
+        remaining = 24
+        for editions in by_edition.values():
+            if len(editions) < 2:
+                continue
+            for detail in editions[:2]:
+                track_info = []
+                for item in detail.get('all_tracks', []):
+                    if remaining <= 0:
+                        break
+                    track_id = item.get('id')
+                    if not track_id:
+                        continue
+                    remaining -= 1
+                    try:
+                        full = self.track(track_id)
+                        track_info.append((track_id, (full.get('external_ids') or {}).get('isrc'),
+                                           (full.get('linked_from') or {}).get('id'),
+                                           full.get('is_playable')))
+                    except Exception as exc:
+                        LOG.warning('Spotify diagnostic track lookup failed id=%s error=%s',
+                                    track_id, type(exc).__name__)
+                LOG.warning('Spotify candidate ISRC sample album=%r id=%s tracks=%s truncated=%s',
+                            album.get('title'), detail.get('id'), track_info,
+                            len(track_info) < len(detail.get('all_tracks', [])))
         LOG.warning('Spotify candidate matching album=%r market=%s candidates=%s equivalent_tracklists=%s',
                     album.get('title'), self.market,
                     [(c.get('id'), c.get('name'), c.get('verified'), c.get('score'))
