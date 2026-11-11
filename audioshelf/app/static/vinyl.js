@@ -183,21 +183,59 @@ function nowPlayingCover(p){
   const artwork=safe?url:p.album_id?coverUrl(p.album_id,128):null;
   return artwork?`<img class="now-playing-art" src="${escapeHtml(artwork)}" alt="" loading="eager" referrerpolicy="no-referrer">`:'<span class="now-playing-fallback" aria-hidden="true">♫</span>';
 }
+function updateNowPlayingOverflow(panel=document.querySelector('#turntable')){
+  if(!panel||panel.hidden)return;
+  for(const line of panel.querySelectorAll('.now-playing-scroll')){
+    const text=line.querySelector('.now-playing-scroll-text');
+    if(!text)continue;
+    const excess=Math.ceil(text.scrollWidth-line.clientWidth);
+    const overflowing=excess>2;
+    const previous=line.style.getPropertyValue('--scroll-distance');
+    const distance=excess+'px';
+    // Keep the animation running if only playback progress has changed.
+    if(line.classList.contains('is-overflowing')===overflowing&&
+       (!overflowing||previous===distance))continue;
+    line.classList.toggle('is-overflowing',overflowing);
+    if(overflowing){
+      line.style.setProperty('--scroll-distance',distance);
+      line.style.setProperty('--scroll-duration',Math.max(9,Math.min(50,excess/32+7))+'s');
+    }else{
+      line.style.removeProperty('--scroll-distance');
+      line.style.removeProperty('--scroll-duration');
+    }
+  }
+}
+window.addEventListener('resize',()=>requestAnimationFrame(()=>updateNowPlayingOverflow()));
+
 function renderTurntable(){
   const panel=document.querySelector('#turntable');if(!panel)return;
   panel.hidden=!isVinyl()||!statusInfo.authenticated;
-  if(panel.hidden)return;
+  if(panel.hidden){delete panel.dataset.renderKey;return;}
   const p=playbackState;
-  if(!statusInfo.spotify_connected){panel.innerHTML='<span class="turntable-disc" aria-hidden="true"></span><div><small>ON THE TURNTABLE</small><strong>Ready when you are.</strong></div><a href="#settings" class="quiet">Connect Spotify ↗</a>';return;}
-  if(!p?.active){panel.hidden=true;panel.innerHTML='';return;}
+  if(!statusInfo.spotify_connected){
+    delete panel.dataset.renderKey;
+    panel.innerHTML='<span class="turntable-disc" aria-hidden="true"></span><div><small>ON THE TURNTABLE</small><strong>Ready when you are.</strong></div><a href="#settings" class="quiet">Connect Spotify ↗</a>';
+    return;
+  }
+  if(!p?.active){panel.hidden=true;panel.innerHTML='';delete panel.dataset.renderKey;return;}
+  // Refreshing Spotify's position should not restart a long-title marquee.
+  const key=JSON.stringify([p.album,p.track,p.artist,p.artwork_url,p.album_id,
+    p.playing,p.starting,p.stale,statusInfo.role,statusInfo.show_skip_controls]);
+  if(panel.dataset.renderKey===key&&panel.querySelector('.now-playing-scroll')){
+    updateTrackProgress();
+    return;
+  }
+  panel.dataset.renderKey=key;
   const label=escapeHtml(p.album||p.track);
+  const artistAndTrack=escapeHtml(p.track)+' · '+escapeHtml(p.artist);
   const art=`<button class="now-playing-cover" data-action="now-playing-album" aria-label="Open ${label} in AudioShelf" title="View album in AudioShelf">${nowPlayingCover(p)}</button>`;
-  const text=`<div class="now-playing-details"><small>ON THE TURNTABLE <b>${p.stale?'STATUS UNAVAILABLE':p.starting?'STARTING':p.playing?'PLAYING':'PAUSED'}</b></small><strong>${label}</strong><span>${escapeHtml(p.track)} · ${escapeHtml(p.artist)}</span>${progressHtml(p)}</div>`;
+  const text=`<div class="now-playing-details"><small>ON THE TURNTABLE <b>${p.stale?'STATUS UNAVAILABLE':p.starting?'STARTING':p.playing?'PLAYING':'PAUSED'}</b></small><strong class="now-playing-scroll"><span class="now-playing-scroll-text">${label}</span></strong><span class="now-playing-scroll"><span class="now-playing-scroll-text">${artistAndTrack}</span></span>${progressHtml(p)}</div>`;
   const blocked=p.starting||p.stale||statusInfo.role==='view';
   const skips=statusInfo.show_skip_controls?`<div class="now-playing-skips"><button data-action="spotify-control" data-command="previous" aria-label="Previous track" title="Previous track" ${blocked?'disabled':''}>⏮</button><button data-action="spotify-control" data-command="next" aria-label="Next track" title="Next track" ${blocked?'disabled':''}>⏭</button></div>`:'';
   const disc=`<button class="turntable-toggle ${p.playing&&!p.stale&&!p.starting?'is-spinning':''}" data-action="spotify-control" data-command="${p.playing?'pause':'resume'}" aria-label="${p.playing?'Pause':'Resume'} Spotify" title="${p.playing?'Pause':'Resume'}" ${blocked?'disabled':''}><span class="turntable-platter" aria-hidden="true"></span><span class="turntable-tonearm" aria-hidden="true"></span></button>`;
   panel.innerHTML=`<div class="turntable-record">${art}${text}</div>${skips}${disc}`;
   updateTrackProgress();
+  requestAnimationFrame(()=>updateNowPlayingOverflow(panel));
 }
 let playbackControlBusy=false;
 async function controlSpotify(command){
