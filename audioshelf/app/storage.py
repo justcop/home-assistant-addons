@@ -177,7 +177,11 @@ class Store:
     def albums(self, artist_id=None, owned=False, pile=False):
         query = ('''SELECT a.*,s.added_at IS NOT NULL AS on_shelf,
             l.added_at IS NOT NULL AS in_listening_pile,
-            (l.added_at IS NOT NULL AND s.added_at IS NULL) AS on_loan
+            (l.added_at IS NOT NULL AND s.added_at IS NULL) AS on_loan,
+            (EXISTS(SELECT 1 FROM tracks tr WHERE tr.album_id=a.id)
+             AND NOT EXISTS(SELECT 1 FROM tracks tr WHERE tr.album_id=a.id
+               AND (tr.spotify_id IS NULL OR tr.spotify_id=''
+                    OR COALESCE(tr.verified,0)=0))) AS playable
             FROM albums a LEFT JOIN shelf s ON s.album_id=a.id
             LEFT JOIN listening_pile l ON l.album_id=a.id''')
         clauses, args = [], []
@@ -196,6 +200,7 @@ class Store:
             rows = [dict(row) for row in db.execute(query, args)]
             for row in rows:
                 row['artists'] = self._credits(db, row['id'])
+                row['playable'] = bool(row['playable'])
         return rows
 
     @staticmethod
