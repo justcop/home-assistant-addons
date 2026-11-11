@@ -120,3 +120,34 @@ def test_shelf_artists_sort_by_display_name_not_surname(application):
     store.shelf(ALBUM, True)
     assert [a['name'] for a in store.artists()] == [
         'David Bowie', 'Neil Young', 'Paul McCartney', 'The Artist']
+
+
+def test_shelf_album_playable_flag_matches_detailed_album_for_all_mapping_states(application):
+    """A list response must not falsely mark fully playable records as unmatched."""
+    store = application.extensions['store']
+    store.shelf(ALBUM, True)
+
+    def assert_consistent(expected):
+        listed = next(a for a in store.albums(owned=True) if a['id'] == ALBUM)
+        detailed = store.album(ALBUM)
+        assert listed['playable'] is expected
+        assert listed['playable'] is detailed['playable']
+
+    assert_consistent(False)
+    # An incomplete verification is still unmatched.
+    with store.connect() as db:
+        db.execute('UPDATE tracks SET spotify_id=?,verified=1 WHERE album_id=? AND position=1', ('a'*22, ALBUM))
+    assert_consistent(False)
+    # When all tracks are verified, remove the red warning without re-adding.
+    with store.connect() as db:
+        db.execute('UPDATE tracks SET spotify_id=?,verified=1 WHERE album_id=? AND position=2', ('b'*22, ALBUM))
+    assert_consistent(True)
+    assert store.albums(pile=True) == []
+
+
+def test_shelf_album_without_any_tracks_is_not_playable(application):
+    store = application.extensions['store']
+    store.shelf(ALBUM, True)
+    with store.connect() as db:
+        db.execute('DELETE FROM tracks WHERE album_id=?', (ALBUM,))
+    assert store.albums(owned=True)[0]['playable'] is False
