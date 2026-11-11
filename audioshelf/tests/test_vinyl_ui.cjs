@@ -462,6 +462,39 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert.equal(verifiedStartup.verifiedLabel,'PLAYING','Server-confirmed track must show PLAYING without a second Spotify request');
     assert.equal(verifiedStartup.playing,true);
     assert.equal(verifiedStartup.starting,false);
+    // On phones, album and track names should pan only if the text overflows.
+    await page.setViewportSize({width:390,height:844});
+    await page.emulateMedia({reducedMotion:'no-preference'});
+    const longText=await page.evaluate(async()=>{
+      playbackState={...playbackState,
+        album:'An Extremely Long Album Title That Cannot Fit Inside the Now Playing Panel on a Phone',
+        track:'A Very Long Track Name With Several Words That Cannot Fit In the Now Playing Bar',
+        artist:'An Artist With an Extremely Long Name'};
+      renderTurntable();
+      await new Promise(resolve=>requestAnimationFrame(resolve));
+      const lines=[...document.querySelectorAll('#turntable .now-playing-scroll')];
+      const measures=lines.map(line=>({
+        overflowing:line.classList.contains('is-overflowing'),
+        distance:line.style.getPropertyValue('--scroll-distance'),
+        animation:getComputedStyle(line.querySelector('.now-playing-scroll-text')).animationName,
+        excess:line.querySelector('.now-playing-scroll-text').scrollWidth-line.clientWidth,
+      }));
+      const original=lines[0].querySelector('.now-playing-scroll-text');
+      renderTurntable(); // A playback progress refresh must not restart the scroll.
+      return {measures,sameNode:original===document.querySelector('#turntable .now-playing-scroll-text')};
+    });
+    assert(longText.measures.every(m=>m.overflowing&&m.excess>2&&m.animation.includes('audioshelf-title-pan')),
+      'Both overflowing Now Playing lines must scroll automatically: '+JSON.stringify(longText));
+    assert(longText.sameNode,'Polling playback must not reset the text animation');
+    await page.emulateMedia({reducedMotion:'reduce'});
+    assert.equal(await page.locator('#turntable .now-playing-scroll-text').first().evaluate(el=>getComputedStyle(el).animationName),'none');
+    const shortText=await page.evaluate(async()=>{
+      playbackState={...playbackState,album:'A',track:'B',artist:'C'};
+      renderTurntable();
+      await new Promise(resolve=>requestAnimationFrame(resolve));
+      return [...document.querySelectorAll('#turntable .now-playing-scroll')].map(line=>line.classList.contains('is-overflowing'));
+    });
+    assert.deepEqual(shortText,[false,false],'Short Now Playing names remain still');
     assert.deepEqual(errors,[]);
     console.log('Vinyl browser checks passed: two rooms, responsive sleeves, browsing restoration, collect in place, rapid startup despite stale replies, progress/pause/track boundaries, playback independence/outage, album settings, Classic persistence.');
   }finally{if(browser)await browser.close();server.kill('SIGTERM');}
