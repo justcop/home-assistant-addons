@@ -253,3 +253,36 @@
 @media(max-width:370px){
   [data-interface=vinyl] #turntable .now-playing-details small{font-size:12px}
 }
+
+
+/* Gently pan long album/track names; leave short labels completely still. */
+#turntable .now-playing-details .now-playing-scroll{
+  display:block;
+  max-width:100%;
+  overflow:hidden;
+  white-space:nowrap;
+  text-overflow:ellipsis;
+}
+#turntable .now-playing-details .now-playing-scroll-text{
+  display:inline-block;
+  width:max-content;
+  white-space:nowrap;
+}
+#turntable .now-playing-scroll.is-overflowing{
+  text-overflow:clip;
+}
+#turntable .now-playing-scroll.is-overflowing .now-playing-scroll-text{
+  animation:audioshelf-title-pan var(--scroll-duration,14s) ease-in-out infinite alternate;
+  will-change:transform;
+}
+@keyframes audioshelf-title-pan{
+  0%,12%{transform:translateX(0)}
+  88%,100%{transform:translateX(calc(-1 * var(--scroll-distance,0px)))}
+}
+@media(prefers-reduced-motion:reduce){
+  #turntable .now-playing-scroll.is-overflowing{text-overflow:ellipsis}
+  #turntable .now-playing-scroll.is-overflowing .now-playing-scroll-text{
+    animation:none;
+    will-change:auto;
+  }
+}
