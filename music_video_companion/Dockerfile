@@ -1,4 +1,4 @@
-FROM ghcr.io/home-assistant/base:3.22
+FROM ghcr.io/home-assistant/base:3.24
 ARG BUILD_VERSION=0.5.0
 ARG BUILD_ARCH
 LABEL io.hass.version="${BUILD_VERSION}" io.hass.type="addon" io.hass.arch="${BUILD_ARCH}"
