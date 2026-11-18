@@ -1,4 +1,4 @@
-"""Rate-limited, resumable import of a user's attended setlist.fm concerts."""
+"""Resumable import of a user's attended setlist.fm concerts."""
 import datetime as dt
 import json
 import time
@@ -28,8 +28,7 @@ class AttendanceImporter:
         with self.db.connect() as conn:
             row = conn.execute("SELECT * FROM gig_attendance_sync WHERE id=1").fetchone()
             count = conn.execute("SELECT COUNT(*) FROM gigs").fetchone()[0]
-            day = self.store.today().isoformat()
-            budget_row = conn.execute("SELECT used FROM gig_requests WHERE day=?", (day,)).fetchone()
+
         user = self.config.get("setlistfm_user_id", "")
         result = dict(row) if row and row["user_id"] == user else {}
         return {
@@ -39,20 +38,8 @@ class AttendanceImporter:
             "total": result.get("total", 0),
             "last_completed": result.get("last_completed"),
             "last_error": result.get("last_error"),
-            "requests_today": budget_row[0] if budget_row else 0,
-            "daily_budget": self.config["setlist_daily_request_budget"],
+            "rate_limited": bool(self.store.api_backoff_remaining()),
         }
-
-    def _reserve(self):
-        day = self.store.today().isoformat()
-        with self.db.connect() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            row = conn.execute("SELECT used FROM gig_requests WHERE day=?", (day,)).fetchone()
-            if row and row[0] >= self.config["setlist_daily_request_budget"]:
-                return False
-            conn.execute("""INSERT INTO gig_requests(day,used) VALUES(?,1)
-                ON CONFLICT(day) DO UPDATE SET used=used+1""", (day,))
-            return True
 
     @staticmethod
     def _as_record(item):
@@ -116,9 +103,11 @@ class AttendanceImporter:
                  today.isoformat() if done else previous_complete))
         return done
 
-    def run(self, maximum=3):
+    def run(self, maximum=None):
         user = self.config.get("setlistfm_user_id") or ""
         if not user or not self.config.get("setlistfm_api_key"):
+            return 0
+        if self.store.api_backoff_remaining():
             return 0
         today = self.store.today()
         with self.db.connect() as conn:
@@ -136,8 +125,10 @@ class AttendanceImporter:
         if completed and page == 1 and (today-dt.date.fromisoformat(completed)).days < 7:
             return 0
         processed = 0
-        for _ in range(maximum):
-            if not self._reserve():
+        # No local daily request quota: continue pagination until complete,
+        # interrupted or provider-limited. Tests may cap work per invocation.
+        while maximum is None or processed < maximum:
+            if self.store.api_backoff_remaining():
                 break
             url = ("https://api.setlist.fm/rest/1.0/user/" +
                    urllib.parse.quote(user, safe="") + "/attended?p=" + str(page))
@@ -165,8 +156,11 @@ class AttendanceImporter:
                 page += 1
             except (urllib.error.HTTPError,urllib.error.URLError,ValueError,TypeError,
                     KeyError,TimeoutError,OSError,json.JSONDecodeError) as exc:
-                message = ("setlist.fm rate limit reached" if isinstance(exc,urllib.error.HTTPError)
-                           and exc.code==429 else "Attendance sync failed; will retry")
+                limited = isinstance(exc, urllib.error.HTTPError) and exc.code == 429
+                if limited:
+                    self.store.note_rate_limit(exc)
+                message = ("setlist.fm rate limit reached" if limited
+                           else "Attendance sync failed; will retry")
                 with self.db.connect() as conn:
                     conn.execute("UPDATE gig_attendance_sync SET last_error=? WHERE id=1",
                                  (message,))
