@@ -29,7 +29,7 @@
 <label><input type="checkbox" id="festivals" checked>Festivals</label>
 <div id="timeline" aria-live="polite">Choose an artist to view listening and gigs together.</div>
 </section>
-<section><h2>Gig catalogue</h2><div id="count"></div><p class="muted">setlist.fm does not expose the festival name in its API. Imported performances start unclassified until you mark them as a concert or festival.</p>
+<section><h2>Gig catalogue</h2><div id="count"></div><p class="muted">setlist.fm does not expose the festival name in its API. Listening automatically identifies festivals when three or more attended acts share a venue on one day or consecutive days. You can override any classification.</p>
 <div style="overflow-x:auto"><table><thead><tr><th>Date</th><th>Artist</th><th>Venue</th><th>Type</th><th>Setlist</th><th>Last checked</th></tr></thead><tbody id="rows"></tbody></table></div></section>
 </main><script>
 const $=id=>document.getElementById(id);
