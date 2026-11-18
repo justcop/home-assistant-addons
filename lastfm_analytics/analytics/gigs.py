@@ -29,6 +29,10 @@ def init(db):
     with db.connect() as conn:
         conn.executescript(SCHEMA)
         conn.execute("PRAGMA foreign_keys=ON")
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(gigs)")}
+        if "show_type" not in columns:
+            conn.execute("ALTER TABLE gigs ADD COLUMN show_type TEXT NOT NULL DEFAULT 'unknown'")
+            conn.execute("UPDATE gigs SET show_type='festival' WHERE festival!=''")
 
 def anniversary(d, year):
     return date(year, d.month, min(d.day, calendar.monthrange(year, d.month)[1]))
@@ -134,6 +138,16 @@ class GigStore:
                 GROUP BY period ORDER BY period""",(artist,))]
         return {"listens":rows,"gigs":self.list(artist),"granularity":granularity}
 
+    def classify(self, gig_id, kind, festival=""):
+        if kind not in ("unknown", "concert", "festival"):
+            raise ValueError("Unsupported performance type")
+        festival = str(festival or "").strip()[:256] if kind == "festival" else ""
+        with self.db.connect() as conn:
+            cur = conn.execute("UPDATE gigs SET show_type=?,festival=? WHERE id=?",
+                               (kind,festival,gig_id))
+            if cur.rowcount != 1:
+                raise ValueError("Unknown gig")
+
     def refresh(self, maximum=None):
         if not self.config.get("setlistfm_api_key"):
             return {"processed":0,"reason":"No setlist.fm API key configured"}
@@ -191,6 +205,8 @@ class GigWorker:
         self.store=store
         self.stop=threading.Event()
         self.thread=None
+        from .attendance import AttendanceImporter
+        self.importer=AttendanceImporter(store)
     def start(self):
         if self.thread is None:
             self.thread=threading.Thread(target=self.run,daemon=True,name="gig-sync")
@@ -198,6 +214,7 @@ class GigWorker:
     def run(self):
         while not self.stop.is_set():
             try:
+                self.importer.run()
                 self.store.refresh()
             except Exception:
                 # Keep the add-on running; next scheduled pass retries.
