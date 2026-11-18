@@ -287,3 +287,34 @@ before the Deezer fallback. Recognised remaster/deluxe suffixes may use the base
 album’s cover, with the artist still verified. Arriving artwork is shown even if
 other lookups are pending. Upgrading to 0.2.12 clears old cached misses once while
 preserving successful URLs. Provider failures retry after five minutes.
+
+
+## Live gig history (experimental)
+
+Open **Live gigs & timelines** from Listening's sidebar. Import a CSV containing
+`artist,date` (YYYY-MM-DD); optional columns are `venue`, `festival`,
+`setlist_url`, and `setlist_id`. The importer is idempotent for identical
+artist/date/venue combinations. Festival names distinguish festival performances
+from standalone concerts. The artist timeline overlays each type on listening
+totals (daily, weekly or monthly).
+
+Home Assistant add-on options:
+
+- `setlistfm_api_key`: optional personal setlist.fm API key.
+- `setlist_cache_retention_days`: number of days to retain API payloads
+  (default 30; configure in accordance with setlist.fm's current terms).
+- `setlist_daily_request_budget`: maximum automated requests per calendar
+  day (default 10).
+
+All setlists remain unverified; having songs does not stop future checks.
+Checks occur daily during the first week, weekly for days 8–30, monthly
+until the first anniversary and on the gig's anniversary each year thereafter.
+Missed checks remain due; retries after errors do not advance the schedule.
+A 29 February gig is checked on 28 February in non-leap years. The quota
+is persisted in SQLite and refreshed on the configured local calendar day.
+The background worker runs hourly while the add-on is started.
+
+Attendance records persist independently of the API. Cached setlist payloads
+expire automatically; expired songs are unavailable until their next scheduled
+refresh. The configured cache retention is a technical cap, **not** a grant
+of permission to store data longer than setlist.fm's API terms allow.
