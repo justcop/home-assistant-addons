@@ -1,3 +1,8 @@
+## 0.2.35
+- Fix the Live gigs interface under the strict Content Security Policy by loading its JavaScript from an external same-origin file.
+- Use Home Assistant's actual ingress prefix for gig-page links and requests.
+- Add a browser smoke test to prevent a silently blank attendance and festival dashboard.
+
 ## 0.2.30
 - Fix artist logos sometimes disappearing on song and album details: height limits now apply only to untrimmed images, keeping the full source image scale for accurate CSS alpha-boundary clipping.
 - Test that projected visible pixels, not merely the crop container, remain visible at narrow and wide phone widths and desktop in album and song details.
