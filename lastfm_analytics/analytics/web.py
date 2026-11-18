@@ -52,7 +52,7 @@ DEFAULTS = {
     "artwork_lookups": True,
     "setlistfm_api_key": "",
     "setlistfm_user_id": "",
-    "setlist_cache_retention_days": 30,
+    "setlist_cache_retention_days": 999999999,
 }
 
 
@@ -75,7 +75,7 @@ def validate_config(config):
     for key, low, high in [
         ("sync_interval_seconds", 60, 86400),
         ("reconcile_days", 2, 90),
-        ("setlist_cache_retention_days", 1, 365),
+        ("setlist_cache_retention_days", 1, 9999999999999999999999999999999999999),
     ]:
         try:
             config[key] = int(config[key])
