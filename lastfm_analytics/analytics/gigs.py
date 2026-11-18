@@ -255,7 +255,7 @@ class GigService:
         # Compare equal-length 30-day windows, excluding incomplete historical
         # coverage and recent gigs without a full post-gig observation period.
         from zoneinfo import ZoneInfo
-        tz = ZoneInfo(self.config["timezone"])
+        tz = ZoneInfo(self.config.get("timezone", "Europe/London"))
         with self.db.connect() as conn:
             earliest = conn.execute("SELECT MIN(ts) FROM scrobbles WHERE active=1").fetchone()[0]
             now = int(time.time())
