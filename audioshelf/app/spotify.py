@@ -267,6 +267,78 @@ class Spotify:
             consider(title_options)
         return sorted(candidates, key=lambda c:c['score'], reverse=True)
 
+    def distinct_candidates(self, candidates, preferred_id=None):
+        """Hide only demonstrably equivalent Spotify catalogue entries.
+
+        Spotify sometimes returns multiple album IDs with identical recordings,
+        but titles, durations and even track counts alone do NOT prove identity.
+        Keep distinct releases when ISRCs differ or evidence is missing. This
+        user-facing step is deliberately separate from discovery/matching so a
+        collapsed display cannot remove an otherwise valid matching source.
+        """
+        if len(candidates) < 2:
+            return candidates
+        kept, groups, isrc_cache = [], {}, {}
+        remaining_lookups = 48  # Bound extra Spotify requests per picker.
+
+        def isrc(track):
+            nonlocal remaining_lookups
+            track_id = track.get('id')
+            if not track_id:
+                return None
+            if track_id in isrc_cache:
+                return isrc_cache[track_id]
+            code = (track.get('external_ids') or {}).get('isrc')
+            if not code and remaining_lookups:
+                remaining_lookups -= 1
+                try:
+                    code = (self.track(track_id).get('external_ids') or {}).get('isrc')
+                except (AppError, requests.RequestException):
+                    pass  # Inconclusive: retain both editions.
+            isrc_cache[track_id] = code.upper() if isinstance(code, str) and code else None
+            return isrc_cache[track_id]
+
+        for choice in candidates:
+            try:
+                source = self.album(choice['id'])
+            except (AppError, requests.RequestException):
+                kept.append(choice)
+                continue
+            tracks = source.get('all_tracks') or []
+            if not tracks:
+                kept.append(choice)
+                continue
+            # Strict equivalence requires the same *whole* release, including
+            # bonus material, disc order, titles, durations and edition label.
+            signature = (
+                normalize(source.get('name', '')),
+                source.get('album_type', ''),
+                tuple((t.get('disc_number', 1), t.get('track_number'),
+                       normalize(t.get('name', '')), t.get('duration_ms'))
+                      for t in tracks),
+            )
+            equivalent_index = None
+            for index, other_tracks in groups.get(signature, []):
+                if all(a.get('id') and a.get('id') == b.get('id')
+                       for a, b in zip(tracks, other_tracks)):
+                    equivalent_index = index
+                    break
+                # Spotify track IDs can differ for the same registered audio.
+                # Without complete matching ISRC evidence, do not collapse.
+                if all(a.get('id') and b.get('id') and isrc(a) and isrc(a) == isrc(b)
+                       for a, b in zip(tracks, other_tracks)):
+                    equivalent_index = index
+                    break
+            if equivalent_index is None:
+                index = len(kept)
+                kept.append(choice)
+                groups.setdefault(signature, []).append((index, tracks))
+            elif choice['id'] == preferred_id:
+                # Keep an existing user selection stable when two entries
+                # demonstrably contain the same audio.
+                kept[equivalent_index] = choice
+        return kept
+
     def labelled_editions(self, album):
         """Discover alternate Spotify edition labels once per unresolved album.
 

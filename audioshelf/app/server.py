@@ -17,12 +17,13 @@ from werkzeug.security import check_password_hash
 from types import SimpleNamespace
 
 from .accounts import Accounts
+from .cloudflare_access import CloudflareAccess
 from .listening_links import shelf_matches
 from .lastfm_import import LastFmImporter
 
 from .artwork import Artwork
 from .artwork_refresh import ArtworkRefresh
-from .spotify_matching import SpotifyMatching, report_text, PAUSE_UNTIL
+from .spotify_matching import SpotifyMatching, report_text, PAUSE_UNTIL, current_failures, eligible
 from .shelf_edition_audit import ShelfEditionAudit, audit_report
 from .errors import AppError
 from .matching import candidate, track_score
@@ -92,6 +93,8 @@ def create_app(options=None):
                                     playable_releases=playable_releases)
     accounts = Accounts(collection, cache, private_dir, options, owner_context)
     app.extensions['accounts'] = accounts
+    access = CloudflareAccess(options)
+    app.extensions['cloudflare_access'] = access
     lastfm_import = LastFmImporter()
     app.extensions['lastfm_import'] = lastfm_import
     artwork_refresh = ArtworkRefresh()
@@ -114,6 +117,13 @@ def create_app(options=None):
         g.account = accounts.get(session.get('account', 'owner'))
         g.context = owner_context
         g.identity = None
+        g.access_claims = None
+        if access.enabled and not ingress() and not request.path.startswith('/api/helper/playback-handoff/') and request.path not in {'/auth/android/exchange', '/health'}:
+            g.access_claims = access.verify(request.headers.get('Cf-Access-Jwt-Assertion'))
+            g.account = accounts.from_access(g.access_claims, access.owner_email)
+        elif access.enabled:
+            # Legacy browser cookies never select accounts in Cloudflare mode.
+            g.account = accounts.get('owner')
         if g.account and not g.account['disabled']:
             g.context = accounts.context(g.account['id'])
 
@@ -124,6 +134,11 @@ def create_app(options=None):
     def identity():
         if not g.account or g.account['disabled']:
             return None
+        if access.enabled:
+            if g.access_claims:
+                return {'role': 'owner', 'cloudflare': True, 'expires': g.access_claims['exp'],
+                        'token': hashlib.sha256((g.access_claims['iss'] + ':' + g.access_claims['sub']).encode()).hexdigest()}
+            return {'role': 'owner', 'ingress': True} if ingress() else None
         # Ingress grants implicit access only to the existing owner library.
         # Explicit sessions take precedence, including when using ingress.
         if session.get('sid'):
@@ -137,6 +152,12 @@ def create_app(options=None):
 
     @app.before_request
     def protect():
+        if access.enabled and (request.path in {'/api/login', '/api/login/ingress', '/api/accounts'} and request.method == 'POST'
+                               or request.path.startswith('/api/security/') and request.method != 'GET'):
+            raise AppError('Login and account security are managed through Cloudflare and Google.', 403)
+        if access.enabled and request.path.startswith('/api/accounts/') and request.method == 'PUT':
+            if set(request.get_json(silent=True) or {}) != {'disabled'}:
+                raise AppError('Only account status can be changed. Login is managed by Cloudflare.', 403)
         if request.method in {'POST','PUT','PATCH','DELETE'}:
             if request.headers.get('X-AudioShelf-Request') != '1' or not request.is_json:
                 raise AppError('Please perform this action from AudioShelf.', 403)
@@ -171,7 +192,7 @@ def create_app(options=None):
     def owner_reauth():
         if not g.identity or g.identity['role'] != 'owner':
             raise AppError('Owner access required.', 403)
-        if g.identity.get('ingress'):
+        if g.identity.get('ingress') or g.identity.get('cloudflare'):
             return
         security.throttle(request.remote_addr)
         if not security.owner_credentials(request.json.get('password'), request.json.get('code')):
@@ -243,14 +264,61 @@ def create_app(options=None):
         response.headers['Cache-Control'] = 'no-store'
         return response
 
+    @app.get('/auth/android/start')
+    def android_login_start():
+        from urllib.parse import urlencode
+        import re
+        if not access.enabled or not g.access_claims:
+            raise AppError('Cloudflare login is required.', 403)
+        challenge, state = request.args.get('challenge', ''), request.args.get('state', '')
+        if not re.fullmatch(r'[A-Za-z0-9_-]{43}', challenge) or not re.fullmatch(r'[A-Za-z0-9_-]{32,128}', state):
+            raise AppError('Start sign-in again from the AudioShelf app.', 400)
+        code = secrets.token_urlsafe(32)
+        with accounts.connect() as db:
+            db.execute('CREATE TABLE IF NOT EXISTS android_login (code TEXT PRIMARY KEY, challenge TEXT, token TEXT, expires REAL)')
+            db.execute('DELETE FROM android_login WHERE expires<?', (time.time(),))
+            db.execute('INSERT INTO android_login VALUES (?,?,?,?)',
+                       (hashlib.sha256(code.encode()).hexdigest(), challenge,
+                        request.headers['Cf-Access-Jwt-Assertion'], min(time.time()+60, g.access_claims['exp'])))
+        callback = 'audioshelf-login://callback?' + urlencode({'code': code, 'state': state})
+        return render_template('android_login.html', callback=callback)
+
+    @app.post('/auth/android/exchange')
+    def android_login_exchange():
+        import base64
+        import hmac
+        import re
+        if not access.enabled:
+            raise AppError('Cloudflare login is not configured.', 403)
+        owner_context.security.throttle(request.remote_addr)
+        code, verifier = request.json.get('code', ''), request.json.get('verifier', '')
+        if not isinstance(code, str) or not isinstance(verifier, str) or not re.fullmatch(r'[A-Za-z0-9_-]{43,128}', verifier):
+            raise AppError('Invalid app sign-in.', 400)
+        challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip('=')
+        with accounts.connect() as db:
+            db.execute('CREATE TABLE IF NOT EXISTS android_login (code TEXT PRIMARY KEY, challenge TEXT, token TEXT, expires REAL)')
+            row = db.execute('SELECT * FROM android_login WHERE code=?', (hashlib.sha256(code.encode()).hexdigest(),)).fetchone()
+            if not row or row['expires'] <= time.time() or not hmac.compare_digest(row['challenge'], challenge):
+                raise AppError('App sign-in expired. Sign in again.', 401)
+            db.execute('DELETE FROM android_login WHERE code=?', (row['code'],))
+        claims = access.verify(row['token'])
+        accounts.from_access(claims, access.owner_email)
+        owner_context.security.clear_attempts(request.remote_addr)
+        return jsonify(access_token=row['token'], expires=claims['exp'])
+
     @app.get('/api/status')
     def status():
         # Do not launch expensive catalogue scans from ordinary navigation or
         # playback-status requests. Imports, OAuth and Matching Settings kick
         # the independent worker instead.
         result = {'build':build,'authenticated':authenticated(),'password_required':not bool((identity() or {}).get('ingress')), 'password_configured':bool(password) or len(accounts.listing()) > 1, 'two_factor_enabled':bool(security.get('totp')), 'ingress_available':ingress()}
+        if access.enabled:
+            result.update(auth_provider='cloudflare', password_required=False, password_configured=False,
+                          two_factor_enabled=False)
         if authenticated():
-            result.update(account={'id':g.account['id'], 'username':g.account['username'], 'admin':g.account['id']=='owner' and identity()['role']=='owner'}, role=identity()['role'], spotify_configured=spotify.configured, spotify_connected=spotify.connected,
+            if access.enabled and g.access_claims:
+                accounts.display_name(g.account['id'], access.display_name(request.headers.get('Cf-Access-Jwt-Assertion'), g.access_claims))
+            result.update(account={'id':g.account['id'], 'username':accounts.display_name(g.account['id']) if access.enabled else g.account['username'], 'admin':g.account['id']=='owner' and identity()['role']=='owner'}, role=identity()['role'], spotify_configured=spotify.configured, spotify_connected=spotify.connected,
                           spotify_redirect_uri=spotify.redirect_uri, spotify_client_id=spotify.client_id, data_directory=str(store.directory), cache_directory=str(store.cache_directory), market=spotify.market,
                           release_filters=store.release_filters(), interface=store.setting('interface', 'vinyl'), shelf_style=store.setting('shelf_style', 'floating'), theme=store.setting('theme', 'record-store'), themes=THEMES, preferred_device=store.setting('preferred_device'), show_skip_controls=store.setting('show_skip_controls', False))
         return jsonify(result)
@@ -355,7 +423,7 @@ def create_app(options=None):
         handoff.cancel_all('logout')
         security.logout(session.get('sid')); security.forget_trust(request.cookies.get('audioshelf_trusted')); session.clear()
         session['require_login'] = True
-        response = jsonify(ok=True)
+        response = jsonify(ok=True, logout_url='/cdn-cgi/access/logout' if access.enabled else None)
         response.delete_cookie('audioshelf_trusted', secure=True, httponly=True, samesite='Lax')
         return response
 
@@ -368,7 +436,11 @@ def create_app(options=None):
     @app.get('/api/accounts')
     def list_accounts():
         require_admin()
-        return jsonify(accounts=accounts.listing())
+        rows = accounts.listing()
+        if access.enabled:
+            for row in rows:
+                row['username'] = accounts.display_name(row['id'])
+        return jsonify(accounts=rows)
 
     @app.post('/api/accounts')
     def create_account():
@@ -399,6 +471,9 @@ def create_app(options=None):
 
     @app.get('/api/security')
     def security_overview():
+        if access.enabled:
+            return jsonify(auth_provider='cloudflare', two_factor=False, ingress=ingress(),
+                           email=g.access_claims['email'] if g.access_claims else None)
         return jsonify({**security.overview(), 'ingress':bool(g.identity.get('ingress'))})
 
     @app.post('/api/security/totp/start')
@@ -447,7 +522,7 @@ def create_app(options=None):
         name = request.args.get('name', '')[:256]
         albums = request.args.getlist('album')[:10]
         return jsonify(matches=shelf_matches(store, kind, artist, name, albums),
-                       account=g.account['username'])
+                       account=accounts.display_name(g.account['id']) if access.enabled else g.account['username'])
 
     def lastfm_owner():
         if not g.identity or g.identity['role'] != 'owner':
@@ -492,7 +567,52 @@ def create_app(options=None):
 
     @app.get('/api/shelf')
     def shelf():
-        return jsonify(artists=store.artists(),albums=store.albums(owned=True))
+        status = spotify_matching.status(g.account['id'], g.context.store)
+        return jsonify(artists=store.artists(), albums=store.albums(owned=True),
+                       match_status=status)
+
+    @app.get('/api/spotify/matching/issues')
+    def spotify_matching_issues():
+        if g.identity['role'] != 'owner':
+            raise AppError('Only the account owner can review Spotify matching.', 403)
+        failures = current_failures(g.context.store)
+        # Pending albums have not failed; keep them separate from decisions
+        # actually requiring user attention.
+        pending = sum(1 for row in g.context.store.albums(owned=True)
+                      if eligible(g.context.store.album(row['id']))
+                      and row['id'] not in failures)
+        issues = [{'album_id': issue['album_id'], 'title': issue['title'],
+                   'artist': issue['artist'], 'reason': issue['reason'],
+                   'verified_tracks': issue.get('verified_tracks', 0),
+                   'total_tracks': issue.get('total_tracks', 0)}
+                  for issue in failures.values()]
+        issues.sort(key=lambda item: (item['artist'].casefold(), item['title'].casefold()))
+        return jsonify(issues=issues, pending=pending,
+                       job=spotify_matching.status(g.account['id'], g.context.store)['job'])
+
+    @app.post('/api/spotify/matching/issues/<album_id>/retry')
+    def spotify_matching_retry_album(album_id):
+        if g.identity['role'] != 'owner':
+            raise AppError('Only the account owner can retry Spotify matching.', 403)
+        album_id = mbid(album_id)
+        album = store.album(album_id)
+        if not eligible(album):
+            raise AppError('This album has already been matched or is not on your shelf.', 409)
+        if not g.context.spotify.connected:
+            raise AppError('Connect Spotify in Settings before retrying.', 409)
+        with store.catalogue_lock:
+            saved = store.setting('spotify_matching_failures_v1', {}) or {}
+            if album_id in saved:
+                saved.pop(album_id)
+                store.set_setting('spotify_matching_failures_v1', saved)
+            spotify_matching.enqueue(g.account['id'], g.context.store,
+                g.context.spotify, g.context.playable_releases, album_id,
+                enabled=accounts.enabled)
+        return jsonify(queued=True, album_id=album_id), 202
+
+    @app.get('/api/listening-pile')
+    def listening_pile():
+        return jsonify(albums=store.albums(pile=True))
 
     @app.get('/api/search')
     def search():
@@ -570,7 +690,8 @@ def create_app(options=None):
             existing = store.album(album_id)
             # An unresolved shelf album must not accidentally regain the
             # first unverified MusicBrainz pressing when its page is opened.
-            return jsonify(existing if existing['on_shelf'] else musicbrainz.ensure_tracks(album_id))
+            return jsonify(existing if existing['on_shelf'] or existing['in_listening_pile']
+                           else musicbrainz.ensure_tracks(album_id))
 
     @app.post('/api/artwork/refresh')
     def begin_artwork_refresh():
@@ -697,7 +818,12 @@ def create_app(options=None):
     def add_shelf(album_id):
         album_id = mbid(album_id)
         with store.catalogue_lock:
-            musicbrainz.ensure_group(album_id)
+            # Record Store searches already save and validate album identities.
+            # Don't refetch MusicBrainz (or wait for Spotify) on every add.
+            try:
+                existing = store.album(album_id)
+            except KeyError:
+                existing = musicbrainz.ensure_group(album_id)
             payload = request.get_json(silent=True) or {}
             if payload.get('release_id') or payload.get('spotify_album_id'):
                 if not payload.get('release_id') or not payload.get('spotify_album_id'):
@@ -706,13 +832,64 @@ def create_app(options=None):
                     payload['spotify_album_id'], reviewed=False, add_to_shelf=True,
                     split_sides=payload.get('split_sides', False))
                 return jsonify(album)
-            # Compatibility route: add an album identity but do not accept
-            # an unverified MusicBrainz tracklist as the final edition.
-            store.clear_unverified_edition(album_id)
-            store.shelf(album_id,True)
-            spotify_matching.start(g.account['id'], g.context.store,
-                g.context.spotify, g.context.playable_releases,
-                enabled=accounts.enabled, automatic=True)
+            # A borrowed, Spotify-verified record is already fully prepared;
+            # keeping it must not clear its chosen edition or track mappings.
+            if existing['on_shelf']:
+                return jsonify(existing)
+            if existing['on_loan'] and existing['playable']:
+                store.shelf(album_id, True)
+                return jsonify(store.album(album_id))
+            # Membership is committed immediately. Do not resolve, clear or
+            # replace a user-selected tracklist as a side effect of adding.
+            store.shelf(album_id, True)
+            if not existing['playable']:
+                spotify_matching.enqueue(g.account['id'], g.context.store,
+                    g.context.spotify, g.context.playable_releases, album_id,
+                    enabled=accounts.enabled)
+            return jsonify(store.album(album_id))
+
+    @app.post('/api/albums/<album_id>/borrow')
+    def borrow_album(album_id):
+        album_id = mbid(album_id)
+        payload = request.get_json(silent=True) or {}
+        if (payload.get('confirmed') is not True or not payload.get('release_id')
+                or not payload.get('spotify_album_id')):
+            raise AppError('Choose a fully Spotify-matched edition to borrow.')
+        with store.catalogue_lock:
+            musicbrainz.ensure_group(album_id)
+            current = store.album(album_id)
+            if current['on_shelf']:
+                raise AppError('This record is already yours. Add it to the Listening Pile instead.', 409)
+            if current['on_loan']:
+                return jsonify(current)
+            playable_releases.select(album_id, payload['release_id'],
+                payload['spotify_album_id'], reviewed=False,
+                split_sides=payload.get('split_sides', False))
+            store.pile(album_id, True)
+            return jsonify(store.album(album_id))
+
+    @app.post('/api/albums/<album_id>/listening-pile')
+    def add_to_listening_pile(album_id):
+        album_id = mbid(album_id)
+        with store.catalogue_lock:
+            try:
+                album = store.album(album_id)
+            except KeyError:
+                raise AppError('Add this record to your shelf or borrow it first.', 404) from None
+            if not album['on_shelf']:
+                raise AppError('Borrow this record before putting it in your Listening Pile.', 409)
+            store.pile(album_id, True)
+            return jsonify(store.album(album_id))
+
+    @app.delete('/api/albums/<album_id>/listening-pile')
+    def remove_from_listening_pile(album_id):
+        album_id = mbid(album_id)
+        with store.catalogue_lock:
+            try:
+                store.album(album_id)
+            except KeyError:
+                raise AppError('Record not found.', 404) from None
+            store.pile(album_id, False)
             return jsonify(store.album(album_id))
 
     @app.delete('/api/albums/<album_id>/shelf')
@@ -760,7 +937,8 @@ def create_app(options=None):
             raise AppError('Confirm the edition change. It replaces the canonical tracks and clears Spotify mappings.')
         with store.catalogue_lock:
             payload = request.json
-            if store.album(mbid(album_id))['on_shelf'] and not payload.get('spotify_album_id'):
+            if (store.album(mbid(album_id))['on_shelf'] or
+                    store.album(mbid(album_id))['in_listening_pile']) and not payload.get('spotify_album_id'):
                 raise AppError('A shelf edition must have every track verified on Spotify before it can be saved.', 409)
             if payload.get('spotify_album_id'):
                 return jsonify(playable_releases.select(mbid(album_id), payload.get('release_id'),
@@ -791,7 +969,7 @@ def create_app(options=None):
     def resolve(album_id):
         with store.catalogue_lock:
             album = store.album(mbid(album_id))
-            if album['on_shelf'] and not album['tracks']:
+            if (album['on_shelf'] or album['in_listening_pile']) and not album['tracks']:
                 raise AppError('No verified canonical tracklist is saved. Choose Find playable edition first.', 409)
             if not album['tracks']:
                 album = musicbrainz.ensure_tracks(mbid(album_id))
@@ -805,8 +983,21 @@ def create_app(options=None):
                 c if n < 3 else {k: v for k, v in c.items() if k != 'mappings'} for n, c in enumerate(candidates[:30])]})
             if not candidates:
                 raise AppError('No Spotify edition found. Paste a Spotify album link in album settings.')
-            store.mapping(album_id,candidates[0])
-            return jsonify(album=store.album(album_id),candidates=candidates)
+            count = len(album['tracks'])
+            complete = [c for c in candidates if count and c['verified'] == count
+                        and c['matched'] == count]
+            # Don't show singles or live snippets beside complete playable albums.
+            # If no full release exists, keep useful near-matches for manual repair.
+            alternatives = complete or [
+                c for c in candidates if c['track_count'] >= count and c['verified']
+            ] or candidates[:5]
+            alternatives = spotify.distinct_candidates(
+                alternatives, preferred_id=album.get('spotify_album_id'))
+            # Finding alternatives is not consent to replace a user's current
+            # playable mapping. Also never persist a partial automatic match.
+            if complete and not album['playable']:
+                store.mapping(album_id, complete[0])
+            return jsonify(album=store.album(album_id), candidates=alternatives)
 
     @app.post('/api/albums/<album_id>/mapping')
     def choose_mapping(album_id):
@@ -876,12 +1067,18 @@ def create_app(options=None):
         spotify.play_tracks(album, disc)  # Validate before accepting background work.
         token = session.get('sid')
         ingress_request = bool(g.identity.get('ingress'))
+        access_expiry = g.identity.get('expires') if g.identity.get('cloudflare') else None
         context = g.context  # Capture real objects: workers have no Flask request context.
         identifier = g.account['id']
         version = context.security.version()
         def authorized():
             enabled = accounts.enabled(identifier)
-            person = context.security.identity(token) if not ingress_request else {'role': 'owner'}
+            if ingress_request:
+                person = {'role': 'owner'}
+            elif access.enabled:
+                person = {'role': 'owner'} if access_expiry and time.time() < access_expiry else None
+            else:
+                person = context.security.identity(token)
             return bool(enabled and context.security.version() == version
                         and person and person['role'] in ('owner', 'control'))
         return jsonify(handoff.start(album, disc, preferred, playback_owner(), authorized,
@@ -996,12 +1193,14 @@ def create_app(options=None):
     def callback():
         try:
             identifier = accounts.oauth_account(request.args.get('state',''))
+            if access.enabled and identifier != g.account['id']:
+                raise AppError('Connect Spotify from the same Google account that started the request.', 403)
             g.context = accounts.context(identifier)
             spotify.callback(request.args.get('code',''),request.args.get('state',''),bool(request.args.get('error')))
             g.context.store.set_setting(PAUSE_UNTIL, 0)  # A new authorization clears old outage backoff.
             spotify_matching.ensure_started(identifier, g.context.store, g.context.spotify,
                 g.context.playable_releases, enabled=accounts.enabled)
-            message = 'Spotify is connected for '+accounts.get(identifier)['username']+'. Return to that AudioShelf account and play an album.'
+            message = 'Spotify is connected for '+(accounts.display_name(identifier) if access.enabled else accounts.get(identifier)['username'])+'. Return to that AudioShelf account and play an album.'
             ok = True
         except AppError as error:
             message,ok = str(error),False

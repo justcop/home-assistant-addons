@@ -1,3 +1,20 @@
+## 0.6.44
+
+- Add a separate Listening Room with a single Listening Pile using the existing vinyl shelf furniture. Owned albums can stay on their main shelves while temporarily appearing in the pile.
+- Borrow albums straight from the Record Store with the same fully verified MusicBrainz and Spotify edition picker used by Add to Shelf. Loans appear only in the Listening Pile with a corner LOAN sticker.
+- Keep borrowed records by adding them to the permanent shelf without changing the chosen edition or removing them from the pile. Return loans or remove owned albums from the pile independently.
+- Include persistence and ownership/loan regression tests. No listening reasons, targets or automatic removals.
+
+## 0.6.43
+
+- Display the Google profile name supplied through Cloudflare login instead of the internal owner username. Keep account identifiers, libraries and permissions unchanged; retain the last known name for Home Assistant ingress and temporary identity-service outages.
+
+## 0.6.42
+
+- Add Cloudflare Access Google single sign-on, with verified JWT identity on every standalone request. Link the configured owner email to the existing library; automatically create separate accounts for other approved identities.
+- Cloudflare mode removes the separate AudioShelf password, authenticator, trusted-browser and support-login flows. Home Assistant ingress remains available to the owner.
+- Android 0.2.22 signs in through the system browser and returns using a one-use PKCE exchange. Native playback retains its existing per-job bearer tokens.
+
 # 0.6.41 — Verified Spotify album playback context
 
 - Android App Remote starts a Spotify album context instead of appending individual songs when the exact complete Spotify album tracklist matches AudioShelf's verified canonical album.

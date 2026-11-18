@@ -15,11 +15,19 @@ function applyInterface(value){
 }
 function interfaceSettings(){return `<p>Choose how to browse your records. This choice is saved across your devices.</p><div class="interface-choices">${[['vinyl','Vinyl','Front-facing sleeves. A record store to explore, a shelf to come home to.'],['classic','Classic','The original AudioShelf interface, with artist lists and a compact album grid.']].map(([value,title,description])=>`<button class="interface-choice" data-action="interface" data-id="${value}" aria-pressed="${statusInfo.interface===value}"><span class="interface-preview ${value}" aria-hidden="true"><i></i><i></i><i></i></span><strong>${title}</strong><small>${description}</small></button>`).join('')}</div>`;}
 function vinylHeading(kicker,title,description,detail=''){return `<header class="room-heading"><div><div class="eyebrow">${kicker}</div><h1>${title}</h1><p class="intro">${description}</p></div>${detail?`<div class="room-detail">${detail}</div>`:''}</header>`;}
-function vinylCards(albums,room=document.documentElement.dataset.room){return `<div class="record-rack ${room==='store'?'store-rack':'shelf-rack'}">${albums.map(a=>`<article class="album-card sleeve" data-album="${escapeHtml(a.id)}">${cover(a)}<div class="sleeve-caption"><a class="album-title" href="#album/${id(a.id)}">${escapeHtml(a.title)}</a><div class="album-meta">${year(a)}</div></div>${room==='store'?`<div class="store-ticket"><span>${artistNames(a)}</span>${a.on_shelf?'<span class="owned-mark">✓ On your shelf</span>':`<button class="card-action" data-action="add" data-id="${escapeHtml(a.id)}" aria-label="Add ${escapeHtml(a.title)} to shelf">+ Add to shelf</button>`}</div>`:''}</article>`).join('')}</div>`;}
+function vinylCards(albums,room=document.documentElement.dataset.room){
+  return `<div class="record-rack ${room==='store'?'store-rack':'shelf-rack'}">${albums.map(a=>`<article class="album-card sleeve" data-album="${escapeHtml(a.id)}">${cover(a,false,room==='listening'&&a.on_loan)}${a.on_shelf&&!a.playable&&room!=='store'?'<a class="match-needed-label" href="#review">Needs Spotify match</a>':''}<div class="sleeve-caption"><a class="album-title" href="#album/${id(a.id)}">${escapeHtml(a.title)}</a><div class="album-meta">${year(a)}</div></div>${room==='store'?`<div class="store-ticket"><span>${artistNames(a)}</span>${a.on_shelf?'<span class="owned-mark">✓ On your shelf</span>':a.on_loan?'<span class="owned-mark">On loan</span>':`<div class="store-card-actions"><button class="card-action" data-action="add" data-id="${escapeHtml(a.id)}" aria-label="Add ${escapeHtml(a.title)} to shelf">+ Add to shelf</button><button class="card-action" data-action="borrow" data-id="${escapeHtml(a.id)}" aria-label="Borrow ${escapeHtml(a.title)}">Borrow</button></div>`}</div>`:''}</article>`).join('')}</div>`;
+}
 function artistDivider(artist,count,store=false){return `<div class="artist-divider"><a href="#artist/${id(artist.id)}${store?'/store':''}">${escapeHtml(artist.name)} <span aria-hidden="true">↗</span></a><span>${count} ${count===1?'record':'records'}</span></div>`;}
 function vinylShelf(shelf){
-  return vinylHeading('Your listening room','My shelf.','Something good deserves a whole side of your day.',`<strong>${shelf.albums.length}</strong><span>records collected</span>`)+
+  return vinylHeading('Your collection','My shelf.','Something good deserves a whole side of your day.',`<strong>${shelf.albums.length}</strong><span>records collected</span>`)+
+    `<div id="shelf-match-notice" role="status">${spotifyReviewMessage(shelf.match_status)}</div>`+ 
     (!shelf.albums.length?empty('Your first record awaits.','Find an artist, choose an album, make it yours.'):`<div class="room-toolbar"><label for="shelf-filter">Find a record</label><input id="shelf-filter" type="search" placeholder="Artist or album" value="${escapeHtml(shelfFilter)}"><a class="quiet" href="#store">Make room for another ↗</a></div><div class="shelf-layout"><button class="quiet" data-action="shelf-expand-all" aria-expanded="${allShelvesExpanded}">${allShelvesExpanded?'Collapse all':'Expand all'}</button></div><div class="collection-shelves" data-layout="${shelfLayout()}">${shelf.artists.map(a=>{const albums=shelf.albums.filter(b=>b.artists.some(artist=>artist.id===a.id));return `<section class="artist-shelf" data-shelf-id="${escapeHtml(a.id)}" data-shelf-artist="${escapeHtml(a.name.toLowerCase())}">${artistDivider(a,albums.length)}<div class="shelf-artist-bar"><button class="shelf-artist-toggle" data-action="shelf-artist" aria-expanded="false" aria-controls="shelf-records-${escapeHtml(a.id)}"><strong>${escapeHtml(a.name)}</strong><span>${albums.length} ${albums.length===1?'record':'records'}</span><span class="shelf-chevron" aria-hidden="true">⌄</span></button><div class="shelf-artist-actions"><a class="quiet shelf-artist-link" href="#artist/${id(a.id)}/store" aria-label="More from ${escapeHtml(a.name)} in the record store">More from ↗</a></div></div><div class="shelf-records" id="shelf-records-${escapeHtml(a.id)}">${vinylCards(albums,'shelf')}<span class="rail-ledge" aria-hidden="true"></span></div></section>`;}).join('')}</div><p id="shelf-no-results" class="muted" hidden>No records match that search.</p>`);
+}
+function vinylListeningPile(pile){
+  return vinylHeading('The Listening Room','Listening Pile.','Records you want to spend a little more time with.',`<strong>${pile.albums.length}</strong><span>records to explore</span>`)+
+    (pile.albums.length?`<div class="room-toolbar"><span class="count">Yours and on loan, together on one shelf</span><a class="quiet" href="#store">Find another record ↗</a></div><div class="listening-pile">${vinylCards(pile.albums,'listening')}</div>`:
+      empty('Your Listening Pile is empty.','Borrow a record from the store or pick one from your collection.'));
 }
 function vinylStore(shelf){
   if(storeSearch.kind==='album'){const owned=new Set(shelf.albums.map(a=>a.id));for(const a of storeSearch.results||[])a.on_shelf=owned.has(a.id);}
@@ -32,7 +40,7 @@ function vinylSearchResults(){
   if(storeSearch.kind==='artist')return `<div class="artist-bins">${results.map((a,index)=>`<a class="artist-bin search-result" href="#artist/${id(a.id)}/store"><span class="bin-index">${String(index+1).padStart(2,'0')}</span><strong>${escapeHtml(a.name)}</strong><small>${escapeHtml([a.disambiguation,a.country,a.type].filter(Boolean).join(' · '))} ↗</small></a>`).join('')}</div>`;
   const groups=new Map();
   for(const album of results){const artist=album.artists?.[0]||{id:'',name:'Albums'};if(!groups.has(artist.id))groups.set(artist.id,{artist,albums:[]});groups.get(artist.id).albums.push(album);}
-  return [...groups.values()].map(({artist,albums})=>`<section class="store-bin">${artistDivider(artist,albums.length,true)}${vinylCards(albums,'store')}</section>`).join('');
+  return [...groups.values()].sort((a,b)=>a.artist.name.localeCompare(b.artist.name,undefined,{sensitivity:'base'})).map(({artist,albums})=>`<section class="store-bin">${artistDivider(artist,albums.length,true)}${vinylCards(albums,'store')}</section>`).join('');
 }
 function vinylArtist(result,key,mode){
   const store=mode==='store';
@@ -42,8 +50,8 @@ function vinylAlbum(album){
   const back=albumOrigin||`#${album.on_shelf?'shelf':'store'}`;
   const discCount=albumDiscs(album).length;
   const needsReview=album.tracks.length>0&&album.playable&&!album.canonical_reviewed;
-  const primary=album.on_shelf?'<button class="primary" data-action="play" '+(album.tracks.length?'':'disabled')+'>▶ Play album</button>':`<button class="primary" data-action="add" data-id="${escapeHtml(album.id)}">+ Add to shelf</button>`;
-  return `<a class="back" href="${escapeHtml(back)}">← Back to browsing</a><div class="listening-layout"><div class="listening-sleeve">${albumArtwork(album)}<div class="sleeve-footnote"><span>${year(album)}</span><span>${album.on_shelf?'FROM YOUR COLLECTION':'FROM THE RECORD STORE'}</span></div><div class="actions">${primary}${album.on_shelf&&!album.playable?'<button class="secondary" data-action="find-playable-edition">Find playable edition</button>':''}<button class="quiet" data-action="playback-devices">Change device</button><button class="quiet" data-action="album-settings">Album settings ↗</button></div><p class="listening-hint">${album.on_shelf?'The whole album. In its own time.':'A place on your shelf, whenever you’re ready.'}</p></div><section class="record-liner"><div class="eyebrow">${artistNames(album)}</div><h1>${escapeHtml(album.title)}</h1><p class="liner-summary">${album.tracks.length} tracks · ${duration(album.tracks.reduce((sum,t)=>sum+(t.duration_ms||0),0))}${discCount>1?` · ${discCount} discs`:''}</p>${needsReview?`<div class="tracklist-review"><strong>One check before the first listen</strong><p>Does this look like the original tracklist?</p><button class="secondary" data-action="review">This tracklist is correct ✓</button><button class="quiet" data-action="album-settings">Choose another tracklist</button></div>`:''}${!album.tracks.length?`<div class="note">No Spotify-verified original tracklist is saved. AudioShelf is checking other official editions in the background. Find playable edition can select a fully matched version.</div>`:""}${trackRows(album)}<details class="record-details"><summary>Track matching & edition details</summary><p>${escapeHtml(album.release_label||'MusicBrainz tracklist')}${album.spotify_album_name?`<br>Spotify: ${escapeHtml(album.spotify_album_name)}`:''}</p><p>${album.playable?'All tracks are matched.':'Not fully matched. Choose Find playable edition to select a complete Spotify-compatible tracklist.'}</p><button class="secondary" data-action="resolve">${album.playable?'Find another edition':'Match Spotify tracks'}</button><button class="quiet" data-action="album-settings">Cover, tracklist & diagnostics ↗</button></details><p class="footer-note">Catalogue and artwork: <a href="https://musicbrainz.org/release-group/${id(album.id)}" target="_blank" rel="noopener">MusicBrainz / Cover Art Archive ↗</a>${album.spotify_album_id?` · <a href="https://open.spotify.com/album/${id(album.spotify_album_id)}" target="_blank" rel="noopener">Spotify ↗</a>`:''}</p></section></div>`;
+  const primary=(album.on_shelf||album.in_listening_pile)?'<button class="primary" data-action="play" '+(album.tracks.length?'':'disabled')+'>▶ Play album</button>':`<button class="primary" data-action="add" data-id="${escapeHtml(album.id)}">+ Add to shelf</button>`;
+  return `<a class="back" href="${escapeHtml(back)}">← Back to browsing</a><div class="listening-layout"><div class="listening-sleeve">${albumArtwork(album)}<div class="sleeve-footnote"><span>${year(album)}</span><span>${album.on_shelf?'FROM YOUR COLLECTION':album.on_loan?'ON LOAN':'FROM THE RECORD STORE'}</span></div><div class="actions">${primary}${albumMembershipActions(album)}${album.on_shelf&&!album.playable?'<button class="secondary" data-action="find-playable-edition">Find playable edition</button>':''}<button class="quiet" data-action="playback-devices">Change device</button><button class="quiet" data-action="album-settings">Album settings ↗</button></div><p class="listening-hint">${(album.on_shelf||album.in_listening_pile)?'The whole album. In its own time.':'A place on your shelf, whenever you’re ready.'}</p></div><section class="record-liner"><div class="eyebrow">${artistNames(album)}</div><h1>${escapeHtml(album.title)}</h1><p class="liner-summary">${album.tracks.length} tracks · ${duration(album.tracks.reduce((sum,t)=>sum+(t.duration_ms||0),0))}${discCount>1?` · ${discCount} discs`:''}</p>${needsReview?`<div class="tracklist-review"><strong>One check before the first listen</strong><p>Does this look like the original tracklist?</p><button class="secondary" data-action="review">This tracklist is correct ✓</button><button class="quiet" data-action="album-settings">Choose another tracklist</button></div>`:''}${album.on_shelf&&!album.playable?`<div class="matching-alert"><strong>Needs Spotify match.</strong> This record is on your shelf but isn't ready to play. <button class="secondary" data-action="fix-match" data-id="${escapeHtml(album.id)}">Fix match</button></div>`:""}${!album.tracks.length?`<div class="note">No verified original tracklist is saved. AudioShelf is checking official editions in the background.</div>`:""}${trackRows(album)}<details class="record-details"><summary>Track matching & edition details</summary><p>${escapeHtml(album.release_label||'MusicBrainz tracklist')}${album.spotify_album_name?`<br>Spotify: ${escapeHtml(album.spotify_album_name)}`:''}</p><p>${album.playable?'All tracks are matched.':'Not fully matched. Choose Find playable edition to select a complete Spotify-compatible tracklist.'}</p><button class="secondary" data-action="resolve">${album.playable?'Find another edition':'Match Spotify tracks'}</button><button class="quiet" data-action="album-settings">Cover, tracklist & diagnostics ↗</button></details><p class="footer-note">Catalogue and artwork: <a href="https://musicbrainz.org/release-group/${id(album.id)}" target="_blank" rel="noopener">MusicBrainz / Cover Art Archive ↗</a>${album.spotify_album_id?` · <a href="https://open.spotify.com/album/${id(album.spotify_album_id)}" target="_blank" rel="noopener">Spotify ↗</a>`:''}</p></section></div>`;
 }
 function saveBrowsing(hash){
   browsingPositions.set(hash||'#shelf',window.scrollY);
@@ -175,21 +183,59 @@ function nowPlayingCover(p){
   const artwork=safe?url:p.album_id?coverUrl(p.album_id,128):null;
   return artwork?`<img class="now-playing-art" src="${escapeHtml(artwork)}" alt="" loading="eager" referrerpolicy="no-referrer">`:'<span class="now-playing-fallback" aria-hidden="true">♫</span>';
 }
+function updateNowPlayingOverflow(panel=document.querySelector('#turntable')){
+  if(!panel||panel.hidden)return;
+  for(const line of panel.querySelectorAll('.now-playing-scroll')){
+    const text=line.querySelector('.now-playing-scroll-text');
+    if(!text)continue;
+    const excess=Math.ceil(text.scrollWidth-line.clientWidth);
+    const overflowing=excess>2;
+    const previous=line.style.getPropertyValue('--scroll-distance');
+    const distance=excess+'px';
+    // Keep the animation running if only playback progress has changed.
+    if(line.classList.contains('is-overflowing')===overflowing&&
+       (!overflowing||previous===distance))continue;
+    line.classList.toggle('is-overflowing',overflowing);
+    if(overflowing){
+      line.style.setProperty('--scroll-distance',distance);
+      line.style.setProperty('--scroll-duration',Math.max(9,Math.min(50,excess/32+7))+'s');
+    }else{
+      line.style.removeProperty('--scroll-distance');
+      line.style.removeProperty('--scroll-duration');
+    }
+  }
+}
+window.addEventListener('resize',()=>requestAnimationFrame(()=>updateNowPlayingOverflow()));
+
 function renderTurntable(){
   const panel=document.querySelector('#turntable');if(!panel)return;
   panel.hidden=!isVinyl()||!statusInfo.authenticated;
-  if(panel.hidden)return;
+  if(panel.hidden){delete panel.dataset.renderKey;return;}
   const p=playbackState;
-  if(!statusInfo.spotify_connected){panel.innerHTML='<span class="turntable-disc" aria-hidden="true"></span><div><small>ON THE TURNTABLE</small><strong>Ready when you are.</strong></div><a href="#settings" class="quiet">Connect Spotify ↗</a>';return;}
-  if(!p?.active){panel.innerHTML=`<span class="turntable-disc" aria-hidden="true"></span><div><small>ON THE TURNTABLE</small><strong>${p?.unavailable?'Spotify status unavailable':'Pick a record. Press play.'}</strong><span>${p?.unavailable?'Open Spotify to check playback.':'Your next full-album listen starts here.'}</span></div>`;return;}
+  if(!statusInfo.spotify_connected){
+    delete panel.dataset.renderKey;
+    panel.innerHTML='<span class="turntable-disc" aria-hidden="true"></span><div><small>ON THE TURNTABLE</small><strong>Ready when you are.</strong></div><a href="#settings" class="quiet">Connect Spotify ↗</a>';
+    return;
+  }
+  if(!p?.active){panel.hidden=true;panel.innerHTML='';delete panel.dataset.renderKey;return;}
+  // Refreshing Spotify's position should not restart a long-title marquee.
+  const key=JSON.stringify([p.album,p.track,p.artist,p.artwork_url,p.album_id,
+    p.playing,p.starting,p.stale,statusInfo.role,statusInfo.show_skip_controls]);
+  if(panel.dataset.renderKey===key&&panel.querySelector('.now-playing-scroll')){
+    updateTrackProgress();
+    return;
+  }
+  panel.dataset.renderKey=key;
   const label=escapeHtml(p.album||p.track);
+  const artistAndTrack=escapeHtml(p.track)+' · '+escapeHtml(p.artist);
   const art=`<button class="now-playing-cover" data-action="now-playing-album" aria-label="Open ${label} in AudioShelf" title="View album in AudioShelf">${nowPlayingCover(p)}</button>`;
-  const text=`<div class="now-playing-details"><small>ON THE TURNTABLE <b>${p.stale?'STATUS UNAVAILABLE':p.starting?'STARTING':p.playing?'PLAYING':'PAUSED'}</b></small><strong>${label}</strong><span>${escapeHtml(p.track)} · ${escapeHtml(p.artist)}</span>${progressHtml(p)}</div>`;
+  const text=`<div class="now-playing-details"><small>ON THE TURNTABLE <b>${p.stale?'STATUS UNAVAILABLE':p.starting?'STARTING':p.playing?'PLAYING':'PAUSED'}</b></small><strong class="now-playing-scroll"><span class="now-playing-scroll-text">${label}</span></strong><span class="now-playing-scroll"><span class="now-playing-scroll-text">${artistAndTrack}</span></span>${progressHtml(p)}</div>`;
   const blocked=p.starting||p.stale||statusInfo.role==='view';
   const skips=statusInfo.show_skip_controls?`<div class="now-playing-skips"><button data-action="spotify-control" data-command="previous" aria-label="Previous track" title="Previous track" ${blocked?'disabled':''}>⏮</button><button data-action="spotify-control" data-command="next" aria-label="Next track" title="Next track" ${blocked?'disabled':''}>⏭</button></div>`:'';
   const disc=`<button class="turntable-toggle ${p.playing&&!p.stale&&!p.starting?'is-spinning':''}" data-action="spotify-control" data-command="${p.playing?'pause':'resume'}" aria-label="${p.playing?'Pause':'Resume'} Spotify" title="${p.playing?'Pause':'Resume'}" ${blocked?'disabled':''}><span class="turntable-platter" aria-hidden="true"></span><span class="turntable-tonearm" aria-hidden="true"></span></button>`;
   panel.innerHTML=`<div class="turntable-record">${art}${text}</div>${skips}${disc}`;
   updateTrackProgress();
+  requestAnimationFrame(()=>updateNowPlayingOverflow(panel));
 }
 let playbackControlBusy=false;
 async function controlSpotify(command){

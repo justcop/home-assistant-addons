@@ -77,6 +77,7 @@ public final class ShelfActivity extends Activity {
     private long integratedWakeStartedAt;
     private String integratedSessionId, lastWakePhase, lastWakeState, lastWakeError;
     private String lastTrackAudit = "";
+    private AccessLogin accessLogin;
     private String wakeSdkState = "not started";
     private boolean lastAcceptedPlay;
     private String pendingSdkFirstTrack = "";
@@ -140,6 +141,7 @@ public final class ShelfActivity extends Activity {
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, false);
         web.setWebChromeClient(new WebChromeClient());
+        accessLogin = new AccessLogin(this, web, trustedOrigin);
         web.setWebViewClient(new WebViewClient() {
             @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 loaded = false;
@@ -149,11 +151,18 @@ public final class ShelfActivity extends Activity {
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri url = request.getUrl();
                 if (sameOrigin(url)) return false;
+                if(request.isForMainFrame() && "https".equals(url.getScheme()) &&
+                    (url.getHost()!=null && (url.getHost().endsWith(".cloudflareaccess.com") || url.getHost().equals("accounts.google.com")))) {
+                    accessLogin.start(); return true;
+                }
                 if (request.isForMainFrame()) {
                     try { startActivity(new Intent(Intent.ACTION_VIEW, url)); }
                     catch (ActivityNotFoundException ignored) { Toast.makeText(ShelfActivity.this, "No app can open this link.", Toast.LENGTH_SHORT).show(); }
                 }
                 return true;
+            }
+            @Override public void onReceivedHttpError(WebView view, WebResourceRequest request, android.webkit.WebResourceResponse response) {
+                if(request.isForMainFrame() && sameOrigin(request.getUrl()) && (response.getStatusCode()==401 || response.getStatusCode()==403))accessLogin.start();
             }
             @Override public void onPageFinished(WebView view, String url) {
                 loaded = sameOrigin(Uri.parse(url));
@@ -196,6 +205,7 @@ public final class ShelfActivity extends Activity {
         updater = new HelperUpdater(this, updaterStatus);
         SpotifyMediaListener.attach(this);
         ShelfShortcuts.install(this);
+        if(accessLogin.complete(getIntent()))return;
         web.loadUrl(trustedOrigin + (ACTION_NOW_PLAYING.equals(getIntent().getAction()) ? "/#shelf" : "/#shelf"));
     }
 
@@ -818,6 +828,7 @@ public final class ShelfActivity extends Activity {
     }
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);setIntent(intent);
+        if(accessLogin!=null && accessLogin.complete(intent))return;
         if(web!=null && ACTION_SHELF.equals(intent.getAction()))web.evaluateJavascript("location.hash='#shelf'",null);
         if(web!=null && ACTION_NOW_PLAYING.equals(intent.getAction()))
             web.evaluateJavascript("location.hash='#shelf';window.dispatchEvent(new CustomEvent('audioshelf-native-playback'));",null);

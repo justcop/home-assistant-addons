@@ -73,26 +73,27 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
     await page.getByRole('button',{name:'Search',exact:true}).click();
     await page.getByRole('link',{name:'The Artist',exact:false}).first().click();
     await page.getByRole('button',{name:'Add The Original Album to shelf',exact:true}).click();
-    await page.getByRole('heading',{name:'Choose the album tracklist'}).waitFor();
-    await page.getByText('Connect Spotify in Settings to find playable tracklists.',{exact:false}).waitFor();
-    assert.equal(await page.locator('[data-action="select-variant"]').count(),0,
-      'Disconnected Spotify cannot offer apparently playable tracklists');
-    assert.equal((await api('shelf')).albums.length,0,
-      'Disconnected Spotify cannot collect an unverified edition');
-    await page.locator('.close-modal').click();
+    await page.locator('#toast').filter({hasText:'Added to your shelf'}).waitFor();
+    assert.equal((await api('shelf')).albums.length,1,
+      'Ownership is instant even when Spotify is disconnected');
+    assert.equal(await page.getByRole('heading',{name:'Choose the album tracklist'}).count(),0);
     const retryUrl=(await api('spotify/connect','POST',{})).url;
     const retryState=new URL(retryUrl).searchParams.get('state');
     const retryCallback=await page.request.get(base+'/auth/spotify/callback?code=fixture&state='+encodeURIComponent(retryState));
     assert(retryCallback.ok());
     await page.reload();
-    await page.getByRole('button',{name:'Add The Original Album to shelf',exact:true}).click();
+    await page.getByRole('link',{name:'The Original Album',exact:true}).click();
+    await page.getByRole('heading',{name:'The Original Album',exact:true}).waitFor();
+    await page.getByRole('button',{name:'Album settings'}).click();
+    await page.getByRole('button',{name:'Change original tracklist'}).click();
     await page.getByRole('heading',{name:'Choose the album tracklist'}).waitFor();
     await page.locator('[data-action="select-variant"]').first().click();
     await page.getByRole('heading',{name:'Disc and side layout'}).waitFor();
     await page.getByRole('button',{name:'Choose verified Spotify edition'}).click();
     await page.getByRole('heading',{name:'Choose Spotify recordings'}).waitFor();
+    page.once('dialog',dialog=>dialog.accept());
     await page.locator('[data-action="choose-release"][data-spotify-id]').first().click();
-    await page.locator('#toast').filter({hasText:'The Original Album added'}).waitFor();
+    await page.locator('#toast').filter({hasText:'Original tracklist and all Spotify mappings updated'}).waitFor();
     assert.equal((await api('shelf')).albums.length,1);
     await page.locator('[data-nav="shelf"]').click();
     await page.locator('.collection-shelves[data-layout="rail"]').waitFor();

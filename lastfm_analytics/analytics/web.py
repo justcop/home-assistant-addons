@@ -33,6 +33,7 @@ from .sync import SyncWorker
 from .artwork import ArtworkWorker
 from .album_listens import TracklistWorker
 from .release_years import ReleaseYearWorker
+from .gigs import GigStore, GigWorker
 
 DEFAULTS = {
     "username": "",
@@ -45,6 +46,9 @@ DEFAULTS = {
     "source_api_token": "",
     "audioshelf_url": "",
     "artwork_lookups": True,
+    "setlistfm_api_key": "",
+    "setlistfm_user_id": "",
+    "setlist_cache_retention_days": 30,
 }
 
 
@@ -59,11 +63,15 @@ def validate_config(config):
             config[key] = ""
     config["username"] = str(config["username"]).strip()
     config["api_key"] = str(config["api_key"]).strip()
+    config["setlistfm_user_id"] = str(config.get("setlistfm_user_id") or "").strip()
+    if len(config["setlistfm_user_id"]) > 128 or not re.fullmatch(r"[A-Za-z0-9_.:-]*", config["setlistfm_user_id"]):
+        raise ConfigurationError("setlistfm_user_id must be a valid setlist.fm username")
     if len(config["username"]) > 128 or len(config["api_key"]) > 256:
         raise ConfigurationError("Last.fm username or API key is too long")
     for key, low, high in [
         ("sync_interval_seconds", 60, 86400),
         ("reconcile_days", 2, 90),
+        ("setlist_cache_retention_days", 1, 365),
     ]:
         try:
             config[key] = int(config[key])
@@ -155,6 +163,9 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
     account = hashlib.sha256(config["username"].casefold().encode()).hexdigest()[:24]
     database = Database(Path(data_dir) / f"listening-{account}.sqlite3")
     worker = SyncWorker(database, config)
+    gig_store = GigStore(database, config)
+    gig_worker = GigWorker(gig_store)
+    app.extensions["gig_worker"] = gig_worker
     app.extensions["database"] = database
     app.extensions["sync_worker"] = worker
     artwork_worker = ArtworkWorker(config["api_key"], enabled=start_worker and config["artwork_lookups"])
@@ -421,6 +432,41 @@ self.addEventListener('fetch', event => {
             )
         database.record_source(config["username"], request.get_json())
         return jsonify(ok=True)
+
+    @app.get("/api/gigs")
+    def gigs_list():
+        return jsonify(gigs=gig_store.list(request.args.get("artist") or None))
+
+    @app.get("/api/gigs/attendance-status")
+    def gigs_attendance_status():
+        return jsonify(gig_worker.importer.status())
+
+    @app.post("/api/gigs/classify")
+    def gigs_classify():
+        if is_demo():
+            abort(403)
+        data = request.get_json()
+        if not isinstance(data, dict):
+            raise ValueError("Invalid gig classification")
+        gig_store.classify(int(data.get("id", 0)), data.get("type"), data.get("festival"))
+        return jsonify(ok=True)
+
+    @app.post("/api/gigs/import")
+    def gigs_import():
+        if is_demo():
+            abort(403)
+        return jsonify(imported=gig_store.import_rows(request.get_json().get("gigs")))
+
+    @app.get("/api/gigs/timeline")
+    def gigs_timeline():
+        artist=(request.args.get("artist") or "").strip()
+        if not artist:
+            raise ValueError("Select an artist")
+        return jsonify(gig_store.timeline(artist,request.args.get("granularity","month")))
+
+    @app.get("/gigs")
+    def gigs_page():
+        return render_template("gigs.html",base=request_base(),csrf=csrf)
 
     @app.get("/api/status")
     def status():
@@ -695,6 +741,7 @@ self.addEventListener('fetch', event => {
 
     if start_worker:
         worker.start()
+        gig_worker.start()
         release_worker.start(database)
         tracklist_worker.start(database)
         view_cache.warm(database)

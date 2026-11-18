@@ -41,6 +41,8 @@ class Store:
                     PRIMARY KEY(album_id, position));
                 CREATE TABLE IF NOT EXISTS shelf (
                     album_id TEXT PRIMARY KEY REFERENCES albums(id), added_at REAL NOT NULL);
+                CREATE TABLE IF NOT EXISTS listening_pile (
+                    album_id TEXT PRIMARY KEY REFERENCES albums(id), added_at REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS artwork_overrides (album_id TEXT PRIMARY KEY REFERENCES albums(id), filename TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS diagnostics (
@@ -170,23 +172,35 @@ class Store:
         with self.connect() as db:
             return [dict(row) for row in db.execute('''SELECT a.*,count(DISTINCT s.album_id) AS album_count
                 FROM artists a JOIN album_artists aa ON aa.artist_id=a.id JOIN shelf s ON s.album_id=aa.album_id
-                GROUP BY a.id ORDER BY a.sort_name COLLATE NOCASE''')]
+                GROUP BY a.id ORDER BY a.name COLLATE NOCASE, a.id''')]
 
-    def albums(self, artist_id=None, owned=False):
-        query = 'SELECT a.*,s.added_at IS NOT NULL AS on_shelf FROM albums a LEFT JOIN shelf s ON s.album_id=a.id'
+    def albums(self, artist_id=None, owned=False, pile=False):
+        query = ('''SELECT a.*,s.added_at IS NOT NULL AS on_shelf,
+            l.added_at IS NOT NULL AS in_listening_pile,
+            (l.added_at IS NOT NULL AND s.added_at IS NULL) AS on_loan,
+            (EXISTS(SELECT 1 FROM tracks tr WHERE tr.album_id=a.id)
+             AND NOT EXISTS(SELECT 1 FROM tracks tr WHERE tr.album_id=a.id
+               AND (tr.spotify_id IS NULL OR tr.spotify_id=''
+                    OR COALESCE(tr.verified,0)=0))) AS playable
+            FROM albums a LEFT JOIN shelf s ON s.album_id=a.id
+            LEFT JOIN listening_pile l ON l.album_id=a.id''')
         clauses, args = [], []
         if artist_id:
             clauses.append('EXISTS(SELECT 1 FROM album_artists aa WHERE aa.album_id=a.id AND aa.artist_id=?)')
             args.append(artist_id)
         if owned:
             clauses.append('s.added_at IS NOT NULL')
+        if pile:
+            clauses.append('l.added_at IS NOT NULL')
         if clauses:
             query += ' WHERE ' + ' AND '.join(clauses)
-        query += " ORDER BY CASE WHEN a.release_date='' THEN 1 ELSE 0 END,a.release_date,a.title"
+        query += (" ORDER BY l.added_at DESC,a.title" if pile else
+                  " ORDER BY CASE WHEN a.release_date='' THEN 1 ELSE 0 END,a.release_date,a.title")
         with self.connect() as db:
             rows = [dict(row) for row in db.execute(query, args)]
             for row in rows:
                 row['artists'] = self._credits(db, row['id'])
+                row['playable'] = bool(row['playable'])
         return rows
 
     @staticmethod
@@ -196,12 +210,16 @@ class Store:
 
     def album(self, album_id):
         with self.connect() as db:
-            row = db.execute('SELECT a.*,s.added_at IS NOT NULL AS on_shelf FROM albums a '
-                             'LEFT JOIN shelf s ON s.album_id=a.id WHERE a.id=?', (album_id,)).fetchone()
+            row = db.execute('''SELECT a.*,s.added_at IS NOT NULL AS on_shelf,
+                l.added_at IS NOT NULL AS in_listening_pile,
+                (l.added_at IS NOT NULL AND s.added_at IS NULL) AS on_loan
+                FROM albums a LEFT JOIN shelf s ON s.album_id=a.id
+                LEFT JOIN listening_pile l ON l.album_id=a.id WHERE a.id=?''', (album_id,)).fetchone()
             if row is None:
                 raise KeyError(album_id)
             result = dict(row)
-            result['on_shelf'] = bool(result['on_shelf'])
+            for flag in ('on_shelf', 'in_listening_pile', 'on_loan'):
+                result[flag] = bool(result[flag])
             result['artists'] = self._credits(db, album_id)
             result['tracks'] = [dict(row) for row in db.execute('SELECT * FROM tracks WHERE album_id=? ORDER BY position', (album_id,))]
             for track in result['tracks']:
@@ -288,6 +306,14 @@ class Store:
                 db.execute('INSERT OR IGNORE INTO shelf VALUES (?,?)', (album_id, time.time()))
             else:
                 db.execute('DELETE FROM shelf WHERE album_id=?', (album_id,))
+
+    def pile(self, album_id, add):
+        """Keep listening plans separate from permanent collection ownership."""
+        with self.connect() as db:
+            if add:
+                db.execute('INSERT OR IGNORE INTO listening_pile VALUES (?,?)', (album_id, time.time()))
+            else:
+                db.execute('DELETE FROM listening_pile WHERE album_id=?', (album_id,))
 
     def backup(self):
         folder = self.directory / 'backups'

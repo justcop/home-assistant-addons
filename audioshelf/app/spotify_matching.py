@@ -187,6 +187,28 @@ class SpotifyMatching:
             job = dict(job, state='interrupted')
         return {'job': job, 'failures': len(current_failures(store))}
 
+    def enqueue(self, account_id, store, spotify, playable, album_id, enabled=None):
+        """Schedule a durable background scan without holding up Add to Shelf.
+
+        The SQLite shelf membership is saved before this call. Expensive
+        pending-album discovery and all Spotify/MusicBrainz requests run off
+        the request thread; interrupted scans restart on the next visit.
+        """
+        def launch():
+            try:
+                with self.lock:
+                    attempted = store.setting(ATTEMPTS, {}) or {}
+                    if album_id in attempted:
+                        attempted.pop(album_id)
+                        store.set_setting(ATTEMPTS, attempted)
+                self.start(account_id, store, spotify, playable,
+                           enabled=enabled, automatic=True)
+            except Exception:
+                LOG.exception('Could not schedule background Spotify matching for album %s', album_id)
+
+        threading.Thread(target=launch, daemon=True,
+                         name='audioshelf-spotify-match-enqueue').start()
+
     def ensure_started(self, account_id, store, spotify, playable, enabled=None):
         if not spotify.connected or time.time() < (store.setting(PAUSE_UNTIL, 0) or 0):
             return None
@@ -381,7 +403,13 @@ class SpotifyMatching:
             examined += 1
             matches, assessments = playable.verified_choices(probe, album)
             if matches:
-                return (release['id'], matches[0]['id']), None
+                # Prefer the highest-scoring complete edition (standard over
+                # deluxe where the originals match). When two releases score
+                # identically, pick a stable Spotify ID instead of interrupting
+                # the listener. Other editions remain available for manual
+                # selection; an arbitrary tie is not a matching failure.
+                chosen = min(matches, key=lambda choice: (-choice['score'], choice['id']))
+                return (release['id'], chosen['id']), None
             if assessments:
                 top = max(assessments, key=lambda c: (c['verified'], c['matched'], c['score']))
                 if best is None or (top['verified']/max(1,len(probe['tracks'])), top['verified']) > (

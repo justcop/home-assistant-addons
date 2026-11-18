@@ -274,10 +274,15 @@ class PlayableReleases:
                 return [verified]
         return []
 
-    @staticmethod
-    def match_summaries(matches, count):
+    def match_summaries(self, matches, count):
+        # Keep the original candidate list for matching, but avoid presenting
+        # demonstrably equivalent Spotify catalogue IDs as separate choices.
+        if hasattr(self.spotify, 'distinct_candidates'):
+            matches = self.spotify.distinct_candidates(matches[:12])
         return [{'spotify_album_id': match['id'], 'name': match['name'],
                  'matched_tracks': count, 'score': match['score'],
+                 'track_count': match['track_count'],
+                 'release_date': match['release_date'],
                  # Only combine variants if Spotify verifies the exact same
                  # ordered recordings. Track-name similarity alone is unsafe.
                  'recording_signature': hashlib.sha256(

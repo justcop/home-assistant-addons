@@ -102,3 +102,52 @@ def test_future_schema_does_not_get_downgraded(application):
     store=application.extensions['store']
     with store.connect() as db: db.execute('PRAGMA user_version=99')
     with pytest.raises(RuntimeError,match='newer AudioShelf'):Store(store.directory)
+
+
+def test_shelf_artists_sort_by_display_name_not_surname(application):
+    store = application.extensions['store']
+    for i, (name, sort_name) in enumerate([
+        ('Neil Young', 'Young, Neil'),
+        ('Paul McCartney', 'McCartney, Paul'),
+        ('David Bowie', 'Bowie, David'),
+    ], 1):
+        group_id = str(i).zfill(8) + '-1234-4321-1234-' + str(i).zfill(12)
+        artist_id = str(i).zfill(8) + '-4321-1234-4321-' + str(i).zfill(12)
+        store.catalogue([{'id': group_id, 'title': name+' Album', 'first-release-date': '2000',
+                         'artist-credit': [{'artist': {'id': artist_id, 'name': name,
+                                                      'sort-name': sort_name}}]}])
+        store.shelf(group_id, True)
+    store.shelf(ALBUM, True)
+    assert [a['name'] for a in store.artists()] == [
+        'David Bowie', 'Neil Young', 'Paul McCartney', 'The Artist']
+
+
+def test_shelf_album_playable_flag_matches_detailed_album_for_all_mapping_states(application):
+    """A list response must not falsely mark fully playable records as unmatched."""
+    store = application.extensions['store']
+    store.shelf(ALBUM, True)
+
+    def assert_consistent(expected):
+        listed = next(a for a in store.albums(owned=True) if a['id'] == ALBUM)
+        detailed = store.album(ALBUM)
+        assert listed['playable'] is expected
+        assert listed['playable'] is detailed['playable']
+
+    assert_consistent(False)
+    # An incomplete verification is still unmatched.
+    with store.connect() as db:
+        db.execute('UPDATE tracks SET spotify_id=?,verified=1 WHERE album_id=? AND position=1', ('a'*22, ALBUM))
+    assert_consistent(False)
+    # When all tracks are verified, remove the red warning without re-adding.
+    with store.connect() as db:
+        db.execute('UPDATE tracks SET spotify_id=?,verified=1 WHERE album_id=? AND position=2', ('b'*22, ALBUM))
+    assert_consistent(True)
+    assert store.albums(pile=True) == []
+
+
+def test_shelf_album_without_any_tracks_is_not_playable(application):
+    store = application.extensions['store']
+    store.shelf(ALBUM, True)
+    with store.connect() as db:
+        db.execute('DELETE FROM tracks WHERE album_id=?', (ALBUM,))
+    assert store.albums(owned=True)[0]['playable'] is False

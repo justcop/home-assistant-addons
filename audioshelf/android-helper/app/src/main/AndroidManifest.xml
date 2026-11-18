@@ -25,10 +25,17 @@
                 <data android:scheme="audioshelf-helper" android:host="wake" />
             </intent-filter>
         </activity>
-        <activity android:name=".ShelfActivity" android:exported="false"
+        <activity android:name=".ShelfActivity" android:exported="true"
             android:taskAffinity="${applicationId}.shelf" android:excludeFromRecents="false"
             android:launchMode="singleTask" android:windowSoftInputMode="adjustResize"
-            android:configChanges="orientation|screenSize" />
+            android:configChanges="orientation|screenSize">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="audioshelf-login" android:host="callback" />
+            </intent-filter>
+        </activity>
         <service android:name=".SpotifyMediaListener" android:exported="true"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter>
