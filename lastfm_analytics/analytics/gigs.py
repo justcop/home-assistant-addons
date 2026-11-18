@@ -60,6 +60,39 @@ def due(gig, today):
         latest = anniversary(d, today.year-1)
     return latest > d and (last is None or last < latest)
 
+def inferred_festivals(gigs):
+    """IDs of performances sharing a venue across a 3+ gig date cluster.
+
+    A cluster comprises performances on the same date or consecutive dates,
+    at one named venue. Venue names are compared case-insensitively. Imported
+    festival names are never modified: inference only changes presentation.
+    """
+    venues = {}
+    for gig in gigs:
+        key = normalise(gig["venue"])
+        if key:
+            venues.setdefault(key, []).append(gig)
+    result = set()
+    for performances in venues.values():
+        performances.sort(key=lambda gig: (gig["date"], gig["id"]))
+        cluster = []
+        previous_day = None
+
+        def finish():
+            if len(cluster) >= 3:
+                result.update(gig["id"] for gig in cluster)
+
+        for gig in performances:
+            day = date.fromisoformat(gig["date"])
+            if previous_day and (day - previous_day).days > 1:
+                finish()
+                cluster = []
+            cluster.append(gig)
+            previous_day = day
+        finish()
+    return result
+
+
 class GigStore:
     def __init__(self, db, config):
         self.db, self.config = db, config
@@ -115,11 +148,18 @@ class GigStore:
     def list(self, artist=None):
         self.purge()
         with self.db.connect() as conn:
+            # Classify against every gig, not only the selected artist:
+            # a festival appearance might be the sole gig by that artist.
+            inferred = inferred_festivals([
+                dict(r) for r in conn.execute("SELECT id,date,venue FROM gigs")
+            ])
             rows=[dict(r) for r in conn.execute("""SELECT g.*,c.payload,c.fetched_at FROM gigs g
                 LEFT JOIN gig_cache c ON c.gig_id=g.id
                 WHERE (? IS NULL OR lower(g.artist)=lower(?))
                 ORDER BY g.date DESC,g.artist""",(artist,artist))]
         for row in rows:
+            row["festival_inferred"] = not bool(row["festival"]) and row["id"] in inferred
+            row["is_festival"] = bool(row["festival"]) or row["festival_inferred"]
             raw=row.pop("payload",None)
             if raw:
                 data=json.loads(raw)
