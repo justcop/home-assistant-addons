@@ -832,7 +832,7 @@ async function load({historyMode = "push"} = {}) {
     .forEach((b) =>
       b.setAttribute("aria-pressed", b.dataset.mode === state.mode),
     );
-  $("#toolbar").hidden = state.view === "settings";
+  $("#toolbar").hidden = state.view === "settings" || state.view === "gigs";
   $("#settings-preferences").hidden = state.view !== "settings";
   $("#period").value = state.period;
   $("#source").setAttribute("aria-pressed", state.source === "vinyl");
