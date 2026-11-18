@@ -163,3 +163,71 @@ def impact_for_artist(store, artist):
                 "reason": None if total_before and total_after else "No listening in one comparison window",
             })
     return results
+
+
+def live_collection(store):
+    """Catalogue what cached setlists actually document, not all songs ever heard.
+
+    Counts are recalculated from ephemeral API payloads and never persisted.
+    """
+    gigs = store.list()
+    by_song = {}
+    artists = set()
+    cached = 0
+    with store.db.connect() as conn:
+        aliases = {row["artist_key"]: row["canonical_key"] for row in conn.execute(
+            "SELECT artist_key,canonical_key FROM artist_aliases")}
+        listens = {}
+        for row in conn.execute("""SELECT artist_group_key,artist,title,COUNT(*) AS plays
+            FROM scrobbles WHERE active=1 GROUP BY artist_group_key,artist,title"""):
+            key = row["artist_group_key"] or aliases.get(
+                normalise(row["artist"]), normalise(row["artist"]))
+            key = aliases.get(key, key)
+            song = (key, song_key(row["title"]))
+            listens[song] = listens.get(song, 0) + row["plays"]
+    for gig in gigs:
+        artist = aliases.get(normalise(gig["artist"]), normalise(gig["artist"]))
+        artists.add(artist)
+        if gig["sets"] is None:
+            continue
+        cached += 1
+        unique_in_gig = set()
+        for part in gig["sets"] or []:
+            if not isinstance(part, dict):
+                continue
+            for entry in part.get("song", []) or []:
+                if not isinstance(entry, dict) or not entry.get("name"):
+                    continue
+                key = (artist, song_key(str(entry["name"])))
+                if key in unique_in_gig or not key[1]:
+                    continue
+                unique_in_gig.add(key)
+                current = by_song.setdefault(key, {
+                    "artist": gig["artist"], "title": str(entry["name"]),
+                    "performances": 0, "cover": False
+                })
+                current["performances"] += 1
+                current["cover"] = bool(current["cover"] or entry.get("cover"))
+    rows = [{**item, "listens": listens.get(key, 0)}
+            for key, item in by_song.items()]
+    return {
+        "performances": len(gigs),
+        "artists": len(artists),
+        "festival_performances": sum(g["show_type"] == "festival" for g in gigs),
+        "concert_performances": sum(g["show_type"] == "concert" for g in gigs),
+        "cached_setlists": cached,
+        "distinct_recorded_songs": len(rows),
+        "recorded_songs_listened_to": sum(item["listens"] > 0 for item in rows),
+        "most_listened_recorded_live": sorted(
+            (item for item in rows if item["listens"] > 0),
+            key=lambda item: (-item["listens"], -item["performances"], item["artist"].casefold())
+        )[:30],
+        "most_performed_recorded_live": sorted(
+            rows, key=lambda item: (-item["performances"], -item["listens"], item["artist"].casefold())
+        )[:30],
+        "coverage_note": (
+            f"Only {cached} of {len(gigs)} setlists are currently cached. "
+            "All are unverified. Results reflect the recorded songs in those "
+            "temporary setlists, not every song you have actually heard live."
+        ),
+    }
