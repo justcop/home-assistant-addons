@@ -49,7 +49,6 @@ DEFAULTS = {
     "setlistfm_api_key": "",
     "setlistfm_user_id": "",
     "setlist_cache_retention_days": 30,
-    "setlist_daily_request_budget": 10,
 }
 
 
@@ -73,7 +72,6 @@ def validate_config(config):
         ("sync_interval_seconds", 60, 86400),
         ("reconcile_days", 2, 90),
         ("setlist_cache_retention_days", 1, 365),
-        ("setlist_daily_request_budget", 1, 100),
     ]:
         try:
             config[key] = int(config[key])
