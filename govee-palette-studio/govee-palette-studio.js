@@ -135,6 +135,13 @@ select option{background:#fff;color:#111}
 .notice{border-radius:9px;background:var(--secondary-background-color,rgba(120,120,120,.1));padding:10px 12px;font-size:11.5px;line-height:1.5;color:var(--secondary-text-color,#aab);margin:12px 0 0}
 .notice.success{color:#3dbb93}.notice.error{color:#e46e75}
 .footer{border-top:1px solid var(--divider-color,#444);padding:14px 25px;display:flex;justify-content:space-between;align-items:center;gap:13px;flex-wrap:wrap}
+.live-summary{padding:17px 25px;border-bottom:1px solid var(--divider-color,#444);background:var(--secondary-background-color,rgba(120,120,120,.08))}
+.live-top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.live-title{font-weight:750;font-size:14px}
+.live-palette{display:flex;gap:2px;height:33px;overflow:hidden;border-radius:7px;margin:11px 0 6px}
+.live-palette span{flex:1}.live-foot{font-size:11px;color:var(--secondary-text-color,#aaa);line-height:1.55;margin-top:5px}
+.live-lights{display:flex;gap:9px;flex-wrap:wrap;margin-top:8px}
+.live-lights span{font-size:10px;padding:3px 6px;border-radius:6px;border:1px solid var(--divider-color,#555)}
 @media(max-width:860px){.columns{grid-template-columns:1fr}.left{border:0;border-bottom:1px solid var(--divider-color,#444);padding:0 0 20px}}
 @media(max-width:480px){.columns{padding:18px;gap:17px}.header{padding:20px}h2{font-size:23px}.swatches{gap:6px}.hex{font-size:9px}.swatchbottom{flex-wrap:wrap;justify-content:center}.effects{grid-template-columns:1fr 96px}.ribbon{height:80px}.footer{padding:14px 18px}}
 `;
@@ -200,6 +207,35 @@ class Studio extends HTMLElement{
   const label=this.shadowRoot.querySelector(".dream-state"),button=this.shadowRoot.querySelector(".toggle");
   if(label)label.innerHTML='<span class="dot '+(on?"on":"")+'"></span> Music DreamView '+(e?on?"on":"off":"unavailable");
   if(button){button.textContent=on?"Turn off":"Turn on";button.disabled=!e;}
+  const panel=this.shadowRoot.querySelector(".live-summary");
+  if(!panel)return;
+  const states=this.ha?.states||{};
+  const movie=states[this.config.movie_entity]?.state==="on",music=on;
+  const effect=states[this.config.effect_entity]?.state||"Unknown effect";
+  const palette=states[this.config.palette_entity]?.state||"";
+  const colours=palette.split(",").map(c=>c.trim().toUpperCase());
+  const valid=colours.length>=1&&colours.length<=8&&colours.every(c=>/^#[0-9A-F]{6}$/.test(c));
+  const lights=[["Hexagons","light.wall_hexagons"],["Floor lamp","light.floor_lamp_2"],["TV backlight","light.tv_backlight"],["Living room light","light.living_room_light"]];
+  const lamps=lights.map(([name,id])=>'<span>'+esc(name)+": "+esc(states[id]?.state||"unknown")+'</span>').join("");
+  let title,detail,note,bar="";
+  if(music){
+   title=movie?"Music + Movie both reported active":"Music DreamView active";
+   detail="Selected effect: "+effect;
+   note="Palette below is the last Home Assistant-commanded selection, NOT a measured reading of the LEDs.";
+   if(valid)bar='<div class="live-palette" aria-label="Last selected Music DreamView colours">'+colours.map(c=>'<span style="background:'+c+'"></span>').join("")+'</div>';
+  }else if(movie){
+   title="Movie DreamView active";
+   detail="TV camera / video synchronisation";
+   note="Movie colours change with the picture. This integration does not report real-time colour frames; the Music palette below is a draft, not the current movie output.";
+  }else{
+   title="DreamView inactive";
+   detail="No active music or movie synchronisation";
+   note="The editor below shows saved Music settings, not colours currently displayed.";
+  }
+  const html='<div class="live-top"><span class="live-title">'+esc(title)+'</span><span class="muted">Reported current mode</span></div>'+
+    '<div class="muted">'+esc(detail)+'</div>'+bar+'<div class="live-foot">'+esc(note)+'</div>'+
+    '<div class="live-lights">'+lamps+'</div>';
+  if(panel.innerHTML!==html)panel.innerHTML=html;
  }
  async toggle(){
   const e=this.ha?.states?.[this.config.dreamview_entity];if(!e){this.notice("DreamView switch unavailable","error");return;}
@@ -245,7 +281,7 @@ class Studio extends HTMLElement{
   const saved=x.favorites.slice(0,20).map(f=>'<span class="saveditem"><button title="Load palette" data-load="'+f.id+'">'+esc(f.name)+'</button><button class="remove" title="Delete palette" data-delete="'+f.id+'">×</button></span>').join("");
   const effectOptions=["Lighting Show","Carnival"].map(group=>'<optgroup label="'+group+'">'+EFFECTS.filter(v=>v.category===group).map(v=>'<option '+(v.name===e.name?"selected":"")+' value="'+esc(v.name)+'">'+esc(v.name)+'</option>').join("")+'</optgroup>').join("");
   this.shadowRoot.innerHTML='<style>'+CSS+'</style><ha-card><div class="header"><div class="top"><div><div class="kicker">Govee · Music DreamView</div><h2>Palette Studio</h2><div class="muted">Perceptual colour harmony · eight output slots · local generation</div></div><div class="chip dream-state"><span class="dot"></span> Loading</div></div></div>'+
-   '<div class="columns"><section class="left"><h3>01 / Design</h3><div class="section"><label class="label" for="preset">Start with a mood</label><select id="preset">'+options([["Custom","Custom"],...Object.keys(PRESETS).map(v=>[v,v])],x.preset)+'</select></div>'+
+   '<div class="live-summary" role="status" aria-live="polite"></div><div class="columns"><section class="left"><h3>01 / Design</h3><div class="section"><label class="label" for="preset">Start with a mood</label><select id="preset">'+options([["Custom","Custom"],...Object.keys(PRESETS).map(v=>[v,v])],x.preset)+'</select></div>'+
    '<div class="section"><div class="label">Harmony</div><div class="choices">'+schemeButtons+'</div></div>'+
    '<div class="section"><div class="headrow"><label class="label" for="count">Distinct colours</label><span class="muted">2–8</span></div><select id="count">'+options([2,3,4,5,6,7,8].map(v=>[v,v+" colours"]),x.count)+'</select><div class="muted" style="margin-top:7px">Colours repeat across eight hardware slots if fewer than eight are chosen.</div></div>'+
    '<div class="section"><div class="label">Fine tune</div>'+sliders+'</div></section>'+
