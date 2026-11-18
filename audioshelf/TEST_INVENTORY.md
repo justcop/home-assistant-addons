@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-11-18T21:36:41.502+00:00 (Europe/London).
+Reviewed: 2026-11-18T21:44:35.952+00:00 (Europe/London).
 
-Reviewed Docker Buildx action v3 to v4 in AudioShelf CI. The action now runs on Node 24, the workflow passes no removed Buildx setup inputs, and existing Docker build-push-action v6 usage remains unchanged. No test files or test cases change in this PR; existing 464 collected backend tests and browser suites remain applicable.
+Reviewed the Python 3.12 to 3.15 CI interpreter upgrade alongside the already merged Buildx v4 workflow, with no altered AudioShelf test bodies. The existing 464 collected Python cases and browser suites remain relevant; separate container-matrix CI validates Python 3.15.2 production images and imports on supported architectures. Physical Spotify and ALSA behaviour still requires device-level verification.
 
-<!-- inventory: {"reviewed_at":"2026-11-18T21:36:41.502+00:00","review_note":"Reviewed Docker Buildx action v3 to v4 in AudioShelf CI. The action now runs on Node 24, the workflow passes no removed Buildx setup inputs, and existing Docker build-push-action v6 usage remains unchanged. No test files or test cases change in this PR; existing 464 collected backend tests and browser suites remain applicable.","source_sha256":"e3cfbd79944d669b9d5c123accdbea5254a09ea6f18e72854b3592668787d58e"} -->
+<!-- inventory: {"reviewed_at":"2026-11-18T21:44:35.952+00:00","review_note":"Reviewed the Python 3.12 to 3.15 CI interpreter upgrade alongside the already merged Buildx v4 workflow, with no altered AudioShelf test bodies. The existing 464 collected Python cases and browser suites remain relevant; separate container-matrix CI validates Python 3.15.2 production images and imports on supported architectures. Physical Spotify and ALSA behaviour still requires device-level verification.","source_sha256":"7f07c057e029336b4d7dd436bc4698ac56c6f9e217874c3294fcf597e6703511"} -->
 
 ## Backend cases (464)
 
