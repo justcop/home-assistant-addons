@@ -78,11 +78,12 @@ class AttendanceImporter:
         with self.db.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             for (sid, artist, day, venue, url), item in records:
-                row = conn.execute("SELECT id FROM gigs WHERE setlist_id=?", (sid,)).fetchone()
+                row = conn.execute("SELECT id,last_checked FROM gigs WHERE setlist_id=?", (sid,)).fetchone()
                 if not row:
                     row = conn.execute(
-                        "SELECT id FROM gigs WHERE artist=? AND date=? AND venue=?",
+                        "SELECT id,last_checked FROM gigs WHERE artist=? AND date=? AND venue=?",
                         (artist, day, venue)).fetchone()
+                fresh = not row or not row["last_checked"]
                 if row:
                     gid = row[0]
                     conn.execute(
@@ -94,17 +95,20 @@ class AttendanceImporter:
                            VALUES(?,?,?,'',?,?,'unknown')""",
                         (artist, day, venue, sid, url))
                     gid = cursor.lastrowid
-                # Pagination responses already include the setlist's songs.
-                conn.execute(
-                    """UPDATE gigs SET last_checked=?, next_retry=NULL,
-                       version_id=?,updated_at=? WHERE id=?""",
-                    (today.isoformat(), str(item.get("versionId") or ""),
-                     str(item.get("lastUpdated") or ""), gid))
-                conn.execute(
-                    """INSERT INTO gig_cache(gig_id,payload,fetched_at) VALUES(?,?,?)
-                    ON CONFLICT(gig_id) DO UPDATE SET
-                    payload=excluded.payload, fetched_at=excluded.fetched_at""",
-                    (gid, json.dumps(item), int(time.time())))
+                # Weekly attendance discovery must NOT reset the separate
+                # per-gig anniversary schedule. Cache the embedded setlist
+                # only when this is a new/unfetched attendance record.
+                if fresh:
+                    conn.execute(
+                        """UPDATE gigs SET last_checked=?, next_retry=NULL,
+                           version_id=?,updated_at=? WHERE id=?""",
+                        (today.isoformat(), str(item.get("versionId") or ""),
+                         str(item.get("lastUpdated") or ""), gid))
+                    conn.execute(
+                        """INSERT INTO gig_cache(gig_id,payload,fetched_at) VALUES(?,?,?)
+                        ON CONFLICT(gig_id) DO UPDATE SET
+                        payload=excluded.payload, fetched_at=excluded.fetched_at""",
+                        (gid, json.dumps(item), int(time.time())))
             conn.execute(
                 """UPDATE gig_attendance_sync SET next_page=?,total=?,
                    last_completed=?,last_error=NULL WHERE id=1""",
