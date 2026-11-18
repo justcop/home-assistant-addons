@@ -321,9 +321,10 @@ weekly during days 8–30, monthly until their first anniversary and every
 performance anniversary thereafter. Missed checks remain due. A gig on
 29 February is due on 28 February in non-leap years.
 
-The setlist.fm API does not expose festival membership. Newly imported
-performances are labelled **Unclassified** until you choose Concert or
-Festival from the gig catalogue. Festival names may be entered manually.
+The setlist.fm API does not expose festival membership. Listening automatically labels groups of at least three attended performances
+at the same venue on one day or consecutive days as **Festival**; otherwise
+it classifies performances as **Concert**. Festival names can be entered
+manually, and manual classifications override future inference.
 The artist timeline distinguishes confirmed festivals from standalone
 concerts; unclassified gigs remain visible rather than being silently
 mislabelled.
