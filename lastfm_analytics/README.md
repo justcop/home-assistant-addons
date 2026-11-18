@@ -291,30 +291,44 @@ preserving successful URLs. Provider failures retry after five minutes.
 
 ## Live gig history (experimental)
 
-Open **Live gigs & timelines** from Listening's sidebar. Import a CSV containing
-`artist,date` (YYYY-MM-DD); optional columns are `venue`, `festival`,
-`setlist_url`, and `setlist_id`. The importer is idempotent for identical
-artist/date/venue combinations. Festival names distinguish festival performances
-from standalone concerts. The artist timeline overlays each type on listening
-totals (daily, weekly or monthly).
+Set the following Home Assistant add-on options:
 
-Home Assistant add-on options:
+- `setlistfm_user_id`: your setlist.fm **username** (account ID).
+- `setlistfm_api_key`: your personal setlist.fm API key.
+- `setlist_cache_retention_days`: maximum number of days to cache API
+  setlist payloads (default 30; choose a period permitted by the provider).
+- `setlist_daily_request_budget`: maximum total automated API requests
+  per local calendar day, shared by attendance discovery and setlist checks
+  (default 10).
 
-- `setlistfm_api_key`: optional personal setlist.fm API key.
-- `setlist_cache_retention_days`: number of days to retain API payloads
-  (default 30; configure in accordance with setlist.fm's current terms).
-- `setlist_daily_request_budget`: maximum automated requests per calendar
-  day (default 10).
+Listening imports your **I Was There** performances directly from
+`GET /1.0/user/{userId}/attended`. The endpoint is paginated, with roughly
+20 concerts per page. The worker imports up to three attendance pages per
+hour and resumes from the last completed page; no CSV is necessary. After
+a full scan, the entire attendance list is rechecked weekly to discover
+newly added or removed-on-site attendance markings. This sync is
+**additive**: it does not delete locally saved gigs if they disappear
+from the remote attendance list.
 
-All setlists remain unverified; having songs does not stop future checks.
-Checks occur daily during the first week, weekly for days 8–30, monthly
-until the first anniversary and on the gig's anniversary each year thereafter.
-Missed checks remain due; retries after errors do not advance the schedule.
-A 29 February gig is checked on 28 February in non-leap years. The quota
-is persisted in SQLite and refreshed on the configured local calendar day.
-The background worker runs hourly while the add-on is started.
+Attendance responses already contain a setlist: songs can be cached from
+the same response without extra lookup calls. The local catalogue retains
+attendance identifiers, dates and classification independently, while cached
+setlist responses expire under `setlist_cache_retention_days`.
 
-Attendance records persist independently of the API. Cached setlist payloads
-expire automatically; expired songs are unavailable until their next scheduled
-refresh. The configured cache retention is a technical cap, **not** a grant
-of permission to store data longer than setlist.fm's API terms allow.
+All setlists remain unverified; having recorded songs never stops later
+refreshes. Individual setlists are rechecked daily during the first week,
+weekly during days 8–30, monthly until their first anniversary and every
+performance anniversary thereafter. Missed checks remain due. A gig on
+29 February is due on 28 February in non-leap years.
+
+The setlist.fm API does not expose festival membership. Listening automatically labels groups of at least three attended performances
+at the same venue on one day or consecutive days as **Festival**; otherwise
+it classifies performances as **Concert**. Festival names can be entered
+manually, and manual classifications override future inference.
+The artist timeline distinguishes confirmed festivals from standalone
+concerts; unclassified gigs remain visible rather than being silently
+mislabelled.
+
+The cached data retention setting is a technical limit, not permission
+to exceed setlist.fm's published terms. Any legacy CSV import API is
+retained for compatibility, but is no longer part of the normal workflow.
