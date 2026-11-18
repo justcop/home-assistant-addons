@@ -7,7 +7,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 SCHEMA = """
@@ -21,8 +21,6 @@ CREATE INDEX IF NOT EXISTS gig_refresh ON gigs(date,last_checked,next_retry);
 CREATE TABLE IF NOT EXISTS gig_cache (
  gig_id INTEGER PRIMARY KEY REFERENCES gigs(id) ON DELETE CASCADE,
  payload TEXT NOT NULL, fetched_at INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS gig_requests (
- day TEXT PRIMARY KEY, used INTEGER NOT NULL DEFAULT 0);
 """
 
 def init(db):
@@ -148,10 +146,10 @@ class GigStore:
         return {"listens":rows,"gigs":self.list(artist),"granularity":granularity}
 
     def infer_festivals(self):
-        """Infer festivals from >=3 performances at one venue over consecutive days.
+        """Infer festivals from >=4 performances at one venue over consecutive days.
 
         Only inferred labels are rewritten. Manual corrections remain authoritative.
-        A singleton and two-act concert cannot automatically become a festival.
+        Three-act bills with support bands are ordinary concerts, not festivals.
         """
         from collections import defaultdict
         with self.db.connect() as conn:
@@ -175,7 +173,7 @@ class GigStore:
                     chunks.append(current)
                 for days in chunks:
                     ids = [r["id"] for r in entries if date.fromisoformat(r["date"]) in days]
-                    if len(ids) >= 3:
+                    if len(ids) >= 4:
                         inferred.update(ids)
             conn.execute(
                 "UPDATE gigs SET show_type='concert' WHERE type_override=0")
@@ -196,57 +194,81 @@ class GigStore:
             if cur.rowcount != 1:
                 raise ValueError("Unknown gig")
 
+    def api_backoff_remaining(self):
+        """Respect provider HTTP 429 without maintaining a local daily quota."""
+        until = self.db.meta("setlist_api_retry_after", 0)
+        return max(0, int(until or 0) - int(time.time()))
+
+    def note_rate_limit(self, exc):
+        # Respect Retry-After where supplied; otherwise avoid hammering the
+        # service until the next hourly worker pass.
+        delay = 3600
+        retry_header = (exc.headers.get("Retry-After") if exc.headers else None)
+        if retry_header:
+            try:
+                delay = max(1, int(retry_header))
+            except (ValueError, TypeError):
+                try:
+                    from email.utils import parsedate_to_datetime
+                    when = parsedate_to_datetime(retry_header)
+                    delay = max(1, int(when.timestamp() - time.time()))
+                except (ValueError, TypeError, OverflowError, IndexError):
+                    pass
+        with self.db.connect() as conn:
+            self.db.put(conn, "setlist_api_retry_after", int(time.time()) + delay)
+
     def refresh(self, maximum=None):
         if not self.config.get("setlistfm_api_key"):
-            return {"processed":0,"reason":"No setlist.fm API key configured"}
-        today=self.today()
-        limit=max(0,int(self.config["setlist_daily_request_budget"]))
-        if maximum is not None:
-            limit=min(limit,int(maximum))
+            return {"processed": 0, "reason": "No setlist.fm API key configured"}
+        if self.api_backoff_remaining():
+            return {"processed": 0, "reason": "Waiting for setlist.fm rate limit to reset"}
+        today = self.today()
         with self.db.connect() as conn:
-            used=conn.execute("SELECT used FROM gig_requests WHERE day=?",(today.isoformat(),)).fetchone()
-            allowance=max(0,limit-(used[0] if used else 0))
-            records=[dict(r) for r in conn.execute("SELECT * FROM gigs WHERE setlist_id IS NOT NULL ORDER BY date DESC")]
-        pending=[r for r in records if due(r,today)]
-        completed=0
-        for gig in pending[:allowance]:
-            # Reserve the request BEFORE using the network; limits survive crashes.
-            with self.db.connect() as conn:
-                conn.execute("""INSERT INTO gig_requests(day,used) VALUES(?,1)
-                    ON CONFLICT(day) DO UPDATE SET used=used+1""",(today.isoformat(),))
-            url="https://api.setlist.fm/rest/1.0/setlist/"+urllib.parse.quote(gig["setlist_id"],safe="")
-            request=urllib.request.Request(url,headers={
-                "x-api-key":self.config["setlistfm_api_key"],
-                "Accept":"application/json",
-                "User-Agent":"ListeningAnalytics/0.2 (personal gig tracker)"})
+            records = [dict(r) for r in conn.execute(
+                "SELECT * FROM gigs WHERE setlist_id IS NOT NULL ORDER BY date DESC")]
+        pending = [r for r in records if due(r, today)]
+        completed = 0
+        for gig in pending[:maximum] if maximum is not None else pending:
+            if self.api_backoff_remaining():
+                break
+            url = ("https://api.setlist.fm/rest/1.0/setlist/" +
+                   urllib.parse.quote(gig["setlist_id"], safe=""))
+            request = urllib.request.Request(url, headers={
+                "x-api-key": self.config["setlistfm_api_key"],
+                "Accept": "application/json",
+                "User-Agent": "ListeningAnalytics/0.2 (personal gig tracker)"})
             try:
-                with urllib.request.urlopen(request,timeout=15) as response:
-                    blob=response.read(1024*1024+1)
-                if len(blob)>1024*1024:
+                with urllib.request.urlopen(request, timeout=15) as response:
+                    blob = response.read(1024 * 1024 + 1)
+                if len(blob) > 1024 * 1024:
                     raise ValueError("Setlist response too large")
-                data=json.loads(blob)
-                if not isinstance(data,dict) or str(data.get("id"))!=gig["setlist_id"]:
+                data = json.loads(blob)
+                if not isinstance(data, dict) or str(data.get("id")) != gig["setlist_id"]:
                     raise ValueError("Unexpected setlist response")
-            except (urllib.error.HTTPError,urllib.error.URLError,ValueError,TimeoutError,OSError) as exc:
-                # Do not advance the gig's schedule on failure. A 429 should
-                # stop this batch rather than consume the remaining daily quota.
-                with self.db.connect() as conn:
-                    conn.execute("UPDATE gigs SET next_retry=? WHERE id=?",((today+timedelta(days=1)).isoformat(),gig["id"]))
+            except (urllib.error.HTTPError, urllib.error.URLError, ValueError,
+                    TimeoutError, OSError) as exc:
                 if isinstance(exc, urllib.error.HTTPError) and exc.code == 429:
+                    self.note_rate_limit(exc)
+                    # Do not advance any gig's check or retry schedule.
                     break
+                with self.db.connect() as conn:
+                    conn.execute("UPDATE gigs SET next_retry=? WHERE id=?",
+                                 ((today + timedelta(days=1)).isoformat(), gig["id"]))
                 continue
             with self.db.connect() as conn:
-                conn.execute("""UPDATE gigs SET last_checked=?,next_retry=NULL,version_id=?,updated_at=? WHERE id=?""",
-                    (today.isoformat(),str(data.get("versionId") or ""),str(data.get("lastUpdated") or ""),gig["id"]))
+                conn.execute("""UPDATE gigs SET last_checked=?,next_retry=NULL,
+                    version_id=?,updated_at=? WHERE id=?""",
+                    (today.isoformat(), str(data.get("versionId") or ""),
+                     str(data.get("lastUpdated") or ""), gig["id"]))
                 conn.execute("""INSERT INTO gig_cache(gig_id,payload,fetched_at) VALUES(?,?,?)
-                    ON CONFLICT(gig_id) DO UPDATE SET payload=excluded.payload,fetched_at=excluded.fetched_at""",
-                    (gig["id"],json.dumps(data),int(time.time())))
-            completed+=1
+                    ON CONFLICT(gig_id) DO UPDATE SET
+                    payload=excluded.payload,fetched_at=excluded.fetched_at""",
+                    (gig["id"], json.dumps(data), int(time.time())))
+            completed += 1
         with self.db.connect() as conn:
             conn.execute("DELETE FROM gig_cache WHERE fetched_at<?",
-                (int(time.time())-int(self.config["setlist_cache_retention_days"])*86400,))
-            conn.execute("DELETE FROM gig_requests WHERE day<?",((today-timedelta(days=45)).isoformat(),))
-        return {"processed":completed,"due":len(pending),"budget_remaining":max(0,allowance-len(pending[:allowance]))}
+                         (int(time.time()) - int(self.config["setlist_cache_retention_days"]) * 86400,))
+        return {"processed": completed, "due": len(pending)}
 
 class GigWorker:
     def __init__(self, store):
