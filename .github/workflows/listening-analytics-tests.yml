@@ -24,7 +24,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - run: node --check analytics/static/app.js
+      - run: node --check analytics/static/app.js && node --check analytics/static/gigs.js
       - name: Check embedded gig timeline JavaScript
         run: |
           python -c "from pathlib import Path; s=Path('analytics/templates/gigs.html').read_text(); Path('/tmp/listening-gigs.js').write_text(s.split('<script>', 1)[1].split('</script>', 1)[0])"
