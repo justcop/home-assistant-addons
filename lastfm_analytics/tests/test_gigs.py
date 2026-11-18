@@ -91,3 +91,47 @@ def test_gig_events_link_artist_identity(tmp_path):
     events = svc.events_for_artist("beatles")
     assert len(events) == 1 and events[0]["event_date"] == "1969-01-30"
     assert svc.events_for_artist("radiohead") == []
+
+
+def test_gig_api_import_and_list(tmp_path):
+    import re
+    from analytics.web import create_app
+
+    app = create_app(tmp_path, config={}, development=True, start_worker=False)
+    client = app.test_client()
+    page = client.get("/")
+    csrf = re.search(r'name="csrf-token" content="([^"]+)"', page.text).group(1)
+    payload = {"gigs": [{"artist": "Muse", "date": "2025-07-10",
+                         "venue": "Sample Arena", "type": "concert"}]}
+    result = client.post("/api/gigs/import", json=payload,
+                         headers={"X-CSRF-Token": csrf})
+    assert result.status_code == 200, result.text
+    assert result.json["imported"] == 1
+    gigs = client.get("/api/gigs")
+    assert gigs.status_code == 200
+    assert gigs.json["status"]["total"] == 1
+    assert gigs.json["gigs"][0]["artist"] == "Muse"
+    assert gigs.json["gigs"][0]["status"] == "unverified"
+    app.extensions["gig_service"].close()
+
+
+def test_global_backoff_after_provider_429(tmp_path):
+    from urllib.error import HTTPError
+
+    today = datetime.now(timezone.utc).date()
+    stamp = int(datetime(today.year, today.month, today.day, 12,
+                         tzinfo=timezone.utc).timestamp())
+    svc = service(tmp_path, setlist_fm_api_key="test", setlist_daily_request_budget=20)
+    svc.import_records([
+        {"artist": "Oasis", "date": "2023-07-01", "setlist_id": "1234abcd"},
+        {"artist": "Muse", "date": "2023-07-02", "setlist_id": "5678abcd"}])
+    attempts = []
+    def throttle(req, timeout):
+        attempts.append(req.full_url)
+        raise HTTPError(req.full_url, 429, "limit", {"Retry-After": "3600"}, None)
+    svc.opener = throttle
+    assert svc.run_one(stamp) is False
+    assert svc.run_one(stamp + 10) is False
+    assert len(attempts) == 1
+    assert svc.db.meta("setlist_backoff_until") >= stamp + 86400
+    svc.close()
