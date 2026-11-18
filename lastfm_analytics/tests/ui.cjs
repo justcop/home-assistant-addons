@@ -318,7 +318,7 @@ async function assertLogoPixelsInCrop(page, label) {
   await page.waitForFunction(
     () => !document.querySelector("#detail-dialog").open,
   );
-  await page.locator(".settings-nav").click();
+  await page.locator(".settings-nav[data-view=\"settings\"]").click();
   await page.locator("#undo:not([disabled])").waitFor();
   await page.locator("#undo").click();
   await page.waitForFunction(() => document.querySelector("#undo")?.disabled);
@@ -349,7 +349,7 @@ async function assertLogoPixelsInCrop(page, label) {
   // Mobile and dark theme, accessible navigation, no page overflow.
   await page.locator('#nav [data-view="overview"]').click();
   await page.locator("#period").selectOption("30d");
-  await page.locator(".settings-nav").click();
+  await page.locator(".settings-nav[data-view=\"settings\"]").click();
   await page.locator("#theme").click();
   await page.locator('#nav [data-view="overview"]').click();
   await page.locator("#content .metrics").waitFor();
@@ -377,7 +377,7 @@ async function assertLogoPixelsInCrop(page, label) {
     ),
     false,
   );
-  await page.locator(".settings-nav").click();
+  await page.locator(".settings-nav[data-view=\"settings\"]").click();
   await page.locator("#palette").selectOption("ocean");
   await page.locator('#nav [data-view="overview"]').click();
   assert.equal(await page.evaluate(() => document.documentElement.dataset.palette), "ocean");
@@ -521,7 +521,7 @@ async function assertLogoPixelsInCrop(page, label) {
   await page.waitForFunction(()=>!document.querySelector('#detail-dialog').open);
   // Version display is a saved Settings preference, and merge names are choices.
   assert.equal(await page.locator('#toolbar [data-mode]').count(), 0);
-  await page.locator('.settings-nav').click();
+  await page.locator('.settings-nav[data-view="settings"]').click();
   await page.locator('#settings-preferences [data-mode="raw"]').click();
   assert.equal(await page.evaluate(() => localStorage.getItem('listening-version-mode')), 'raw');
   await page.goto((process.env.APP_URL || 'http://127.0.0.1:8105/') + '?demo=1');
@@ -537,7 +537,7 @@ async function assertLogoPixelsInCrop(page, label) {
         {id:1004,name:'Alpha (Remaster)',plays:200,group_id:502}],
       reason:'Fixture choices', learnable:false}], total:1,offset:0,rules:[]}});
   });
-  await page.locator('.settings-nav').click();
+  await page.locator('.settings-nav[data-view="settings"]').click();
   const namesCard = page.locator('.review-card').first();
   await namesCard.locator('.candidate-version').nth(0).check();
   await namesCard.locator('.candidate-version').nth(1).check();
