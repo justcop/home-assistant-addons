@@ -336,3 +336,29 @@ refresh schedule remains unchanged.
 The cached data retention setting is a technical limit, not permission
 to exceed setlist.fm's published terms. Any legacy CSV import API is
 retained for compatibility, but is no longer part of the normal workflow.
+
+
+### Live Collection and listening impact
+
+The Live gigs page now has a **Live Collection** showing attended performances,
+distinct artists, currently cached setlists and unique songs recorded in those
+setlists. It ranks songs you listened to most that are also documented live,
+and songs documented across the most attended performances.
+
+Select an artist in **Artist timeline**, or click an artist in the gig table,
+to see both the concert/festival markers and the **Live songs and listening**
+analysis. The artist page lists:
+
+- Documented live songs ranked by your own scrobble counts.
+- Popular songs missing from currently cached setlists. This is **not**
+  evidence you have never heard them live: setlists can be missing, incomplete
+  or expired.
+- A per-gig comparison of 30 days before and after each concert, excluding
+  the concert day, using both artist scrobbles and the artist's share of all
+  listening. This is descriptive association, **not causal attribution**.
+  Results are explicitly unavailable when the listening history does not
+  span both periods.
+
+Listening applies user-merged artist aliases to the imported gig history when
+matching performances and scrobbles. No song lists or analytics derived from
+setlist.fm are retained beyond the configurable temporary cache lifetime.

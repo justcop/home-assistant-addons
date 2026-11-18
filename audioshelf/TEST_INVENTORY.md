@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-11-11T00:03:53.134+00:00 (Europe/London).
+Reviewed: 2026-11-18T21:36:41.502+00:00 (Europe/London).
 
-Reviewed the shelf badge regression at its source: lightweight album lists now expose playability using the same all-tracks-verifiable condition as the detailed album view; tests cover complete, partial and empty Spotify mappings. Also reviewed a mobile Now Playing browser regression that measures overflowing title/track labels, ensures only long labels animate, keeps scrolling stable across Spotify polling, and honours reduced-motion. Other album matching, playback and accessibility test cases remain applicable.
+Reviewed Docker Buildx action v3 to v4 in AudioShelf CI. The action now runs on Node 24, the workflow passes no removed Buildx setup inputs, and existing Docker build-push-action v6 usage remains unchanged. No test files or test cases change in this PR; existing 464 collected backend tests and browser suites remain applicable.
 
-<!-- inventory: {"reviewed_at":"2026-11-11T00:03:53.134+00:00","review_note":"Reviewed the shelf badge regression at its source: lightweight album lists now expose playability using the same all-tracks-verifiable condition as the detailed album view; tests cover complete, partial and empty Spotify mappings. Also reviewed a mobile Now Playing browser regression that measures overflowing title/track labels, ensures only long labels animate, keeps scrolling stable across Spotify polling, and honours reduced-motion. Other album matching, playback and accessibility test cases remain applicable.","source_sha256":"e38d2ceffb2f8b6debc8778137037cdfb96c4fd7779b9cf1721cc12ee6730f02"} -->
+<!-- inventory: {"reviewed_at":"2026-11-18T21:36:41.502+00:00","review_note":"Reviewed Docker Buildx action v3 to v4 in AudioShelf CI. The action now runs on Node 24, the workflow passes no removed Buildx setup inputs, and existing Docker build-push-action v6 usage remains unchanged. No test files or test cases change in this PR; existing 464 collected backend tests and browser suites remain applicable.","source_sha256":"e3cfbd79944d669b9d5c123accdbea5254a09ea6f18e72854b3592668787d58e"} -->
 
 ## Backend cases (464)
 
