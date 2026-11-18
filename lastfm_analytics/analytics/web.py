@@ -33,6 +33,7 @@ from .sync import SyncWorker
 from .artwork import ArtworkWorker
 from .album_listens import TracklistWorker
 from .release_years import ReleaseYearWorker
+from .gigs import GigStore, GigWorker
 
 DEFAULTS = {
     "username": "",
@@ -45,6 +46,9 @@ DEFAULTS = {
     "source_api_token": "",
     "audioshelf_url": "",
     "artwork_lookups": True,
+    "setlistfm_api_key": "",
+    "setlist_cache_retention_days": 30,
+    "setlist_daily_request_budget": 10,
 }
 
 
@@ -64,6 +68,8 @@ def validate_config(config):
     for key, low, high in [
         ("sync_interval_seconds", 60, 86400),
         ("reconcile_days", 2, 90),
+        ("setlist_cache_retention_days", 1, 365),
+        ("setlist_daily_request_budget", 1, 100),
     ]:
         try:
             config[key] = int(config[key])
@@ -155,6 +161,9 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
     account = hashlib.sha256(config["username"].casefold().encode()).hexdigest()[:24]
     database = Database(Path(data_dir) / f"listening-{account}.sqlite3")
     worker = SyncWorker(database, config)
+    gig_store = GigStore(database, config)
+    gig_worker = GigWorker(gig_store)
+    app.extensions["gig_worker"] = gig_worker
     app.extensions["database"] = database
     app.extensions["sync_worker"] = worker
     artwork_worker = ArtworkWorker(config["api_key"], enabled=start_worker and config["artwork_lookups"])
@@ -421,6 +430,27 @@ self.addEventListener('fetch', event => {
             )
         database.record_source(config["username"], request.get_json())
         return jsonify(ok=True)
+
+    @app.get("/api/gigs")
+    def gigs_list():
+        return jsonify(gigs=gig_store.list(request.args.get("artist") or None))
+
+    @app.post("/api/gigs/import")
+    def gigs_import():
+        if is_demo():
+            abort(403)
+        return jsonify(imported=gig_store.import_rows(request.get_json().get("gigs")))
+
+    @app.get("/api/gigs/timeline")
+    def gigs_timeline():
+        artist=(request.args.get("artist") or "").strip()
+        if not artist:
+            raise ValueError("Select an artist")
+        return jsonify(gig_store.timeline(artist,request.args.get("granularity","month")))
+
+    @app.get("/gigs")
+    def gigs_page():
+        return render_template("gigs.html",base=request.script_root+"/",csrf=csrf)
 
     @app.get("/api/status")
     def status():
@@ -695,6 +725,7 @@ self.addEventListener('fetch', event => {
 
     if start_worker:
         worker.start()
+        gig_worker.start()
         release_worker.start(database)
         tracklist_worker.start(database)
         view_cache.warm(database)
