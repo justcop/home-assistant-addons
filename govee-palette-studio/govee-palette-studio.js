@@ -146,10 +146,34 @@ class Studio extends HTMLElement{
   notice:"Create a palette, choose an effect and apply it to DreamView.",status:""};
  }
  setConfig(cfg){
-  this.config={device_id:cfg.device_id||"0f19e21af64af9e364dfde26fb48ae69",dreamview_entity:cfg.dreamview_entity||"switch.floor_lamp_2_dreamview"};
+  this.config={device_id:cfg.device_id||"0f19e21af64af9e364dfde26fb48ae69",dreamview_entity:cfg.dreamview_entity||"switch.floor_lamp_2_dreamview",movie_entity:cfg.movie_entity||"switch.tv_backlight_dreamview",palette_entity:cfg.palette_entity||"input_text.govee_bilresa_random_palette",effect_entity:cfg.effect_entity||"input_select.govee_bilresa_effect"};
   if(!this.ready){this.restore();if(!this.s.colors.length)this.s.colors=generate(this.s.settings,this.s.count,this.s.seed,this.s.locked);this.ready=true;this.render();}
  }
- set hass(hass){this.ha=hass;this.refresh();}
+ set hass(hass){this.ha=hass;this.syncFromHA();this.refresh();}
+ // Remote changes update shared HA helpers. These are not physical RGB readings.
+ syncFromHA(){
+  if(!this.ready||!this.config||!this.ha?.states)return;
+  let changed=false;
+  const palette=this.ha.states[this.config.palette_entity]?.state;
+  const colors=typeof palette==="string"?palette.split(",").map(c=>c.trim().toUpperCase()):[];
+  if(colors.length>=1&&colors.length<=8&&colors.every(c=>/^#[0-9A-F]{6}$/.test(c))&&palette!==this._seenPalette){
+   this._seenPalette=palette;
+   this.s.colors=colors;this.s.count=colors.length;this.s.locked={};this.s.preset="Custom";
+   this.s.notice="Palette updated from Home Assistant / IKEA remote.";
+   this.s.status="success";changed=true;
+  }
+  const choice=this.ha.states[this.config.effect_entity]?.state;
+  if(typeof choice==="string"&&choice!==this._seenEffect){
+   const match=/^(Lighting Show|Carnival): (.+?)(?: \| (Dynamic|Soft))?$/.exec(choice);
+   const found=match?EFFECTS.find(e=>e.category===match[1]&&e.name===match[2]):null;
+   if(found){
+    this._seenEffect=choice;this.s.effect=found.name;
+    this.s.variant=found.dual?(match[3]||"Dynamic"):"Dynamic";
+    changed=true;
+   }
+  }
+  if(changed){this.persist();this.render();}
+ }
  getCardSize(){return 12;}
  getGridOptions(){return{columns:12,rows:"auto"};}
  restore(){
