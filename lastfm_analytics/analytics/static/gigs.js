@@ -2,6 +2,35 @@ const $=id=>document.getElementById(id);
 const csrf=document.querySelector('meta[name="csrf-token"]').content;
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let gigs=[];
+
+function collectionHTML(data){
+ const number=value=>Number(value||0).toLocaleString();
+ const metric=(name,value)=>'<div><strong>'+number(value)+'</strong><small>'+esc(name)+'</small></div>';
+ const top=(heading,rows,metricName)=>'<article><h3>'+heading+'</h3>'+
+  (rows.length?'<ol>'+rows.map(song=>'<li>'+esc(song.title)+' <small>· '+esc(song.artist)+
+  (song.cover?' (cover)':'')+'</small><small>'+number(song[metricName])+
+  (metricName==='listens'?' scrobbles':' recorded gigs')+'</small></li>').join('')+'</ol>':
+  '<p class="muted">No matching cached setlist data yet.</p>')+'</article>';
+ return '<div class="gig-summary">'+[
+  metric('Attended performances',data.performances),metric('Distinct artists seen',data.artists),
+  metric('Festival performances',data.festival_performances),
+  metric('Concert performances',data.concert_performances),
+  metric('Cached setlists',data.cached_setlists),
+  metric('Distinct recorded live songs',data.distinct_recorded_songs),
+  metric('Recorded live songs also scrobbled',data.recorded_songs_listened_to)
+ ].join('')+'</div><p class="muted">'+esc(data.coverage_note)+'</p>'+
+ '<div class="gig-analytics-grid">'+
+ top('Your most-listened songs recorded live',data.most_listened_recorded_live||[],'listens')+
+ top('Songs recorded at the most gigs',data.most_performed_recorded_live||[],'performances')+'</div>';
+}
+async function loadCollection(){
+ try{
+  const response=await fetch('api/gigs/live-collection');
+  if(!response.ok)throw Error('Live Collection unavailable');
+  $('live-collection').innerHTML=collectionHTML(await response.json());
+ }catch(e){$('live-collection').textContent=e.message;}
+}
+
 async function load(){
  const response=await fetch('api/gigs');if(!response.ok)throw Error('Could not load gigs');
  gigs=(await response.json()).gigs;
@@ -10,6 +39,7 @@ async function load(){
  const names=[...new Set(gigs.map(g=>g.artist))].sort((a,b)=>a.localeCompare(b));
  $('artists').innerHTML=names.map(s=>'<option value="'+esc(s)+'">').join('');
  if($('artist').value)render();
+ loadCollection();
 }
 function makeSvg(data){
  const counts=data.listens||[];
@@ -138,6 +168,7 @@ $('rows').addEventListener('change',event=>{
 $('artist').value=new URLSearchParams(location.search).get('artist')||'';
 load().catch(e=>$('count').textContent=e.message);
 loadAttendanceStatus();
+loadCollection();
 
 $('rows').addEventListener('click',event=>{
  const button=event.target.closest('[data-artist]');
