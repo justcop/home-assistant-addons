@@ -45,7 +45,6 @@ def test_attended_import_resumes_without_duplicate_calls_or_rows(tmp_path):
     assert importer.run(maximum=1)==0
     assert len(calls)==2
     assert store.list()[0]["sets"] or store.list()[1]["sets"]
-    assert store.remaining_budget if False else True
 
 def test_classification_preserved_when_same_attendance_reimported(tmp_path):
     db=Database(tmp_path/"gigs.sqlite3")
