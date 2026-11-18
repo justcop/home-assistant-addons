@@ -87,6 +87,8 @@ class GigStore:
             festival=str(row.get("festival") or row.get("festival_name") or "").strip()[:256]
             sid=str(row.get("setlist_id") or row.get("setlistfm_id") or "").strip()
             url=str(row.get("setlist_url") or "").strip()
+            if url and not (url.startswith("https://www.setlist.fm/") or url.startswith("https://setlist.fm/")):
+                raise ValueError("Setlist URL must use HTTPS on setlist.fm")
             if not sid and "/setlist/" in url:
                 sid=url.split("?",1)[0].rstrip("/").rsplit("-",1)[-1].removesuffix(".html")
             if sid and (len(sid)>32 or not all(c.isalnum() or c=="-" for c in sid)):
@@ -124,7 +126,7 @@ class GigStore:
         if granularity not in ("day","week","month"):
             raise ValueError("Invalid granularity")
         expression={"day":"strftime('%Y-%m-%d',s.ts,'unixepoch')",
-                    "week":"strftime('%Y-%W',s.ts,'unixepoch')",
+                    "week":"strftime('%Y-%m-%d',s.ts,'unixepoch','weekday 0','-6 days')",
                     "month":"strftime('%Y-%m',s.ts,'unixepoch')"}[granularity]
         with self.db.connect() as conn:
             rows=[dict(r) for r in conn.execute(f"""SELECT {expression} period,COUNT(*) listens
