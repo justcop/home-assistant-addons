@@ -58,6 +58,17 @@ async function assertLogoPixelsInCrop(page, label) {
     path: path.join(output, "overview-light.png"),
     fullPage: true,
   });
+  // The gig catalogue must execute under the strict script-src 'self' CSP.
+  // A historical inline script silently broke the page in production.
+  const gigPage = await browser.newPage();
+  const gigErrors = [];
+  gigPage.on("pageerror", error => gigErrors.push(error.message));
+  await gigPage.goto(new URL("gigs", page.url()).toString());
+  await gigPage.locator("#count").waitFor();
+  await gigPage.waitForFunction(() => document.querySelector("#count").textContent.includes("attended performances"));
+  assert.match(await gigPage.locator("body").innerText(), /Festival rule/);
+  assert.deepEqual(gigErrors, []);
+  await gigPage.close();
   // Rolling 365-day musical eras live in Trends, not an extra navigation tab.
   // A date change requests a different historical snapshot without changing
   // the main listening period; neglected favourites remain clickable.
