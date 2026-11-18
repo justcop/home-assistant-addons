@@ -58,6 +58,29 @@ async function assertLogoPixelsInCrop(page, label) {
     path: path.join(output, "overview-light.png"),
     fullPage: true,
   });
+  // Real Live gigs UI must execute under our restrictive Content Security Policy.
+  // A gig classified by the three-performance rule has no explicit festival
+  // name, yet still renders as a festival (purple triangle) in the timeline.
+  const gigPage = await browser.newPage();
+  const gigErrors = [];
+  gigPage.on("pageerror", error => gigErrors.push(error.message));
+  const mockGig = {id:101, artist:"Example Act", date:"2025-08-16",
+                   venue:"Example Park", festival:"", show_type:"festival",
+                   type_override:0, setlist_url:"", sets:null, last_checked:"2025-08-20"};
+  await gigPage.route("**/api/gigs", route => route.fulfill({
+    status:200, contentType:"application/json", body:JSON.stringify({gigs:[mockGig]})
+  }));
+  await gigPage.route("**/api/gigs/timeline?*", route => route.fulfill({
+    status:200, contentType:"application/json",
+    body:JSON.stringify({listens:[{period:"2025-08",listens:12}],gigs:[mockGig],granularity:"month"})
+  }));
+  await gigPage.goto(new URL("gigs", page.url()).toString());
+  await gigPage.getByText("Inferred festival").waitFor();
+  await gigPage.locator("#artist").fill("Example Act");
+  await gigPage.locator("#artist").dispatchEvent("change");
+  await gigPage.locator("#timeline .timeline-marker path").waitFor();
+  assert.deepEqual(gigErrors, []);
+  await gigPage.close();
   // Rolling 365-day musical eras live in Trends, not an extra navigation tab.
   // A date change requests a different historical snapshot without changing
   // the main listening period; neglected favourites remain clickable.

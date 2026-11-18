@@ -104,12 +104,17 @@ class GigStore:
             prepared.append((artist,day,venue,festival,sid or None,url[:500]))
         with self.db.connect() as conn:
             for artist,day,venue,festival,sid,url in prepared:
-                conn.execute("""INSERT INTO gigs(artist,date,venue,festival,setlist_id,setlist_url)
-                   VALUES(?,?,?,?,?,?) ON CONFLICT(artist,date,venue) DO UPDATE SET
-                   festival=excluded.festival,
+                conn.execute("""INSERT INTO gigs
+                   (artist,date,venue,festival,setlist_id,setlist_url,show_type,type_override)
+                   VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(artist,date,venue) DO UPDATE SET
+                   festival=CASE WHEN excluded.festival!='' THEN excluded.festival ELSE gigs.festival END,
+                   show_type=CASE WHEN excluded.festival!='' THEN 'festival' ELSE gigs.show_type END,
+                   type_override=CASE WHEN excluded.festival!='' THEN 1 ELSE gigs.type_override END,
                    setlist_id=COALESCE(excluded.setlist_id,gigs.setlist_id),
                    setlist_url=CASE WHEN excluded.setlist_url!='' THEN excluded.setlist_url ELSE gigs.setlist_url END""",
-                   (artist,day,venue,festival,sid,url))
+                   (artist,day,venue,festival,sid,url,
+                    "festival" if festival else "unknown", 1 if festival else 0))
+        self.infer_festivals()
         return len(prepared)
 
     def list(self, artist=None):

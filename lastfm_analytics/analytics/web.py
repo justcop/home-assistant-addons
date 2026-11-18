@@ -468,7 +468,7 @@ self.addEventListener('fetch', event => {
 
     @app.get("/gigs")
     def gigs_page():
-        return render_template("gigs.html",base=request.script_root+"/",csrf=csrf)
+        return render_template("gigs.html",base=request_base(),csrf=csrf)
 
     @app.get("/api/status")
     def status():
