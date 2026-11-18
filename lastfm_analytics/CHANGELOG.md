@@ -1,3 +1,10 @@
+## 0.2.37
+- Add a live music collection across all attended performances: distinctive recorded songs, artists seen, and the most-listened and most-often-performed songs based on currently cached setlists.
+- Add individual artist live-song comparisons to actual scrobbles, including a clearly qualified list of songs absent from cached setlists (not necessarily never played live).
+- Analyse equal 30-day listening windows before and after each gig, excluding concert day; report both raw artist plays and artist share of all scrobbles, with clear coverage and non-causal caveats.
+- Respect user-merged artist identities in the gig catalogue and listening timelines, and make artist names clickable from the gig table.
+- Do not store or extend retention of setlist.fm song data; analytics are recalculated from the existing expiring cache.
+
 ## 0.2.36
 - Infer festivals only from **four or more** attended performances at the same venue across one or consecutive days, so ordinary three-act support bills remain concerts.
 - Remove the add-on's separate daily setlist.fm API request budget, allowing attendance and setlist checks to continue until done or rate-limited by the provider.

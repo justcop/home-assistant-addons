@@ -9,6 +9,7 @@ import urllib.parse
 import urllib.request
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
+from .grouping import normalise
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS gigs (
@@ -121,8 +122,15 @@ class GigStore:
             conn.execute("DELETE FROM gig_cache WHERE fetched_at < ?", (now-int(self.config["setlist_cache_retention_days"])*86400,))
             rows=[dict(r) for r in conn.execute("""SELECT g.*,c.payload,c.fetched_at FROM gigs g
                 LEFT JOIN gig_cache c ON c.gig_id=g.id
-                WHERE (? IS NULL OR lower(g.artist)=lower(?))
-                ORDER BY g.date DESC,g.artist""",(artist,artist))]
+                ORDER BY g.date DESC,g.artist""")]
+            if artist:
+                # Setlist.fm spellings and user-merged artist aliases can differ.
+                canonical = dict((r["artist_key"], r["canonical_key"]) for r in
+                    conn.execute("SELECT artist_key,canonical_key FROM artist_aliases"))
+                target = normalise(artist)
+                target = canonical.get(target, target)
+                rows = [r for r in rows if
+                    canonical.get(normalise(r["artist"]), normalise(r["artist"])) == target]
         for row in rows:
             raw=row.pop("payload",None)
             if raw:
@@ -140,9 +148,15 @@ class GigStore:
                     "week":"strftime('%Y-%m-%d',s.ts,'unixepoch','weekday 0','-6 days')",
                     "month":"strftime('%Y-%m',s.ts,'unixepoch')"}[granularity]
         with self.db.connect() as conn:
+            lookup = normalise(artist)
+            alias = conn.execute("SELECT canonical_key FROM artist_aliases WHERE artist_key=?",
+                                 (lookup,)).fetchone()
+            canonical = alias[0] if alias else lookup
             rows=[dict(r) for r in conn.execute(f"""SELECT {expression} period,COUNT(*) listens
-                FROM scrobbles s WHERE s.active=1 AND lower(s.artist)=lower(?)
-                GROUP BY period ORDER BY period""",(artist,))]
+                FROM scrobbles s WHERE s.active=1 AND
+                  (s.artist_group_key=? OR
+                  (s.artist_group_key IS NULL AND source_key(s.artist)=?))
+                GROUP BY period ORDER BY period""",(canonical,lookup))]
         return {"listens":rows,"gigs":self.list(artist),"granularity":granularity}
 
     def infer_festivals(self):

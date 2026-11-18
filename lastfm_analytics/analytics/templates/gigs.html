@@ -11,6 +11,21 @@
 .gig-shell .muted{opacity:.72}.gig-shell .legend{display:flex;gap:18px;flex-wrap:wrap}
 .gig-shell svg{width:100%;height:auto;overflow:visible}
 .gig-shell .timeline-marker{cursor:pointer}
+.gig-shell .gig-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:12px;margin:16px 0}
+.gig-shell .gig-summary > div{border:1px solid #8885;border-radius:10px;padding:13px}
+.gig-shell .gig-summary strong{display:block;font-size:23px}
+.gig-shell .gig-summary small{opacity:.75}
+.gig-shell .gig-analytics-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,310px),1fr));gap:18px}
+.gig-shell .gig-analytics-grid article{min-width:0}
+.gig-shell .gig-analytics-grid ol{padding-left:24px}
+.gig-shell .gig-analytics-grid li{padding:5px 0;border-bottom:1px solid #8883}
+.gig-shell .gig-analytics-grid li small{display:block;opacity:.75}
+.gig-shell .gig-impact{border-top:1px solid #8884;padding:10px 0}
+.gig-shell .gig-impact strong{display:block}
+.gig-shell .gig-impact .change{font-weight:700}
+.gig-shell .gig-artist-link{background:transparent;border:0;text-decoration:underline;cursor:pointer;padding:0;color:inherit}
+.gig-shell .gig-analytics-grid .muted{line-height:1.5}
+.gig-shell .gig-chart-note{font-size:12px;opacity:.75}
 </style></head>
 <body><main class="gig-shell">
 <p><a href="./">← Listening</a></p><h1>Live music history</h1>
@@ -22,13 +37,19 @@
 <p class="muted">Import and subsequent checks are automatic, honour setlist.fm rate limiting and continue across restarts. Newly added attendances are checked at least weekly after an initial full import.</p>
 </section>
 <section>
+<h2>Your live music collection</h2>
+<p class="muted">A cross-artist overview of performances and songs recorded in currently cached setlists. Expired and missing setlists are excluded, not assumed empty.</p>
+<div id="live-collection" aria-live="polite">Calculating your live collection…</div>
+</section>
+<section>
 <h2>Artist timeline</h2>
 <label>Artist <input id="artist" list="artists" placeholder="Choose an artist"><datalist id="artists"></datalist></label>
 <label>Listening scale <select id="scale"><option value="month">Monthly</option><option value="week">Weekly</option><option value="day">Daily</option></select></label>
 <label><input type="checkbox" id="concerts" checked>Concerts</label>
 <label><input type="checkbox" id="festivals" checked>Festivals</label>
 <div id="timeline" aria-live="polite">Choose an artist to view listening and gigs together.</div>
+<div id="artist-analytics" aria-live="polite"></div>
 </section>
-<section><h2>Gig catalogue</h2><div id="count"></div><p class="muted">setlist.fm does not expose the festival name in its API. Listening automatically identifies festivals when three or more attended acts share a venue on one day or consecutive days. You can override any classification.</p>
+<section><h2>Gig catalogue</h2><div id="count"></div><p class="muted">setlist.fm does not expose the festival name in its API. Listening automatically identifies festivals when four or more attended acts share a venue on one day or consecutive days. You can override any classification.</p>
 <div style="overflow-x:auto"><table><thead><tr><th>Date</th><th>Artist</th><th>Venue</th><th>Type</th><th>Setlist</th><th>Last checked</th></tr></thead><tbody id="rows"></tbody></table></div></section>
 </main><script src="static/gigs.js" defer></script></body></html>

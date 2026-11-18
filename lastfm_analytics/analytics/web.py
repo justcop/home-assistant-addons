@@ -34,6 +34,9 @@ from .artwork import ArtworkWorker
 from .album_listens import TracklistWorker
 from .release_years import ReleaseYearWorker
 from .gigs import GigStore, GigWorker
+from .gig_insights import (
+    listening_summary as gig_listening_summary, impact_for_artist, live_collection
+)
 
 DEFAULTS = {
     "username": "",
@@ -463,6 +466,25 @@ self.addEventListener('fetch', event => {
         if not artist:
             raise ValueError("Select an artist")
         return jsonify(gig_store.timeline(artist,request.args.get("granularity","month")))
+
+    @app.get("/api/gigs/live-collection")
+    def gigs_live_collection():
+        if is_demo():
+            return jsonify(performances=0, artists=0, festival_performances=0,
+                           concert_performances=0, cached_setlists=0,
+                           distinct_recorded_songs=0, recorded_songs_listened_to=0,
+                           most_listened_recorded_live=[],
+                           most_performed_recorded_live=[],
+                           coverage_note="Demo mode contains no attendance history.")
+        return jsonify(live_collection(gig_store))
+
+    @app.get("/api/gigs/artist-insights")
+    def gigs_artist_insights():
+        artist = (request.args.get("artist") or "").strip()
+        if not artist or len(artist) > 256:
+            raise ValueError("Select a valid artist")
+        return jsonify(songs=gig_listening_summary(gig_store, artist),
+                       impact=impact_for_artist(gig_store, artist))
 
     @app.get("/gigs")
     def gigs_page():
