@@ -24,7 +24,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - run: node --check analytics/static/app.js
+      - run: node --check analytics/static/app.js && node --check analytics/static/gigs.js
       - run: npm install --no-save playwright@1.62.1 && npx playwright install --with-deps chromium
       - name: Exercise dashboard with fictional data
         env:
