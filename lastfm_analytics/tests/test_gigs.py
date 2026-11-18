@@ -31,3 +31,51 @@ def test_import_and_cache_expiry(tmp_path):
     assert len(store.list()) == 2
     assert store.list("Muse")[0]["date"] == "2025-06-15"
     assert store.refresh()["processed"] == 0
+
+
+def test_festival_rule_applies_on_manual_import_without_erasing_overrides(tmp_path):
+    db = Database(tmp_path / "festivals.sqlite3")
+    store = GigStore(db, {
+        "timezone": "Europe/London", "setlist_cache_retention_days": 30,
+        "setlist_daily_request_budget": 10, "setlistfm_api_key": ""
+    })
+    records = [
+        {"artist": "Band A", "date": "2025-06-10", "venue": "Open Air Park"},
+        {"artist": "Band B", "date": "2025-06-11", "venue": "Open Air Park"},
+        {"artist": "Band C", "date": "2025-06-11", "venue": "Open Air Park"},
+        {"artist": "Band D", "date": "2025-06-11", "venue": "Another Park"},
+        {"artist": "Band E", "date": "2025-07-01", "venue": "Solo Arena",
+         "festival": "Explicit Festival"},
+    ]
+    assert store.import_rows(records) == 5
+    by_artist = {g["artist"]: g for g in store.list()}
+    for band in ("Band A", "Band B", "Band C"):
+        assert by_artist[band]["show_type"] == "festival"
+        assert by_artist[band]["type_override"] == 0
+    assert by_artist["Band D"]["show_type"] == "concert"
+    assert by_artist["Band E"]["show_type"] == "festival"
+    assert by_artist["Band E"]["type_override"] == 1
+    assert store.list("Band A")[0]["show_type"] == "festival"
+
+    # A user's correction stays authoritative even after importing again.
+    store.classify(by_artist["Band A"]["id"], "concert")
+    store.import_rows(records)
+    updated = {g["artist"]: g for g in store.list()}
+    assert updated["Band A"]["show_type"] == "concert"
+    assert updated["Band E"]["festival"] == "Explicit Festival"
+    assert updated["Band E"]["type_override"] == 1
+    assert updated["Band B"]["show_type"] == "festival"
+
+
+def test_gig_page_loads_external_script_under_csp(tmp_path):
+    from analytics.web import create_app
+
+    app = create_app(tmp_path, config={}, development=True, start_worker=False)
+    client = app.test_client()
+    response = client.get("/gigs")
+    assert response.status_code == 200
+    assert b'<script src="static/gigs.js" defer></script>' in response.data
+    assert b"<script>" not in response.data
+    assert "script-src 'self'" in response.headers["Content-Security-Policy"]
+    assert client.get("/static/gigs.js").status_code == 200
+    app.extensions["gig_worker"].close()
