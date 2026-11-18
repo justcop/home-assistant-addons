@@ -82,3 +82,35 @@ def test_infer_festival_same_day_and_consecutive_dates(tmp_path):
         assert conn.execute(
             "SELECT festival FROM gigs WHERE artist='Artist 1'"
         ).fetchone()[0] == ""
+
+
+def test_festival_inference_is_returned_by_api(tmp_path):
+    import re
+    from analytics.web import create_app
+
+    app = create_app(tmp_path, config={}, development=True, start_worker=False)
+    client = app.test_client()
+    page = client.get("/gigs")
+    assert page.status_code == 200
+    assert b'src="static/gigs.js"' in page.data
+    assert b"<script>" not in page.data
+    assert b"Festival rule" in page.data
+    assert "script-src 'self'" in page.headers["Content-Security-Policy"]
+    csrf = re.search(r'name="csrf-token" content="([^"]+)"', page.text).group(1)
+    rows = [
+        {"artist": "Band A", "date": "2025-07-01", "venue": "Test Park"},
+        {"artist": "Band B", "date": "2025-07-02", "venue": "Test Park"},
+        {"artist": "Band C", "date": "2025-07-02", "venue": "Test Park"},
+    ]
+    added = client.post("/api/gigs/import", json={"gigs": rows},
+                        headers={"X-CSRF-Token": csrf})
+    assert added.status_code == 200 and added.json["imported"] == 3
+    api = client.get("/api/gigs?artist=Band%20A")
+    assert api.status_code == 200
+    assert len(api.json["gigs"]) == 1
+    assert api.json["gigs"][0]["festival_inferred"] is True
+    assert api.json["gigs"][0]["is_festival"] is True
+    timeline = client.get("/api/gigs/timeline?artist=Band%20B")
+    assert timeline.status_code == 200
+    assert timeline.json["gigs"][0]["festival_inferred"] is True
+    app.extensions["gig_worker"].close()
