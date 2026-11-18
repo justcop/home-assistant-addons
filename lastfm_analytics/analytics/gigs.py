@@ -7,7 +7,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 SCHEMA = """
@@ -66,7 +66,7 @@ class GigStore:
         init(db)
 
     def today(self):
-        return date.fromtimestamp(time.time(), self.zone)
+        return datetime.fromtimestamp(time.time(), self.zone).date()
 
     def import_rows(self, rows):
         if not isinstance(rows, list) or len(rows)>1500:
