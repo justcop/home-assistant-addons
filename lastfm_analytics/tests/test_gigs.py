@@ -21,7 +21,7 @@ def test_age_based_schedule():
 def test_import_and_cache_expiry(tmp_path):
     db = Database(tmp_path / "listening.sqlite3")
     config = {"timezone": "Europe/London", "setlist_cache_retention_days": 30,
-              "setlist_daily_request_budget": 10, "setlistfm_api_key": ""}
+              "setlistfm_api_key": ""}
     store = GigStore(db, config)
     rows = [{"artist": "Muse", "date": "2025-06-15", "venue": "Wembley",
              "festival": "", "setlist_id": "abc123"},
@@ -37,7 +37,7 @@ def test_festival_rule_applies_on_manual_import_without_erasing_overrides(tmp_pa
     db = Database(tmp_path / "festivals.sqlite3")
     store = GigStore(db, {
         "timezone": "Europe/London", "setlist_cache_retention_days": 30,
-        "setlist_daily_request_budget": 10, "setlistfm_api_key": ""
+        "setlistfm_api_key": ""
     })
     records = [
         {"artist": "Band A", "date": "2025-06-10", "venue": "Open Air Park"},
@@ -48,8 +48,13 @@ def test_festival_rule_applies_on_manual_import_without_erasing_overrides(tmp_pa
          "festival": "Explicit Festival"},
     ]
     assert store.import_rows(records) == 5
-    by_artist = {g["artist"]: g for g in store.list()}
+    initially = {g["artist"]: g for g in store.list()}
     for band in ("Band A", "Band B", "Band C"):
+        assert initially[band]["show_type"] == "concert"
+    records.append({"artist": "Band F", "date": "2025-06-11", "venue": "Open Air Park"})
+    assert store.import_rows(records) == 6
+    by_artist = {g["artist"]: g for g in store.list()}
+    for band in ("Band A", "Band B", "Band C", "Band F"):
         assert by_artist[band]["show_type"] == "festival"
         assert by_artist[band]["type_override"] == 0
     assert by_artist["Band D"]["show_type"] == "concert"
