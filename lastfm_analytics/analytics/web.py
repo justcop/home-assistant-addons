@@ -439,6 +439,20 @@ self.addEventListener('fetch', event => {
     def gigs_list():
         return jsonify(gigs=gig_store.list(request.args.get("artist") or None))
 
+    @app.get("/api/gigs/attendance-status")
+    def gigs_attendance_status():
+        return jsonify(gig_worker.importer.status())
+
+    @app.post("/api/gigs/classify")
+    def gigs_classify():
+        if is_demo():
+            abort(403)
+        data = request.get_json()
+        if not isinstance(data, dict):
+            raise ValueError("Invalid gig classification")
+        gig_store.classify(int(data.get("id", 0)), data.get("type"), data.get("festival"))
+        return jsonify(ok=True)
+
     @app.post("/api/gigs/import")
     def gigs_import():
         if is_demo():
