@@ -318,3 +318,8 @@ Attendance records persist independently of the API. Cached setlist payloads
 expire automatically; expired songs are unavailable until their next scheduled
 refresh. The configured cache retention is a technical cap, **not** a grant
 of permission to store data longer than setlist.fm's API terms allow.
+
+
+### Automatic festival classification
+
+Listening automatically classifies **three or more attended performances at the same named venue on one date or on consecutive dates** as a festival, even when the imported CSV has no festival field. Names are compared case-insensitively, and gigs with no venue do not qualify. The status is shown as **Festival (inferred)** in the catalogue and uses the festival marker on artist timelines. A supplied festival name is authoritative and takes precedence. Inference does not alter saved attendance records; adding or correcting gigs recalculates it automatically.
