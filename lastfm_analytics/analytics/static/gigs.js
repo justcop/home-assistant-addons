@@ -6,7 +6,7 @@ async function load(){
  const response=await fetch('api/gigs');if(!response.ok)throw Error('Could not load gigs');
  gigs=(await response.json()).gigs;
  $('count').textContent=gigs.length+' attended performances';
- $('rows').innerHTML=gigs.map(g=>'<tr><td>'+esc(g.date)+'</td><td>'+esc(g.artist)+'</td><td>'+esc(g.venue)+'</td><td>'+'<select class="gig-type" data-id="'+g.id+'"><option value="unknown" '+(g.show_type==='unknown'?'selected':'')+'>Unclassified</option><option value="concert" '+(g.show_type==='concert'?'selected':'')+'>Concert</option><option value="festival" '+(g.show_type==='festival'?'selected':'')+'>Festival</option></select>'+(g.festival?'<small>'+esc(g.festival)+'</small>':'')+'</td><td>'+(g.setlist_url?'<a target="_blank" rel="noopener noreferrer" href="'+esc(g.setlist_url)+'">Source</a>':g.setlist_id?'Linked':'Not linked')+(g.sets?'<details><summary>Cached songs</summary><ol>'+g.sets.flatMap(set=>set.song||[]).map(song=>'<li>'+esc(song.name||'Unknown')+'</li>').join('')+'</ol></details>':'')+'</td><td>'+esc(g.last_checked||'Never')+'</td></tr>').join('');
+ $('rows').innerHTML=gigs.map(g=>'<tr><td>'+esc(g.date)+'</td><td>'+esc(g.artist)+'</td><td>'+esc(g.venue)+'</td><td>'+'<select class="gig-type" data-id="'+g.id+'"><option value="unknown" '+(g.show_type==='unknown'?'selected':'')+'>Unclassified</option><option value="concert" '+(g.show_type==='concert'?'selected':'')+'>Concert</option><option value="festival" '+(g.show_type==='festival'?'selected':'')+'>Festival</option></select>'+(g.festival?'<small>'+esc(g.festival)+'</small>':g.show_type==='festival'&&!g.type_override?'<small>Inferred festival</small>':'')+'</td><td>'+(g.setlist_url?'<a target="_blank" rel="noopener noreferrer" href="'+esc(g.setlist_url)+'">Source</a>':g.setlist_id?'Linked':'Not linked')+(g.sets?'<details><summary>Cached songs</summary><ol>'+g.sets.flatMap(set=>set.song||[]).map(song=>'<li>'+esc(song.name||'Unknown')+'</li>').join('')+'</ol></details>':'')+'</td><td>'+esc(g.last_checked||'Never')+'</td></tr>').join('');
  const names=[...new Set(gigs.map(g=>g.artist))].sort((a,b)=>a.localeCompare(b));
  $('artists').innerHTML=names.map(s=>'<option value="'+esc(s)+'">').join('');
  if($('artist').value)render();
@@ -26,7 +26,7 @@ function makeSvg(data){
  const poly=counts.map(d=>x(time(d.period))+','+y(d.listens)).join(' ');
  const grid=[0,.25,.5,.75,1].map(v=>'<line x1="44" y1="'+y(v*high)+'" x2="865" y2="'+y(v*high)+'" stroke="currentColor" opacity=".12"/>').join('');
  const marks=raw.map(g=>{
-  const xx=x(time(g.date)),festival=!!g.festival,color=festival?'#8b5cf6':'#f59e0b';
+  const xx=x(time(g.date)),festival=g.show_type==='festival',color=festival?'#8b5cf6':'#f59e0b';
   const shape=festival?'<path d="M'+xx+' 231 l-6 12 h12 Z" fill="'+color+'"/>':'<circle cx="'+xx+'" cy="236" r="5" fill="'+color+'"/>';
   return '<g class="timeline-marker"><title>'+esc(g.date+' · '+g.artist+' · '+(g.festival||g.venue))+'</title><line x1="'+xx+'" y1="24" x2="'+xx+'" y2="226" stroke="'+color+'" stroke-dasharray="4 4" opacity=".65"/>'+shape+'</g>';
  }).join('');
