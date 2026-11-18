@@ -158,6 +158,7 @@ class AttendanceImporter:
                         total<0 or page>1000):
                     raise ValueError("Invalid attendance pagination")
                 done = self._apply_page(items,page,total,per_page,today,completed)
+                self.store.infer_festivals()
                 processed += 1
                 if done:
                     break
