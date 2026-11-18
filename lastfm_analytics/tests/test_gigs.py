@@ -25,7 +25,7 @@ def test_anniversaries_never_drift():
 
 
 def test_leap_year_festival_anniversary():
-    checked = datetime(2024, 12, 31, tzinfo=timezone.utc).timestamp()
+    checked = datetime(2025, 2, 1, tzinfo=timezone.utc).timestamp()
     assert next_due("2024-02-29", checked, date(2025, 2, 28)) == date(2025, 2, 28)
     checked = datetime(2025, 3, 2, tzinfo=timezone.utc).timestamp()
     assert next_due("2024-02-29", checked, date(2026, 11, 18)) == date(2026, 2, 28)
