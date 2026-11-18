@@ -362,3 +362,25 @@ analysis. The artist page lists:
 Listening applies user-merged artist aliases to the imported gig history when
 matching performances and scrobbles. No song lists or analytics derived from
 setlist.fm are retained beyond the configurable temporary cache lifetime.
+
+
+### All-history listening timeline
+
+Open **Live gigs** and use **All listening and live events** to view your entire
+scrobble history alongside dated attendance markers. Switch between year,
+month, week or day granularity. The daily view requires selecting a year;
+weekly views automatically default to a year when opening from all-history.
+Choose **All years** to see the whole historical span at yearly or monthly
+resolution. Each scale counts genuine scrobbles in local calendar periods,
+including empty periods. The counts do not represent listening duration.
+
+Orange circles distinguish standalone concert bills, purple triangles show
+festivals and grey squares show unclassified performances. Use the filters to
+show or hide each type. Click or activate an event marker to reveal that
+concert's attending artists, dates and links to setlist.fm. Festival appearances
+on consecutive days at the same venue (or manually named festival across stages)
+are grouped as one event but every individual attended set is preserved.
+You can click any artist to jump to their listening and gig-specific history.
+
+The combined timeline uses only local scrobble timestamps and your stored
+attendance catalogue. It does not increase API traffic or cache setlists.

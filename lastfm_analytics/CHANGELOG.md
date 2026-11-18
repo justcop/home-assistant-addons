@@ -1,3 +1,10 @@
+## 0.2.38
+- Add a unified timeline combining every locally recorded scrobble with dated concerts and festival appearances, with yearly, monthly, weekly and daily scales.
+- Offer all-years and single-year views, concert/festival/unclassified filters, and interactive dated markers leading to event bills and individual artist timelines.
+- Group multi-day festival appearances into one event marker while retaining the specific artist performances and gig links; normal concert bills with support acts remain concerts.
+- Aggregate by the configured local timezone, preserve zero-listening intervals, and avoid importing or retaining new third-party setlist data for the overview.
+- Add regression tests for calendar alignment, UK DST boundaries, multi-day festival grouping and timeline API validation.
+
 ## 0.2.37
 - Add a live music collection across all attended performances: distinctive recorded songs, artists seen, and the most-listened and most-often-performed songs based on currently cached setlists.
 - Add individual artist live-song comparisons to actual scrobbles, including a clearly qualified list of songs absent from cached setlists (not necessarily never played live).

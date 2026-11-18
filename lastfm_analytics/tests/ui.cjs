@@ -59,7 +59,7 @@ async function assertLogoPixelsInCrop(page, label) {
     fullPage: true,
   });
   // Real Live gigs UI must execute under our restrictive Content Security Policy.
-  // A gig classified by the three-performance rule has no explicit festival
+  // A gig classified by the four-performance rule has no explicit festival
   // name, yet still renders as a festival (purple triangle) in the timeline.
   const gigPage = await browser.newPage();
   const gigErrors = [];
@@ -74,8 +74,35 @@ async function assertLogoPixelsInCrop(page, label) {
     status:200, contentType:"application/json",
     body:JSON.stringify({listens:[{period:"2025-08",listens:12}],gigs:[mockGig],granularity:"month"})
   }));
+  await gigPage.route("**/api/gigs/all-timeline?*", route => route.fulfill({
+    status:200, contentType:"application/json",
+    body:JSON.stringify({
+      scale:"year", year:null, years:[2024,2025],
+      start:"2024-01-01",end:"2025-12-31",total:42,
+      performances:1,event_count:1,
+      bins:[{start:"2024-01-01",end:"2024-12-31",plays:12},
+            {start:"2025-01-01",end:"2025-12-31",plays:30}],
+      events:[{id:101,start:"2025-08-16",end:"2025-08-17",
+               type:"festival",name:"Example Park",venue:"Example Park",
+               performances:1,artists:["Example Act"],
+               gigs:[{id:101,artist:"Example Act",date:"2025-08-16",
+                      venue:"Example Park",url:""}]}]
+    })
+  }));
   await gigPage.goto(new URL("gigs", page.url()).toString());
   await gigPage.getByText("Inferred festival").waitFor();
+  await gigPage.locator("#all-timeline .gig-timeline-marker").waitFor();
+  assert.equal(await gigPage.locator('#all-timeline .gig-timeline-marker path').count(),1);
+  await gigPage.locator('#all-timeline .gig-timeline-marker').click();
+  await gigPage.locator('#all-event-details .gig-event-card.selected').waitFor();
+  assert.match(await gigPage.locator("#all-event-details").innerText(), /Example Act/);
+  await gigPage.locator("#all-festivals").uncheck();
+  assert.equal(await gigPage.locator("#all-timeline .gig-timeline-marker").count(),0);
+  await gigPage.locator("#all-festivals").check();
+  assert.equal(await gigPage.locator("#all-timeline .gig-timeline-marker").count(),1);
+  await gigPage.locator("#all-scale").selectOption("day");
+  assert.equal(await gigPage.locator("#all-year").inputValue(),"2025");
+  await gigPage.locator("#all-timeline .gig-timeline-marker").waitFor();
   await gigPage.locator("#artist").fill("Example Act");
   await gigPage.locator("#artist").dispatchEvent("change");
   await gigPage.locator("#timeline .timeline-marker path").waitFor();

@@ -26,6 +26,23 @@
 .gig-shell .gig-artist-link{background:transparent;border:0;text-decoration:underline;cursor:pointer;padding:0;color:inherit}
 .gig-shell .gig-analytics-grid .muted{line-height:1.5}
 .gig-shell .gig-chart-note{font-size:12px;opacity:.75}
+
+.gig-shell .gig-timeline-controls{display:flex;align-items:center;flex-wrap:wrap;gap:8px 18px}
+.gig-shell .gig-timeline-controls label{display:flex;align-items:center;gap:5px}
+.gig-shell .gig-timeline-controls select{max-width:170px}
+.gig-shell .gig-timeline-scroll{overflow-x:auto;overflow-y:hidden;border:1px solid #8885;border-radius:12px;padding:8px;max-width:100%;scrollbar-width:thin}
+.gig-shell .gig-timeline-scroll svg{display:block;max-width:none;height:355px}
+.gig-shell .gig-timeline-marker{cursor:pointer;outline:none}
+.gig-shell .gig-timeline-marker:focus circle,.gig-shell .gig-timeline-marker:focus path{stroke:currentColor;stroke-width:3}
+.gig-shell .gig-event-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,310px),1fr));gap:10px;margin:12px 0}
+.gig-shell .gig-event-card{border:1px solid #8886;border-radius:9px;padding:13px;scroll-margin-top:18px}
+.gig-shell .gig-event-card.selected{outline:2px solid #14b8a6}
+.gig-shell .gig-event-card h3{margin:4px 0 6px;font-size:16px}
+.gig-shell .gig-event-card .gig-event-acts{padding-left:17px;margin:8px 0 0}
+.gig-shell .gig-event-card .gig-event-acts li{margin:3px 0}
+.gig-shell .gig-timeline-legend{display:flex;gap:16px;flex-wrap:wrap;margin:8px 0}
+.gig-shell .gig-event-pager{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.gig-shell .gig-event-pager button{border:1px solid #8886;background:transparent;color:inherit}
 </style></head>
 <body><main class="gig-shell">
 <p><a href="./">← Listening</a></p><h1>Live music history</h1>
@@ -40,6 +57,23 @@
 <h2>Your live music collection</h2>
 <p class="muted">A cross-artist overview of performances and songs recorded in currently cached setlists. Expired and missing setlists are excluded, not assumed empty.</p>
 <div id="live-collection" aria-live="polite">Calculating your live collection…</div>
+</section>
+<section id="whole-history">
+<h2>All listening and live events</h2>
+<p class="muted">Your entire listening history in one timeline. Concert and festival markers use actual attendance dates; a multi-day festival appears as one event containing its attended performances.</p>
+<div class="gig-timeline-controls">
+<label>Listening scale <select id="all-scale">
+<option value="year">Yearly</option><option value="month">Monthly</option>
+<option value="week">Weekly</option><option value="day">Daily</option>
+</select></label>
+<label>Period <select id="all-year"><option value="">All years</option></select></label>
+<label><input id="all-concerts" type="checkbox" checked> Concerts</label>
+<label><input id="all-festivals" type="checkbox" checked> Festivals</label>
+<label><input id="all-unclassified" type="checkbox" checked> Unclassified</label>
+</div>
+<div id="all-timeline" role="region" aria-label="All listening history timeline" aria-live="polite">Loading full listening timeline…</div>
+<div id="all-event-details" aria-live="polite"></div>
+<p class="muted">Listening is shown as scrobble totals in each interval. Symbols mark real concert dates, not estimated set times. A marker opens the matching attendance entry below.</p>
 </section>
 <section>
 <h2>Artist timeline</h2>

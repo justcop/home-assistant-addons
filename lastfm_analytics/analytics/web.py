@@ -34,6 +34,7 @@ from .artwork import ArtworkWorker
 from .album_listens import TracklistWorker
 from .release_years import ReleaseYearWorker
 from .gigs import GigStore, GigWorker
+from .gig_timeline import all_listening_timeline
 from .gig_insights import (
     listening_summary as gig_listening_summary, impact_for_artist, live_collection
 )
@@ -466,6 +467,15 @@ self.addEventListener('fetch', event => {
         if not artist:
             raise ValueError("Select an artist")
         return jsonify(gig_store.timeline(artist,request.args.get("granularity","month")))
+
+    @app.get("/api/gigs/all-timeline")
+    def gigs_all_timeline():
+        scale = request.args.get("scale", "year")
+        year = request.args.get("year") or None
+        if is_demo():
+            return jsonify(scale=scale, year=year, years=[], bins=[], events=[],
+                           total=0, performances=0, event_count=0)
+        return jsonify(all_listening_timeline(gig_store, scale=scale, year=year))
 
     @app.get("/api/gigs/live-collection")
     def gigs_live_collection():
