@@ -1,5 +1,5 @@
 name: Listening Analytics
-version: "0.2.32"
+version: "0.2.33"
 slug: lastfm_analytics
 description: A clear, local view of your Last.fm listening, with reversible song and album grouping.
 url: https://github.com/justcop/home-assistant-addons/tree/main/lastfm_analytics
@@ -32,6 +32,9 @@ options:
   reconcile_days: 7
   demo_mode: false
   artwork_lookups: true
+  setlist_fm_api_key: ""
+  setlist_cache_retention_days: 30
+  setlist_daily_request_budget: 10
   web_password: ""
 schema:
   audioshelf_url: str?
@@ -43,4 +46,7 @@ schema:
   reconcile_days: int(2,90)
   demo_mode: bool
   artwork_lookups: bool
+  setlist_fm_api_key: password?
+  setlist_cache_retention_days: int(1,30)
+  setlist_daily_request_budget: int(1,100)
   web_password: password?
