@@ -99,5 +99,6 @@ $('import').onclick=async()=>{
  }catch(e){$('import-status').textContent=e.message}
 };
 ['artist','scale','concerts','festivals'].forEach(id=>$(id).addEventListener('change',render));
+$('artist').value=new URLSearchParams(location.search).get('artist')||'';
 load().catch(e=>$('count').textContent=e.message);
 </script></body></html>
