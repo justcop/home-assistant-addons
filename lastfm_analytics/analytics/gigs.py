@@ -249,9 +249,39 @@ class GigService:
             rows = conn.execute("""SELECT id, artist, event_date, venue, location,
                 event_type, festival, source_url, setlist_id FROM gigs
                 ORDER BY event_date""").fetchall()
-        return [dict(r) for r in rows if normalise(r["artist"]) in valid
-                and (not start or r["event_date"] >= start)
-                and (not end or r["event_date"] <= end)]
+        selected = [dict(r) for r in rows if normalise(r["artist"]) in valid
+                    and (not start or r["event_date"] >= start)
+                    and (not end or r["event_date"] <= end)]
+        # Compare equal-length 30-day windows, excluding incomplete historical
+        # coverage and recent gigs without a full post-gig observation period.
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(self.config["timezone"])
+        with self.db.connect() as conn:
+            earliest = conn.execute("SELECT MIN(ts) FROM scrobbles WHERE active=1").fetchone()[0]
+            now = int(time.time())
+            for gig in selected:
+                day = date.fromisoformat(gig["event_date"])
+                before = int(datetime.combine(day - timedelta(days=30),
+                                              datetime.min.time(), tzinfo=tz).timestamp())
+                middle = int(datetime.combine(day, datetime.min.time(), tzinfo=tz).timestamp())
+                after = int(datetime.combine(day + timedelta(days=30),
+                                             datetime.min.time(), tzinfo=tz).timestamp())
+                gig["impact"] = None
+                if earliest is None or earliest > before or after > now:
+                    continue
+                counts = conn.execute("""SELECT
+                  SUM(CASE WHEN ts>=? AND ts<? THEN 1 ELSE 0 END) AS before_plays,
+                  SUM(CASE WHEN ts>=? AND ts<? THEN 1 ELSE 0 END) AS after_plays
+                  FROM scrobbles WHERE active=1 AND artist_group_key=?
+                  AND ts>=? AND ts<?""",
+                  (before, middle, middle, after, artist_key, before, after)).fetchone()
+                before_plays, after_plays = counts["before_plays"] or 0, counts["after_plays"] or 0
+                gig["impact"] = {
+                    "before": before_plays, "after": after_plays,
+                    "change_pct": round((after_plays - before_plays) / before_plays * 100)
+                                  if before_plays else None,
+                }
+        return selected
 
     def status(self):
         today = datetime.now(timezone.utc).date()
