@@ -49,4 +49,4 @@ schema:
   web_password: password?
   setlistfm_api_key: password?
   setlistfm_user_id: str?
-  setlist_cache_retention_days: int(1,365)
+  setlist_cache_retention_days: int(1,999999999999999999999999999999999999999999999999999999999999999)
