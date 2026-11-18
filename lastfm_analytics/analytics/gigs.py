@@ -33,6 +33,10 @@ def init(db):
         if "show_type" not in columns:
             conn.execute("ALTER TABLE gigs ADD COLUMN show_type TEXT NOT NULL DEFAULT 'unknown'")
             conn.execute("UPDATE gigs SET show_type='festival' WHERE festival!=''")
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(gigs)")}
+        if "type_override" not in columns:
+            conn.execute("ALTER TABLE gigs ADD COLUMN type_override INTEGER NOT NULL DEFAULT 0")
+            conn.execute("UPDATE gigs SET type_override=1 WHERE festival!=''")
 
 def anniversary(d, year):
     return date(year, d.month, min(d.day, calendar.monthrange(year, d.month)[1]))
@@ -138,12 +142,51 @@ class GigStore:
                 GROUP BY period ORDER BY period""",(artist,))]
         return {"listens":rows,"gigs":self.list(artist),"granularity":granularity}
 
+    def infer_festivals(self):
+        """Infer festivals from >=3 performances at one venue over consecutive days.
+
+        Only inferred labels are rewritten. Manual corrections remain authoritative.
+        A singleton and two-act concert cannot automatically become a festival.
+        """
+        from collections import defaultdict
+        with self.db.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            rows = [dict(row) for row in conn.execute(
+                "SELECT id, date, venue FROM gigs WHERE venue != '' ORDER BY venue,date")]
+            buckets = defaultdict(list)
+            for row in rows:
+                buckets[row["venue"].strip().casefold()].append(row)
+            inferred = set()
+            for entries in buckets.values():
+                dates = sorted({date.fromisoformat(r["date"]) for r in entries})
+                chunks = []
+                current = []
+                for day in dates:
+                    if current and (day - current[-1]).days > 1:
+                        chunks.append(current)
+                        current = []
+                    current.append(day)
+                if current:
+                    chunks.append(current)
+                for days in chunks:
+                    ids = [r["id"] for r in entries if date.fromisoformat(r["date"]) in days]
+                    if len(ids) >= 3:
+                        inferred.update(ids)
+            conn.execute(
+                "UPDATE gigs SET show_type='concert' WHERE type_override=0")
+            if inferred:
+                placeholders = ",".join("?" for _ in inferred)
+                conn.execute(
+                    "UPDATE gigs SET show_type='festival' WHERE type_override=0 AND id IN ("+
+                    placeholders+")", tuple(inferred))
+        return len(inferred)
+
     def classify(self, gig_id, kind, festival=""):
         if kind not in ("unknown", "concert", "festival"):
             raise ValueError("Unsupported performance type")
         festival = str(festival or "").strip()[:256] if kind == "festival" else ""
         with self.db.connect() as conn:
-            cur = conn.execute("UPDATE gigs SET show_type=?,festival=? WHERE id=?",
+            cur = conn.execute("UPDATE gigs SET show_type=?,festival=?,type_override=1 WHERE id=?",
                                (kind,festival,gig_id))
             if cur.rowcount != 1:
                 raise ValueError("Unknown gig")
