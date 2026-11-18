@@ -1,3 +1,10 @@
+## 0.2.33
+- Add a Live gigs catalogue and CSV/JSON imports of independently confirmed concert and festival attendance.
+- Connect setlist.fm for expiring song-list caches, configurable 1–30-day retention and a conservative daily API budget, with global 429 backoff.
+- Keep every setlist unverified and revisit daily in week one, weekly in month one, monthly in year one, and annually on the exact gig anniversary thereafter.
+- Overlay standalone concerts and festival performances on artist listening timelines, with comparable 30-day pre/post listening totals when coverage permits.
+- Add backend and responsive-browser regression checks for gig imports and scheduling.
+
 ## 0.2.30
 - Fix artist logos sometimes disappearing on song and album details: height limits now apply only to untrimmed images, keeping the full source image scale for accurate CSS alpha-boundary clipping.
 - Test that projected visible pixels, not merely the crop container, remain visible at narrow and wide phone widths and desktop in album and song details.
