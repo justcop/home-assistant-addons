@@ -36,7 +36,6 @@ options:
   setlistfm_api_key: ""
   setlistfm_user_id: ""
   setlist_cache_retention_days: 30
-  setlist_daily_request_budget: 10
 schema:
   audioshelf_url: str?
   source_api_token: password?
@@ -51,4 +50,3 @@ schema:
   setlistfm_api_key: password?
   setlistfm_user_id: str?
   setlist_cache_retention_days: int(1,365)
-  setlist_daily_request_budget: int(1,100)
