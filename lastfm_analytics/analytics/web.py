@@ -33,6 +33,7 @@ from .sync import SyncWorker
 from .artwork import ArtworkWorker
 from .album_listens import TracklistWorker
 from .release_years import ReleaseYearWorker
+from .gigs import GigService
 
 DEFAULTS = {
     "username": "",
@@ -45,6 +46,9 @@ DEFAULTS = {
     "source_api_token": "",
     "audioshelf_url": "",
     "artwork_lookups": True,
+    "setlist_fm_api_key": "",
+    "setlist_cache_retention_days": 30,
+    "setlist_daily_request_budget": 10,
 }
 
 
@@ -62,6 +66,8 @@ def validate_config(config):
     if len(config["username"]) > 128 or len(config["api_key"]) > 256:
         raise ConfigurationError("Last.fm username or API key is too long")
     for key, low, high in [
+        ("setlist_cache_retention_days", 1, 30),
+        ("setlist_daily_request_budget", 1, 100),
         ("sync_interval_seconds", 60, 86400),
         ("reconcile_days", 2, 90),
     ]:
@@ -102,6 +108,11 @@ def validate_config(config):
         if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment or any(c in value for c in "\\'\" \r\n;"):
             raise ConfigurationError("AudioShelf URL must be an HTTPS web address")
     config["audioshelf_url"] = value
+    if config["setlist_fm_api_key"] is None:
+        config["setlist_fm_api_key"] = ""
+    if not isinstance(config["setlist_fm_api_key"], str) or len(config["setlist_fm_api_key"]) > 256:
+        raise ConfigurationError("setlist_fm_api_key must be a text API key")
+    config["setlist_fm_api_key"] = config["setlist_fm_api_key"].strip()
     return config
 
 
@@ -124,7 +135,7 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
     config = validate_config(config) if config is not None else load_config(data_dir)
     tz = ZoneInfo(config["timezone"])
     app = Flask(__name__)
-    app.config["MAX_CONTENT_LENGTH"] = 65536
+    app.config["MAX_CONTENT_LENGTH"] = 1024 * 1024
     password = config["web_password"]
     secret_path = Path(data_dir) / "web-session-secret"
     secret_path.parent.mkdir(parents=True, exist_ok=True)
@@ -155,6 +166,8 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
     account = hashlib.sha256(config["username"].casefold().encode()).hexdigest()[:24]
     database = Database(Path(data_dir) / f"listening-{account}.sqlite3")
     worker = SyncWorker(database, config)
+    gig_service = GigService(database, config, enabled=start_worker and not config["demo_mode"])
+    app.extensions["gig_service"] = gig_service
     app.extensions["database"] = database
     app.extensions["sync_worker"] = worker
     artwork_worker = ArtworkWorker(config["api_key"], enabled=start_worker and config["artwork_lookups"])
@@ -480,7 +493,41 @@ self.addEventListener('fetch', event => {
                 removed=removed,
                 interval=config["sync_interval_seconds"],
                 reconcile_days=config["reconcile_days"],
+                gigs=gig_service.status() if not is_demo() else {"total": 0, "due": 0, "cached": 0, "enabled": False},
             )
+
+    @app.get("/api/gigs")
+    def gigs_list():
+        if is_demo():
+            return jsonify(gigs=[], status={"total": 0, "due": 0, "cached": 0, "enabled": False})
+        return jsonify(gigs=gig_service.list_gigs(), status=gig_service.status())
+
+    @app.post("/api/gigs/import")
+    def gigs_import():
+        if is_demo():
+            abort(403)
+        data = request.get_json()
+        if not isinstance(data, dict):
+            raise ValueError("An object containing a gigs array is required")
+        result = gig_service.import_records(data.get("gigs"))
+        return jsonify(**result, status=gig_service.status())
+
+    @app.post("/api/gigs/refresh")
+    def gigs_refresh():
+        if is_demo():
+            abort(403)
+        try:
+            identifier = int(request.get_json().get("id"))
+        except (AttributeError, TypeError, ValueError):
+            raise ValueError("Choose a valid gig") from None
+        with database.connect() as conn:
+            cursor = conn.execute(
+                "UPDATE gigs SET last_checked=NULL,retry_after=NULL,last_error='' WHERE id=?",
+                (identifier,),
+            )
+            if not cursor.rowcount:
+                raise ValueError("Gig not found")
+        return jsonify(queued=True)
 
     def cached_response(result):
         return jsonify(result), (202 if result.get("_pending") else 200)
@@ -499,6 +546,14 @@ self.addEventListener('fetch', event => {
         ):
             view_cache.invalidate(db, "overview", args)
             result = view_cache.get(db, "overview", args)
+        if (request.args.get("entity") == "artist" and not is_demo()
+                and not result.get("_pending") and isinstance(result.get("timeline"), list)):
+            bins = result["timeline"]
+            result["live_events"] = gig_service.events_for_artist(
+                request.args.get("id", ""),
+                bins[0]["start"] if bins else None,
+                bins[-1]["end"] if bins else None,
+            )
         return cached_response(result)
 
     @app.get("/api/rankings")
