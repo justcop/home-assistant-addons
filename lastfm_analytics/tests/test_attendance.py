@@ -58,6 +58,9 @@ def test_classification_preserved_when_same_attendance_reimported(tmp_path):
     gig=store.list()[0]
     assert gig["show_type"]=="unknown"
     store.classify(gig["id"],"festival","Example Festival")
+    with db.connect() as conn:
+        conn.execute("UPDATE gigs SET last_checked='2026-06-15' WHERE id=?", (gig["id"],))
     importer._apply_page([fixture("abc456")],1,1,20,today,None)
     assert len(store.list())==1
     assert store.list()[0]["festival"]=="Example Festival"
+    assert store.list()[0]["last_checked"]=="2026-06-15"
