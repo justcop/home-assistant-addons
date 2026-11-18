@@ -64,3 +64,34 @@ def test_classification_preserved_when_same_attendance_reimported(tmp_path):
     assert len(store.list())==1
     assert store.list()[0]["festival"]=="Example Festival"
     assert store.list()[0]["last_checked"]=="2026-06-15"
+
+def test_festival_inferred_from_three_performances_same_venue(tmp_path):
+    db=Database(tmp_path/"festival.sqlite3")
+    cfg={"timezone":"Europe/London","setlist_cache_retention_days":30,
+         "setlist_daily_request_budget":10,"setlistfm_api_key":"key",
+         "setlistfm_user_id":"account"}
+    store=GigStore(db,cfg)
+    importer=AttendanceImporter(store)
+    day=store.today()
+    importer._apply_page([
+        fixture("aa01","Foo Fighters","15-06-2025"),
+        fixture("aa02","Muse","15-06-2025"),
+        fixture("aa03","Radiohead","16-06-2025")],1,3,20,day,None)
+    store.infer_festivals()
+    assert {g["show_type"] for g in store.list()}=={"festival"}
+    first=store.list()[0]
+    store.classify(first["id"],"concert")
+    store.infer_festivals()
+    assert next(g for g in store.list() if g["id"]==first["id"])["show_type"]=="concert"
+
+def test_two_attendances_same_venue_not_festival(tmp_path):
+    db=Database(tmp_path/"duo.sqlite3")
+    cfg={"timezone":"Europe/London","setlist_cache_retention_days":30,
+         "setlist_daily_request_budget":10,"setlistfm_api_key":"key",
+         "setlistfm_user_id":"account"}
+    store=GigStore(db,cfg)
+    importer=AttendanceImporter(store)
+    importer._apply_page([fixture("aa01"),fixture("aa02","Radiohead")],
+                         1,2,20,store.today(),None)
+    store.infer_festivals()
+    assert {g["show_type"] for g in store.list()}=={"concert"}
