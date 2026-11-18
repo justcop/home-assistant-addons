@@ -37,6 +37,11 @@
 <p class="muted">Import and subsequent checks are automatic, honour setlist.fm rate limiting and continue across restarts. Newly added attendances are checked at least weekly after an initial full import.</p>
 </section>
 <section>
+<h2>Your live music collection</h2>
+<p class="muted">A cross-artist overview of performances and songs recorded in currently cached setlists. Expired and missing setlists are excluded, not assumed empty.</p>
+<div id="live-collection" aria-live="polite">Calculating your live collection…</div>
+</section>
+<section>
 <h2>Artist timeline</h2>
 <label>Artist <input id="artist" list="artists" placeholder="Choose an artist"><datalist id="artists"></datalist></label>
 <label>Listening scale <select id="scale"><option value="month">Monthly</option><option value="week">Weekly</option><option value="day">Daily</option></select></label>
