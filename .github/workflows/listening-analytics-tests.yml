@@ -50,7 +50,7 @@ jobs:
           done
           LOGIN_SCREENSHOT="$RUNNER_TEMP/listening-analytics-ui/login-mobile.png" node tests/auth_ui.cjs
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
       - name: Build add-on container
         uses: docker/build-push-action@v6
         with:
