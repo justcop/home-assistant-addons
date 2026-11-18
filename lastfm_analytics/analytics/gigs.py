@@ -9,6 +9,7 @@ import urllib.parse
 import urllib.request
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
+from .grouping import normalise
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS gigs (
@@ -104,10 +105,16 @@ class GigStore:
                    (artist,day,venue,festival,sid,url))
         return len(prepared)
 
-    def list(self, artist=None):
+    def purge(self):
+        """Remove expired API payloads even if no one opens the gig page."""
         now=int(time.time())
         with self.db.connect() as conn:
             conn.execute("DELETE FROM gig_cache WHERE fetched_at < ?", (now-int(self.config["setlist_cache_retention_days"])*86400,))
+            conn.execute("DELETE FROM gig_requests WHERE day<?", ((self.today()-timedelta(days=45)).isoformat(),))
+
+    def list(self, artist=None):
+        self.purge()
+        with self.db.connect() as conn:
             rows=[dict(r) for r in conn.execute("""SELECT g.*,c.payload,c.fetched_at FROM gigs g
                 LEFT JOIN gig_cache c ON c.gig_id=g.id
                 WHERE (? IS NULL OR lower(g.artist)=lower(?))
@@ -135,56 +142,111 @@ class GigStore:
         return {"listens":rows,"gigs":self.list(artist),"granularity":granularity}
 
     def refresh(self, maximum=None):
+        """Refresh every attended gig on its calendar schedule, including unlinked ones."""
+        self.purge()
         if not self.config.get("setlistfm_api_key"):
-            return {"processed":0,"reason":"No setlist.fm API key configured"}
-        today=self.today()
-        limit=max(0,int(self.config["setlist_daily_request_budget"]))
+            return {"processed": 0, "reason": "No setlist.fm API key configured"}
+        now = int(time.time())
+        if self.db.meta("setlist_global_backoff_until", 0) > now:
+            return {"processed": 0, "reason": "setlist.fm rate-limited; waiting to retry"}
+        today = self.today()
+        limit = max(0, int(self.config["setlist_daily_request_budget"]))
         if maximum is not None:
-            limit=min(limit,int(maximum))
+            limit = min(limit, int(maximum))
         with self.db.connect() as conn:
-            used=conn.execute("SELECT used FROM gig_requests WHERE day=?",(today.isoformat(),)).fetchone()
-            allowance=max(0,limit-(used[0] if used else 0))
-            records=[dict(r) for r in conn.execute("SELECT * FROM gigs WHERE setlist_id IS NOT NULL ORDER BY date DESC")]
-        pending=[r for r in records if due(r,today)]
-        completed=0
+            used = conn.execute("SELECT used FROM gig_requests WHERE day=?", (today.isoformat(),)).fetchone()
+            allowance = max(0, limit - (used[0] if used else 0))
+            records = [dict(r) for r in conn.execute("SELECT * FROM gigs ORDER BY date DESC")]
+        pending = [r for r in records if due(r, today)]
+        processed = 0
         for gig in pending[:allowance]:
-            # Reserve the request BEFORE using the network; limits survive crashes.
+            # Reserve a request BEFORE the network call. A failed request still
+            # consumes that day's user-configured budget.
             with self.db.connect() as conn:
                 conn.execute("""INSERT INTO gig_requests(day,used) VALUES(?,1)
-                    ON CONFLICT(day) DO UPDATE SET used=used+1""",(today.isoformat(),))
-            url="https://api.setlist.fm/rest/1.0/setlist/"+urllib.parse.quote(gig["setlist_id"],safe="")
-            request=urllib.request.Request(url,headers={
-                "x-api-key":self.config["setlistfm_api_key"],
-                "Accept":"application/json",
-                "User-Agent":"ListeningAnalytics/0.2 (personal gig tracker)"})
+                    ON CONFLICT(day) DO UPDATE SET used=used+1""", (today.isoformat(),))
+            concert_date = date.fromisoformat(gig["date"])
+            if gig["setlist_id"]:
+                path = "setlist/" + urllib.parse.quote(gig["setlist_id"], safe="")
+            else:
+                query = urllib.parse.urlencode({
+                    "artistName": gig["artist"], "date": concert_date.strftime("%d-%m-%Y")
+                })
+                path = "search/setlists?" + query
+            url = "https://api.setlist.fm/rest/1.0/" + path
+            request = urllib.request.Request(url, headers={
+                "x-api-key": self.config["setlistfm_api_key"],
+                "Accept": "application/json",
+                "User-Agent": "ListeningAnalytics/0.2 (personal gig tracker)"
+            })
             try:
-                with urllib.request.urlopen(request,timeout=15) as response:
-                    blob=response.read(1024*1024+1)
-                if len(blob)>1024*1024:
+                with urllib.request.urlopen(request, timeout=15) as response:
+                    blob = response.read(1024 * 1024 + 1)
+                if len(blob) > 1024 * 1024:
                     raise ValueError("Setlist response too large")
-                data=json.loads(blob)
-                if not isinstance(data,dict) or str(data.get("id"))!=gig["setlist_id"]:
-                    raise ValueError("Unexpected setlist response")
-            except (urllib.error.HTTPError,urllib.error.URLError,ValueError,TimeoutError,OSError) as exc:
-                # Do not advance the gig's schedule on failure. A 429 should
-                # stop this batch rather than consume the remaining daily quota.
+                result = json.loads(blob)
+                if not isinstance(result, dict):
+                    raise ValueError("Unexpected setlist.fm response")
+                if gig["setlist_id"]:
+                    data = result
+                    if str(data.get("id")) != gig["setlist_id"]:
+                        raise ValueError("Unexpected setlist ID")
+                else:
+                    matches = []
+                    for item in result.get("setlist", []) or []:
+                        if not isinstance(item, dict):
+                            continue
+                        actual = str((item.get("artist") or {}).get("name") or "")
+                        venue = str((item.get("venue") or {}).get("name") or "")
+                        if normalise(actual) != normalise(gig["artist"]):
+                            continue
+                        if item.get("eventDate") != concert_date.strftime("%d-%m-%Y"):
+                            continue
+                        if gig["venue"] and normalise(venue) != normalise(gig["venue"]):
+                            continue
+                        matches.append(item)
+                    # Never guess between multiple venues, performances or
+                    # festival stages; users may reimport a confirmed URL.
+                    data = matches[0] if len(matches) == 1 else None
+                if data and (not data.get("id") or
+                             data.get("eventDate") != concert_date.strftime("%d-%m-%Y") or
+                             normalise((data.get("artist") or {}).get("name", "")) != normalise(gig["artist"])):
+                    raise ValueError("Setlist is for a different concert")
+            except (urllib.error.HTTPError, urllib.error.URLError, ValueError,
+                    KeyError, TypeError, TimeoutError, OSError) as exc:
+                limited = isinstance(exc, urllib.error.HTTPError) and exc.code == 429
+                retry_days = 1 if limited else 7
                 with self.db.connect() as conn:
-                    conn.execute("UPDATE gigs SET next_retry=? WHERE id=?",((today+timedelta(days=1)).isoformat(),gig["id"]))
-                if isinstance(exc, urllib.error.HTTPError) and exc.code == 429:
+                    conn.execute("UPDATE gigs SET next_retry=? WHERE id=?",
+                                 ((today + timedelta(days=retry_days)).isoformat(), gig["id"]))
+                    if limited:
+                        # This backoff applies to the API key, not merely the
+                        # particular gig that happened to receive HTTP 429.
+                        self.db.put(conn, "setlist_global_backoff_until", now + 86400)
+                if limited:
                     break
                 continue
             with self.db.connect() as conn:
-                conn.execute("""UPDATE gigs SET last_checked=?,next_retry=NULL,version_id=?,updated_at=? WHERE id=?""",
-                    (today.isoformat(),str(data.get("versionId") or ""),str(data.get("lastUpdated") or ""),gig["id"]))
-                conn.execute("""INSERT INTO gig_cache(gig_id,payload,fetched_at) VALUES(?,?,?)
-                    ON CONFLICT(gig_id) DO UPDATE SET payload=excluded.payload,fetched_at=excluded.fetched_at""",
-                    (gig["id"],json.dumps(data),int(time.time())))
-            completed+=1
-        with self.db.connect() as conn:
-            conn.execute("DELETE FROM gig_cache WHERE fetched_at<?",
-                (int(time.time())-int(self.config["setlist_cache_retention_days"])*86400,))
-            conn.execute("DELETE FROM gig_requests WHERE day<?",((today-timedelta(days=45)).isoformat(),))
-        return {"processed":completed,"due":len(pending),"budget_remaining":max(0,allowance-len(pending[:allowance]))}
+                conn.execute("""UPDATE gigs SET last_checked=?,next_retry=NULL,
+                    setlist_id=COALESCE(?,setlist_id),
+                    setlist_url=CASE WHEN ?<>'' THEN ? ELSE setlist_url END,
+                    version_id=?,updated_at=? WHERE id=?""",
+                    (today.isoformat(), (str(data["id"]) if data else None),
+                     (data.get("url", "") if data else ""),
+                     (data.get("url", "") if data else ""),
+                     str(data.get("versionId") or "") if data else "",
+                     str(data.get("lastUpdated") or "") if data else "", gig["id"]))
+                if data:
+                    conn.execute("""INSERT INTO gig_cache(gig_id,payload,fetched_at) VALUES(?,?,?)
+                        ON CONFLICT(gig_id) DO UPDATE SET payload=excluded.payload,
+                        fetched_at=excluded.fetched_at""",
+                        (gig["id"], json.dumps(data), now))
+            # An unlinked concert with no unambiguous match has still been
+            # checked. It remains unverified and retains its next scheduled
+            # refresh date, avoiding repeated wasteful searches each hour.
+            processed += 1
+        return {"processed": processed, "due": len(pending),
+                "budget_remaining": max(0, allowance - min(allowance, len(pending)))}
 
 class GigWorker:
     def __init__(self, store):
@@ -198,6 +260,7 @@ class GigWorker:
     def run(self):
         while not self.stop.is_set():
             try:
+                self.store.purge()
                 self.store.refresh()
             except Exception:
                 # Keep the add-on running; next scheduled pass retries.
