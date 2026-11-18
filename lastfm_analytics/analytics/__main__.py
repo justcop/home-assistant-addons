@@ -43,7 +43,6 @@ def main():
         app.extensions["tracklist_worker"].close()
         app.extensions["view_cache"].close()
         app.extensions["gig_service"].close()
-        app.extensions["gig_service"].close()
         app.extensions["sync_worker"].close()
         server.close()
         raise SystemExit(0)
