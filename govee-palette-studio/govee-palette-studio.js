@@ -239,20 +239,35 @@ class Studio extends HTMLElement{
  }
  async toggle(){
   const e=this.ha?.states?.[this.config.dreamview_entity];if(!e){this.notice("DreamView switch unavailable","error");return;}
-  try{await this.ha.callService("switch",e.state==="on"?"turn_off":"turn_on",{entity_id:this.config.dreamview_entity});this.notice("DreamView on/off command sent","success");}
-  catch(ex){this.notice("DreamView switch failed: "+ex.message,"error");}
+  try{
+   // The IKEA script handles Movie priority, TV status and physical light power.
+   await this.ha.callService("script","turn_on",{entity_id:"script.govee_bilresa_toggle"});
+   this.notice("Music DreamView toggle requested using the same priority rules as the remote.","success");
+  }catch(ex){this.notice("DreamView toggle failed: "+ex.message,"error");}
  }
  async apply(){
   if(this.busy)return;
   if(!this.ha){this.notice("Home Assistant connection unavailable","error");return;}
+  const eff=this.effect();
+  const palette=this.s.colors.map(c=>c.toUpperCase()).join(",");
+  const choice=eff.category+": "+eff.name+(eff.dual?" | "+this.s.variant:"");
+  if(!this.ha.states?.[this.config.palette_entity]||!this.ha.states?.[this.config.effect_entity]){
+   this.notice("Shared Govee palette/effect helpers are unavailable","error");return;
+  }
+  const oldPalette=this.ha.states[this.config.palette_entity].state;
+  const oldEffect=this.ha.states[this.config.effect_entity].state;
+  const active=this.ha.states?.[this.config.dreamview_entity]?.state==="on";
   this.busy=true;this.render();
   try{
-   const frames=[...colorFrames(this.s.colors),effectFrame(this.effect(),this.s.variant)];
-   for(const frame of frames){
-    await this.ha.callService("govee","send_raw_ptreal",{device_id:this.config.device_id,frame});
-    await new Promise(resolve=>setTimeout(resolve,200));
-   }
-   this.notice("Three commands sent (two colour frames + effect). Check the actual lights to verify the colours.","success");
+   // Both Studio and IKEA now use the same HA state and the same full effect script.
+   // The HA helper-change automation coalesces writes into one command sequence.
+   if(palette!==oldPalette)
+    await this.ha.callService("input_text","set_value",{entity_id:this.config.palette_entity,value:palette});
+   if(choice!==oldEffect)
+    await this.ha.callService("input_select","select_option",{entity_id:this.config.effect_entity,option:choice});
+   if(palette===oldPalette&&choice===oldEffect&&active)
+    await this.ha.callService("script","turn_on",{entity_id:"script.govee_bilresa_apply_selection"});
+   this.notice(active?"Saved and submitted via the shared Home Assistant music controls; this is command status, not optical confirmation.":"Saved for the next Music DreamView session; Movie DreamView output is unaffected.","success");
   }catch(err){this.notice("Could not apply palette: "+err.message,"error");}
   finally{this.busy=false;this.render();}
  }
