@@ -22,6 +22,7 @@ const views = [
   "albums",
   "songs",
   "history",
+  "gigs",
   "settings",
 ];
 const state = {
@@ -57,6 +58,7 @@ const titles = {
   artists: ["Artists", "The artists shaping your listening."],
   albums: ["Albums", "A clearer view across album editions."],
   songs: ["Songs", "Your real favourites, with versions brought together."],
+  gigs: ["Live gigs", "Your concert attendance and periodically refreshed setlists."],
   history: [
     "Listening history",
     "Explore the individual plays behind the numbers.",
@@ -631,6 +633,68 @@ function settingsHTML(data) {
     : `<article class="review-card"><h3>${esc(r.artist)}</h3><fieldset class="review-choices"><legend>Choose the versions to combine</legend>${r.versions.map(v => `<label><input type="checkbox" class="candidate-version" value="${v.id}" data-name="${esc(v.name)}" data-plays="${v.plays}"><span>${esc(v.name)}<small>${number(v.plays)} scrobbles</small></span></label>`).join("")}</fieldset><label class="merge-name">Name from selected versions<select class="candidate-name-choice" disabled><option value="">Select at least two versions</option></select></label><label class="merge-name">Combined name, editable<input class="candidate-name" type="text" maxlength="1000" placeholder="Select versions, then choose a name" disabled></label><p>${esc(r.reason)}</p><div class="review-actions"><button class="button primary" data-candidate-merge="${r.ids.join(",")}" disabled>Merge selected</button>${r.learnable ? `<button class="button" data-candidate-learn="${r.ids.join(",")}" data-suffix="${esc(r.suffix)}" data-artist="${esc(r.artist)}" title="Select every listed version to learn this suffix" disabled>Merge and learn suffix</button>` : ""}${state.groupTab !== "skipped" || r.dismissed ? `<button class="button" data-candidate-key="${esc(r.key)}" data-candidate-action="${state.groupTab === "skipped" ? "restore" : "dismiss"}">${state.groupTab === "skipped" ? "Reconsider" : "Keep separate"}</button>` : ""}</div></article>`;
   return `<section class="panel"><div class="panel-head"><div><h2>Version review</h2><p>Select two or more versions to combine. Unselected versions keep their current grouping.</p></div><button class="button" id="undo" ${statusData.events.some(e => !e.undone) ? "" : "disabled"}>Undo latest change</button></div><div class="review-filters"><select id="group-kind" aria-label="Review songs or albums"><option value="artist">Artists</option><option value="song" ${state.groupKind === "song" ? "selected" : ""}>Songs</option><option value="album" ${state.groupKind === "album" ? "selected" : ""}>Albums</option></select><input id="search" type="search" aria-label="Search merge candidates" placeholder="Search candidates or merges…" value="${esc(state.q)}"></div><div class="segment review-tabs">${[["suggested","Suggestions"],["skipped","Skipped candidates"],["merged","Already merged"]].map(([tab,label])=>`<button data-group-tab="${tab}" aria-pressed="${tab===state.groupTab}">${label}</button>`).join("")}</div><p class="method-note">Skipped candidates include live performances and mixes that automatic rules kept separate, plus your rejected suggestions. “Merge and learn suffix” remembers only that exact suffix for this artist and type, for future imports with a matching base entry. Undo removes the rule and its later assignments.</p><div class="review-list">${data.rows.map(card).join("") || '<div class="empty">No matches in this review.</div>'}</div>${pager(data.total)}</section><section class="panel" style="margin-top:20px"><h2>Learned rules</h2>${data.rules.length ? data.rules.map(r=>`<p class="method-note">${esc(r.artist)} · ${esc(r.kind)} · ${esc(r.suffix)}</p>`).join("") : '<p class="method-note">Approve a learnable suggestion to create a rule.</p>'}<h3 style="margin-top:20px">Connection and data</h3><p class="method-note">${esc(statusData.username)} · ${number(statusData.counts.plays)} scrobbles · ${esc(statusData.timezone)} · ${statusData.import_state.complete ? "Import complete" : "Import in progress"}. Configure credentials and the web password in Home Assistant. Vinyl reporting: ${statusData.source_reporting_enabled ? "enabled" : "not configured"}, ${number(statusData.source_reports)} reports received.</p></section>`;
 }
+
+function gigRowsHTML(data) {
+  const st = data.status || {};
+  const gigs = data.gigs || [];
+  const summary = '<div class="gig-summary">' +
+    [['Gigs',st.total],['Awaiting check',st.due],['Cached setlists',st.cached],['Unmatched',st.unmatched]]
+    .map(([title,value])=>'<div><strong>'+number(value)+'</strong><small>'+title+'</small></div>').join('')+'</div>';
+  const rows = gigs.map(g => {
+    const name = g.festival || g.venue || 'Venue not specified';
+    const venue = g.event_type === 'festival' ? [g.venue,g.location].filter(Boolean).join(' · ') : g.location;
+    const songs = (g.songs || []).map(s=>esc(s.name)).join(' · ');
+    const label = g.event_type === 'festival' ? 'Festival' : 'Concert';
+    const link = /^https:\/\/(?:www\.)?setlist\.fm\//.test(g.attribution_url || '')
+      ? '<a href="'+esc(g.attribution_url)+'" target="_blank" rel="noopener noreferrer">Setlist.fm ↗</a>' : '';
+    return '<article class="gig-item"><div class="gig-main"><div><small>'+esc(g.event_date)+
+      ' <span class="gig-type '+g.event_type+'">'+label+'</span></small><h3>'+esc(g.artist)+
+      '</h3><p>'+esc(name)+(venue ? ' · '+esc(venue) : '')+'</p></div><div class="gig-actions">'+link+
+      '<button class="button" data-gig-refresh="'+g.id+'">Recheck</button></div></div>'+
+      '<p class="method-note">Unverified · '+(g.last_checked ? 'Last checked '+formatDate(g.last_checked) : 'Not checked yet')+
+      (g.last_error ? ' · '+esc(g.last_error) : '')+' · Next scheduled: '+esc(g.next_due)+'</p>'+
+      (g.songs?.length ? '<details><summary>'+number(g.songs.length)+' cached songs (expires '+esc(g.expires_at ? new Date(g.expires_at*1000).toISOString().slice(0,10) : 'soon')+')</summary>'+
+      '<p class="method-note">'+songs+'</p></details>' : '')+'</article>';
+  }).join('');
+  return '<section class="panel"><div class="panel-head"><div><h2>Your live history</h2><p>Festival performances and standalone concerts are separate events. Every setlist stays unverified and is checked again on its schedule.</p></div></div>'+
+    summary+'<p class="method-note">setlist.fm API: '+(st.enabled ? 'enabled' : 'add API key in Home Assistant')+
+    ' · '+number(st.used)+'/'+number(st.budget)+' requests today · '+number(st.retention_days)+'-day cache. '+
+    'The annual refresh is anchored to each concert anniversary.</p>'+
+    '<label class="gig-upload"><strong>Import your gig file (CSV or JSON)</strong><input type="file" id="gig-upload" accept=".csv,.json,text/csv,application/json" '+
+    (statusData?.demo ? 'disabled' : '')+'><small>Columns: artist, date, venue, location, type (festival/concert), festival, setlist_url or setlist_id. Existing gigs are updated, not duplicated.</small></label>'+
+    '<div class="gig-list">'+(rows || '<div class="empty">No gigs imported. Upload your confirmed attendance file to begin.</div>')+'</div>'+
+    '<p class="method-note">Songs are temporary setlist.fm cache data. Original attendance entries remain saved. Setlist information © contributors to <a href="https://www.setlist.fm/" target="_blank" rel="noopener noreferrer">setlist.fm</a>.</p></section>';
+}
+function parseGigCSV(csv) {
+  // RFC 4180 quoting, escaped double-quotes and multiline fields.
+  const rows=[]; let row=[],field='',quoted=false;
+  for (let i=0;i<csv.length;i++){
+    const c=csv[i];
+    if(c==='"'){ if(quoted && csv[i+1]==='"'){field+='"';i++;} else quoted=!quoted; }
+    else if(c===',' && !quoted){row.push(field);field='';}
+    else if((c==='\n'||c==='\r') && !quoted){if(c==='\r'&&csv[i+1]==='\n')i++;row.push(field);if(row.some(x=>x.trim()))rows.push(row);row=[];field='';}
+    else field+=c;
+  }
+  if(quoted)throw new Error('The CSV contains an unclosed quoted field.');
+  row.push(field);if(row.some(x=>x.trim()))rows.push(row);
+  if(!rows.length)throw new Error('The CSV file is empty.');
+  const cols=rows.shift().map(c=>c.replace(/^\uFEFF/,'').trim());
+  return rows.map(values=>Object.fromEntries(cols.map((name,i)=>[name,values[i]||''])));
+}
+async function uploadGigs(file) {
+  if(!file)return;
+  if(file.size>800000)throw new Error('Gig files must be under 800 KB.');
+  const raw=await file.text();
+  let rows;
+  if(file.name.toLowerCase().endsWith('.json')) {
+    const parsed=JSON.parse(raw);
+    rows=Array.isArray(parsed)?parsed:parsed.gigs;
+  } else rows=parseGigCSV(raw);
+  if(!Array.isArray(rows)||!rows.length)throw new Error('No gig records were found.');
+  const result=await api('gigs/import',{}, {method:'POST',body:JSON.stringify({gigs:rows})});
+  toast(number(result.imported)+' gigs imported.');
+  await load();
+}
 function setupHTML() {
   return `<section class="panel setup"><div class="setup-mark" aria-hidden="true">◫</div><h2>Your listening, ready to explore</h2><p>Connect Last.fm to bring your listening history together. Explore trends, find returning favourites and combine versions into meaningful totals.</p><ol><li>Open this add-on’s <strong>Configuration</strong> tab in Home Assistant.</li><li>Enter your <strong>Last.fm username</strong> and <a href="https://www.last.fm/api/account/create" target="_blank" rel="noopener noreferrer">API key</a>.</li><li>Save, restart the add-on and reopen this dashboard.</li></ol><p>The first import runs in the background and resumes after restarts. Your Last.fm history is never edited.</p><a class="button primary" href="?demo=1">Explore a fictional demo ↗</a></section>`;
 }
@@ -778,7 +842,7 @@ async function load({historyMode = "push"} = {}) {
   try {
     if (!statusData) await fetchStatus();
     if (serial !== loadSerial) return;
-    if (!statusData.configured && !statusData.demo) {
+    if (!statusData.configured && !statusData.demo && state.view !== "gigs") {
       $("#content").innerHTML = setupHTML();
       return;
     }
@@ -797,6 +861,8 @@ async function load({historyMode = "push"} = {}) {
       const data = await api("release-years", extra, { signal });
       cachedView = { path: "release-years", extra, data, render: next => replaceCachedView("#content", releaseYearsHTML(next)) };
       html = releaseYearsHTML(data);
+    } else if (state.view === "gigs") {
+      html = gigRowsHTML(await api("gigs", {}, {signal}));
     } else if (state.view === "history") {
       html = historyHTML(
         await api("history", { q: state.q, offset: state.offset }, { signal }),
@@ -1126,6 +1192,11 @@ async function groupAction(action, ids = [], key = null, name = undefined) {
 document.addEventListener("click", (event) => {
   const b = event.target.closest("button");
   if (!b || b.disabled) return;
+  if (b.dataset.gigRefresh) {
+    api("gigs/refresh",{}, {method:"POST",body:JSON.stringify({id:Number(b.dataset.gigRefresh)})})
+      .then(()=>{toast("Gig queued for the next available API slot.");load();}).catch(report);
+    return;
+  }
   if (b.dataset.eraToggle) {
     const key = b.dataset.eraToggle;
     if (state.eraSelected.includes(key)) state.eraSelected = state.eraSelected.filter(id=>id!==key);
@@ -1319,6 +1390,10 @@ document.addEventListener("click", (event) => {
   }
 });
 document.addEventListener("change", (event) => {
+  if (event.target.id === "gig-upload") {
+    uploadGigs(event.target.files?.[0]).catch(report);
+    return;
+  }
   if (event.target.id === "era-date") {
     state.eraAsOf = event.target.value;
     state.eraSelected = [];
