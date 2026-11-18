@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timezone
 
 from analytics.db import Database
-from analytics.gig_insights import impact_for_artist, listening_summary
+from analytics.gig_insights import impact_for_artist, listening_summary, live_collection
 from analytics.gigs import GigStore
 
 
@@ -97,3 +97,53 @@ def test_impact_marks_unfinished_or_missing_history_unavailable(tmp_path):
     assert len(result) == 1
     assert result[0]["available"] is False
     assert "history" in result[0]["reason"].lower()
+
+
+def test_collection_spans_artists_without_double_counting_setlist_repetitions(tmp_path):
+    store = create_store(tmp_path)
+    store.import_rows([{"artist": "Radiohead", "date": "2025-06-16",
+                        "venue": "Festival Field", "setlist_id": "fff111"}])
+    ids = {g["artist"]: g["id"] for g in store.list()}
+    now = int(datetime.now(timezone.utc).timestamp())
+    with store.db.connect() as conn:
+        for artist, songs in [
+            ("Muse", [{"name": "Hysteria"}, {"name": "Hysteria"},
+                      {"name": "Feeling Good", "cover": {"name": "Nina Simone"}}]),
+            ("Radiohead", [{"name": "Karma Police"}, {"name": "Hysteria"}]),
+        ]:
+            conn.execute("""INSERT INTO gig_cache(gig_id,payload,fetched_at)
+                VALUES (?,?,?)""", (ids[artist], json.dumps({
+                    "sets": {"set": [{"song": songs}]}}), now))
+    store.db.apply_window(0, 2_000_000_000, [
+        song(timestamp("2025-05-25"), "Hysteria", "Muse"),
+        song(timestamp("2025-05-26"), "Hysteria", "Muse"),
+        song(timestamp("2025-05-27"), "Hysteria", "Radiohead"),
+        song(timestamp("2025-05-28"), "Karma Police", "Radiohead"),
+    ])
+    result = live_collection(store)
+    assert result["artists"] == 2
+    assert result["cached_setlists"] == 2
+    assert result["distinct_recorded_songs"] == 4
+    assert result["recorded_songs_listened_to"] == 3
+    by_artist = {r["artist"] + ":" + r["title"]: r for r in
+                 result["most_listened_recorded_live"]}
+    assert by_artist["Muse:Hysteria"]["listens"] == 2
+    assert by_artist["Radiohead:Hysteria"]["listens"] == 1
+
+
+def test_gig_artist_aliases_and_scrobble_timeline_share_identity(tmp_path):
+    store = create_store(tmp_path)
+    with store.db.connect() as conn:
+        conn.executemany("""INSERT INTO artist_aliases(artist_key,canonical_key,display_name)
+            VALUES (?,?,?)""", [
+            ("muse", "canonical_muse", "Muse"),
+            ("muse official", "canonical_muse", "Muse Official"),
+        ])
+    store.db.apply_window(0, 2_000_000_000, [
+        song(timestamp("2025-05-25"), "Hysteria", "Muse"),
+    ])
+    # Imported attendance and user-selected artist alias refer to one identity.
+    assert len(store.list("Muse Official")) == 1
+    result = store.timeline("Muse Official")
+    assert len(result["gigs"]) == 1
+    assert sum(point["listens"] for point in result["listens"]) == 1
