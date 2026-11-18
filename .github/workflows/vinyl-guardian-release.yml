@@ -6,7 +6,6 @@ on:
     paths:
       - 'vinyl_guardian/**'
       - '.github/scripts/vinyl_guardian_release.py'
-      - '.github/workflows/vinyl-guardian-release.yml'
   workflow_dispatch:
     inputs:
       bump:
@@ -42,7 +41,7 @@ jobs:
           python -m compileall -q vinyl_guardian
           bash -n vinyl_guardian/run.sh
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}

@@ -287,3 +287,52 @@ before the Deezer fallback. Recognised remaster/deluxe suffixes may use the base
 album’s cover, with the artist still verified. Arriving artwork is shown even if
 other lookups are pending. Upgrading to 0.2.12 clears old cached misses once while
 preserving successful URLs. Provider failures retry after five minutes.
+
+
+## Live gig history (experimental)
+
+Set the following Home Assistant add-on options:
+
+- `setlistfm_user_id`: your setlist.fm **username** (account ID).
+- `setlistfm_api_key`: your personal setlist.fm API key.
+- `setlist_cache_retention_days`: maximum number of days to cache API
+  setlist payloads (default 30; choose a period permitted by the provider).
+
+Listening imports your **I Was There** performances directly from
+`GET /1.0/user/{userId}/attended`. The endpoint is paginated, with roughly
+20 concerts per page. The worker imports pages until the scan completes or setlist.fm returns a
+rate-limit response, and resumes from the last completed page; no CSV is necessary. After
+a full scan, the entire attendance list is rechecked weekly to discover
+newly added or removed-on-site attendance markings. This sync is
+**additive**: it does not delete locally saved gigs if they disappear
+from the remote attendance list.
+
+Attendance responses already contain a setlist: songs can be cached from
+the same response without extra lookup calls. The local catalogue retains
+attendance identifiers, dates and classification independently, while cached
+setlist responses expire under `setlist_cache_retention_days`.
+
+All setlists remain unverified; having recorded songs never stops later
+refreshes. Individual setlists are rechecked daily during the first week,
+weekly during days 8–30, monthly until their first anniversary and every
+performance anniversary thereafter. Missed checks remain due. A gig on
+29 February is due on 28 February in non-leap years.
+
+The setlist.fm API does not expose festival membership. Listening automatically labels groups of at least four attended performances
+at the same venue on one day or consecutive days as **Festival**; otherwise
+it classifies performances as **Concert**. Three-act lineups with support bands
+therefore remain concerts. Festival names can be entered
+manually, and manual classifications override future inference.
+The artist timeline distinguishes confirmed festivals from standalone
+concerts; unclassified gigs remain visible rather than being silently
+mislabelled.
+
+There is no add-on daily API request cap. The importer stops on a setlist.fm
+HTTP 429 response, respects Retry-After when provided, and resumes after the
+provider-defined cooldown. Both attendance discovery and setlist refreshes
+share this cooldown to avoid repeatedly hitting the provider. The existing
+refresh schedule remains unchanged.
+
+The cached data retention setting is a technical limit, not permission
+to exceed setlist.fm's published terms. Any legacy CSV import API is
+retained for compatibility, but is no longer part of the normal workflow.

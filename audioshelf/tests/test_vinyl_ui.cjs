@@ -49,8 +49,13 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert.equal(await page.locator('html').getAttribute('data-interface'),'vinyl');
     // External artist links retain the full shelf and land at the artist section.
     await page.goto(base+'/#shelf/f181961b-20f7-459e-89de-920ef03c7ed0');
-    await page.locator('[data-shelf-id]').first().waitFor();
-    await page.waitForFunction(()=>Math.abs(document.querySelector('[data-shelf-id]').getBoundingClientRect().top-parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop))<3);
+    const linkedArtist='f181961b-20f7-459e-89de-920ef03c7ed0';
+    await page.locator('[data-shelf-id="'+linkedArtist+'"]').waitFor();
+    await page.waitForFunction(artistId=>{
+      const target=document.querySelector('[data-shelf-id="'+artistId+'"]');
+      return !!target&&Math.abs(target.getBoundingClientRect().top-
+        parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop))<3;
+    },linkedArtist);
     assert.equal(await page.locator('.sleeve').count(),14);
     await page.goto(base+'/#store/artist/The%20Artist');
     await page.locator('.artist-bin').first().waitFor();
@@ -111,7 +116,7 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert.equal(await page.locator('.sleeve:visible').count(),14);
     const dividers=page.locator('.shelf-artist-toggle');
     assert.equal(await dividers.count(),2);
-    const firstRail=page.locator('.collection-shelves .shelf-rack').first();
+    const firstRail=page.locator('.collection-shelves .artist-shelf[data-shelf-id="f181961b-20f7-459e-89de-920ef03c7ed0"] .shelf-rack');
     assert(await firstRail.evaluate(el=>el.scrollWidth>el.clientWidth),'A long artist collection scrolls sideways');
     assert.equal(await firstRail.locator('.shelf-row').count(),0,'Compact mode has no fragmented grid rows');
     assert.equal(await page.locator('.rail-ledge:visible').count(),2);
@@ -210,13 +215,9 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert.equal(await page.locator('.sleeve').count(),17);
     await noOverflow();await shot('store-desktop');
     await page.getByRole('button',{name:'Add Open Windows to shelf',exact:true}).click();
-    await page.getByRole('heading',{name:'Choose the album tracklist'}).waitFor();
-    await page.locator('[data-action="select-variant"]').first().click();
-    await page.getByRole('heading',{name:'Disc and side layout'}).waitFor();
-    await page.getByRole('button',{name:'Choose verified Spotify edition'}).click();
-    await page.getByRole('heading',{name:'Choose Spotify recordings'}).waitFor();
-    await page.locator('[data-action="choose-release"][data-spotify-id]').first().click();
-    await page.locator('#toast').filter({hasText:'Open Windows added'}).waitFor();
+    await page.locator('#toast').filter({hasText:'Added to your shelf'}).waitFor();
+    assert.equal(await page.getByRole('heading',{name:'Choose the album tracklist'}).count(),0,
+      'Adding a vinyl record must not interrupt browsing to verify Spotify');
     assert(page.url().endsWith('#store'));
     await page.getByRole('link',{name:'Open Windows',exact:true}).click();
     await page.getByRole('heading',{name:'Open Windows',exact:true}).waitFor();
@@ -461,6 +462,39 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert.equal(verifiedStartup.verifiedLabel,'PLAYING','Server-confirmed track must show PLAYING without a second Spotify request');
     assert.equal(verifiedStartup.playing,true);
     assert.equal(verifiedStartup.starting,false);
+    // On phones, album and track names should pan only if the text overflows.
+    await page.setViewportSize({width:390,height:844});
+    await page.emulateMedia({reducedMotion:'no-preference'});
+    const longText=await page.evaluate(async()=>{
+      playbackState={...playbackState,
+        album:'An Extremely Long Album Title That Cannot Fit Inside the Now Playing Panel on a Phone',
+        track:'A Very Long Track Name With Several Words That Cannot Fit In the Now Playing Bar',
+        artist:'An Artist With an Extremely Long Name'};
+      renderTurntable();
+      await new Promise(resolve=>requestAnimationFrame(resolve));
+      const lines=[...document.querySelectorAll('#turntable .now-playing-scroll')];
+      const measures=lines.map(line=>({
+        overflowing:line.classList.contains('is-overflowing'),
+        distance:line.style.getPropertyValue('--scroll-distance'),
+        animation:getComputedStyle(line.querySelector('.now-playing-scroll-text')).animationName,
+        excess:line.querySelector('.now-playing-scroll-text').scrollWidth-line.clientWidth,
+      }));
+      const original=lines[0].querySelector('.now-playing-scroll-text');
+      renderTurntable(); // A playback progress refresh must not restart the scroll.
+      return {measures,sameNode:original===document.querySelector('#turntable .now-playing-scroll-text')};
+    });
+    assert(longText.measures.every(m=>m.overflowing&&m.excess>2&&m.animation.includes('audioshelf-title-pan')),
+      'Both overflowing Now Playing lines must scroll automatically: '+JSON.stringify(longText));
+    assert(longText.sameNode,'Polling playback must not reset the text animation');
+    await page.emulateMedia({reducedMotion:'reduce'});
+    assert.equal(await page.locator('#turntable .now-playing-scroll-text').first().evaluate(el=>getComputedStyle(el).animationName),'none');
+    const shortText=await page.evaluate(async()=>{
+      playbackState={...playbackState,album:'A',track:'B',artist:'C'};
+      renderTurntable();
+      await new Promise(resolve=>requestAnimationFrame(resolve));
+      return [...document.querySelectorAll('#turntable .now-playing-scroll')].map(line=>line.classList.contains('is-overflowing'));
+    });
+    assert.deepEqual(shortText,[false,false],'Short Now Playing names remain still');
     assert.deepEqual(errors,[]);
     console.log('Vinyl browser checks passed: two rooms, responsive sleeves, browsing restoration, collect in place, rapid startup despite stale replies, progress/pause/track boundaries, playback independence/outage, album settings, Classic persistence.');
   }finally{if(browser)await browser.close();server.kill('SIGTERM');}

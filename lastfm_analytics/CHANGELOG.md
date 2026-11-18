@@ -1,3 +1,13 @@
+## 0.2.36
+- Infer festivals only from **four or more** attended performances at the same venue across one or consecutive days, so ordinary three-act support bills remain concerts.
+- Remove the add-on's separate daily setlist.fm API request budget, allowing attendance and setlist checks to continue until done or rate-limited by the provider.
+- Honour HTTP 429 and Retry-After across both setlist and attendance workers, preserving progress for later resumption.
+
+## 0.2.35
+- Fix the Live gigs interface under the strict Content Security Policy by loading its JavaScript from an external same-origin file.
+- Use Home Assistant's actual ingress prefix for gig-page links and requests.
+- Make the three-performance festival rule run after manual imports; preserve explicit festival names and manually overridden types on reimport.\n- Display inferred festivals as purple triangles in artist timelines even without a festival name.\n- Add a browser smoke test to prevent a silently blank attendance and festival dashboard.
+
 ## 0.2.30
 - Fix artist logos sometimes disappearing on song and album details: height limits now apply only to untrimmed images, keeping the full source image scale for accurate CSS alpha-boundary clipping.
 - Test that projected visible pixels, not merely the crop container, remain visible at narrow and wide phone widths and desktop in album and song details.

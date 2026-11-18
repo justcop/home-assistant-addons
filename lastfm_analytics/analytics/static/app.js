@@ -904,7 +904,7 @@ function spotifyLink(detail, kind) {
   return `<a class="button spotify-link" href="${url}" target="_blank" rel="noopener noreferrer" aria-label="Find ${esc(detail.name)} on Spotify">${icon}<span>Find on Spotify</span></a>`;
 }
 function detailHeaderHTML(detail, kind) {
-  const links = `${spotifyLink(detail, kind)} ${recordStoreLink(detail, kind)} <span id="shelf-link-slot"></span>`;
+  const links = `${spotifyLink(detail, kind)} ${recordStoreLink(detail, kind)} ${kind === "artist" ? `<a class="button" href="gigs?artist=${encodeURIComponent(detail.name)}">Live gigs & timeline</a>` : ""} <span id="shelf-link-slot"></span>`;
   if (kind === "artist") {
     return `<div class="artist-detail-hero"><div id="artist-logo-slot" class="artist-logo-stage">${artistLogoHTML(detail)}</div><div class="detail-heading detail-media-actions artist-detail-heading"><div id="detail-artwork-slot">${artworkHTML(detail, kind)}</div><div class="artist-actions">${links}</div></div></div>`;
   }
