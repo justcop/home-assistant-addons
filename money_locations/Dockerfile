@@ -1,5 +1,5 @@
-FROM ghcr.io/home-assistant/base:3.22
-RUN apk add --no-cache python3 tzdata ca-certificates
+FROM ghcr.io/home-assistant/base-python:3.15-alpine3.24-2026.11.0
+RUN apk add --no-cache tzdata ca-certificates
 ENV PYTHONUNBUFFERED=1 TZ=Europe/London MONEY_DATA=/data
 WORKDIR /app
 COPY app /app
