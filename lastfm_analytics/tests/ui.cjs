@@ -129,7 +129,7 @@ async function assertLogoPixelsInCrop(page, label) {
         viewport
       };
     });
-    assert.equal(layout.navCount, 8);
+    assert.equal(layout.navCount, 7);
     assert.equal(new Set(layout.navTops).size, 1, "Bottom nav must not wrap");
     assert.ok(layout.navRight <= layout.viewport + 1, "Bottom nav may not overflow viewport");
     assert.ok(layout.gridWidth <= layout.parentWidth + 1, "Year grid must fit parent on " + width + "px");
