@@ -39,10 +39,10 @@ def due(gig, today):
     if d > today:
         return False
     last = date.fromisoformat(gig["last_checked"]) if gig["last_checked"] else None
-    if last is None:
-        return True
     if gig["next_retry"] and date.fromisoformat(gig["next_retry"]) > today:
         return False
+    if last is None:
+        return True
     age = (today - d).days
     if age <= 7:
         return last < today
