@@ -1836,3 +1836,37 @@ dialog { overscroll-behavior: contain; }
 .era-stats span { display:grid; gap:2px; }
 .era-stats strong { font-size:20px; }
 @media(max-width:600px) {.era-panel .panel-head { display:grid; gap:8px; }}
+
+/* Gigs and live performance markers */
+.gig-summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(110px,1fr)); gap:10px; margin:15px 0; }
+.gig-summary > div { padding:12px; border:1px solid var(--line); background:var(--surface2); border-radius:9px; }
+.gig-summary strong { display:block; font-size:21px; }
+.gig-summary small { display:block; }
+.gig-upload { display:flex; flex-direction:column; gap:7px; margin:18px 0; padding:16px; border:1px dashed var(--accent); border-radius:10px; }
+.gig-upload input { max-width:100%; }
+.gig-list { display:grid; gap:10px; margin:20px 0; }
+.gig-item { padding:13px; background:var(--surface2); border:1px solid var(--line); border-radius:9px; }
+.gig-main { display:flex; flex-wrap:wrap; gap:10px; justify-content:space-between; align-items:center; }
+.gig-main h3 { margin:3px 0; }
+.gig-actions { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+.gig-item details { margin-top:8px; }
+.gig-item summary { cursor:pointer; color:var(--accent); }
+.gig-type { display:inline-block; padding:2px 7px; border-radius:10px; font-weight:650; font-size:10px; }
+.gig-type.festival { background:rgba(124,58,237,.15); color:#9b70eb; }
+.gig-type.concert { background:rgba(217,119,6,.15); color:#d99022; }
+.bar-chart button[data-live-kind="concert"]::before,
+.bar-chart button[data-live-kind="festival"]::before,
+.bar-chart button[data-live-kind="both"]::before {
+  position:absolute; bottom:7px; left:50%; transform:translateX(-50%);
+  font-size:14px; font-weight:800; line-height:1; z-index:1;
+  text-shadow:0 0 2px var(--surface); pointer-events:none;
+}
+.bar-chart button[data-live-kind="concert"]::before { content:"●"; color:#d99022; }
+.bar-chart button[data-live-kind="festival"]::before { content:"▲"; color:#9b70eb; }
+.bar-chart button[data-live-kind="both"]::before { content:"●▲"; color:#9b70eb; font-size:12px; }
+.live-legend { display:flex; flex-wrap:wrap; gap:14px; margin-top:16px; font-size:12px; }
+.live-key.concert { color:#d99022; }
+.live-key.festival { color:#9b70eb; }
+.live-events-list { display:flex; flex-wrap:wrap; gap:7px 14px; margin:8px 0 12px; font-size:11px; }
+.live-event { display:inline-flex; align-items:center; gap:4px; }
+.live-event a { margin-left:2px; }
