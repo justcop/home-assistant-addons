@@ -166,7 +166,7 @@ class GigService:
         with self.db.connect() as conn:
             conn.executescript(SCHEMA)
         self.purge()
-        if enabled and config.get("setlist_fm_api_key"):
+        if enabled:
             self.thread = threading.Thread(target=self._loop, daemon=True, name="setlist-refresh")
             self.thread.start()
 
@@ -296,7 +296,8 @@ class GigService:
                     used=used[0] if used else 0,
                     budget=self.config["setlist_daily_request_budget"],
                     retention_days=self.config["setlist_cache_retention_days"],
-                    enabled=bool(self.config.get("setlist_fm_api_key")))
+                    enabled=bool(self.config.get("setlist_fm_api_key")),
+                    rate_limited_until=self.db.meta("setlist_backoff_until", 0))
 
     def _request(self, path):
         url = "https://api.setlist.fm/rest/1.0/" + path
@@ -315,11 +316,12 @@ class GigService:
     def _loop(self):
         while not self.stop.is_set():
             try:
+                self.purge()
                 # Spread requests out, even if an API key has a generous quota.
                 self.run_one()
             except Exception:
                 pass  # Per-gig errors are persisted by run_one; never kill the worker.
-            self.stop.wait(180)
+            self.stop.wait(180 if self.config.get("setlist_fm_api_key") else 3600)
 
     def run_one(self, now=None):
         """Do at most one network request; safe to call repeatedly or after restarts."""
@@ -328,6 +330,8 @@ class GigService:
         stamp = int(now or time.time())
         today = datetime.fromtimestamp(stamp, timezone.utc).date()
         self.purge(stamp)
+        if self.db.meta("setlist_backoff_until", 0) > stamp:
+            return False
         with self.db.connect() as conn:
             used = conn.execute("SELECT used FROM gig_api_usage WHERE request_day=?", (today.isoformat(),)).fetchone()
             if used and used[0] >= self.config["setlist_daily_request_budget"]:
@@ -386,6 +390,10 @@ class GigService:
                 except (ValueError, AttributeError, TypeError):
                     pass
             with self.db.connect() as conn:
+                if status == 429:
+                    # Provider's quota is global; do not try another gig
+                    # until the backoff ends, regardless of per-gig priority.
+                    self.db.put(conn, "setlist_backoff_until", stamp + delay)
                 conn.execute("""UPDATE gigs SET last_attempt=?,retry_after=?,last_error=?
                     WHERE id=?""", (stamp, stamp + delay,
                     "Rate limited by setlist.fm" if status == 429 else
