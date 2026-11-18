@@ -1,3 +1,10 @@
+## 0.2.34
+- Automatically infer a festival when at least three attended gigs share a named venue on the same or consecutive dates, without modifying explicitly entered festival names.
+- Display inferred festival classifications in the catalogue and artist listening timelines, including filtered artist views.
+- Fix the Live gigs page under the app's restrictive Content Security Policy and Home Assistant ingress routing.
+- Refresh gigs without setlist IDs conservatively, enforce API-wide rate-limit backoff, and expire cache independently of page visits.
+- Add regression tests for festival grouping, API responses, and the browser dashboard.
+
 ## 0.2.30
 - Fix artist logos sometimes disappearing on song and album details: height limits now apply only to untrimmed images, keeping the full source image scale for accurate CSS alpha-boundary clipping.
 - Test that projected visible pixels, not merely the crop container, remain visible at narrow and wide phone widths and desktop in album and song details.
