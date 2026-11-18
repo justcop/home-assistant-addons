@@ -47,6 +47,7 @@ DEFAULTS = {
     "audioshelf_url": "",
     "artwork_lookups": True,
     "setlistfm_api_key": "",
+    "setlistfm_user_id": "",
     "setlist_cache_retention_days": 30,
     "setlist_daily_request_budget": 10,
 }
@@ -63,6 +64,9 @@ def validate_config(config):
             config[key] = ""
     config["username"] = str(config["username"]).strip()
     config["api_key"] = str(config["api_key"]).strip()
+    config["setlistfm_user_id"] = str(config.get("setlistfm_user_id") or "").strip()
+    if len(config["setlistfm_user_id"]) > 128 or not re.fullmatch(r"[A-Za-z0-9_.:-]*", config["setlistfm_user_id"]):
+        raise ConfigurationError("setlistfm_user_id must be a valid setlist.fm username")
     if len(config["username"]) > 128 or len(config["api_key"]) > 256:
         raise ConfigurationError("Last.fm username or API key is too long")
     for key, low, high in [
