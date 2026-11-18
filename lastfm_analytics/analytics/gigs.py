@@ -165,10 +165,13 @@ class GigStore:
                 data=json.loads(blob)
                 if not isinstance(data,dict) or str(data.get("id"))!=gig["setlist_id"]:
                     raise ValueError("Unexpected setlist response")
-            except (urllib.error.HTTPError,urllib.error.URLError,ValueError,TimeoutError,OSError):
-                # Don't mark a failed check as complete; defer retries for a day.
+            except (urllib.error.HTTPError,urllib.error.URLError,ValueError,TimeoutError,OSError) as exc:
+                # Do not advance the gig's schedule on failure. A 429 should
+                # stop this batch rather than consume the remaining daily quota.
                 with self.db.connect() as conn:
                     conn.execute("UPDATE gigs SET next_retry=? WHERE id=?",((today+timedelta(days=1)).isoformat(),gig["id"]))
+                if isinstance(exc, urllib.error.HTTPError) and exc.code == 429:
+                    break
                 continue
             with self.db.connect() as conn:
                 conn.execute("""UPDATE gigs SET last_checked=?,next_retry=NULL,version_id=?,updated_at=? WHERE id=?""",
