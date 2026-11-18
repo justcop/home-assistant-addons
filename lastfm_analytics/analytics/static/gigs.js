@@ -49,7 +49,7 @@ async function loadAttendanceStatus(){
   if(!response.ok)throw Error('Status unavailable');
   const s=await response.json();
   $('attendance-status').textContent=s.configured
-   ? s.imported+' gigs imported · '+s.requests_today+'/'+s.daily_budget+' API requests used today · '+(s.last_completed?'Last full attendance scan: '+s.last_completed:'Import in progress, next page '+s.next_page+(s.total?' of approximately '+Math.ceil(s.total/20):''))+(s.last_error?' · '+s.last_error:'')
+   ? s.imported+' gigs imported · '+(s.rate_limited ? 'setlist.fm rate limit reached · ' : '')+(s.last_completed?'Last full attendance scan: '+s.last_completed:'Import in progress, next page '+s.next_page+(s.total?' of approximately '+Math.ceil(s.total/20):''))+(s.last_error?' · '+s.last_error:'')
    : 'Configure setlistfm_user_id and setlistfm_api_key in the add-on settings to begin automatic import.';
  }catch(e){$('attendance-status').textContent=e.message}
 }

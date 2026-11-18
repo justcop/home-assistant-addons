@@ -1,3 +1,8 @@
+## 0.2.36
+- Infer festivals only from **four or more** attended performances at the same venue across one or consecutive days, so ordinary three-act support bills remain concerts.
+- Remove the add-on's separate daily setlist.fm API request budget, allowing attendance and setlist checks to continue until done or rate-limited by the provider.
+- Honour HTTP 429 and Retry-After across both setlist and attendance workers, preserving progress for later resumption.
+
 ## 0.2.35
 - Fix the Live gigs interface under the strict Content Security Policy by loading its JavaScript from an external same-origin file.
 - Use Home Assistant's actual ingress prefix for gig-page links and requests.
