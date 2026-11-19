@@ -1,12 +1,12 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-11-19T11:29:27.236+00:00 (Europe/London).
+Reviewed: 2026-11-19T14:08:40.979Z (Europe/London).
 
-Reviewed AudioShelf 0.6.45 changed Python and browser regression cases for instant borrowing, fully verified playback without repeated confirmation, unified discovery and the revised album, Listening Pile and settings flows. Replaced obsolete expectations rather than dropping behavioural coverage. Real Spotify device and Android playback remain subject to separate end-to-end checks.
+Reviewed the two new SVG sticker tests: XML parsing and self-contained assets guard rendering integrity; separate checks cover shared Classic/Vinyl labels, clickable matching warnings and offline pre-caching. No obsolete test cases removed. Existing browser suites cover general shelf flows; physical sticker appearance still benefits from a device visual check.
 
-<!-- inventory: {"reviewed_at":"2026-11-19T11:29:27.236+00:00","review_note":"Reviewed AudioShelf 0.6.45 changed Python and browser regression cases for instant borrowing, fully verified playback without repeated confirmation, unified discovery and the revised album, Listening Pile and settings flows. Replaced obsolete expectations rather than dropping behavioural coverage. Real Spotify device and Android playback remain subject to separate end-to-end checks.","source_sha256":"c76f7e353c027dfe1a93c8a96ab9226d93f793fa69054223bf1746a3aa6beb09"} -->
+<!-- inventory: {"reviewed_at":"2026-11-19T14:08:40.979Z","review_note":"Reviewed the two new SVG sticker tests: XML parsing and self-contained assets guard rendering integrity; separate checks cover shared Classic/Vinyl labels, clickable matching warnings and offline pre-caching. No obsolete test cases removed. Existing browser suites cover general shelf flows; physical sticker appearance still benefits from a device visual check.","source_sha256":"f9aa9f94c89e91acdc99d71a0b810a676422bcff95a74cb508bbb2efefed299b"} -->
 
-## Backend cases (465)
+## Backend cases (467)
 
 1. `audioshelf/tests/test_accounts.py::test_account_creation_and_management_require_admin_and_fresh_password`
 2. `audioshelf/tests/test_accounts.py::test_background_playback_is_account_and_session_scoped`
@@ -447,32 +447,34 @@ Reviewed AudioShelf 0.6.45 changed Python and browser regression cases for insta
 437. `audioshelf/tests/test_spotify_matching.py::test_unresolved_album_stays_on_shelf_without_repopulating_unverified_tracks`
 438. `audioshelf/tests/test_spotify_matching.py::test_unresolved_report_shows_spotify_album_and_musicbrainz_version_evidence`
 439. `audioshelf/tests/test_spotify_matching.py::test_verified_bulk_match_saves_tracks_but_does_not_review_album`
-440. `audioshelf/tests/test_track_artist_credits.py::test_artist_safeguard_stays_strict_for_uncredited_and_wrong_credit`
-441. `audioshelf/tests/test_track_artist_credits.py::test_complete_soundtrack_matches_without_special_cases`
-442. `audioshelf/tests/test_track_artist_credits.py::test_musicbrainz_track_performers_are_extracted_from_each_medium`
-443. `audioshelf/tests/test_track_artist_credits.py::test_performer_credits_are_general_for_any_collaborative_album`
-444. `audioshelf/tests/test_track_artist_credits.py::test_selecting_soundtrack_maps_every_track_and_keeps_review`
-445. `audioshelf/tests/test_track_artist_credits.py::test_store_migration_keeps_shelf_and_hand_mappings`
-446. `audioshelf/tests/test_tracklist_variants.py::test_browse_only_shows_spotify_verified_grouped_tracklists`
-447. `audioshelf/tests/test_tracklist_variants.py::test_edition_picker_only_counts_gb_worldwide_and_us_releases`
-448. `audioshelf/tests/test_tracklist_variants.py::test_equivalent_layout_tries_later_pressing_if_first_cannot_match`
-449. `audioshelf/tests/test_tracklist_variants.py::test_equivalent_pressings_collapse_despite_remaster_and_recording_ids`
-450. `audioshelf/tests/test_tracklist_variants.py::test_invalid_tracklist_page_is_rejected`
-451. `audioshelf/tests/test_tracklist_variants.py::test_long_unplayable_editions_do_not_trigger_many_recording_requests`
-452. `audioshelf/tests/test_tracklist_variants.py::test_matching_fallback_when_structured_search_has_no_complete_album`
-453. `audioshelf/tests/test_tracklist_variants.py::test_multidisc_layout_kept_independent_of_same_song_sequence`
-454. `audioshelf/tests/test_tracklist_variants.py::test_scanning_continues_across_all_eligible_pages`
-455. `audioshelf/tests/test_tracklist_variants.py::test_select_vinyl_sides_preserves_disc_and_canonical_mapping`
-456. `audioshelf/tests/test_tracklist_variants.py::test_side_choice_validation_and_stored_album_intact_on_failure`
-457. `audioshelf/tests/test_tracklist_variants.py::test_successful_page_cached_for_retry_without_refetching`
-458. `audioshelf/tests/test_tracklist_variants.py::test_unconnected_account_cannot_see_unverified_tracklists`
-459. `audioshelf/tests/test_tracklist_variants.py::test_unknown_or_inconsistent_vinyl_numbers_do_not_create_fictitious_sides`
-460. `audioshelf/tests/test_tracklist_variants.py::test_unmatched_album_has_reasons_and_no_selectable_tracklists`
-461. `audioshelf/tests/test_tracklist_variants.py::test_unverified_disc_layout_not_offered_even_with_same_song_sequence`
-462. `audioshelf/tests/test_vinyl.py::test_interface_persists_and_invalid_choice_is_atomic`
-463. `audioshelf/tests/test_vinyl.py::test_playback_does_not_misidentify_shared_or_uncollected_tracks`
-464. `audioshelf/tests/test_vinyl.py::test_playback_tracks_spotify_pause_and_relinked_library_track`
-465. `audioshelf/tests/test_vinyl.py::test_shelf_furniture_persists_and_rejects_invalid_choices`
+440. `audioshelf/tests/test_sticker_assets.py::test_paper_stickers_are_self_contained_svg`
+441. `audioshelf/tests/test_sticker_assets.py::test_sticker_states_use_assets_in_both_interfaces`
+442. `audioshelf/tests/test_track_artist_credits.py::test_artist_safeguard_stays_strict_for_uncredited_and_wrong_credit`
+443. `audioshelf/tests/test_track_artist_credits.py::test_complete_soundtrack_matches_without_special_cases`
+444. `audioshelf/tests/test_track_artist_credits.py::test_musicbrainz_track_performers_are_extracted_from_each_medium`
+445. `audioshelf/tests/test_track_artist_credits.py::test_performer_credits_are_general_for_any_collaborative_album`
+446. `audioshelf/tests/test_track_artist_credits.py::test_selecting_soundtrack_maps_every_track_and_keeps_review`
+447. `audioshelf/tests/test_track_artist_credits.py::test_store_migration_keeps_shelf_and_hand_mappings`
+448. `audioshelf/tests/test_tracklist_variants.py::test_browse_only_shows_spotify_verified_grouped_tracklists`
+449. `audioshelf/tests/test_tracklist_variants.py::test_edition_picker_only_counts_gb_worldwide_and_us_releases`
+450. `audioshelf/tests/test_tracklist_variants.py::test_equivalent_layout_tries_later_pressing_if_first_cannot_match`
+451. `audioshelf/tests/test_tracklist_variants.py::test_equivalent_pressings_collapse_despite_remaster_and_recording_ids`
+452. `audioshelf/tests/test_tracklist_variants.py::test_invalid_tracklist_page_is_rejected`
+453. `audioshelf/tests/test_tracklist_variants.py::test_long_unplayable_editions_do_not_trigger_many_recording_requests`
+454. `audioshelf/tests/test_tracklist_variants.py::test_matching_fallback_when_structured_search_has_no_complete_album`
+455. `audioshelf/tests/test_tracklist_variants.py::test_multidisc_layout_kept_independent_of_same_song_sequence`
+456. `audioshelf/tests/test_tracklist_variants.py::test_scanning_continues_across_all_eligible_pages`
+457. `audioshelf/tests/test_tracklist_variants.py::test_select_vinyl_sides_preserves_disc_and_canonical_mapping`
+458. `audioshelf/tests/test_tracklist_variants.py::test_side_choice_validation_and_stored_album_intact_on_failure`
+459. `audioshelf/tests/test_tracklist_variants.py::test_successful_page_cached_for_retry_without_refetching`
+460. `audioshelf/tests/test_tracklist_variants.py::test_unconnected_account_cannot_see_unverified_tracklists`
+461. `audioshelf/tests/test_tracklist_variants.py::test_unknown_or_inconsistent_vinyl_numbers_do_not_create_fictitious_sides`
+462. `audioshelf/tests/test_tracklist_variants.py::test_unmatched_album_has_reasons_and_no_selectable_tracklists`
+463. `audioshelf/tests/test_tracklist_variants.py::test_unverified_disc_layout_not_offered_even_with_same_song_sequence`
+464. `audioshelf/tests/test_vinyl.py::test_interface_persists_and_invalid_choice_is_atomic`
+465. `audioshelf/tests/test_vinyl.py::test_playback_does_not_misidentify_shared_or_uncollected_tracks`
+466. `audioshelf/tests/test_vinyl.py::test_playback_tracks_spotify_pause_and_relinked_library_track`
+467. `audioshelf/tests/test_vinyl.py::test_shelf_furniture_persists_and_rejects_invalid_choices`
 
 ## Other release checks
 
