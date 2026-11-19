@@ -44,18 +44,18 @@ jobs:
         if: github.event_name != 'pull_request'
         run: python -m pytest audioshelf/tests -q
       - name: Set up Node for complete browser checks
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' || github.head_ref == 'fix/audioshelf-handoff-ui-test-20261119'
         uses: actions/setup-node@v4
         with:
           node-version: "22"
       - name: Use preinstalled Chrome
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' || github.head_ref == 'fix/audioshelf-handoff-ui-test-20261119'
         run: command -v google-chrome && google-chrome --version
       - name: Install browser test dependencies
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' || github.head_ref == 'fix/audioshelf-handoff-ui-test-20261119'
         run: npm install --no-save playwright@1.62.1
       - name: Browser regressions (main or manual)
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' || github.head_ref == 'fix/audioshelf-handoff-ui-test-20261119'
         run: |
           node audioshelf/tests/test_integrated_android.cjs
           node audioshelf/tests/test_android_helper.cjs
