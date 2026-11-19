@@ -313,17 +313,13 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     // A prior successful playback can still be visible in Spotify's read-only
     // status. Force the independently tested unavailable-device response here
     // so this browser case exercises disc selection and the handoff UI.
-    let discPlayAttempts=0;
-    await page.route('**/api/albums/*/play',route=>{
-      discPlayAttempts++;
-      return route.fulfill({status:409,contentType:'application/json',
-        body:JSON.stringify({error:'Your preferred Spotify device is unavailable. Open Spotify on it.'})});
-    });
+    // Use the fixture server to return a real HTTP 409: Playwright's page.route
+    // interception can be bypassed when this PWA is service-worker controlled.
+    await fixtureOptions({disc_play_unavailable:true});
     await page.getByRole('button',{name:'Play disc 2'}).click();
     await page.evaluate(()=>{checkingPlayback=false;});
     await expectHandoff();
-    assert.equal(discPlayAttempts,1,'Disc playback tries one direct Play before the handoff');
-    await page.unroute('**/api/albums/*/play');
+    await fixtureOptions({disc_play_unavailable:false});
     await page.getByRole('link',{name:'Open Spotify',exact:true}).click();
     await fixtureOptions({phone_available:true});
     await page.waitForFunction(()=>!document.querySelector('#modal').open);

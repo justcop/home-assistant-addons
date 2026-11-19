@@ -2,6 +2,13 @@
 
 These add-ons are primarily used by one person in their own Home Assistant installation. Optimise for *working changes and short feedback loops*, not enterprise release ceremony.
 
+## Normal delivery workflow
+
+- The owner does **not** use a separate staging Home Assistant instance, persistent testing branches or an ongoing development deployment. Normal delivery is: request a change, implement it in a short-lived PR branch, run proportionate checks, then merge the PR to `main` without asking the owner to test a branch.
+- Treat `main` as the live add-on source. Full checks that happen *only after* a merge cannot protect against a broken release. Verify relevant high-risk functionality in the PR before merging; for a small cosmetic change, syntax and focused checks are sufficient.
+- Handle routine PR creation, checks and merge end-to-end. Report genuine failures and fix them rather than handing off routine GitHub steps.
+- Do not make persistent testing branches, additional staging releases, or another approval step the default.
+
 ## When modifying an add-on
 
 - Change only the add-on and functionality requested; avoid unrelated refactors.

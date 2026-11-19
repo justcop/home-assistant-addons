@@ -153,11 +153,24 @@ def fixture_account_context(identifier):
 app.extensions['accounts'].context=fixture_account_context
 
 
+disc_play_unavailable=False
+
+@app.before_request
+def fixture_disc_unavailable_response():
+    # Browser routes can be bypassed by the PWA's controlling service worker.
+    # Return a deterministic HTTP response from the test server instead.
+    from flask import request, jsonify
+    if (disc_play_unavailable and request.method=='POST'
+            and request.path.startswith('/api/albums/') and request.path.endswith('/play')):
+        return jsonify(error='Your preferred Spotify device is unavailable. Open Spotify on it.'), 409
+
+
 @app.post('/__test/playback-options')
 def playback_options():
     from flask import request
-    global phone_available
+    global phone_available, disc_play_unavailable
     phone_available=request.json.get('phone_available',phone_available)
+    disc_play_unavailable=request.json.get('disc_play_unavailable',disc_play_unavailable)
     if 'external_album' in request.json:
         if request.json['external_album']:
             title=request.json.get('album','After the Rain (2025 Remaster)')
