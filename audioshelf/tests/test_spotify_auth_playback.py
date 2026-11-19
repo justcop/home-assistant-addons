@@ -84,11 +84,19 @@ def test_playback_sends_only_exact_track_uris_and_turns_off_shuffle_repeat(appli
     assert [c[1] for c in calls]==['me/player','me/player/shuffle','me/player/repeat','me/player','me/player/play']
 
 
-def test_unreviewed_tracklist_cannot_play(application,monkeypatch):
+def test_unreviewed_fully_verified_album_can_play(application, monkeypatch):
     album=ready_album(application);album['canonical_reviewed']=False
-    api=Mock();monkeypatch.setattr(application.extensions['spotify'],'api',api)
-    with pytest.raises(AppError,match='Review the MusicBrainz'):application.extensions['spotify'].play(album)
-    api.assert_not_called()
+    calls=[]
+    states=iter([{'device':{'id':'device','name':'Phone'},'shuffle_state':False,'repeat_state':'off'},
+                 {'device':{'id':'device'},'shuffle_state':False,'repeat_state':'off'}])
+    def api(method,path,params=None,body=None):
+        calls.append((method,path,params,body))
+        return next(states) if method=='GET' else {}
+    monkeypatch.setattr(application.extensions['spotify'],'api',api)
+    monkeypatch.setattr('app.spotify.time.sleep',lambda _:None)
+    result=application.extensions['spotify'].play(album)
+    assert result['track_count']==2
+    assert calls[-1][1]=='me/player/play'
 
 
 def test_partial_mapping_cannot_play(application,monkeypatch):
