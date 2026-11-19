@@ -382,11 +382,11 @@ function releaseYearsHTML(data) {
 
 function prettyPeriod(label) {
   const value=String(label || "");
-  if (/^\\d{4}-\\d{2}$/.test(value)) {
+  if (/^\d{4}-\d{2}$/.test(value)) {
     const [year,month]=value.split("-").map(Number);
     return new Intl.DateTimeFormat("en-GB", {month:"short",year:"2-digit",timeZone:"UTC"}).format(new Date(Date.UTC(year,month-1,1)));
   }
-  if (/^\\d{4}-\\d{2}-\\d{2}$/.test(value)) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     return new Intl.DateTimeFormat("en-GB",{day:"numeric",month:"short",year:"2-digit",timeZone:"UTC"}).format(new Date(value+"T12:00:00Z"));
   }
   return value;
@@ -396,7 +396,7 @@ function chartGigMarkers(bins, gigs) {
   const clusters=new Map();
   gigs.forEach(gig => {
     const date=String(gig.date || "");
-    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
     const index=bins.findIndex(b=>date >= b.start && date <= b.end);
     if (index < 0) return;
     const row=clusters.get(index) || {date,count:0,festival:false,labels:[]};
@@ -444,7 +444,7 @@ function detailAttrs(kind, row) {
 }
 function rowArtwork(kind, row, mode = state.mode) {
   const name=String(row.artist || row.name || "");
-  const initials=name.split(/\\s+/).filter(Boolean).slice(0,2).map(part=>part[0]).join("").toUpperCase();
+  const initials=name.split(/\s+/).filter(Boolean).slice(0,2).map(part=>part[0]).join("").toUpperCase();
   return `<span class="art-tile" data-art-kind="${esc(kind)}" data-art-id="${esc(row.id)}" data-art-mode="${esc(mode)}" aria-hidden="true"><span class="artwork-fallback">${esc(initials)}</span></span>`;
 }
 const thumbnailCache=new Map();
