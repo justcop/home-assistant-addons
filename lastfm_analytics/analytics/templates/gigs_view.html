@@ -1,0 +1,28 @@
+<div class="gig-shell" data-gigs-view>
+  <section class="panel gig-overview">
+    <div class="panel-head"><div><h2>Your live music collection</h2><p>Concerts, festivals and songs from setlists currently available in the cache.</p></div></div>
+    <div id="live-collection" aria-live="polite">Calculating live collection…</div>
+  </section>
+  <section class="panel" id="whole-history">
+    <div class="panel-head"><div><h2>Listening & live events</h2><p>Concerts and festivals on the same timeline as your scrobbles. Select a marker for details.</p></div></div>
+    <div class="gig-timeline-controls">
+      <label>Scale <select id="all-scale"><option value="year">Yearly</option><option value="month">Monthly</option><option value="week">Weekly</option><option value="day">Daily</option></select></label>
+      <label>Period <select id="all-year"><option value="">All years</option></select></label>
+      <label><input id="all-concerts" type="checkbox" checked> Concerts</label>
+      <label><input id="all-festivals" type="checkbox" checked> Festivals</label>
+      <label><input id="all-unclassified" type="checkbox" checked> Unclassified</label>
+    </div>
+    <div id="all-timeline" role="region" aria-label="Listening and live events timeline" aria-live="polite">Loading combined timeline…</div>
+    <div id="all-event-details" aria-live="polite"></div>
+    <p class="method-note">Markers show the actual attendance date, not an estimated set time. Select any artist to open their full Listening details, including gigs.</p>
+  </section>
+  <section class="panel">
+    <div class="panel-head"><div><h2>Gig catalogue</h2><p>Automatically imported from setlist.fm. Festivals are inferred when four or more attended acts share a venue on one or consecutive days; override classifications here.</p></div></div>
+    <p id="count" role="status"></p>
+    <div class="table-wrap gig-table-wrap"><table class="gig-catalogue"><thead><tr><th>Date</th><th>Artist</th><th>Venue</th><th>Type</th><th>Setlist</th><th>Last checked</th></tr></thead><tbody id="rows"></tbody></table></div>
+  </section>
+  <details class="panel gig-sync-details"><summary>Setlist.fm attendance sync & data coverage</summary>
+    <p>Listening automatically imports performances you marked <strong>I Was There</strong> on setlist.fm. Enter your username and API key in Home Assistant add-on configuration. Data in the setlist cache expires according to your retention setting, but attendance is kept independently.</p>
+    <p id="attendance-status" role="status">Checking import progress…</p>
+  </details>
+</div>

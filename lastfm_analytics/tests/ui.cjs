@@ -89,7 +89,9 @@ async function assertLogoPixelsInCrop(page, label) {
                       venue:"Example Park",url:""}]}]
     })
   }));
-  await gigPage.goto(new URL("gigs", page.url()).toString());
+  await gigPage.goto(new URL("?view=gigs&demo=1", page.url()).toString());
+  await gigPage.locator('#page-title').waitFor();
+  assert.equal(await gigPage.locator("#page-title").innerText(),"Live gigs");
   await gigPage.getByText("Inferred festival").waitFor();
   await gigPage.locator("#all-timeline .gig-timeline-marker").waitFor();
   assert.equal(await gigPage.locator('#all-timeline .gig-timeline-marker path').count(),1);
@@ -103,9 +105,10 @@ async function assertLogoPixelsInCrop(page, label) {
   await gigPage.locator("#all-scale").selectOption("day");
   assert.equal(await gigPage.locator("#all-year").inputValue(),"2025");
   await gigPage.locator("#all-timeline .gig-timeline-marker").waitFor();
-  await gigPage.locator("#artist").fill("Example Act");
-  await gigPage.locator("#artist").dispatchEvent("change");
-  await gigPage.locator("#timeline .timeline-marker path").waitFor();
+  await gigPage.locator('#rows [data-artist]').first().click();
+  await gigPage.locator('#page-title').getByText("Artists").waitFor();
+  await gigPage.locator('#search').waitFor();
+  assert.equal(await gigPage.locator('#search').inputValue(), "Example Act");
   assert.deepEqual(gigErrors, []);
   await gigPage.close();
   // Rolling 365-day musical eras live in Trends, not an extra navigation tab.
@@ -145,7 +148,7 @@ async function assertLogoPixelsInCrop(page, label) {
   await page.locator('#nav [data-view="overview"]').click();
   await page.locator('#content .metrics').waitFor();
   await page.unroute("**/api/musical-eras?*");
-  // Seven navigation tabs stay on one bottom row on narrow phones, and
+  // Six visible navigation tabs stay on one row on phones, with Years in More;
   // the year grid scales to the actual available width without sideways scroll.
   await page.route("**/api/release-years?*", async route => {
     const selected = Number(new URL(route.request().url()).searchParams.get("release_year")) || null;
@@ -162,10 +165,11 @@ async function assertLogoPixelsInCrop(page, label) {
   });
   for (const width of [320, 360, 390, 428]) {
     await page.setViewportSize({width, height:844});
-    await page.locator('#nav [data-view="release-years"]').click();
+    await page.locator("#nav-more").click();
+    await page.locator('#more-nav [data-view="release-years"]').click();
     await page.locator('.release-year-cell').first().waitFor();
     const layout = await page.evaluate(() => {
-      const bounds = [...document.querySelectorAll("#nav button")].map(b => b.getBoundingClientRect());
+      const bounds = [...document.querySelectorAll("#nav button")].map(b => b.getBoundingClientRect()).filter(r=>r.width>0);
       const grid = document.querySelector(".release-year-grid");
       const viewport = document.documentElement.clientWidth;
       const area = grid.parentElement;
@@ -179,7 +183,7 @@ async function assertLogoPixelsInCrop(page, label) {
         viewport
       };
     });
-    assert.equal(layout.navCount, 7);
+    assert.equal(layout.navCount, 6);
     assert.equal(new Set(layout.navTops).size, 1, "Bottom nav must not wrap");
     assert.ok(layout.navRight <= layout.viewport + 1, "Bottom nav may not overflow viewport");
     assert.ok(layout.gridWidth <= layout.parentWidth + 1, "Year grid must fit parent on " + width + "px");
@@ -400,7 +404,7 @@ async function assertLogoPixelsInCrop(page, label) {
   await page.locator('#nav [data-view="overview"]').click();
   await page.locator("#period").selectOption("30d");
   await page.locator(".settings-nav").click();
-  await page.locator("#theme").click();
+  await page.locator('[data-theme-choice="dark"]').click();
   await page.locator('#nav [data-view="overview"]').click();
   await page.locator("#content .metrics").waitFor();
   await page.screenshot({
@@ -413,7 +417,8 @@ async function assertLogoPixelsInCrop(page, label) {
     const buttons = await page.locator("#nav button").evaluateAll(nodes => nodes.map(n => {
       const r = n.getBoundingClientRect();
       return { width: r.width, height: r.height, bottom: r.bottom, top: r.top };
-    }));
+    }).filter(r=>r.width>0));
+    assert.equal(buttons.length,6);
     assert.ok(buttons.every(b => b.width >= 44 && b.height >= 44 && b.bottom <= 844 && b.top > 700));
   }
   await page.setViewportSize({ width: 390, height: 844 });
@@ -427,8 +432,9 @@ async function assertLogoPixelsInCrop(page, label) {
     ),
     false,
   );
-  await page.locator(".settings-nav").click();
-  await page.locator("#palette").selectOption("ocean");
+  await page.locator("#nav-more").click();
+  await page.locator('#more-nav [data-view="settings"]').click();
+  await page.locator('[data-palette-choice="ocean"]').click();
   await page.locator('#nav [data-view="overview"]').click();
   assert.equal(await page.evaluate(() => document.documentElement.dataset.palette), "ocean");
   await page.route("**/api/overview?**", async route => {
@@ -447,13 +453,13 @@ async function assertLogoPixelsInCrop(page, label) {
     await page.setViewportSize({width,height:844});
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     assert.ok(await page.locator("#content .chart-scroll").evaluate(n=>n.scrollWidth>n.clientWidth));
-    if (width <= 620) assert.equal(await page.locator("#content .calendar-scroll").evaluate(n=>n.scrollWidth>n.clientWidth), false);
+    // Calendar exploration lives in Trends rather than the Overview summary.
   }
   const before = await page.locator("#content .bar-chart").evaluate(n=>n.scrollWidth);
   await page.locator('#content [data-chart-zoom="in"]').click();
   await page.locator('#content [data-chart-zoom="in"]').click();
   assert.ok(await page.locator("#content .bar-chart").evaluate(n=>n.scrollWidth)>before);
-  assert.equal(await page.locator("#content .calendar-cell:not(.unavailable)").count(),240);
+  assert.equal(await page.locator("#content .calendar-heatmap").count(),0);
   await page.locator("#content .chart-scroll").evaluate(n=>n.scrollLeft=500);
   assert.ok(await page.locator("#content .chart-scroll").evaluate(n=>n.scrollLeft)>0);
   await page.setViewportSize({width:390,height:844});
@@ -524,7 +530,8 @@ async function assertLogoPixelsInCrop(page, label) {
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await page.locator("#period").selectOption("30d");
   assert.equal(await page.locator(".heatmap .cell").count(), 168);
-  await page.locator('#nav [data-view="history"]').click();
+  await page.locator("#nav-more").click();
+  await page.locator('#more-nav [data-view="history"]').click();
   await page.locator("#content table").waitFor();
   await page.locator("#search").fill("<img src=x onerror=alert(1)>");
   await page.waitForTimeout(450);
@@ -548,8 +555,8 @@ async function assertLogoPixelsInCrop(page, label) {
   await page.locator('#content .metrics').waitFor();
   assert.equal(await page.locator('#period').inputValue(),'all');
   assert.equal(await page.locator('#source').getAttribute('aria-pressed'),'false');
-  const metricFont = await page.locator('.metric-label span').first().evaluate(n=>getComputedStyle(n).fontSize);
-  assert.ok(parseFloat(metricFont) >= 24, metricFont);
+  const metricIcon = await page.locator('.metric-label svg').first().evaluate(n=>n.getBoundingClientRect().height);
+  assert.ok(metricIcon >= 24, metricIcon);
   await page.locator('#nav [data-view="trends"]').click();
   await page.locator('#content .heatmap').waitFor();
   await page.locator('#nav [data-view="songs"]').click();
@@ -569,15 +576,14 @@ async function assertLogoPixelsInCrop(page, label) {
   await page.locator('#detail-dialog .calendar-heatmap').waitFor();
   await page.evaluate(() => history.back());
   await page.waitForFunction(()=>!document.querySelector('#detail-dialog').open);
-  // Version display is a saved Settings preference, and merge names are choices.
-  assert.equal(await page.locator('#toolbar [data-mode]').count(), 0);
-  await page.locator('.settings-nav').click();
-  await page.locator('#settings-preferences [data-mode="raw"]').click();
+  // Version counting is immediately accessible by the date filter.
+  assert.equal(await page.locator('#toolbar-version [data-mode]').count(),2);
+  await page.locator('#toolbar-version [data-mode="raw"]').click();
   assert.equal(await page.evaluate(() => localStorage.getItem('listening-version-mode')), 'raw');
   await page.goto((process.env.APP_URL || 'http://127.0.0.1:8105/') + '?demo=1');
   await page.locator('#content .metrics').waitFor();
-  assert.equal(await page.locator('#settings-preferences [data-mode="raw"]').getAttribute('aria-pressed'), 'true');
-  assert.equal(await page.locator('#settings-preferences [data-mode="raw"]').isVisible(), false);
+  assert.equal(await page.locator('#toolbar-version [data-mode="raw"]').getAttribute('aria-pressed'), 'true');
+  assert.equal(await page.locator('#toolbar-version [data-mode="raw"]').isVisible(), true);
   await page.route('**/api/grouping-review?**', async route => {
     await route.fulfill({json:{rows:[{artist:'Fixture artist', ids:[501,502], key:'song:501:502',
       versions:[
@@ -587,7 +593,8 @@ async function assertLogoPixelsInCrop(page, label) {
         {id:1004,name:'Alpha (Remaster)',plays:200,group_id:502}],
       reason:'Fixture choices', learnable:false}], total:1,offset:0,rules:[]}});
   });
-  await page.locator('.settings-nav').click();
+  await page.locator("#nav-more").click();
+  await page.locator('#more-nav [data-view="settings"]').click();
   const namesCard = page.locator('.review-card').first();
   await namesCard.locator('.candidate-version').nth(0).check();
   await namesCard.locator('.candidate-version').nth(1).check();
@@ -630,8 +637,29 @@ async function assertLogoPixelsInCrop(page, label) {
   await page.unroute("**/api/overview?**");
   // Detail totals drill into the selected entity and Back restores its dialog.
   await page.locator('#nav [data-view="overview"]').click();
+  // Artist gigs belong inside the artist detail, plotted directly on its
+  // listening timeline, not on a separate artist picker/page.
+  const attendedGig={id:710,artist:"The Beatles",date:"2026-06-15",
+    venue:"Demo Theatre",festival:"",show_type:"concert",
+    setlist_url:"https://www.setlist.fm/",sets:null};
+  await page.route("**/api/gigs/timeline?*",route=>route.fulfill({
+    status:200,contentType:"application/json",
+    body:JSON.stringify({listens:[],gigs:[attendedGig],granularity:"month"})
+  }));
+  await page.route("**/api/gigs/artist-insights?*",route=>route.fulfill({
+    status:200,contentType:"application/json",
+    body:JSON.stringify({songs:{performances:1,cached_setlists:0,cached_songs:0,live_songs:[],
+      coverage_note:"No cached setlist yet"},impact:[]})
+  }));
   await page.locator('#content [data-detail="artist"][data-id="the beatles"]').click();
   await page.locator('#detail-dialog [data-browse="albums"]').waitFor();
+  await page.locator('#artist-live-section .gig-performance').waitFor();
+  assert.match(await page.locator('#artist-live-section').innerText(), /Demo Theatre/);
+  await page.locator('#detail-dialog .gig-chart-marker').first().waitFor();
+  await page.locator('#detail-dialog .gig-chart-marker').first().click();
+  assert.equal(await page.locator('#artist-live-section .gig-performance.selected').count(),1);
+  await page.unroute("**/api/gigs/timeline?*");
+  await page.unroute("**/api/gigs/artist-insights?*");
   const artistSpotify = await page.locator('#detail-dialog .spotify-link').getAttribute('href');
   assert.match(decodeURIComponent(artistSpotify), /artist:"The Beatles"/);
   for (const [view, title] of [['albums', 'Albums'], ['songs', 'Songs'], ['history', 'Listening history'], ['artists', 'Artists']]) {

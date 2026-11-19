@@ -22,6 +22,7 @@ const views = [
   "albums",
   "songs",
   "history",
+  "gigs",
   "settings",
 ];
 const state = {
@@ -57,6 +58,7 @@ const titles = {
   artists: ["Artists", "The artists shaping your listening."],
   albums: ["Albums", "A clearer view across album editions."],
   songs: ["Songs", "Your real favourites, with versions brought together."],
+  gigs: ["Live gigs", "Your concerts, festivals and the music you heard live."],
   history: [
     "Listening history",
     "Explore the individual plays behind the numbers.",
@@ -66,13 +68,18 @@ const titles = {
     "Your connection, data quality and version decisions.",
   ],
 };
-let theme;
-try {
-  theme = localStorage.getItem("listening-theme");
-} catch (_) {}
-document.documentElement.dataset.theme =
-  theme ||
-  (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+let themeChoice = "auto";
+try { themeChoice = localStorage.getItem("listening-theme") || "auto"; } catch (_) {}
+if (!["auto","light","dark"].includes(themeChoice)) themeChoice="auto";
+function applyThemeChoice() {
+  document.documentElement.dataset.theme = themeChoice === "auto"
+    ? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+    : themeChoice;
+  document.querySelectorAll("[data-theme-choice]").forEach(b=>
+    b.setAttribute("aria-pressed", String(b.dataset.themeChoice===themeChoice)));
+  updateThemeColour();
+}
+applyThemeChoice();
 function formatDate(
   ts,
   options = { day: "numeric", month: "short", year: "numeric" },
@@ -219,15 +226,35 @@ window.addEventListener("popstate", async event => {
 });
 function changeView(view) {
   state.view = view;
+  $("#more-nav").hidden = true;
+  $("#nav-more").setAttribute("aria-expanded", "false");
   state.q = "";
   state.offset = 0;
   state.filter = null;
   state.selected.clear();
   load();
 }
+async function openArtistFromGig(name) {
+  const artist = String(name || "").trim();
+  if (!artist) return;
+  try {
+    const data = await api("rankings", { kind:"artist", q:artist, offset:0, period:"all", source:"all" });
+    const match = (data.rows || []).find(row => row.name?.toLocaleLowerCase() === artist.toLocaleLowerCase());
+    if (match) {
+      await showDetail("artist", match.id);
+      return;
+    }
+  } catch (error) { /* Artist list still provides a navigable fallback. */ }
+  state.view = "artists";
+  state.q = artist;
+  state.offset = 0;
+  state.filter = null;
+  await load();
+}
+
 function difference(current, previous, compare = true) {
   if (!compare || previous === null || previous === undefined)
-    return '<span class="metric-foot">In selected period</span>';
+    return "";
   if (!previous)
     return `<span class="change">${current ? "New in period" : "No change"}</span>`;
   const pct = ((current - previous) / previous) * 100;
@@ -235,12 +262,12 @@ function difference(current, previous, compare = true) {
 }
 function metrics(data, mode = state.mode, filter = state.filter, all = false) {
   return `<div class="metrics">${[
-    ["plays", "Scrobbles", "↗", "history"],
-    ["artists", "Artists", "◎", "artists"],
-    ["albums", "Albums", "▣", "albums"],
-    ["songs", mode === "raw" ? "Song entries" : "Songs", "♫", "songs"],
+    ["plays", "Scrobbles", "trend", "history"],
+    ["artists", "Artists", "artist", "artists"],
+    ["albums", "Albums", "album", "albums"],
+    ["songs", mode === "raw" ? "Song entries" : "Songs", "song", "songs"],
   ].map(([k, label, icon, view]) =>
-    `<button type="button" class="metric metric-link" data-browse="${view}" data-mode="${mode}" data-all="${all}" ${filter ? `data-entity="${esc(filter.kind)}" data-id="${esc(filter.id)}" data-name="${esc(filter.name)}"` : ""} aria-label="View ${label.toLowerCase()}${filter ? ` for ${esc(filter.name)}` : ""}"><span class="metric-label">${label}<span aria-hidden="true">${icon}</span></span><span class="metric-value">${number(data.current[k])}</span><span class="metric-comparison">${difference(data.current[k], data.previous?.[k], data.period.compare)}</span></button>`
+    `<button type="button" class="metric metric-link" data-browse="${view}" data-mode="${mode}" data-all="${all}" ${filter ? `data-entity="${esc(filter.kind)}" data-id="${esc(filter.id)}" data-name="${esc(filter.name)}"` : ""} aria-label="View ${label.toLowerCase()}${filter ? ` for ${esc(filter.name)}` : ""}"><span class="metric-label">${label}<svg aria-hidden="true"><use href="#icon-${icon}"/></svg></span><span class="metric-value">${number(data.current[k])}</span><span class="metric-comparison">${difference(data.current[k], data.previous?.[k], data.period.compare)}</span></button>`
   ).join("")}</div>`;
 }
 function filterChip() {
@@ -353,39 +380,132 @@ function releaseYearsHTML(data) {
     '</section>' + detail;
 }
 
-function chart(data, filter = null, mode = state.mode) {
-  const bins = data.timeline,
-    max = Math.max(4, ...bins.map((b) => b.plays));
-  const rounded = Math.ceil(max / 4) * 4;
-  const best = bins.reduce((a, b) => (b.plays > a.plays ? b : a), {
-    plays: 0,
-    label: "",
+function prettyPeriod(label) {
+  const value=String(label || "");
+  if (/^\d{4}-\d{2}$/.test(value)) {
+    const [year,month]=value.split("-").map(Number);
+    return new Intl.DateTimeFormat("en-GB", {month:"short",year:"2-digit",timeZone:"UTC"}).format(new Date(Date.UTC(year,month-1,1)));
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return new Intl.DateTimeFormat("en-GB",{day:"numeric",month:"short",year:"2-digit",timeZone:"UTC"}).format(new Date(value+"T12:00:00Z"));
+  }
+  return value;
+}
+function chartGigMarkers(bins, gigs) {
+  if (!Array.isArray(gigs) || !gigs.length || !bins.length) return "";
+  const clusters=new Map();
+  gigs.forEach(gig => {
+    const date=String(gig.date || "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+    const index=bins.findIndex(b=>date >= b.start && date <= b.end);
+    if (index < 0) return;
+    const row=clusters.get(index) || {date,count:0,festival:false,labels:[]};
+    row.count++;
+    row.festival ||= gig.show_type === "festival";
+    row.labels.push(gig.festival || gig.venue || "Concert");
+    clusters.set(index,row);
   });
+  if (!clusters.size) return "";
+  return '<div class="gig-marker-layer" aria-label="Gigs on this listening timeline">'+
+    [...clusters].map(([index,gig])=>{
+      const label=prettyPeriod(bins[index].label);
+      const aria=gig.count+" live performance"+(gig.count===1?"":"s")+" in "+label+": "+gig.labels.join(", ");
+      const horizontal=((index+.5)/bins.length*100).toFixed(4);
+      return '<button type="button" class="gig-chart-marker" data-gig-marker="'+esc(gig.date)+'" data-gig-type="'+(gig.festival?'festival':'concert')+
+        '" style="left:'+horizontal+'%" aria-label="'+esc(aria)+'" title="'+esc(aria)+'">'+(gig.count>1?gig.count:(gig.festival?'▲':'●'))+'</button>';
+    }).join("")+'</div>';
+}
+function chart(data, filter = null, mode = state.mode, gigs = null, compact = false) {
+  const bins = data.timeline || [], max = Math.max(4,...bins.map(b=>b.plays));
+  const rounded = Math.ceil(max / 4) * 4;
+  const best = bins.reduce((a,b)=>(b.plays>a.plays?b:a),{plays:0,label:""});
   const ds = filter
     ? ` data-entity="${esc(filter.kind)}" data-id="${esc(filter.id)}" data-name="${esc(filter.name)}" data-history-mode="${mode}"`
     : "";
-  return `<div class="chart-tools"><div class="chart-zoom-buttons" role="group" aria-label="Timeline zoom"><button class="button" data-chart-zoom="out" aria-label="Zoom out">−</button><button class="button" data-chart-zoom="reset" aria-label="Reset timeline zoom">Reset</button><button class="button" data-chart-zoom="in" aria-label="Zoom in">+</button></div><small>Pinch to zoom. Scroll sideways. Select a bar for scrobbles.</small></div><div class="chart-layout"><div class="chart-axis"><span>${number(rounded)}</span><span>${number(rounded * 0.75)}</span><span>${number(rounded * 0.5)}</span><span>${number(rounded * 0.25)}</span><span>0</span></div><div class="chart-scroll" tabindex="0" aria-label="Scrollable listening timeline"><div class="bar-chart" style="--bins:${bins.length}" role="group" aria-label="Scrobbles by ${bins[0]?.label.length === 7 ? "month" : "day"}, select a bar to inspect history">${bins.map((b,i) => `<button data-label="${i % 6 === 0 ? esc(b.label) : ""}" data-chart-start="${b.start}" data-chart-end="${b.end}"${ds} style="height:${Math.max(0.5, (b.plays / rounded) * 100)}%" title="${b.label}: ${number(b.plays)} scrobbles. Open history." aria-label="${b.label}, ${number(b.plays)} scrobbles"></button>`).join("")}</div></div></div><div class="chart-foot"><span><strong>${number(data.current.plays)}</strong> scrobbles in this period</span><span>${best.plays ? `Peak: <strong>${esc(best.label)}</strong>` : "No plays yet"}</span></div>${calendarHeatmap(data, filter, mode)}`;
+  const labelEvery=Math.max(1,Math.ceil(bins.length/8));
+  const markers=filter?.kind==="artist" ? chartGigMarkers(bins,gigs) : "";
+  const bars=bins.map((b,i)=>
+    `<button data-label="${i%labelEvery===0?esc(prettyPeriod(b.label)):""}"
+      data-chart-start="${esc(b.start)}" data-chart-end="${esc(b.end)}" data-period-label="${esc(prettyPeriod(b.label))}"
+      data-period-plays="${number(b.plays)}"${ds}
+      style="height:${Math.max(.5,(b.plays/rounded)*100)}%"
+      aria-label="${esc(prettyPeriod(b.label))}, ${number(b.plays)} scrobbles. Open listening history"></button>`).join("");
+  return `<div class="chart-tools"><div class="chart-zoom-buttons" role="group" aria-label="Timeline zoom"><button class="button" data-chart-zoom="out" aria-label="Zoom out">−</button><button class="button" data-chart-zoom="reset" aria-label="Reset zoom">Reset</button><button class="button" data-chart-zoom="in" aria-label="Zoom in">+</button></div><small>Hover or tap a bar to see its count; select it to open the plays.</small></div>
+    <div class="chart-layout"><div class="chart-axis"><span>${number(rounded)}</span><span>${number(rounded*.75)}</span><span>${number(rounded*.5)}</span><span>${number(rounded*.25)}</span><span>0</span></div>
+    <div class="chart-scroll" tabindex="0" aria-label="Scrollable listening timeline">
+      <div class="bar-chart" style="--bins:${bins.length}" role="group" aria-label="Scrobbles over time with gig markers">${bars}${markers}</div>
+    </div></div>
+    <div class="chart-tooltip" role="status" aria-live="polite">Select a bar for its date and count.${markers?' Concerts and festivals are marked on the same timeline.':''}</div>
+    <div class="chart-foot"><span><strong>${number(data.current.plays)}</strong> scrobbles in this period</span><span>${best.plays?`Peak: <strong>${esc(prettyPeriod(best.label))}</strong>`:"No plays yet"}</span></div>
+    ${compact?"":calendarHeatmap(data,filter,mode)}`;
 }
 function detailAttrs(kind, row) {
   return `data-detail="${kind}" data-id="${esc(row.id)}"`;
 }
-function topList(title, kind, rows, view, metric = "scrobbles", scope = null) {
-  return `<section class="panel">${panelHead(title, "", `<button class="button quiet" data-view="${view}" ${scope ? `data-scope-kind="${esc(scope.kind)}" data-scope-id="${esc(scope.id)}" data-scope-name="${esc(scope.name)}"` : ""}>View all ↗</button>`)}<div>${
-    rows.length
-      ? rows
-          .map(
-            (r, i) =>
-              `<button class="list-row" ${detailAttrs(kind, r)}><span class="rank">${i + 1}</span><span class="art-tile" aria-hidden="true">${esc(
-                (r.artist || r.name)
-                  .split(/\s+/)
-                  .slice(0, 2)
-                  .map((s) => s[0])
-                  .join(""),
-              )}</span><span class="list-name"><strong>${esc(r.name)}</strong><small>${esc(r.artist || "Artist")}${r.versions > 1 ? ` · ${r.versions} versions` : ""}</small></span><span class="list-count" title="${metric === "estimated" ? "Estimated album listens" : "Track scrobbles"}">${metric === "estimated" ? (r.estimated_listens === null ? "—" : number(r.estimated_listens)) : number(r.plays)}</span></button>`,
-          )
-          .join("")
-      : `<div class="empty">${metric === "estimated" ? "No album estimates yet. Tracklists are being identified in the background." : "No listening in this period."}</div>`
-  }</div></section>`;
+function rowArtwork(kind, row, mode = state.mode) {
+  const name=String(row.artist || row.name || "");
+  const initials=name.split(/\s+/).filter(Boolean).slice(0,2).map(part=>part[0]).join("").toUpperCase();
+  return `<span class="art-tile" data-art-kind="${esc(kind)}" data-art-id="${esc(row.id)}" data-art-mode="${esc(mode)}" aria-hidden="true"><span class="artwork-fallback">${esc(initials)}</span></span>`;
+}
+const thumbnailCache=new Map();
+const thumbnailQueue=[];
+let thumbnailActive=0;
+function loadArtworkQueue() {
+  while (thumbnailActive<3 && thumbnailQueue.length) {
+    const el=thumbnailQueue.shift();
+    if (!el?.isConnected) continue;
+    const key=[el.dataset.artKind,el.dataset.artId,el.dataset.artMode].join("|");
+    const apply=image=>{
+      if (!el.isConnected || !image) return;
+      const url=String(image);
+      if (!url.startsWith("https://")) return;
+      const img=document.createElement("img");
+      img.alt="";
+      img.loading="lazy";
+      img.referrerPolicy="no-referrer";
+      img.decoding="async";
+      img.onerror=()=>img.remove();
+      img.src=url;
+      el.replaceChildren(img);
+    };
+    if (thumbnailCache.has(key)) {apply(thumbnailCache.get(key));continue;}
+    thumbnailActive++;
+    const params={entity:el.dataset.artKind,id:el.dataset.artId,mode:el.dataset.artMode,source:"all",period:"all"};
+    api("artwork",params).then(data=>{
+      const image=el.dataset.artKind==="artist" ? (data.artist_photo || data.artwork?.url) : data.artwork?.url;
+      if (image) {thumbnailCache.set(key,image);apply(image);}
+    }).catch(()=>{}).finally(()=>{thumbnailActive--;loadArtworkQueue();});
+  }
+}
+function activateRowArtwork(root=document) {
+  const nodes=[...root.querySelectorAll("[data-art-kind][data-art-id]:not([data-art-queued])")];
+  const observer=new IntersectionObserver(entries=>{
+    entries.forEach(entry=>{
+      if (!entry.isIntersecting) return;
+      observer.unobserve(entry.target);
+      thumbnailQueue.push(entry.target);
+      loadArtworkQueue();
+    });
+  },{rootMargin:"120px"});
+  nodes.forEach(node=>{
+    node.dataset.artQueued="true";
+    observer.observe(node);
+  });
+}
+function topList(title, kind, rows, view, metric = "scrobbles", scope = null, totalPlays = null) {
+  const list=(rows||[]).map((r,i)=>{
+    const subtitle=kind==="artist"
+      ? (totalPlays ? (100*r.plays/totalPlays).toFixed(1)+"% of plays" : "Artist")
+      : (r.artist || (r.versions>1 ? number(r.versions)+" editions" : ""));
+    const secondary=kind!=="artist" && r.versions>1 ? " · "+number(r.versions)+" versions" : "";
+    return `<button class="list-row" ${detailAttrs(kind,r)}>
+      <span class="rank">${i+1}</span>${rowArtwork(kind,r)}
+      <span class="list-name"><strong>${esc(r.name)}</strong><small>${esc(subtitle)}${secondary}</small></span>
+      <span class="list-count" title="${metric==="estimated"?"Estimated album listens":"Track scrobbles"}">${metric==="estimated"?(r.estimated_listens===null?"—":number(r.estimated_listens)):number(r.plays)}</span>
+    </button>`;
+  }).join("");
+  return `<section class="panel">${panelHead(title,"",`<button class="button quiet" data-view="${view}" ${scope?`data-scope-kind="${esc(scope.kind)}" data-scope-id="${esc(scope.id)}" data-scope-name="${esc(scope.name)}"`:""}>View all ↗</button>`)}
+    <div>${list || '<div class="empty">No listening in this period.</div>'}</div></section>`;
 }
 function discovery(data) {
   const d = data.discovery;
@@ -396,17 +516,33 @@ function discovery(data) {
   return `<section class="panel">${panelHead("Discovery & familiarity", "Artists first heard in your imported history")}<div class="insight-number">${d.complete ? `${pct}<span style="font-size:21px">%</span>` : "—"}</div><p style="font-size:12px">${d.complete ? "of plays were artists new to this period" : "Waiting for your complete history"}</p><div class="split-bar" role="img" aria-label="${pct}% new artist plays"><span style="width:${pct}%"></span></div><div class="legend"><span>New ${d.complete ? number(d.plays) : "—"}</span><span>Familiar ${d.complete ? number(data.current.plays - d.plays) : "—"}</span></div><div class="insight-note">${d.complete ? `<strong>${number(d.artists)} artists</strong> first appear in this period. “New” refers to your available Last.fm history, not necessarily the first time you ever heard them.` : "This measure needs the full import so older favourites are not mistaken for discoveries."}</div></section>`;
 }
 function insightsStrip(data) {
-  const g = data.grouping,
-    saved = g.raw_songs - g.songs;
-  const r = data.returning[0];
-  return `<div class="insight-strip"><article class="insight-card"><span class="insight-icon" aria-hidden="true">⇄</span><div><h3>One song, a clearer total</h3><p>${number(g.raw_songs)} song entries become ${number(g.songs)} groups. ${saved ? `${number(saved)} split entries are brought together.` : "Explore grouping to bring related versions together."} <button class="text-button" data-view="settings">Review groups →</button></p></div></article><article class="insight-card"><span class="insight-icon" aria-hidden="true">↺</span><div><h3>${r ? "Back in rotation" : "Returning favourites"}</h3><p>${r ? `<button class="text-button" ${detailAttrs("artist", r)}>${esc(r.name)}</button> returned after ${number(Math.floor(r.gap_days))} days without a recorded play, with ${number(r.plays)} plays this period.` : "Artists returning after at least 90 days without a recorded play will appear here."}${!data.discovery.complete ? " This is based on the history imported so far." : ""}</p></div></article></div>`;
+  const g=data.grouping || {}, saved=(g.raw_songs||0)-(g.songs||0);
+  const r=data.returning?.[0];
+  if (!saved && !r) return "";
+  return `<div class="insight-strip">${saved ? `<article class="insight-card">
+    <svg class="insight-svg" aria-hidden="true"><use href="#icon-song"/></svg><div><h3>One song, a clearer total</h3>
+    <p>${number(saved)} duplicate song entries are grouped together. <button class="text-button" data-view="settings">Review grouping →</button></p></div></article>` : ""}
+    ${r ? `<article class="insight-card"><svg class="insight-svg" aria-hidden="true"><use href="#icon-history"/></svg>
+    <div><h3>Back in rotation</h3><p><button class="text-button" ${detailAttrs("artist",r)}>${esc(r.name)}</button>
+    returned after ${number(Math.floor(r.gap_days))} days without a recorded play, with ${number(r.plays)} plays this period.</p></div></article>` : ""}</div>`;
 }
 function heatmap(data) {
   const max = Math.max(1, ...data.hours.flat());
   return `<section class="panel">${panelHead("When you listen", `Scrobbles by local weekday and hour · ${esc(data.period.timezone)}`)}<div class="heatmap"><span></span>${Array.from({ length: 24 }, (_, i) => `<span class="hour">${i % 3 === 0 ? String(i).padStart(2, "0") : ""}</span>`).join("")}${["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day, d) => `<span class="day">${day}</span>${data.hours[d].map((count, h) => `<span class="cell" role="img" style="opacity:${0.07 + (0.93 * count) / max}" title="${day} ${String(h).padStart(2, "0")}:00: ${number(count)} scrobbles" aria-label="${day} ${h}:00, ${number(count)} scrobbles"></span>`).join("")}`).join("")}</div><p class="method-note">Repeated daylight-saving hours share a cell. These are scrobble timestamps, not measured listening duration.</p></section>`;
 }
 function overviewHTML(data) {
-  return `${metrics(data)}<div class="grid-two"><section class="panel">${panelHead("Listening activity", `${data.period.start_label} to ${data.period.end_label}`, '<span class="pill">Scrobbles</span>')}${chart(data)}</section>${discovery(data)}</div>${insightsStrip(data)}<div class="grid-equal">${topList("Top artists", "artist", data.top_artists, "artists")}${topList("Top albums by scrobbles", "album", data.top_albums, "albums")}${topList("Top songs", "song", data.top_songs, "songs")}</div><div class="grid-two" style="margin-top:18px">${topList("Top albums by estimated listens", "album", data.top_albums_estimated || [], "albums", "estimated")}<section class="panel"><h2>Estimated album listens</h2><p class="method-note">The third least played track from an identified complete tracklist, including tracks with zero plays. Albums must contain at least six tracks. This avoids favouring longer albums. Figures appear as tracklists are identified in the background.</p><button class="button quiet" data-view="albums">Browse album rankings →</button></section></div>`;
+  const estimated=(data.top_albums_estimated || []).filter(a=>a.estimated_listens!==null && a.estimated_listens!==undefined);
+  return `${metrics(data)}
+    <section class="panel overview-chart-panel">${panelHead("Listening activity","A snapshot of plays in the selected period",'<button class="button quiet" data-view="trends">Explore trends →</button>')}${chart(data,null,state.mode,null,true)}</section>
+    ${insightsStrip(data)}
+    ${state.period!=="all" && data.discovery?.complete ? `<div class="compact-insight">${discovery(data)}</div>` : ""}
+    <div class="grid-equal">${topList("Top artists","artist",data.top_artists || [],"artists","scrobbles",null,data.current.plays)}
+      ${topList("Top albums","album",data.top_albums || [],"albums")}
+      ${topList("Top songs","song",data.top_songs || [],"songs")}</div>
+    ${estimated.length ? `<section class="panel estimated-overview">${panelHead("Most played albums (estimated)", "A different measure of listening through an album")}
+      ${topList("Estimated album listens","album",estimated.slice(0,8),"albums","estimated")}
+      <details class="method-note"><summary>How are album listens estimated?</summary>
+      <p>The estimate uses the third least played track from a complete tracklist of six or more songs, including tracks never scrobbled. This avoids favouring longer albums.</p></details></section>` : ""}`;
 }
 
 /* Rolling-year views are loaded independently of the main overview cache. */
@@ -423,7 +559,7 @@ function eraChart(data, selected) {
   const maximum = Math.ceil(maxShare / 5) * 5;
   const x = index => left + index * (width - left - right) / Math.max(1, points.length - 1);
   const y = share => top + (1 - share / maximum) * (height - top - bottom);
-  const colours = ['#6172d7','#d5825b','#289782','#ab77b7','#b49a3b'];
+  const colours = ['var(--era-1)','var(--era-2)','var(--era-3)','var(--era-4)','var(--era-5)'];
   const grid = [0, .5, 1].map(f =>
     '<line x1="' + left + '" x2="' + (width-right) + '" y1="' + y(maximum*f) + '" y2="' +
     y(maximum*f) + '" stroke="currentColor" opacity=".15"/><text x="' + (left-7) +
@@ -533,7 +669,24 @@ async function loadMusicalEras(serial) {
 }
 
 function trendsHTML(data) {
-  return `${metrics(data)}<section class="panel" style="margin-bottom:22px">${panelHead("Your listening over time", "Select any bar to explore the plays behind it.")}${chart(data)}</section><div class="grid-two">${heatmap(data)}<section class="panel">${panelHead("Artist concentration", "Share of plays from your five most played artists")}<div class="insight-number">${data.top_five_share}%</div><p class="method-note">${number(data.current.artists)} artists in this period. A higher share means more listening centred on your favourites.</p><div class="split-bar"><span style="width:${data.top_five_share}%"></span></div><div class="legend"><span>Top five</span><span>Other artists</span></div></section></div><div class="grid-two">${discovery(data)}<section class="panel">${panelHead("Rediscoveries", "At least 90 days since the previous recorded play")}${data.returning.map((r) => `<button class="list-row" ${detailAttrs("artist", r)}><span class="list-name"><strong>${esc(r.name)}</strong><small>${number(Math.floor(r.gap_days))} days between plays</small></span><span class="list-count">${number(r.plays)}</span></button>`).join("") || '<p class="method-note">No rediscoveries in this period.</p>'}</section></div><div id="musical-eras" class="musical-eras"><section class="panel"><h2>Musical eras</h2><p class="method-note">Preparing rolling 365-day listening shares…</p></section></div>`;
+  const returners=data.returning || [];
+  return `<section class="panel trends-chart-panel">
+    ${panelHead("Your listening over time","Hover or tap a bar to see its count. Select a bar to explore plays.")}${chart(data,null,state.mode,null,true)}
+    <details class="trends-heatmap"><summary>Explore by calendar month</summary>${calendarHeatmap(data)}</details>
+  </section>
+  <div class="grid-two">
+    ${heatmap(data)}
+    <section class="panel">${panelHead("Artist concentration","Share of plays from your five most played artists")}
+      <div class="insight-number">${data.top_five_share}%</div>
+      <p class="method-note">${number(data.current.artists)} artists in this period. Higher numbers mean your plays are concentrated around a few favourites.</p>
+      <div class="split-bar"><span style="width:${data.top_five_share}%"></span></div>
+      <div class="legend"><span>Top five</span><span>Other artists</span></div>
+    </section>
+  </div>
+  ${state.period!=="all" && data.discovery?.complete ? discovery(data) : ""}
+  ${returners.length ? `<section class="panel">${panelHead("Rediscoveries","Artists returning after at least 90 days without a play")}
+    ${returners.map(r=>`<button class="list-row" ${detailAttrs("artist",r)}><span class="list-name"><strong>${esc(r.name)}</strong><small>${number(Math.floor(r.gap_days))} days between plays</small></span><span class="list-count">${number(r.plays)}</span></button>`).join("")}</section>` : ""}
+  <div id="musical-eras" class="musical-eras"><section class="panel"><h2>Musical eras</h2><p class="method-note">Preparing rolling 365-day listening shares…</p></section></div>`;
 }
 function pager(total) {
   return `<div class="pager"><span>${total ? `${number(state.offset + 1)}–${number(Math.min(state.offset + 50, total))} of ${number(total)}` : "No results"}</span><div><button class="button" data-page="prev" ${state.offset === 0 ? "disabled" : ""}>Previous</button><button class="button" data-page="next" ${state.offset + 50 >= total ? "disabled" : ""}>Next</button></div></div>`;
@@ -554,11 +707,40 @@ function albumProgressHTML(progress) {
   return `<p class="method-note" id="album-progress" role="status" aria-live="polite">${message}</p>`;
 }
 function rankTable(data, kind, settings = false) {
-  const max = Math.max(1, ...data.rows.map(row => row.plays));
-  const albumControls = kind === "album" && !settings
-    ? `<div class="segment" role="group" aria-label="Album ranking measure"><button data-album-sort="scrobbles" aria-pressed="${state.albumSort === "scrobbles"}">Rank by scrobbles</button><button data-album-sort="estimated" aria-pressed="${state.albumSort === "estimated"}">Rank by estimated listens</button></div>${state.albumSort === "estimated" ? albumProgressHTML(data.album_progress) : ""}<p class="method-note">Estimated listens use the third least played track from a complete tracklist of six or more songs. A dash means the album has no verified estimate yet.</p>`
-    : "";
-  return `${settings ? "" : filterChip()}${albumControls}<section class="panel table-panel"><div class="table-head"><div><h2>${settings ? "Canonical groups" : `Ranked ${state.view}`}</h2><small>${settings ? "All time. Select groups by the same artist to combine." : `${number(data.total)} results · ${state.mode === "raw" ? "Original Last.fm names" : "Combined versions"}`}</small></div><input id="search" aria-label="Search ${settings ? "groups" : state.view}" type="search" placeholder="Search ${settings ? "groups" : state.view}…" value="${esc(state.q)}"></div>${settings ? `<div class="selection-bar"><select id="group-kind" aria-label="Grouping type"><option value="song" ${kind === "song" ? "selected" : ""}>Songs</option><option value="album" ${kind === "album" ? "selected" : ""}>Albums</option></select><span id="selected-count">${state.selected.size} selected</span><button class="button primary" id="merge" ${state.selected.size < 2 ? "disabled" : ""}>Merge selected</button></div>` : ""}<div class="table-wrap"><table><thead><tr><th>${settings ? "Select" : "#"}</th><th>${kind === "artist" ? "Artist" : kind === "song" ? "Song / artist" : "Album / artist"}</th><th class="num">Scrobbles</th>${kind === "album" && !settings ? '<th class="num">Est. listens</th>' : ""}<th class="num">${settings ? "Versions" : kind === "album" ? "Prev. scrobbles" : "Previous"}</th><th class="num">${settings ? "" : kind === "album" ? "Scrobble change" : "Change"}</th></tr></thead><tbody>${data.rows.map((r, i) => `<tr><td>${settings ? `<input type="checkbox" class="group-select" data-id="${r.id}" data-name="${esc(r.name)}" ${state.selected.has(String(r.id)) ? "checked" : ""} aria-label="Select ${esc(r.name)} by ${esc(r.artist)}">` : state.offset + i + 1}</td><td class="name-cell"><button class="text-button" ${detailAttrs(kind, r)} ${settings ? 'data-group-detail="true"' : ""}><strong>${esc(r.name)}</strong></button><small>${esc(r.artist)}${kind !== "artist" && r.versions > 1 ? ` · ${number(r.versions)} versions` : ""}</small></td><td class="num"><strong>${number(r.plays)}</strong><div class="row-progress"><i style="width:${(r.plays / max) * 100}%"></i></div></td>${kind === "album" && !settings ? `<td class="num"><strong title="${r.estimate_status === "ready" ? `${r.track_count} tracks · ${r.tracklist_source}` : "Complete tracklist not yet identified"}">${r.estimated_listens === null ? "—" : number(r.estimated_listens)}</strong></td>` : ""}<td class="num">${settings ? number(r.versions) : r.previous === null ? "—" : number(r.previous)}</td><td class="num">${settings ? "" : r.previous === null ? "—" : !r.previous ? '<span class="change">New</span>' : `<span class="change">${r.plays >= r.previous ? "+" : ""}${(((r.plays - r.previous) / r.previous) * 100).toFixed(1)}%</span>`}</td></tr>`).join("") || '<tr><td colspan="${kind === "album" && !settings ? 6 : 5}" class="empty">No results for this search or date range.</td></tr>'}</tbody></table></div>${pager(data.total)}</section>`;
+  const rows=data.rows || [];
+  const max=Math.max(1,...rows.map(row=>row.plays));
+  const comparison=!settings && rows.some(row=>row.previous!==null && row.previous!==undefined);
+  const album=kind==="album" && !settings;
+  const albumControls=album ? `<div class="segment" role="group" aria-label="Album ranking measure">
+    <button data-album-sort="scrobbles" aria-pressed="${state.albumSort==="scrobbles"}">Rank by scrobbles</button>
+    <button data-album-sort="estimated" aria-pressed="${state.albumSort==="estimated"}">Rank by estimated listens</button></div>
+    ${state.albumSort==="estimated" ? albumProgressHTML(data.album_progress) : ""}
+    <details class="method-note"><summary>How estimated album listens work</summary><p>Third least played track in a complete tracklist of at least six songs. Albums without confirmed tracklists display a dash.</p></details>` : "";
+  const heading=kind==="artist"?"Artist":kind==="album"?"Album / artist":"Song / artist";
+  const columns=3+(album?1:0)+(comparison?2:0);
+  const body=rows.map((r,i)=>{
+    const subtitle=kind==="artist" ? (r.versions>1?number(r.versions)+" known artist names":"") :
+      [r.artist,r.versions>1?number(r.versions)+" versions":""].filter(Boolean).join(" · ");
+    const change=r.previous===null||r.previous===undefined?"—":
+      !r.previous?'New':(r.plays>=r.previous?"+":"")+((r.plays-r.previous)*100/r.previous).toFixed(1)+"%";
+    return `<tr data-row-detail="${kind}" data-row-id="${esc(r.id)}" tabindex="0" aria-label="Open ${esc(r.name)} details">
+      <td>${state.offset+i+1}</td>
+      <td class="name-cell"><button class="text-button rank-row-button" aria-label="${esc(r.name)}" ${detailAttrs(kind,r)}>
+        <span class="rank-title">${rowArtwork(kind,r)}<span><strong>${esc(r.name)}</strong>
+        ${subtitle?`<small>${esc(subtitle)}</small>`:""}</span></span></button></td>
+      <td class="num"><strong>${number(r.plays)}</strong><div class="row-progress"><i style="width:${(r.plays/max)*100}%"></i></div></td>
+      ${album?`<td class="num"><strong title="${esc(r.estimate_status==="ready"?`${r.track_count} tracks · ${r.tracklist_source}`:"Complete tracklist not yet identified")}">${r.estimated_listens===null||r.estimated_listens===undefined?"—":number(r.estimated_listens)}</strong></td>`:""}
+      ${comparison?`<td class="num">${r.previous===null||r.previous===undefined?"—":number(r.previous)}</td><td class="num"><span class="change">${change}</span></td>`:""}
+    </tr>`;
+  }).join("");
+  return `${filterChip()}${albumControls}<section class="panel table-panel">
+    <div class="table-head"><div><h2>Ranked ${esc(state.view)}</h2><small>${number(data.total)} results · ${state.mode==="raw"?"Original Last.fm entries":"Combined versions"}</small></div>
+      <input id="search" aria-label="Search ${esc(state.view)}" type="search" placeholder="Search ${esc(state.view)}…" value="${esc(state.q)}"></div>
+    <div class="table-wrap"><table><thead><tr><th>#</th><th>${heading}</th><th class="num">Scrobbles</th>
+      ${album?'<th class="num">Est. listens</th>':""}
+      ${comparison?'<th class="num">Previous</th><th class="num">Change</th>':""}</tr></thead>
+      <tbody>${body || `<tr><td colspan="${columns}" class="empty">No results for this search or date range.</td></tr>`}</tbody></table></div>
+    ${pager(data.total)}</section>`;
 }
 function historyHTML(data) {
   let lastDay = "";
@@ -602,6 +784,9 @@ function updateCandidateName(card) {
 }
 
 function settingsHTML(data) {
+  const groupKindTabs = `<div class="segment review-kind-tabs" role="group" aria-label="Review category">
+    ${[["artist","Artists"],["song","Songs"],["album","Albums"]].map(([kind,label])=>`<button data-group-kind="${kind}" aria-pressed="${state.groupKind===kind}">${label}</button>`).join("")}
+    </div>`;
   if (state.groupKind === "artist") {
     const suggested = (data.suggestions || []).map(item =>
       '<article class="review-card"><strong>' + esc(item.names.join(' ↔ ')) +
@@ -617,7 +802,7 @@ function settingsHTML(data) {
       '</article>').join('');
     return '<section class="panel"><div class="panel-head"><div><h2>Artist identities</h2><p>Combine alternative names for the same artist. Identically named songs and albums combine automatically while explicit manual separations stay intact.</p></div>' +
       '<button class="button" id="undo" ' + (statusData.events.some(e => !e.undone) ? '' : 'disabled') + '>Undo latest change</button></div>' +
-      '<div class="review-filters"><select id="group-kind" aria-label="Review artist, song or album merges"><option value="artist" selected>Artists</option><option value="song">Songs</option><option value="album">Albums</option></select>' +
+      groupKindTabs + '<div class="review-filters">' +
       '<input id="search" type="search" placeholder="Search artist names…" aria-label="Search artists" value="' + esc(state.q) + '"></div>' +
       '<div class="selection-bar"><span id="selected-count">' + state.selected.size + ' selected</span>' +
       '<label>Combined artist name <input id="artist-name" type="text" maxlength="1000" placeholder="Use the selected artist name"></label>' +
@@ -629,7 +814,9 @@ function settingsHTML(data) {
   const card = r => state.groupTab === "merged"
     ? `<article class="review-card"><h3>${esc(r.artist)}</h3><button class="text-button" data-detail="${state.groupKind}" data-id="${r.id}" data-group-detail="true">${esc(r.name)} · ${r.versions.length} versions · ${number(r.plays)} plays</button><p>${r.versions.map(v => esc(v.name)).join(" · ")}</p></article>`
     : `<article class="review-card"><h3>${esc(r.artist)}</h3><fieldset class="review-choices"><legend>Choose the versions to combine</legend>${r.versions.map(v => `<label><input type="checkbox" class="candidate-version" value="${v.id}" data-name="${esc(v.name)}" data-plays="${v.plays}"><span>${esc(v.name)}<small>${number(v.plays)} scrobbles</small></span></label>`).join("")}</fieldset><label class="merge-name">Name from selected versions<select class="candidate-name-choice" disabled><option value="">Select at least two versions</option></select></label><label class="merge-name">Combined name, editable<input class="candidate-name" type="text" maxlength="1000" placeholder="Select versions, then choose a name" disabled></label><p>${esc(r.reason)}</p><div class="review-actions"><button class="button primary" data-candidate-merge="${r.ids.join(",")}" disabled>Merge selected</button>${r.learnable ? `<button class="button" data-candidate-learn="${r.ids.join(",")}" data-suffix="${esc(r.suffix)}" data-artist="${esc(r.artist)}" title="Select every listed version to learn this suffix" disabled>Merge and learn suffix</button>` : ""}${state.groupTab !== "skipped" || r.dismissed ? `<button class="button" data-candidate-key="${esc(r.key)}" data-candidate-action="${state.groupTab === "skipped" ? "restore" : "dismiss"}">${state.groupTab === "skipped" ? "Reconsider" : "Keep separate"}</button>` : ""}</div></article>`;
-  return `<section class="panel"><div class="panel-head"><div><h2>Version review</h2><p>Select two or more versions to combine. Unselected versions keep their current grouping.</p></div><button class="button" id="undo" ${statusData.events.some(e => !e.undone) ? "" : "disabled"}>Undo latest change</button></div><div class="review-filters"><select id="group-kind" aria-label="Review songs or albums"><option value="artist">Artists</option><option value="song" ${state.groupKind === "song" ? "selected" : ""}>Songs</option><option value="album" ${state.groupKind === "album" ? "selected" : ""}>Albums</option></select><input id="search" type="search" aria-label="Search merge candidates" placeholder="Search candidates or merges…" value="${esc(state.q)}"></div><div class="segment review-tabs">${[["suggested","Suggestions"],["skipped","Skipped candidates"],["merged","Already merged"]].map(([tab,label])=>`<button data-group-tab="${tab}" aria-pressed="${tab===state.groupTab}">${label}</button>`).join("")}</div><p class="method-note">Skipped candidates include live performances and mixes that automatic rules kept separate, plus your rejected suggestions. “Merge and learn suffix” remembers only that exact suffix for this artist and type, for future imports with a matching base entry. Undo removes the rule and its later assignments.</p><div class="review-list">${data.rows.map(card).join("") || '<div class="empty">No matches in this review.</div>'}</div>${pager(data.total)}</section><section class="panel" style="margin-top:20px"><h2>Learned rules</h2>${data.rules.length ? data.rules.map(r=>`<p class="method-note">${esc(r.artist)} · ${esc(r.kind)} · ${esc(r.suffix)}</p>`).join("") : '<p class="method-note">Approve a learnable suggestion to create a rule.</p>'}<h3 style="margin-top:20px">Connection and data</h3><p class="method-note">${esc(statusData.username)} · ${number(statusData.counts.plays)} scrobbles · ${esc(statusData.timezone)} · ${statusData.import_state.complete ? "Import complete" : "Import in progress"}. Configure credentials and the web password in Home Assistant. Vinyl reporting: ${statusData.source_reporting_enabled ? "enabled" : "not configured"}, ${number(statusData.source_reports)} reports received.</p></section>`;
+  return `<section class="panel"><div class="panel-head"><div><h2>Version review</h2><p>Select two or more versions to combine. Unselected versions keep their current grouping.</p></div><button class="button" id="undo" ${statusData.events.some(e => !e.undone) ? "" : "disabled"}>Undo latest change</button></div><div class="segment review-kind-tabs" role="group" aria-label="Review category">
+   ${[["artist","Artists"],["song","Songs"],["album","Albums"]].map(([kind,label])=>`<button data-group-kind="${kind}" aria-pressed="${state.groupKind===kind}">${label}</button>`).join("")}
+   </div><div class="review-filters"><input id="search" type="search" aria-label="Search merge candidates" placeholder="Search candidates or merges…" value="${esc(state.q)}"></div><div class="segment review-tabs">${[["suggested","Suggestions"],["skipped","Skipped candidates"],["merged","Already merged"]].map(([tab,label])=>`<button data-group-tab="${tab}" aria-pressed="${tab===state.groupTab}">${label}</button>`).join("")}</div><p class="method-note">Skipped candidates include live performances and mixes that automatic rules kept separate, plus your rejected suggestions. “Merge and learn suffix” remembers only that exact suffix for this artist and type, for future imports with a matching base entry. Undo removes the rule and its later assignments.</p><div class="review-list">${data.rows.map(card).join("") || '<div class="empty">No matches in this review.</div>'}</div>${pager(data.total)}</section><section class="panel" style="margin-top:20px"><h2>Learned rules</h2>${data.rules.length ? data.rules.map(r=>`<p class="method-note">${esc(r.artist)} · ${esc(r.kind)} · ${esc(r.suffix)}</p>`).join("") : '<p class="method-note">Approve a learnable suggestion to create a rule.</p>'}<h3 style="margin-top:20px">Connection and data</h3><p class="method-note">${esc(statusData.username)} · ${number(statusData.counts.plays)} scrobbles · ${esc(statusData.timezone)} · ${statusData.import_state.complete ? "Import complete" : "Import in progress"}. Configure credentials and the web password in Home Assistant. Vinyl reporting: ${statusData.source_reporting_enabled ? "enabled" : "not configured"}, ${number(statusData.source_reports)} reports received.</p></section>`;
 }
 function setupHTML() {
   return `<section class="panel setup"><div class="setup-mark" aria-hidden="true">◫</div><h2>Your listening, ready to explore</h2><p>Connect Last.fm to bring your listening history together. Explore trends, find returning favourites and combine versions into meaningful totals.</p><ol><li>Open this add-on’s <strong>Configuration</strong> tab in Home Assistant.</li><li>Enter your <strong>Last.fm username</strong> and <a href="https://www.last.fm/api/account/create" target="_blank" rel="noopener noreferrer">API key</a>.</li><li>Save, restart the add-on and reopen this dashboard.</li></ol><p>The first import runs in the background and resumes after restarts. Your Last.fm history is never edited.</p><a class="button primary" href="?demo=1">Explore a fictional demo ↗</a></section>`;
@@ -699,6 +886,7 @@ function replaceCachedView(container, html) {
   const positions = [...element.querySelectorAll(".chart-scroll")].map(el => ({ left: el.scrollLeft, zoom: Number(el.dataset.zoom || 1) }));
   const top = element.scrollTop;
   element.innerHTML = html;
+  activateRowArtwork(element);
   element.scrollTop = top;
   element.querySelectorAll(".chart-scroll").forEach((el, i) => {
     if (!positions[i]) return;
@@ -753,6 +941,7 @@ async function load({historyMode = "push"} = {}) {
   $("#loading-status").hidden = false;
   $("#page-title").textContent = titles[state.view][0];
   $("#page-description").textContent = titles[state.view][1] + (state.source === "vinyl" ? " Showing confirmed vinyl scrobbles." : state.source === "unknown" ? " Showing scrobbles without confirmed attribution." : "");
+  $("#nav-more").setAttribute("aria-current", ["gigs","history","release-years","settings"].includes(state.view) ? "page" : "false");
   document.querySelectorAll("[data-view]").forEach((b) => {
     if (b.closest("nav") || b.classList.contains("settings-nav"))
       b.setAttribute(
@@ -765,9 +954,11 @@ async function load({historyMode = "push"} = {}) {
     .forEach((b) =>
       b.setAttribute("aria-pressed", b.dataset.mode === state.mode),
     );
-  $("#toolbar").hidden = state.view === "settings";
+  $("#toolbar").hidden = ["settings", "gigs"].includes(state.view);
+  $("#toolbar-version").hidden = ["settings", "gigs"].includes(state.view);
   $("#settings-preferences").hidden = state.view !== "settings";
   $("#period").value = state.period;
+  $("#reset-filters").hidden = state.period === "all" && state.source === "all" && !state.start && !state.end && !state.filter;
   $("#source").setAttribute("aria-pressed", state.source === "vinyl");
   $("#source").title = state.source === "vinyl" ? "Vinyl only is active. Show all listening" : "Show vinyl listening only";
   $("#now-playing").hidden = state.source !== "all" || !statusData?.now_playing?.track;
@@ -792,6 +983,8 @@ async function load({historyMode = "push"} = {}) {
       };
       cachedView = { path: "overview", extra: {}, data, render };
       html = view === "overview" ? overviewHTML(data) : trendsHTML(data);
+    } else if (state.view === "gigs") {
+      html = $("#gigs-view-template").innerHTML;
     } else if (state.view === "release-years") {
       const extra = { release_year: state.releaseYear };
       const data = await api("release-years", extra, { signal });
@@ -816,6 +1009,8 @@ async function load({historyMode = "push"} = {}) {
     }
     if (serial === loadSerial) {
       $("#content").innerHTML = html;
+      activateRowArtwork($("#content"));
+      if (state.view === "gigs") window.ListeningGigs?.mount($("#content"), openArtistFromGig);
       if (state.view === "trends") loadMusicalEras(serial);
       if (cachedView) watchCachedView("main", cachedView.path, cachedView.extra, cachedView.data, cachedView.render, () => serial === loadSerial, "#cache-status");
     }
@@ -904,7 +1099,7 @@ function spotifyLink(detail, kind) {
   return `<a class="button spotify-link" href="${url}" target="_blank" rel="noopener noreferrer" aria-label="Find ${esc(detail.name)} on Spotify">${icon}<span>Find on Spotify</span></a>`;
 }
 function detailHeaderHTML(detail, kind) {
-  const links = `${spotifyLink(detail, kind)} ${recordStoreLink(detail, kind)} ${kind === "artist" ? `<a class="button" href="gigs?artist=${encodeURIComponent(detail.name)}">Live gigs & timeline</a>` : ""} <span id="shelf-link-slot"></span>`;
+  const links = `${spotifyLink(detail, kind)} ${recordStoreLink(detail, kind)} <span id="shelf-link-slot"></span>`;
   if (kind === "artist") {
     return `<div class="artist-detail-hero"><div id="artist-logo-slot" class="artist-logo-stage">${artistLogoHTML(detail)}</div><div class="detail-heading detail-media-actions artist-detail-heading"><div id="detail-artwork-slot">${artworkHTML(detail, kind)}</div><div class="artist-actions">${links}</div></div></div>`;
   }
@@ -993,6 +1188,40 @@ function bindArtworkError(detail, kind) {
     };
   });
 }
+function artistLiveHTML(info, error = null) {
+  if (!info) return `<section class="panel artist-live-section" id="artist-live-section"><h2>Live performances</h2><p class="method-note">${error?"Live music details are temporarily unavailable.":"Loading concerts, festivals and live songs…"}</p></section>`;
+  const gigs=(info.timeline?.gigs || []).slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+  const songs=info.insights?.songs || {};
+  const impact=info.insights?.impact || [];
+  const listened=(songs.live_songs || []).slice(0,10);
+  const gigCards=gigs.map(g=>{
+    const concert=g.show_type==="festival"?"Festival":g.show_type==="concert"?"Concert":"Live performance";
+    const place=g.festival || g.venue || "Venue unknown";
+    const url=typeof g.setlist_url==="string" && g.setlist_url.startsWith("https://") ? g.setlist_url : null;
+    const impactRow=impact.find(item=>item.id===g.id);
+    const change=impactRow?.available && Number.isFinite(Number(impactRow.share_change_pp))
+      ? `<small>Share of listening, 30 days before vs after: ${Number(impactRow.share_change_pp)>=0?"+":""}${esc(impactRow.share_change_pp)} percentage points</small>` : "";
+    return `<article class="gig-performance" data-gig-date="${esc(g.date || "")}">
+      <small>${esc(g.date)} · ${concert}</small>
+      <strong>${esc(place)}</strong>
+      ${g.venue && g.festival ? `<small>${esc(g.venue)}</small>` : ""}
+      ${change}
+      ${url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">View setlist.fm record ↗</a>` : ""}
+    </article>`;
+  }).join("");
+  const songsHTML=listened.length
+    ? `<details class="gig-live-songs"><summary>Songs you have listened to and heard live (${number(listened.length)} shown)</summary>
+       <ul>${listened.map(song=>`<li>${esc(song.title)} <small>· ${number(song.listens)} scrobbles, recorded at ${number(song.performances)} of your gigs</small></li>`).join("")}</ul></details>`
+    : "";
+  return `<section class="panel artist-live-section" id="artist-live-section">
+    <div class="panel-head"><div><h2>Live performances</h2><p>Gigs appear as markers on this artist's listening timeline above.</p></div>
+    <strong>${number(gigs.length)} attended</strong></div>
+    ${gigs.length ? `<div class="gig-performances">${gigCards}</div>` : '<p class="method-note">No gigs for this artist are recorded in your attendance collection yet.</p>'}
+    ${songsHTML}
+    ${songs.coverage_note ? `<p class="gig-data-coverage">${esc(songs.coverage_note)}</p>` : ""}
+    ${impact.length ? '<p class="method-note">Before/after comparisons use 30 complete days each side of a gig, excluding the gig day; they show association, not causation.</p>' : ""}
+  </section>`;
+}
 async function showDetail(kind, id, groupMode = false, restoring = false) {
   if (!restoring) {
     initiallyRestoredDetail = false;
@@ -1027,6 +1256,7 @@ async function showDetail(kind, id, groupMode = false, restoring = false) {
     if (serial !== detailSerial || !dialog.open) return;
     $("#detail-content").innerHTML = `<div id="detail-hero">${detailHeaderHTML(detail, kind)}</div><div id="detail-analytics"><div class="loading">Loading listening analysis…</div></div>`;
     bindArtworkError(detail, kind);
+    activateRowArtwork($("#detail-content"));
     loadShelfLinks(detail, kind, serial);
     // Artwork is independent of the heavy analytics calculation.
     if (detail.artwork_pending) {
@@ -1059,11 +1289,29 @@ async function showDetail(kind, id, groupMode = false, restoring = false) {
     if (result.error) throw result.error;
     const data = result.data;
     let artistEraData = null;
+    let artistGigInfo = null;
+    let artistGigError = null;
+    let currentArtistAnalytics = data;
     const renderDetail = next => {
+      currentArtistAnalytics = next;
       replaceCachedView("#detail-analytics",
-        `${metrics(next, mode, {kind,id,name:detail.name}, allTime)}<section class="panel">${panelHead("Listening history", "Select a bar to inspect individual scrobbles.")}${chart(next, {kind,id,name:detail.name}, mode)}</section>${kind === "album" ? albumEstimateHTML(next.album_estimate) : ""}${kind === "artist" ? artistAlbumsHTML(next, id, detail.name) + `<div id="artist-era-section">${artistEraData ? artistEraHTML(artistEraData) : '<p class="method-note">Loading musical eras…</p>'}</div>` : ""}${detail.versions.length ? `<div class="panel-head" style="margin-top:23px"><div><h2>Versions</h2><p>All-time plays for the selected source, including versions outside the selected period.</p></div></div><div class="table-wrap"><table><thead><tr><th>Scrobbled name</th><th class="num">Plays</th><th>First / latest play</th><th></th></tr></thead><tbody>${detail.versions.map(v => `<tr><td class="name-cell"><strong>${esc(v.name)}</strong><small>${v.manual ? "Manual decision" : "Automatic grouping"}</small></td><td class="num">${number(v.plays)}</td><td><small>${formatDate(v.first_play)}<br>${formatDate(v.last_play)}</small></td><td>${detail.versions.length > 1 ? `<button class="button" data-separate="${v.id}" data-name="${esc(v.name)}">Separate</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : ""}<div class="dialog-actions" style="margin-top:18px"><button class="button primary" data-show-history="${kind}" data-id="${esc(id)}" data-name="${esc(detail.name)}" data-mode="${mode}" data-all="${allTime}">View scrobbles →</button></div>`);
+        `${metrics(next, mode, {kind,id,name:detail.name}, allTime)}<section class="panel">${panelHead("Listening history", "Select a bar to inspect individual scrobbles.")}${chart(next, {kind,id,name:detail.name}, mode, artistGigInfo?.timeline?.gigs)}</section>${kind === "artist" ? artistLiveHTML(artistGigInfo, artistGigError) : ""}${kind === "album" ? albumEstimateHTML(next.album_estimate) : ""}${kind === "artist" ? artistAlbumsHTML(next, id, detail.name) + `<div id="artist-era-section">${artistEraData ? artistEraHTML(artistEraData) : '<p class="method-note">Loading musical eras…</p>'}</div>` : ""}${detail.versions.length ? `<div class="panel-head" style="margin-top:23px"><div><h2>Versions</h2><p>All-time plays for the selected source, including versions outside the selected period.</p></div></div><div class="table-wrap"><table><thead><tr><th>Scrobbled name</th><th class="num">Plays</th><th>First / latest play</th><th></th></tr></thead><tbody>${detail.versions.map(v => `<tr><td class="name-cell"><strong>${esc(v.name)}</strong><small>${v.manual ? "Manual decision" : "Automatic grouping"}</small></td><td class="num">${number(v.plays)}</td><td><small>${formatDate(v.first_play)}<br>${formatDate(v.last_play)}</small></td><td>${detail.versions.length > 1 ? `<button class="button" data-separate="${v.id}" data-name="${esc(v.name)}">Separate</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : ""}<div class="dialog-actions" style="margin-top:18px"><button class="button primary" data-show-history="${kind}" data-id="${esc(id)}" data-name="${esc(detail.name)}" data-mode="${mode}" data-all="${allTime}">View scrobbles →</button></div>`);
     };
     renderDetail(data);
+    if (kind === "artist") {
+      Promise.all([
+        api("gigs/timeline", {artist:detail.name, granularity:"month"}, {signal}),
+        api("gigs/artist-insights", {artist:detail.name}, {signal})
+      ]).then(([timeline,insights])=>{
+        if (serial !== detailSerial || !dialog.open) return;
+        artistGigInfo = {timeline,insights};
+        renderDetail(currentArtistAnalytics);
+      }).catch(error=>{
+        if (serial !== detailSerial || !dialog.open || signal.aborted) return;
+        artistGigError = error;
+        renderDetail(currentArtistAnalytics);
+      });
+    }
     if (artistEraTask) artistEraTask.then(result=>{
       if (serial !== detailSerial || !dialog.open) return;
       artistEraData = result.data || null;
@@ -1124,8 +1372,19 @@ async function groupAction(action, ids = [], key = null, name = undefined) {
   );
 }
 document.addEventListener("click", (event) => {
+  const row=event.target.closest("tr[data-row-detail]");
+  if (row && !event.target.closest("button,input,select,a")) {
+    showDetail(row.dataset.rowDetail,row.dataset.rowId);
+    return;
+  }
   const b = event.target.closest("button");
   if (!b || b.disabled) return;
+  if (b.id === "nav-more") {
+    const menu = $("#more-nav");
+    menu.hidden = !menu.hidden;
+    b.setAttribute("aria-expanded", String(!menu.hidden));
+    return;
+  }
   if (b.dataset.eraToggle) {
     const key = b.dataset.eraToggle;
     if (state.eraSelected.includes(key)) state.eraSelected = state.eraSelected.filter(id=>id!==key);
@@ -1165,9 +1424,25 @@ document.addEventListener("click", (event) => {
     load();
     return;
   }
+  if (b.dataset.groupKind) {
+    state.groupKind=b.dataset.groupKind;
+    state.groupTab="suggested";
+    state.offset=0;state.q="";state.selected.clear();
+    load();
+    return;
+  }
   if (b.dataset.groupTab) {
     state.groupTab = b.dataset.groupTab;
     state.offset = 0; state.q = ""; load(); return;
+  }
+  if (b.dataset.gigMarker) {
+    const modal=b.closest(".detail-dialog");
+    const rows=modal?.querySelectorAll("[data-gig-date]") || [];
+    const match=[...rows].find(row=>row.dataset.gigDate===b.dataset.gigMarker);
+    rows.forEach(row=>row.classList.toggle("selected",row===match));
+    if (match) match.scrollIntoView({behavior:"smooth",block:"center"});
+    else modal?.querySelector("#artist-live-section")?.scrollIntoView({behavior:"smooth",block:"center"});
+    return;
   }
   if (b.dataset.chartZoom) {
     const scroller = b.closest(".panel").querySelector(".chart-scroll");
@@ -1191,6 +1466,8 @@ document.addEventListener("click", (event) => {
     groupAction(b.dataset.candidateAction, [], b.dataset.candidateKey).catch(report); return;
   }
   if (b.dataset.view) {
+    $("#more-nav").hidden = true;
+    $("#nav-more").setAttribute("aria-expanded", "false");
     if (b.dataset.scopeKind) {
       state.view = b.dataset.view;
       state.filter = {kind:b.dataset.scopeKind, id:b.dataset.scopeId, name:b.dataset.scopeName};
@@ -1365,6 +1642,24 @@ document.addEventListener("change", (event) => {
     load();
   }
 });
+function updateChartTooltip(target) {
+  const bar=target?.closest?.(".bar-chart button[data-chart-start]");
+  if(!bar)return;
+  const tooltip=bar.closest(".panel")?.querySelector(".chart-tooltip");
+  if(tooltip)tooltip.textContent=bar.dataset.periodLabel+", "+bar.dataset.periodPlays+" scrobbles. Select to explore plays.";
+}
+["pointerover","focusin","pointerdown"].forEach(eventName=>
+  document.addEventListener(eventName,event=>updateChartTooltip(event.target)));
+document.addEventListener("keydown", event=>{
+  const row=event.target.closest("tr[data-row-detail]");
+  if(row && (event.key==="Enter" || event.key===" ") && event.target===row){
+    event.preventDefault(); showDetail(row.dataset.rowDetail,row.dataset.rowId);
+  }
+  const marker=event.target.closest("[data-gig-marker]");
+  if(marker && (event.key==="Enter" || event.key===" ")){
+    event.preventDefault(); marker.click();
+  }
+});
 document.addEventListener("input", (event) => {
   if (event.target.classList.contains("candidate-name")) {
     event.target.dataset.edited = "true";
@@ -1434,15 +1729,16 @@ $("#close-detail").onclick = closeDetail;
 $("#detail-dialog").addEventListener("cancel", event => {event.preventDefault(); closeDetail();});
 $("#detail-dialog").addEventListener("close", () => detailController?.abort());
 $("#confirm-cancel").onclick = () => $("#confirm-dialog").close();
-$("#theme").onclick = () => {
-  const next =
-    document.documentElement.dataset.theme === "dark" ? "light" : "dark";
-  document.documentElement.dataset.theme = next;
-  try {
-    localStorage.setItem("listening-theme", next);
-  } catch (_) {}
-  updateThemeColour();
-};
+document.querySelectorAll("[data-theme-choice]").forEach(button=>{
+  button.onclick=()=>{
+    themeChoice=button.dataset.themeChoice;
+    try {localStorage.setItem("listening-theme",themeChoice);}catch(_){}
+    applyThemeChoice();
+  };
+});
+matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change",()=>{
+  if(themeChoice==="auto") applyThemeChoice();
+});
 $("#refresh").onclick = async () => {
   try {
     const response = await api("sync", {}, { method: "POST", body: "{}" });
@@ -1498,14 +1794,22 @@ for (const dialog of document.querySelectorAll("dialog")) {
   dialog.addEventListener("close", lockModalBackground);
 }
 
-const palettes = ["violet", "ocean", "forest", "rose", "amber"];
-try { const saved = localStorage.getItem("listening-palette"); document.documentElement.dataset.palette = palettes.includes(saved) ? saved : "violet"; } catch (_) {}
-$("#palette").value = document.documentElement.dataset.palette;
-$("#palette").onchange = () => {
-  document.documentElement.dataset.palette = $("#palette").value;
-  try { localStorage.setItem("listening-palette", $("#palette").value); } catch (_) {}
+const palettes=["violet","ocean","forest","rose","amber"];
+try {
+  const selected=localStorage.getItem("listening-palette");
+  document.documentElement.dataset.palette=palettes.includes(selected)?selected:"violet";
+} catch (_) { document.documentElement.dataset.palette="violet"; }
+function selectPalette(palette) {
+  if(!palettes.includes(palette))return;
+  document.documentElement.dataset.palette=palette;
+  try {localStorage.setItem("listening-palette",palette);}catch(_){}
+  document.querySelectorAll("[data-palette-choice]").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.paletteChoice===palette)));
   updateThemeColour();
-};
+}
+document.querySelectorAll("[data-palette-choice]").forEach(b=>{
+  b.onclick=()=>selectPalette(b.dataset.paletteChoice);
+});
+selectPalette(document.documentElement.dataset.palette);
 if (window.top === window && "serviceWorker" in navigator && window.isSecureContext) {
   navigator.serviceWorker.register(new URL("sw.js", document.baseURI)).catch(() => {});
 }

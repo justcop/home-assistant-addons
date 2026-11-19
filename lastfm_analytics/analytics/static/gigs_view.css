@@ -1,0 +1,78 @@
+/* Gigs share Listening's dashboard design tokens and typography. */
+.gig-shell { display:grid; gap:20px; min-width:0; }
+.gig-shell .panel { min-width:0; }
+.gig-shell .muted { color:var(--muted); }
+.gig-shell .gig-summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:12px; margin:14px 0 18px; }
+.gig-shell .gig-summary > div { padding:16px; border:1px solid var(--line); background:var(--surface2); border-radius:9px; }
+.gig-shell .gig-summary strong { display:block; font-size:clamp(20px,2.5vw,28px); font-weight:700; color:var(--ink); }
+.gig-shell .gig-summary small { color:var(--muted); font-size:12px; }
+.gig-shell .gig-analytics-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr)); gap:18px; }
+.gig-shell .gig-analytics-grid article { min-width:0; padding:12px; border:1px solid var(--line); border-radius:9px; background:var(--surface2); }
+.gig-shell .gig-analytics-grid ol { padding-left:22px; margin-bottom:0; }
+.gig-shell .gig-analytics-grid li { padding:7px 0; border-bottom:1px solid var(--line); }
+.gig-shell .gig-analytics-grid li small { display:block; color:var(--muted); }
+.gig-shell .gig-timeline-controls { display:flex; align-items:center; flex-wrap:wrap; gap:12px 18px; margin-bottom:16px; }
+.gig-shell .gig-timeline-controls label { display:flex; align-items:center; gap:7px; color:var(--ink); font-size:13px; }
+.gig-shell .gig-timeline-controls input[type=checkbox] { width:18px; height:18px; accent-color:var(--accent); }
+.gig-shell .gig-timeline-controls select { max-width:170px; }
+.gig-shell .gig-timeline-scroll { overflow-x:auto; overflow-y:hidden; border:1px solid var(--line); border-radius:10px; padding:10px; max-width:100%; scrollbar-width:thin; background:var(--surface2); }
+.gig-shell .gig-timeline-scroll svg { display:block; max-width:none; width:auto; height:355px; overflow:visible; }
+.gig-shell .gig-timeline-marker { cursor:pointer; outline:none; }
+.gig-shell .gig-timeline-marker:focus-visible circle,.gig-shell .gig-timeline-marker:focus-visible path { stroke:var(--ink); stroke-width:3; }
+.gig-shell .gig-timeline-legend { display:flex; flex-wrap:wrap; gap:12px; margin:10px 0; font-size:12px; }
+.gig-shell .gig-event-pager { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:8px; margin-bottom:12px; }
+.gig-shell .gig-event-pager button { border:1px solid var(--line); background:var(--surface); color:var(--ink); border-radius:7px; padding:8px 12px; }
+.gig-shell .gig-event-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,315px),1fr)); gap:12px; }
+.gig-shell .gig-event-card { border:1px solid var(--line); border-radius:9px; background:var(--surface2); padding:14px; scroll-margin-top:18px; }
+.gig-shell .gig-event-card.selected { outline:2px solid var(--accent); }
+.gig-shell .gig-event-card h3 { font-size:15px; margin:8px 0; color:var(--ink); }
+.gig-shell .gig-event-acts { padding-left:20px; margin:10px 0 0; }
+.gig-shell .gig-event-acts li { margin:5px 0; }
+.gig-shell .gig-artist-link { background:transparent; border:0; padding:2px; color:var(--accent); text-align:left; font:inherit; font-weight:600; cursor:pointer; text-decoration:underline; text-underline-offset:3px; }
+.gig-shell .gig-artist-link:hover { color:var(--ink); }
+.gig-shell .gig-catalogue { min-width:670px; width:100%; border-collapse:collapse; font-size:12px; }
+.gig-shell .gig-catalogue td,.gig-shell .gig-catalogue th { padding:10px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+.gig-shell .gig-catalogue td small { display:block; color:var(--muted); }
+.gig-shell .gig-catalogue select { min-width:110px; max-width:160px; }
+.gig-shell .gig-catalogue details { margin-top:8px; }
+.gig-shell .gig-sync-details summary { font-weight:650; color:var(--ink); cursor:pointer; }
+.gig-shell .gig-sync-details[open] summary { margin-bottom:12px; }
+.gig-shell .gig-sync-details p { max-width:80ch; }
+.gig-shell .gig-chart-note { font-size:12px; color:var(--muted); }
+.gig-shell .gig-table-wrap { overflow:auto; }
+.gig-shell #all-event-details h3 { margin-top:18px; }
+@media(max-width:620px) {
+  .gig-shell { gap:14px; }
+  .gig-shell .gig-analytics-grid { gap:12px; }
+  .gig-shell .gig-summary { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .gig-shell .gig-timeline-controls { gap:8px 12px; }
+  .gig-shell .gig-timeline-controls label { font-size:12px; }
+  .gig-shell .gig-timeline-controls select { min-width:90px; max-width:145px; }
+}
+/* Artist gigs are part of the same detail dialog, not a second app. */
+.artist-live-section { margin-top:18px; }
+.artist-live-section .gig-performances { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,255px),1fr)); gap:10px; }
+.artist-live-section .gig-performance { display:block; padding:12px; border:1px solid var(--line); border-radius:8px; background:var(--surface2); scroll-margin-top:85px; }
+.artist-live-section .gig-performance:target,.artist-live-section .gig-performance.selected { outline:2px solid var(--accent); }
+.artist-live-section .gig-performance strong { display:block; color:var(--ink); }
+.artist-live-section .gig-performance small { display:block; font-size:12px; }
+.artist-live-section .gig-performance a { color:var(--accent); }
+.artist-live-section .gig-impact-list { margin-top:16px; }
+.artist-live-section .gig-impact-list li { margin:9px 0; }
+.artist-live-section .gig-live-songs { margin-top:12px; }
+.artist-live-section .gig-live-songs ul { padding-left:20px; }
+.artist-live-section .gig-live-songs li { padding:5px 0; }
+.artist-live-section .gig-data-coverage { margin-top:12px; color:var(--muted); }
+.bar-chart { position:relative; }
+.bar-chart .gig-marker-layer { position:absolute; inset:0; pointer-events:none; z-index:2; }
+.bar-chart .gig-marker-layer .gig-chart-marker {
+ position:absolute; bottom:6px; transform:translateX(-50%); width:24px; min-width:24px;
+ height:24px !important; min-height:24px; padding:0; display:grid; place-items:center;
+ flex:none; border:2px solid var(--surface); border-radius:50%; color:#fff;
+ background:#be6418; font-size:12px; font-weight:750; cursor:pointer; opacity:1;
+ box-shadow:0 1px 8px #0004; pointer-events:auto; z-index:3;
+}
+.bar-chart .gig-marker-layer .gig-chart-marker[data-gig-type=festival] { background:#7853cb; }
+.bar-chart .gig-marker-layer .gig-chart-marker:focus-visible,.bar-chart .gig-marker-layer .gig-chart-marker:hover { outline:3px solid var(--ink); outline-offset:2px; }
+.bar-chart .gig-marker-layer .gig-chart-marker::after { content:none; }
+.chart-event-legend { margin-top:12px; color:var(--muted); font-size:12px; }

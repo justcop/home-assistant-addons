@@ -72,15 +72,26 @@ def test_festival_rule_applies_on_manual_import_without_erasing_overrides(tmp_pa
     assert updated["Band B"]["show_type"] == "festival"
 
 
-def test_gig_page_loads_external_script_under_csp(tmp_path):
+def test_gigs_share_main_shell_and_legacy_link_redirects(tmp_path):
     from analytics.web import create_app
 
     app = create_app(tmp_path, config={}, development=True, start_worker=False)
     client = app.test_client()
     response = client.get("/gigs")
-    assert response.status_code == 200
-    assert b'<script src="static/gigs.js" defer></script>' in response.data
-    assert b"<script>" not in response.data
-    assert "script-src 'self'" in response.headers["Content-Security-Policy"]
-    assert client.get("/static/gigs.js").status_code == 200
+    assert response.status_code == 302
+    assert response.location == "/?view=gigs"
+    artist = client.get("/gigs?artist=Radiohead")
+    assert artist.status_code == 302
+    assert artist.location == "/?view=artists&q=Radiohead"
+
+    dashboard = client.get("/?view=gigs")
+    assert dashboard.status_code == 200
+    assert b'<script src="static/gigs_view.js" defer></script>' in dashboard.data
+    assert b'id="gigs-view-template"' in dashboard.data
+    assert b'id="all-timeline"' in dashboard.data
+    assert b'id="artist-analytics"' not in dashboard.data
+    assert b"<script>" not in dashboard.data
+    assert "script-src 'self'" in dashboard.headers["Content-Security-Policy"]
+    assert client.get("/static/gigs_view.js").status_code == 200
+    assert client.get("/static/gigs_view.css").status_code == 200
     app.extensions["gig_worker"].close()
