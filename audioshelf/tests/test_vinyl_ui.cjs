@@ -8,6 +8,7 @@ const base=`http://127.0.0.1:${port}`;
 const server=spawn(process.env.AUDIOSHELF_TEST_PYTHON||'python',[path.join(__dirname,'ui_server.py')],{env:{...process.env,AUDIOSHELF_TEST_PORT:port,AUDIOSHELF_TEST_VINYL:'1'},stdio:['ignore','pipe','pipe']});
 let logs='';server.stdout.on('data',d=>logs+=d);server.stderr.on('data',d=>logs+=d);
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
+const revealSettings=async page=>{await page.getByRole('heading',{name:'Settings.'}).waitFor();await page.locator('details.settings-group').evaluateAll(items=>items.forEach(el=>el.open=true));};
 const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
 (async()=>{
   let browser;
@@ -208,7 +209,7 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
       'Expand all exposes the header action for each artist');
     await page.setViewportSize({width:1440,height:1000});
     await page.locator('[data-nav="store"]').click();
-    await page.getByRole('button',{name:'Albums',exact:true}).click();
+    // Artist and album results share one search field.
     await page.getByRole('searchbox',{name:'Search record store'}).fill('all records');
     await page.getByRole('button',{name:'Search',exact:true}).click();
     await page.locator('.store-rack').first().waitFor();
@@ -227,8 +228,7 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert.equal(await page.locator('.sleeve').count(),17);
     assert.equal(await page.getByRole('button',{name:'Add Open Windows to shelf',exact:true}).count(),0);
     await page.getByRole('link',{name:'The Original Album',exact:true}).click();
-    // Review is only available after a fully Spotify-verified tracklist exists.
-    // Resolve the fixture's original album first, then confirm its tracklist.
+    // Fully verified albums play automatically, without a separate confirmation.
     const spotifyReady=await page.evaluate(async()=>{
       const albumId=decodeURIComponent(location.hash.split('/')[1]);
       const result=await fetch(new URL('api/albums/'+albumId+'/resolve',document.baseURI),{
@@ -238,10 +238,8 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
       });
       return result.ok;
     });
-    assert(spotifyReady,'Original album Spotify tracklist must verify before review');
+    assert(spotifyReady,'Original album Spotify tracklist must verify before playback');
     await page.evaluate(()=>route()); // preserve the previous browsing origin
-    await page.getByRole('button',{name:'This tracklist is correct'}).click();
-    await page.getByRole('button',{name:'This tracklist is correct'}).waitFor({state:'hidden'});
     // Spotify can briefly return the old song after accepting a new queue.
     let startupReads=0, confirmStartup;
     const startupGate=new Promise(resolve=>confirmStartup=resolve);
@@ -337,8 +335,10 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await waitPlaying();
     assert.equal(await page.locator('#turntable strong').textContent(),'The Original Album');
     assert.equal(await page.getByRole('heading',{name:'First Light',exact:true}).count(),1);
-    await page.getByRole('button',{name:'Album settings'}).click();
-    await page.getByRole('button',{name:'Choose cover from another edition'}).waitFor();
+    await page.locator('details.record-details > summary').click();
+    await page.getByRole('button',{name:'Edit artwork, tracklist or edition'}).click();
+    await page.locator('#modal details.record-setting').evaluateAll(items=>items.forEach(el=>el.open=true));
+    await page.getByRole('button',{name:'Choose another cover'}).waitFor();
     await page.getByRole('link',{name:'Download diagnostic report'}).waitFor();
     await page.getByRole('button',{name:'Close',exact:true}).click();
     await page.setViewportSize({width:390,height:844});
@@ -390,13 +390,12 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.getByRole('button',{name:'Open A Very Rare Live Collection in AudioShelf'}).click();
     await page.getByRole('searchbox',{name:'Search record store'}).waitFor();
     assert.equal(await page.getByRole('searchbox',{name:'Search record store'}).inputValue(),'A Very Rare Live Collection');
-    await page.getByRole('link',{name:'Open settings'}).click();
+    await page.getByRole('link',{name:'Open settings'}).click();await revealSettings(page);
     assert.equal(await page.getByLabel('Show previous and next buttons in Now Playing').isChecked(),false);
     await page.getByLabel('Show previous and next buttons in Now Playing').check();
     await page.getByRole('button',{name:'Next track'}).waitFor();
     await page.getByRole('button',{name:'Next track'}).click();
-    await page.reload();
-    await page.getByRole('heading',{name:'Settings.'}).waitFor();
+    await page.reload();await revealSettings(page);
     assert.equal(await page.getByLabel('Show previous and next buttons in Now Playing').isChecked(),true,'Skip preference persists');
     await page.getByLabel('Show previous and next buttons in Now Playing').uncheck();
     assert.equal(await page.getByRole('button',{name:'Next track'}).count(),0);
@@ -409,21 +408,21 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.getByRole('button',{name:'Classic The original AudioShelf interface',exact:false}).click();
     await page.locator('html[data-interface="classic"]').waitFor();
     assert.equal(await page.locator('#turntable').isVisible(),false);
-    await page.reload();await page.getByRole('heading',{name:'Settings.'}).waitFor();
+    await page.reload();await revealSettings(page);
     assert.equal(await page.locator('html').getAttribute('data-interface'),'classic');
     await page.locator('[data-nav="shelf"]').click();
     await page.locator('.artist-row').first().waitFor();
-    await page.getByRole('link',{name:'Open settings'}).click();
+    await page.getByRole('link',{name:'Open settings'}).click();await revealSettings(page);
     await page.getByRole('button',{name:'Vinyl Front-facing sleeves',exact:false}).click();
     await page.locator('html[data-interface="vinyl"]').waitFor();
     await page.setViewportSize({width:320,height:740});await noOverflow();
     await page.locator('[data-nav="shelf"]').click();await page.getByRole('button',{name:'Expand all',exact:true}).click();await page.locator('.shelf-rack').first().waitFor();await noOverflow();
     // Both furniture styles persist and have continuous ledges even on short rows.
     for(const [style,label] of [['cabinet','White record cabinet'],['floating','Floating shelves']]){
-      await page.getByRole('link',{name:'Open settings'}).click();
+      await page.getByRole('link',{name:'Open settings'}).click();await revealSettings(page);
       await page.getByRole('button',{name:label,exact:false}).click();
       await page.locator('html[data-shelf-style="'+style+'"]').waitFor();
-      await page.reload();await page.getByRole('heading',{name:'Settings.'}).waitFor();
+      await page.reload();await revealSettings(page);
       assert.equal(await page.locator('html').getAttribute('data-shelf-style'),style);
       await page.locator('[data-nav="shelf"]').click();
       await page.getByRole('button',{name:'Expand all',exact:true}).click();

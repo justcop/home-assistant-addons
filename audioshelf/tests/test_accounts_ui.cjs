@@ -23,7 +23,8 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
       await page.waitForFunction(name=>document.querySelector('#account-name')?.textContent===name,username);
       await page.getByRole('heading',{name:'My shelf.',exact:true}).waitFor();
     }
-    async function settings(){await page.getByRole('link',{name:'Open settings',exact:true}).click();await page.getByRole('heading',{name:'Settings.',exact:true}).waitFor();}
+    async function revealSettings(){await page.locator('details.settings-group').evaluateAll(items=>items.forEach(el=>el.open=true));}
+    async function settings(){await page.getByRole('link',{name:'Open settings',exact:true}).click();await page.getByRole('heading',{name:'Settings.',exact:true}).waitFor();await revealSettings();}
     async function signout(){await settings();await page.getByRole('button',{name:'Switch account / Sign out',exact:true}).click();await page.getByLabel('Username',{exact:true}).waitFor();}
     async function api(endpoint,method='GET',body){
       const response=await page.request.fetch(base+'/api/'+endpoint,{method,data:body,headers:{'X-AudioShelf-Request':'1'}});
@@ -64,9 +65,11 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
     const state=new URL(url).searchParams.get('state');
     const callback=await page.request.get(base+'/auth/spotify/callback?code=fixture&state='+encodeURIComponent(state));
     assert(callback.ok());assert((await callback.text()).includes('alice'));
-    await page.reload();await page.getByText('Your Spotify account is connected.',{exact:false}).waitFor();
+    await page.reload();await page.getByRole('heading',{name:'Settings.'}).waitFor();await revealSettings();await page.getByText('Your Spotify account is connected.',{exact:false}).waitFor();
     assert.equal((await api('spotify/devices')).devices[0].name,'Personal player');
     await page.getByRole('button',{name:'Disconnect',exact:true}).click();
+    await page.waitForFunction(()=>!statusInfo.spotify_connected && !!document.querySelector('#settings-playback'));
+    await revealSettings();
     await page.getByRole('button',{name:'Connect Spotify',exact:true}).waitFor();
     await page.getByRole('link',{name:'Record store',exact:false}).click();
     await page.getByRole('searchbox',{name:'Search record store'}).fill('The Artist');
@@ -84,8 +87,10 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
     await page.reload();
     await page.getByRole('link',{name:'The Original Album',exact:true}).click();
     await page.getByRole('heading',{name:'The Original Album',exact:true}).waitFor();
-    await page.getByRole('button',{name:'Album settings'}).click();
-    await page.getByRole('button',{name:'Change original tracklist'}).click();
+    await page.locator('details.record-details > summary').click();
+    await page.getByRole('button',{name:'Edit artwork, tracklist or edition'}).click();
+    await page.locator('#modal details.record-setting').evaluateAll(items=>items.forEach(el=>el.open=true));
+    await page.getByRole('button',{name:'Choose another tracklist'}).click();
     await page.getByRole('heading',{name:'Choose the album tracklist'}).waitFor();
     await page.locator('[data-action="select-variant"]').first().click();
     await page.getByRole('heading',{name:'Disc and side layout'}).waitFor();

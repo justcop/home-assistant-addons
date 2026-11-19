@@ -1,3 +1,13 @@
+## 0.6.45
+
+- Add, borrow and keep records without stopping to choose an edition. Borrowed records now receive the same safe, complete background Spotify matching as owned records.
+- Allow immediate playback of a fully verified standard tracklist without a second manual approval. Do not play incomplete Spotify matches.
+- Distinguish background matching from genuinely unresolved records; only actionable failures receive a red attention label.
+- Make the album page music-first, with cover, tracklist and playback up front and edition choices and individual recording diagnostics in an optional disclosure.
+- Add contextual keep/return/remove actions to Listening Pile covers with Undo for removals, plus a Recently added shelf strip, a unified artist-and-album store search and title previews on collapsed shelves.
+- Replace the expanded settings wall with short category navigation and focused record-setting disclosures.
+- Make sleeve markers—including LOAN, collection markers and matching warnings—look like physical paper stickers with slight rotation, edges and shadows. Leave the existing mobile/Now Playing controls unchanged.
+
 ## 0.6.44
 
 - Add a separate Listening Room with a single Listening Pile using the existing vinyl shelf furniture. Owned albums can stay on their main shelves while temporarily appearing in the pile.
