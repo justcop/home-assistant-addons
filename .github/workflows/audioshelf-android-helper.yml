@@ -52,7 +52,7 @@ jobs:
             keytool -genkeypair -keystore prototype.keystore -storepass audioshelf-prototype -keypass audioshelf-prototype -alias prototype -keyalg RSA -keysize 2048 -validity 3650 -dname 'CN=AudioShelf Test, O=justcop, C=GB'
             echo 'Test key generated. Without signing secrets, each build has a different fingerprint and requires a fresh install.' >> "$GITHUB_STEP_SUMMARY"
           fi
-          keytool -list -v -keystore prototype.keystore -storepass "${KEYSTORE_PASSWORD:-audioshelf-prototype}" | sed -n '/SHA1:/p' | tee signing-fingerprint.txt
+          keytool -list -v -keystore prototype.keystore -storepass "${KEYSTORE_PASSWORD:-audioshelf-prototype}" | sed -n '/SHA1:/p; /SHA256:/p' | tee signing-fingerprint.txt
           cat signing-fingerprint.txt >> "$GITHUB_STEP_SUMMARY"
       - name: Build and lint sideloaded prototype
         working-directory: audioshelf/android-helper
