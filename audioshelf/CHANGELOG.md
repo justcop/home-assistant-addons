@@ -1,3 +1,10 @@
+## 0.6.47
+
+- Replace vector labels with two photorealistic transparent PNG overlays: a loan sticker and a clickable Spotify matching-attention sticker.
+- Pre-size each overlay at 96, 160, 256 and 384 pixels while retaining both full-resolution masters; choose the correct raster with responsive srcset.
+- Keep overlay width proportional to cover art in both interfaces and album-detail sleeves; drop unnecessary collection status stickers.
+- Cache PNG delivery assets offline and test sizes, alpha, placement and browser rendering.
+
 ## 0.6.46
 
 - Replace flat loan, collection and matching-warning labels with illustrated paper SVG stickers, including two subtle loan variations, cut edges, ink wear, grain and natural shadows.

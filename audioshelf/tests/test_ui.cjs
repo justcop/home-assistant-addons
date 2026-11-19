@@ -110,10 +110,8 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.locator('.search-result').filter({hasText:'The Artist'}).click();
     await page.getByRole('heading',{name:'The Artist',exact:true}).waitFor();
     await page.getByRole('button',{name:'Add to shelf'}).click();
-    const collectionSticker=page.locator('.album-card img.owned-cover-sticker[alt="In collection"]');
-    await collectionSticker.waitFor();
-    assert(await collectionSticker.evaluate(async img=>{await img.decode();return img.naturalWidth>0;}),
-      'Collection sticker SVG must load in the actual browser');
+    assert.equal(await page.locator('.album-card img.owned-cover-sticker').count(),0,
+      'Owned records should no longer have a sticker');
     assert.equal(await page.getByRole('heading',{name:'Choose the album tracklist'}).count(),0,
       'Instant addition should never open the Spotify verification picker');
     await page.locator('.album-title').click();
