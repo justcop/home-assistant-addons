@@ -12,6 +12,16 @@ const python = process.env.AUDIOSHELF_TEST_PYTHON || 'python';
 const server = spawn(python, [path.join(__dirname,'ui_server.py')], {env:{...process.env,AUDIOSHELF_TEST_PORT:port},stdio:['ignore','pipe','pipe']});
 let logs='';server.stdout.on('data',d=>logs+=d);server.stderr.on('data',d=>logs+=d);
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function openAlbumSettings(page){
+  const disclosure=page.locator('details.record-details');
+  if(!(await disclosure.evaluate(el=>el.open)))await disclosure.locator('summary').click();
+  await page.getByRole('button',{name:'Edit artwork, tracklist or edition'}).click();
+  await page.locator('#modal details.record-setting').evaluateAll(items=>items.forEach(el=>el.open=true));
+}
+async function revealSettings(page){
+  await page.locator('details.settings-group').evaluateAll(items=>items.forEach(el=>el.open=true));
+}
+
 const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
 
 (async()=>{
@@ -106,8 +116,8 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.locator('.album-title').click();
     await page.getByRole('heading',{name:'The Original Album',exact:true}).waitFor();
     // Choosing an original edition remains available, but is separate from adding.
-    await page.getByRole('button',{name:'Album settings'}).click();
-    await page.getByRole('button',{name:'Change original tracklist'}).click();
+    await openAlbumSettings(page);
+    await page.getByRole('button',{name:'Choose another tracklist'}).click();
     await page.getByRole('heading',{name:'Choose the album tracklist'}).waitFor();
     await page.locator('[data-action="select-variant"]').first().click();
     await page.getByRole('heading',{name:'Disc and side layout'}).waitFor();
@@ -115,7 +125,7 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.getByRole('heading',{name:'Choose Spotify recordings'}).waitFor();
     page.once('dialog',dialog=>dialog.accept());
     await page.locator('[data-action="choose-release"][data-spotify-id]').first().click();
-    assert.equal(await page.locator('.track-row').count(),2);
+    assert.equal(await page.locator('.tracklist').first().locator('.track-row').count(),2);
     // Sleeve flipping adds a lazy-loaded back-cover image. Check the front
     // explicitly so the reverse scan cannot make image selectors ambiguous.
     const frontCover=page.locator('.album-flip-front img.cover');
@@ -124,26 +134,26 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert((await frontCover.getAttribute('src')).startsWith('api/albums/'));
     assert((await frontCover.getAttribute('src')).includes('size=640'));
     assert((await frontCover.evaluate(img=>img.currentSrc)).includes('size='));
-    await page.getByRole('button',{name:'Album settings'}).click();
+    await openAlbumSettings(page);
     const cover=await (await fixtureFetch(base+'/api/albums/f5093c06-23e3-4f01-aeaa-40f72885ee3a/artwork')).arrayBuffer();
-    await page.getByLabel('Choose album cover').setInputFiles({name:'cover.png',mimeType:'image/png',buffer:Buffer.from(cover)});
+    await page.getByLabel('Upload your own cover').setInputFiles({name:'cover.png',mimeType:'image/png',buffer:Buffer.from(cover)});
     await page.getByRole('button',{name:'Save cover',exact:true}).click();
     await page.locator('#toast').filter({hasText:'Album cover saved.'}).waitFor();
     const custom=await fixtureFetch(base+'/api/albums/f5093c06-23e3-4f01-aeaa-40f72885ee3a/artwork');
     assert.equal(custom.headers.get('X-Artwork-Source'),'custom');
-    await page.getByRole('button',{name:'Album settings'}).click();
+    await openAlbumSettings(page);
     await page.getByRole('button',{name:'Restore automatic cover'}).click();
     await page.locator('#toast').filter({hasText:'Automatic artwork restored.'}).waitFor();
     // The earlier add-to-shelf journey completed and cached this album. Clear
     // its tab-only scan state before explicitly testing interrupted requests.
     await page.evaluate(()=>sessionStorage.clear());
-    await page.getByRole('button',{name:'Album settings'}).click();
+    await openAlbumSettings(page);
     let failEditionRequest=true;
     await page.route('**/api/albums/*/tracklist-variants?offset=*',async route=>{
       if(failEditionRequest){failEditionRequest=false;await route.fulfill({status:502,contentType:'application/json',body:JSON.stringify({error:'Fixture MusicBrainz failure'})});}
       else await route.continue();
     });
-    await page.getByRole('button',{name:'Change original tracklist'}).click();
+    await page.getByRole('button',{name:'Choose another tracklist'}).click();
     await page.locator('[data-action="select-variant"]').first().waitFor();
     assert.equal(failEditionRequest,false, 'Transient proxy failure should be retried without user input');
     assert.equal(await page.locator('.variant-option').count(),1,
@@ -169,8 +179,8 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
           next_offset:offset===2?4:null})});
       }else throw new Error('Unexpected tracklist scan offset: '+offset);
     });
-    await page.getByRole('button',{name:'Album settings'}).click();
-    await page.getByRole('button',{name:'Change original tracklist'}).click();
+    await openAlbumSettings(page);
+    await page.getByRole('button',{name:'Choose another tracklist'}).click();
     await page.getByText('5 of 5 GB, Worldwide and US releases inspected',{exact:false}).waitFor();
     assert.deepEqual(variantOffsets,[0,2,4],'All eligible pressings are checked automatically');
     assert((await page.locator('.muted[role="status"]').textContent()).includes('103 total MusicBrainz releases'));
@@ -178,14 +188,14 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     // Reopening the picker restores this tab's verified results without
     // issuing the same expensive MusicBrainz requests again.
     await page.getByRole('button',{name:'Close',exact:true}).click();
-    await page.getByRole('button',{name:'Album settings'}).click();
-    await page.getByRole('button',{name:'Change original tracklist'}).click();
+    await openAlbumSettings(page);
+    await page.getByRole('button',{name:'Choose another tracklist'}).click();
     await page.getByText('5 of 5 GB, Worldwide and US releases inspected',{exact:false}).waitFor();
     assert.deepEqual(variantOffsets,[0,2,4], 'Completed scan is restored, not rescanned');
     await page.getByRole('button',{name:'Close',exact:true}).click();
     await page.unroute('**/api/albums/*/tracklist-variants?offset=*');
-    await page.getByRole('button',{name:'Album settings'}).click();
-    await page.getByRole('button',{name:'Choose cover from another edition'}).click();
+    await openAlbumSettings(page);
+    await page.getByRole('button',{name:'Choose another cover'}).click();
     const thumbnail=page.locator('.cover-choice img').first();
     await thumbnail.evaluate(image=>image.decode());
     assert.equal(await thumbnail.evaluate(image=>image.naturalWidth),50);
@@ -197,7 +207,8 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     // tracklist. The old first-add flow needed a separate review button.
     assert.equal(await page.evaluate(()=>!!currentAlbum?.canonical_reviewed),true,
       'Explicitly chosen tracklist should already be reviewed');
-    await page.getByRole('button',{name:'Find another edition'}).click();
+    await openAlbumSettings(page);
+    await page.getByRole('button',{name:'Choose another edition'}).click();
     await page.getByRole('heading',{name:'Spotify editions'}).waitFor();
     await page.getByRole('button',{name:'Close',exact:true}).click();
     await page.getByRole('button',{name:'Play album'}).click();
@@ -299,7 +310,7 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.goto(base+'/#album/f5093c06-23e3-4f01-aeaa-40f72885ee3a');
     await page.getByRole('heading',{name:'The Original Album',exact:true}).waitFor();
     await page.evaluate(()=>{currentAlbum.tracks[1].disc_number=1;content.innerHTML=albumPage(currentAlbum);});
-    assert.equal(await page.locator('.track-row').count(),2);
+    assert.equal(await page.locator('.tracklist').first().locator('.track-row').count(),2);
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'Album page overflows phone viewport');
     if(screenshotDir)await page.screenshot({path:path.join(screenshotDir,'album-mobile.png'),fullPage:true});
     // Start a fresh page in the same signed-in browser context. Playback
@@ -324,7 +335,7 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.setViewportSize({width:1280,height:900});
     if(screenshotDir)await page.screenshot({path:path.join(screenshotDir,'shelf-desktop.png'),fullPage:true});
     await page.goto(base+'/#settings');
-    await page.getByRole('heading',{name:'Settings.'}).waitFor();
+    await page.getByRole('heading',{name:'Settings.'}).waitFor();await revealSettings(page);
     await page.getByRole('button',{name:'Choose Spotify device'}).click();
     await page.getByRole('heading',{name:'Choose playback device'}).waitFor();
     const availableDevices=await page.locator('[data-action="device"]').allTextContents();
@@ -342,7 +353,7 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
       input.checked=true;
       input.dispatchEvent(new Event('change',{bubbles:true}));
     });
-    await page.reload();await page.getByRole('heading',{name:'Settings.'}).waitFor();
+    await page.reload();await page.getByRole('heading',{name:'Settings.'}).waitFor();await revealSettings(page);
     assert.equal(await page.getByLabel('Open Spotify after pressing Play on this browser').isChecked(),true);
     await page.evaluate(()=>{
       const input=document.querySelector('#open-spotify');
@@ -358,6 +369,7 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.getByRole('button',{name:'Save release filters'}).click();
     // Verify the persisted setting rather than a short-lived toast.
     await page.waitForFunction(()=>statusInfo.release_filters?.countries?.join(',')==='GB,US');
+    await revealSettings(page);
     assert.deepEqual((await (await fixtureFetch(base+'/api/settings')).json()).release_filters,
       {countries:['GB','US'],formats:['cd','vinyl','digital'],strict_countries:false});
     const themes=(await (await fixtureFetch(base+'/api/settings')).json()).themes;
@@ -384,14 +396,14 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
       if(screenshotDir)await page.screenshot({path:path.join(screenshotDir,`theme-${theme.id}-mobile.png`),fullPage:true});
       await page.goto(base+'/#album/f5093c06-23e3-4f01-aeaa-40f72885ee3a');
       await page.getByRole('heading',{name:'The Original Album',exact:true}).waitFor();
-      assert.equal(await page.locator('.track-row').count(),2);
+      assert.equal(await page.locator('.tracklist').first().locator('.track-row').count(),2);
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,`${theme.name} album overflow`);
       if(screenshotDir&&(theme.id==='midnight'||theme.id==='high-contrast'))await page.screenshot({path:path.join(screenshotDir,`album-${theme.id}-mobile.png`),fullPage:true});
-      await page.goto(base+'/#settings');await page.getByRole('heading',{name:'Settings.'}).waitFor();
+      await page.goto(base+'/#settings');await page.getByRole('heading',{name:'Settings.'}).waitFor();await revealSettings(page);
 
     }
     assert.equal(backgrounds.size,10);
-    await page.reload();await page.getByRole('heading',{name:'Settings.'}).waitFor();
+    await page.reload();await page.getByRole('heading',{name:'Settings.'}).waitFor();await revealSettings(page);
     assert.equal(await page.evaluate(()=>document.documentElement.dataset.theme),'high-contrast');
     await page.getByRole('button',{name:'Use Record Store theme',exact:true}).click();
     await page.locator('.theme-choice[data-id="record-store"][aria-pressed="true"]').waitFor();
@@ -430,13 +442,13 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await ingressPage.getByRole('heading',{name:'My shelf.'}).waitFor();
     await ingressPage.locator('.artist-row').waitFor();
     await ingressPage.goto(base+'/api/hassio_ingress/fixture/#album/f5093c06-23e3-4f01-aeaa-40f72885ee3a');
-    await ingressPage.getByRole('button',{name:'Album settings'}).click();
-    await ingressPage.getByRole('button',{name:'Choose cover from another edition'}).click();
+    await openAlbumSettings(ingressPage);
+    await ingressPage.getByRole('button',{name:'Choose another cover'}).click();
     await ingressPage.locator('.cover-choice img').first().evaluate(image=>image.decode());
     assert.equal(await ingressPage.locator('.cover-choice img').first().evaluate(image=>image.naturalWidth),50);
 
     await page.goto(base+'/#settings');
-    await page.getByRole('heading',{name:'Settings.'}).waitFor();
+    await page.getByRole('heading',{name:'Settings.'}).waitFor();await revealSettings(page);
     await page.getByRole('button',{name:'Open Security settings'}).click();
     const supportForm=page.locator('[data-operation="support"]');
     await supportForm.getByLabel('Confirm your password').fill('fixture-owner-password');
@@ -482,10 +494,10 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert.deepEqual(errors,[],'Browser security flow errors');
     await page.getByRole('button',{name:'Close',exact:true}).click();
     await page.goto(base+'/#settings');
-    await page.getByRole('heading',{name:'Settings.'}).waitFor();
+    await page.getByRole('heading',{name:'Settings.'}).waitFor();await revealSettings(page);
     await page.getByLabel('Country preference order').fill('US, GB');
     // Diagnostic tools are intentionally collapsed in the shorter settings page.
-    await page.locator('details.settings-group').filter({has:page.locator('summary').getByText('Advanced & diagnostics')}).locator('summary').click();
+    // Advanced is already expanded by the test helper; it remains collapsed in the app.
     // The standalone PWA retains private shelf thumbnails across app updates.
     assert.equal(await page.getByRole('heading',{name:'Offline artwork'}).count(),1);
     await page.waitForFunction(()=>!!navigator.serviceWorker.controller);
@@ -537,7 +549,7 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.unroute('**/api/status');
     page.once('dialog',dialog=>dialog.accept());
     await page.getByRole('button',{name:'Reload AudioShelf'}).click();
-    await page.getByRole('heading',{name:'Settings.'}).waitFor();
+    await page.getByRole('heading',{name:'Settings.'}).waitFor();await revealSettings(page);
     assert.equal(await page.locator('#app-update').isVisible(),false);
     const workerState=await page.evaluate(async()=>{
       await navigator.serviceWorker.ready;
