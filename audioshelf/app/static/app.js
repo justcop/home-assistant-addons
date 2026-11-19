@@ -499,6 +499,12 @@ function pileCardMenu(album){
     '<button data-action="pile-remove-card" data-id="'+key+'">Remove from Listening Pile</button>';
   return '<div class="pile-card-menu"><button class="quiet pile-menu-trigger" data-action="pile-menu" aria-expanded="false" aria-label="Options for '+escapeHtml(album.title)+'">⋯ Options</button><div class="pile-card-options" hidden>'+buttons+'</div></div>';
 }
+function classicSearchResults(results){
+  const artists=results?.artists||[], albums=results?.albums||[];
+  if(!artists.length&&!albums.length)return '<p class="muted">No artists or studio albums found. Try a different spelling.</p>';
+  return (artists.length?'<h2>Artists</h2><div class="search-artists">'+artists.map(a=>'<a class="search-result" href="#artist/'+id(a.id)+'/store"><strong>'+escapeHtml(a.name)+'</strong><small>'+escapeHtml([a.disambiguation,a.country,a.type].filter(Boolean).join(' · '))+' ↗</small></a>').join('')+'</div>':'')+
+    (albums.length?'<h2>Albums</h2>'+cards(albums,'store'):'');
+}
 function albumMembershipActions(album){
   if(album.on_loan)return '<button class="secondary" data-action="keep">Add to shelf</button><button class="quiet" data-action="return">Return loan</button>';
   if(album.on_shelf)return album.in_listening_pile?
@@ -1013,24 +1019,25 @@ async function route(){
       if(isVinyl())html=vinylListeningPile(pile);
     }else if(view==='store'){
       if(['artist','album'].includes(key)&&mode){
-        searchKind=key;
-        storeSearch={kind:key,query:decodeURIComponent(mode),results:null};
-        const result=await api(`search?q=${id(storeSearch.query)}&kind=${key}`);
+        const query=decodeURIComponent(mode);
+        const [artists,albums]=await Promise.all([
+          api('search?q='+id(query)+'&kind=artist'),
+          api('search?q='+id(query)+'&kind=album')]);
         if(generation!==routeGeneration)return;
-        storeSearch.results=key==='artist'?sortArtistsByName(result.results):result.results;
+        storeSearch={kind:'all',query,results:{artists:sortArtistsByName(artists.results),albums:albums.results}};
       }
       const shelf=await api('shelf');
       const pile=await api('listening-pile');
-      if(storeSearch.kind==='album'&&storeSearch.results){
+      if(storeSearch.results?.albums){
         const owned=new Set(shelf.albums.map(a=>a.id));
         const inPile=new Set(pile.albums.map(a=>a.id));
-        for(const album of storeSearch.results){
+        for(const album of storeSearch.results.albums){
           album.on_shelf=owned.has(album.id);
           album.in_listening_pile=inPile.has(album.id);
           album.on_loan=inPile.has(album.id)&&!album.on_shelf;
         }
       }
-      html=`<div class="eyebrow">A proper record store</div><h1>Find your next record.</h1><p class="intro">Explore the studio albums. Collect what you love.</p><div class="segmented"><button class="${searchKind==='artist'?'active':''}" data-action="search-kind" data-kind="artist" aria-pressed="${searchKind==='artist'}">Artists</button><button class="${searchKind==='album'?'active':''}" data-action="search-kind" data-kind="album" aria-pressed="${searchKind==='album'}">Albums</button></div><form id="search-form" class="search-form"><input name="q" type="search" placeholder="${searchKind==='artist'?'Search artists':'Search albums'}" aria-label="Search record store" required><button class="primary">Search</button></form><p class="search-hint">Original releases, in chronological order. Singles, live albums and compilations stay outside.</p><div id="search-results">${shelf.artists.length?`<h2>More from your artists</h2>${shelf.artists.map(a=>`<a class="search-result" href="#artist/${id(a.id)}/store"><strong>${escapeHtml(a.name)}</strong><small>Browse their studio albums ↗</small></a>`).join('')}`:'<p class="muted">Start with an artist you love.</p>'}</div>`;
+      html=`<div class="eyebrow">A proper record store</div><h1>Find your next record.</h1><p class="intro">Explore the studio albums. Collect what you love.</p><form id="search-form" class="search-form"><input name="q" type="search" placeholder="Search artists or albums" aria-label="Search record store" required><button class="primary">Search</button></form><p class="search-hint">Original releases, in chronological order. Singles, live albums and compilations stay outside.</p><div id="search-results">${shelf.artists.length?`<h2>More from your artists</h2>${shelf.artists.map(a=>`<a class="search-result" href="#artist/${id(a.id)}/store"><strong>${escapeHtml(a.name)}</strong><small>Browse their studio albums ↗</small></a>`).join('')}`:'<p class="muted">Start with an artist you love.</p>'}</div>`;
       if(isVinyl())html=vinylStore(shelf);
     }else if(view==='artist'){
       const result=await api(`artists/${id(key)}${mode==='store'?'?store=1':''}`);
@@ -1052,7 +1059,7 @@ async function route(){
     if(navigated)content.focus({preventScroll:true});if(view==='settings'){refreshArtworkCacheSettings();pollServerArtworkRefresh();pollSpotifyMatching();pollEditionAudit();loadLastfmSettings();}refreshPlayback();
     if(view==='store'&&['artist','album'].includes(key)&&mode&&!isVinyl()){
       const results=document.querySelector('#search-results');
-      results.innerHTML=searchKind==='album'?cards(storeSearch.results):storeSearch.results.map(a=>`<a class="search-result" href="#artist/${id(a.id)}/store"><strong>${escapeHtml(a.name)}</strong></a>`).join('');
+      results.innerHTML=classicSearchResults(storeSearch.results);
       document.querySelector('#search-form input').value=storeSearch.query;
     }
   }catch(error){if(generation===routeGeneration)content.innerHTML=`<div class="error-panel"><h2>Couldn’t open this page.</h2><p>${escapeHtml(error.message)}</p><button class="secondary" data-action="retry">Try again</button> <a class="quiet" href="#settings">Settings</a>${view==='album'?` <a class="secondary" href="api/albums/${id(key)}/diagnostics" download>Download diagnostic report</a>`:''}</div>`;}
@@ -1385,14 +1392,24 @@ document.addEventListener('submit',async event=>{
       }catch(error){results.textContent=error.message;}
     }
     if(form.id==='search-form'){
-      storeSearch={kind:searchKind,query:String(data.get('q')),results:null};
+      const query=String(data.get('q')).trim();
+      storeSearch={kind:'all',query,results:null};
       const resultEl=document.querySelector('#search-results');
       resultEl.innerHTML=loading('Looking through the record store…');
-      const result=await api(`search?q=${id(data.get('q'))}&kind=${searchKind}`);
+      const [artistData,albumData,shelfData,pileData]=await Promise.all([
+        api('search?q='+id(query)+'&kind=artist'),
+        api('search?q='+id(query)+'&kind=album'),api('shelf'),api('listening-pile')]);
       if(generation!==routeGeneration)return;
-      storeSearch.results=searchKind==='artist'?sortArtistsByName(result.results):result.results;
-      if(isVinyl()){resultEl.innerHTML=vinylSearchResults();applyPermissions(resultEl);return;}
-      resultEl.innerHTML=storeSearch.results.length?(searchKind==='album'?cards(storeSearch.results):storeSearch.results.map(a=>`<a class="search-result" href="#artist/${id(a.id)}/store"><strong>${escapeHtml(a.name)}</strong><small>${escapeHtml([a.disambiguation,a.country,a.type].filter(Boolean).join(' · '))}</small></a>`).join('')):'<p class="muted">No studio albums or artists found. Try a different spelling.</p>';
+      const owned=new Set(shelfData.albums.map(a=>a.id));
+      const inPile=new Set(pileData.albums.map(a=>a.id));
+      for(const album of albumData.results){
+        album.on_shelf=owned.has(album.id);
+        album.in_listening_pile=inPile.has(album.id);
+        album.on_loan=inPile.has(album.id)&&!album.on_shelf;
+      }
+      storeSearch.results={artists:sortArtistsByName(artistData.results),albums:albumData.results};
+      resultEl.innerHTML=isVinyl()?vinylSearchResults():classicSearchResults(storeSearch.results);
+      applyPermissions(resultEl);
     }
     if(form.id==='artwork-form'){
       const file=data.get('image');
