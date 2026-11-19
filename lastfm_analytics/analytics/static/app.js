@@ -22,6 +22,7 @@ const views = [
   "albums",
   "songs",
   "history",
+  "gigs",
   "settings",
 ];
 const state = {
@@ -57,6 +58,7 @@ const titles = {
   artists: ["Artists", "The artists shaping your listening."],
   albums: ["Albums", "A clearer view across album editions."],
   songs: ["Songs", "Your real favourites, with versions brought together."],
+  gigs: ["Live gigs", "Your concerts, festivals and the music you heard live."],
   history: [
     "Listening history",
     "Explore the individual plays behind the numbers.",
@@ -219,12 +221,32 @@ window.addEventListener("popstate", async event => {
 });
 function changeView(view) {
   state.view = view;
+  $("#more-nav").hidden = true;
+  $("#nav-more").setAttribute("aria-expanded", "false");
   state.q = "";
   state.offset = 0;
   state.filter = null;
   state.selected.clear();
   load();
 }
+async function openArtistFromGig(name) {
+  const artist = String(name || "").trim();
+  if (!artist) return;
+  try {
+    const data = await api("rankings", { kind:"artist", q:artist, offset:0, period:"all", source:"all" });
+    const match = (data.rows || []).find(row => row.name?.toLocaleLowerCase() === artist.toLocaleLowerCase());
+    if (match) {
+      await showDetail("artist", match.id);
+      return;
+    }
+  } catch (error) { /* Artist list still provides a navigable fallback. */ }
+  state.view = "artists";
+  state.q = artist;
+  state.offset = 0;
+  state.filter = null;
+  await load();
+}
+
 function difference(current, previous, compare = true) {
   if (!compare || previous === null || previous === undefined)
     return '<span class="metric-foot">In selected period</span>';
@@ -753,6 +775,7 @@ async function load({historyMode = "push"} = {}) {
   $("#loading-status").hidden = false;
   $("#page-title").textContent = titles[state.view][0];
   $("#page-description").textContent = titles[state.view][1] + (state.source === "vinyl" ? " Showing confirmed vinyl scrobbles." : state.source === "unknown" ? " Showing scrobbles without confirmed attribution." : "");
+  $("#nav-more").setAttribute("aria-current", ["gigs","history","release-years","settings"].includes(state.view) ? "page" : "false");
   document.querySelectorAll("[data-view]").forEach((b) => {
     if (b.closest("nav") || b.classList.contains("settings-nav"))
       b.setAttribute(
@@ -765,9 +788,11 @@ async function load({historyMode = "push"} = {}) {
     .forEach((b) =>
       b.setAttribute("aria-pressed", b.dataset.mode === state.mode),
     );
-  $("#toolbar").hidden = state.view === "settings";
+  $("#toolbar").hidden = ["settings", "gigs"].includes(state.view);
+  $("#toolbar-version").hidden = ["settings", "gigs"].includes(state.view);
   $("#settings-preferences").hidden = state.view !== "settings";
   $("#period").value = state.period;
+  $("#reset-filters").hidden = state.period === "all" && state.source === "all" && !state.start && !state.end && !state.filter;
   $("#source").setAttribute("aria-pressed", state.source === "vinyl");
   $("#source").title = state.source === "vinyl" ? "Vinyl only is active. Show all listening" : "Show vinyl listening only";
   $("#now-playing").hidden = state.source !== "all" || !statusData?.now_playing?.track;
@@ -792,6 +817,8 @@ async function load({historyMode = "push"} = {}) {
       };
       cachedView = { path: "overview", extra: {}, data, render };
       html = view === "overview" ? overviewHTML(data) : trendsHTML(data);
+    } else if (state.view === "gigs") {
+      html = $("#gigs-view-template").innerHTML;
     } else if (state.view === "release-years") {
       const extra = { release_year: state.releaseYear };
       const data = await api("release-years", extra, { signal });
@@ -816,6 +843,7 @@ async function load({historyMode = "push"} = {}) {
     }
     if (serial === loadSerial) {
       $("#content").innerHTML = html;
+      if (state.view === "gigs") window.ListeningGigs?.mount($("#content"), openArtistFromGig);
       if (state.view === "trends") loadMusicalEras(serial);
       if (cachedView) watchCachedView("main", cachedView.path, cachedView.extra, cachedView.data, cachedView.render, () => serial === loadSerial, "#cache-status");
     }
@@ -1126,6 +1154,12 @@ async function groupAction(action, ids = [], key = null, name = undefined) {
 document.addEventListener("click", (event) => {
   const b = event.target.closest("button");
   if (!b || b.disabled) return;
+  if (b.id === "nav-more") {
+    const menu = $("#more-nav");
+    menu.hidden = !menu.hidden;
+    b.setAttribute("aria-expanded", String(!menu.hidden));
+    return;
+  }
   if (b.dataset.eraToggle) {
     const key = b.dataset.eraToggle;
     if (state.eraSelected.includes(key)) state.eraSelected = state.eraSelected.filter(id=>id!==key);
@@ -1191,6 +1225,8 @@ document.addEventListener("click", (event) => {
     groupAction(b.dataset.candidateAction, [], b.dataset.candidateKey).catch(report); return;
   }
   if (b.dataset.view) {
+    $("#more-nav").hidden = true;
+    $("#nav-more").setAttribute("aria-expanded", "false");
     if (b.dataset.scopeKind) {
       state.view = b.dataset.view;
       state.filter = {kind:b.dataset.scopeKind, id:b.dataset.scopeId, name:b.dataset.scopeName};
