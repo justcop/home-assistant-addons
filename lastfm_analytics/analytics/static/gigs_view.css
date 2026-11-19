@@ -69,10 +69,23 @@
  position:absolute; bottom:6px; transform:translateX(-50%); width:24px; min-width:24px;
  height:24px !important; min-height:24px; padding:0; display:grid; place-items:center;
  flex:none; border:2px solid var(--surface); border-radius:50%; color:#fff;
- background:#be6418; font-size:12px; font-weight:750; cursor:pointer; opacity:1;
+ background:#954708; font-size:12px; font-weight:750; cursor:pointer; opacity:1;
  box-shadow:0 1px 8px #0004; pointer-events:auto; z-index:3;
 }
 .bar-chart .gig-marker-layer .gig-chart-marker[data-gig-type=festival] { background:#7853cb; }
 .bar-chart .gig-marker-layer .gig-chart-marker:focus-visible,.bar-chart .gig-marker-layer .gig-chart-marker:hover { outline:3px solid var(--ink); outline-offset:2px; }
 .bar-chart .gig-marker-layer .gig-chart-marker::after { content:none; }
 .chart-event-legend { margin-top:12px; color:var(--muted); font-size:12px; }
+
+/* Small-screen gig catalogue and markers: clear focus, legible text and safe scroll. */
+.gig-shell .gig-catalogue th, .gig-shell .gig-catalogue td { font-size:12px; }
+.gig-shell .gig-catalogue a:focus-visible,
+.gig-shell .gig-artist-link:focus-visible,
+.artist-live-section .gig-performance a:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+.gig-shell .gig-timeline-controls label,
+.gig-shell .gig-chart-note,
+.gig-shell .gig-event-card small,
+.artist-live-section .gig-performance small { font-size:12px; }
+.gig-shell .gig-event-card small, .artist-live-section .gig-performance small { color:var(--muted); }
+.gig-shell .gig-event-card:focus-within { border-color:var(--accent); }
+.gig-shell .gig-timeline-scroll:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
