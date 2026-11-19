@@ -92,8 +92,6 @@ input[type="checkbox"],dialog input[type="checkbox"]{width:18px;height:18px;padd
 .lastfm-row small{margin-top:3px;font-size:11px;color:var(--muted)}
 .lastfm-progress progress,#lastfm-progress progress{accent-color:var(--wine)}
 
-/* The paper loan sticker is displayed on borrowed sleeves only in the Listening Room. */
-.cover-wrap .loan-sticker{position:absolute;top:9px;right:9px;z-index:6;display:block;padding:7px 9px;background:#f8e7bb;color:#5d4024;border:1px solid #af8a54;box-shadow:1px 3px 5px #0004;font-size:10px;font-weight:800;line-height:1;letter-spacing:.12em;transform:rotate(7deg);pointer-events:none}
 .album-choice-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
 .album-choice-actions .card-action{flex:1;margin-top:0;min-height:38px;white-space:nowrap}
 @media(max-width:600px){.bottom-nav{gap:2px;padding-inline:8px}.bottom-nav a{flex:1;text-align:center;font-size:11px;padding:10px 4px}.bottom-nav span{font-size:16px;margin-right:2px}}
@@ -157,39 +155,35 @@ button[aria-busy="true"]:after{content:"…";font-weight:800}
 #modal form label.check-option{display:flex;align-items:center;gap:10px}
 #modal form label.check-option input[type=checkbox]{width:18px;flex:none;margin:0}
 
-/* Matte, imperfect paper labels adhered to the record sleeve. */
-.cover-wrap .loan-sticker,.cover-status-sticker,.match-needed-label{
-  position:absolute;z-index:8;display:inline-grid;place-items:center;
-  box-sizing:border-box;max-width:calc(100% - 14px);
-  padding:9px 12px 10px;line-height:1.08;letter-spacing:.105em;
-  font:800 11px/1.08 system-ui,sans-serif;text-align:center;
-  text-shadow:0 1px #fff7;
-  background-image:repeating-linear-gradient(9deg,#00000005 0 1px,transparent 1px 4px),linear-gradient(140deg,#fff6 0%,transparent 44%,#0000000a 100%);
-  background-color:#f3deb0;color:#533e25;
-  border:1px solid #beaa7e;border-radius:2px 4px 2px 3px;
-  box-shadow:0 1px 1px #fff8 inset,0 2px 0 #917f5a,2px 4px 8px #0006;
-  transform:rotate(9deg);transform-origin:75% 25%;
-  pointer-events:none;isolation:isolate;
+/* Real illustrated paper stickers: the SVG contains its own irregular
+   edge, letterpress ink, paper grain, curl, and shadow. */
+.paper-sticker{display:block;max-width:none;height:auto;padding:0;border:0;
+  border-radius:0;box-shadow:none;background:none;pointer-events:none;user-select:none}
+.cover-wrap img.paper-sticker{position:absolute;z-index:8;top:-3%;right:-3%;
+  width:clamp(64px,53%,120px);height:auto;transform:none;filter:none;
+  padding:0;border:0;background:transparent;box-shadow:none;clip-path:none}
+.album-card>img.cover-status-sticker{position:absolute;z-index:9;top:-2%;right:-3%;
+  width:clamp(79px,56%,134px);height:auto}
+.album-card>a.match-needed-label{display:block;position:absolute;z-index:10;
+  top:29%;left:-4%;right:auto;width:clamp(90px,65%,165px);
+  max-width:78%;height:auto;padding:0;background:none;border:0;
+  box-shadow:none;transform:none;clip-path:none;line-height:0;pointer-events:auto}
+.match-needed-label img.sticker-art{display:block;width:100%;height:auto}
+.album-card>a.match-needed-label:hover{transform:translateY(-2px)}
+.album-card>a.match-needed-label:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+.store-ticket img.owned-mark,.album-card>img.ticket-sticker{
+  display:block;width:clamp(92px,75%,155px);height:auto;min-height:0;max-width:100%;
+  padding:0;margin:2px 0 5px;border:0;background:none;box-shadow:none;transform:none}
+.album-card>img.ticket-sticker{position:static;margin:9px 0}
+.album-flip-face>img.album-face-sticker{position:absolute;z-index:5;top:0;right:0;
+  width:clamp(80px,30%,166px);height:auto;object-fit:contain;box-shadow:none}
+.album-flip-face>img.collection-face-sticker{width:clamp(92px,34%,176px)}
+@media(max-width:520px){
+  .cover-wrap img.paper-sticker{width:57%;min-width:55px}
+  .album-card>img.cover-status-sticker{width:63%;min-width:73px}
+  .album-card>a.match-needed-label{width:72%;min-width:80px}
 }
-.cover-wrap .loan-sticker{top:8px;right:7px;min-width:61px;min-height:40px;padding:11px 9px;clip-path:polygon(0 2%,97% 0,100% 94%,96% 100%,2% 98%);}
-.cover-status-sticker{top:10px;right:8px;min-height:30px;padding:8px 10px;background-color:#e6e6d0;color:#344838;border-color:#adb49b;transform:rotate(6deg);}
-.match-needed-label{
-  left:6px;top:35px;right:auto;max-width:calc(100% - 12px);background-color:#fff1dd;
-  color:#8e2020;border-color:#c75c4f;font-size:10px;transform:rotate(-6deg);
-  pointer-events:auto;text-decoration:none;
-  clip-path:polygon(0 0,98% 1%,100% 98%,2% 100%);
-}
-.match-needed-label:hover,.match-needed-label:focus-visible{outline:2px solid #8e2020;outline-offset:3px;text-decoration:underline}
-.store-ticket .owned-mark{
-  display:inline-block;width:max-content;max-width:100%;min-height:0;
-  padding:5px 9px;margin:8px 0 5px;
-  background:#f2eacb;color:#46573e;border:1px solid #a9a88b;
-  border-radius:1px 3px 2px 2px;box-shadow:1px 2px 0 #0002;
-  transform:rotate(-2deg);font-size:11px;font-weight:750;letter-spacing:.025em;
-}
-@media(prefers-reduced-motion:reduce){
-  .cover-wrap .loan-sticker,.cover-status-sticker,.match-needed-label,.store-ticket .owned-mark{transition:none}
-}
+@media(prefers-reduced-motion:reduce){.album-card>a.match-needed-label{transition:none}}
 
 /* Settings can be opened in one intentional step; dense maintenance stays closed. */
 .settings-index{display:flex;flex-wrap:wrap;gap:9px;margin:20px 0 27px}

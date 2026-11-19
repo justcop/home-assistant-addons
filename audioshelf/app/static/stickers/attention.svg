@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 213 119" width="213" height="119" role="img" aria-label="Needs attention">
+  <defs>
+    <linearGradient id="paper" x1="0" y1="0" x2=".82" y2="1">
+      <stop offset="0" stop-color="#fff1df"/><stop offset=".47" stop-color="#f0d1bd"/><stop offset="1" stop-color="#e5baa7"/>
+    </linearGradient>
+    <filter id="shadow" x="-25%" y="-30%" width="170%" height="190%"><feGaussianBlur stdDeviation="3.3"/></filter>
+    <filter id="grain" x="0" y="0" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency=".68" numOctaves="3" seed="16" stitchTiles="stitch"/>
+      <feColorMatrix type="saturate" values="0"/>
+    </filter>
+    <filter id="bleed" x="-12%" y="-25%" width="124%" height="160%"><feGaussianBlur stdDeviation=".58"/></filter>
+    <clipPath id="cut"><path d="M 17 16 L 61.800000000000004 14 L 130.2 15 L 190 13 Q 196 15 195 20 L 194 50.84 L 195 89 L 188 99 L 115.80000000000001 98 L 52.8 100 L 19 98 Q 15 96 16 90 L 15 52.56 Z"/></clipPath>
+  </defs>
+  <g transform="rotate(1.4 106.5 59.5)">
+    <!-- Paper edges cast a soft, directional shadow onto the record sleeve. -->
+    <path d="M 17 16 L 61.800000000000004 14 L 130.2 15 L 190 13 Q 196 15 195 20 L 194 50.84 L 195 89 L 188 99 L 115.80000000000001 98 L 52.8 100 L 19 98 Q 15 96 16 90 L 15 52.56 Z" fill="#100d09" opacity=".32" transform="translate(4 6)" filter="url(#shadow)"/>
+    <path d="M 17 16 L 61.800000000000004 14 L 130.2 15 L 190 13 Q 196 15 195 20 L 194 50.84 L 195 89 L 188 99 L 115.80000000000001 98 L 52.8 100 L 19 98 Q 15 96 16 90 L 15 52.56 Z" fill="url(#paper)" stroke="#b45d51" stroke-width="1.25" stroke-linejoin="round"/>
+    <g clip-path="url(#cut)">
+      <rect x="15" y="13" width="182" height="88" filter="url(#grain)" opacity=".12"/>
+      <path d="M21 20Q106.5 14 190 20" fill="none" stroke="#fffdf1" opacity=".5" stroke-width="1.7"/>
+      <path d="M18 96 Q106.5 101 191 95" fill="none" stroke="#6c5434" stroke-opacity=".12" stroke-width="2"/>
+      <path d="M31 80l8 2M167 28l11 -1" stroke="#fff8e6" opacity=".48" stroke-width="1.4"/>
+      <!-- Faint offset printing creates a slightly imperfect letterpress impression. -->
+      <g fill="#8d2925" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" transform="translate(.55 .45)" filter="url(#bleed)" opacity=".2"><text x="105.5" y="59.5" font-size="24" font-weight="800" letter-spacing="1.1">NEEDS</text><text x="105.5" y="85.5" font-size="27" font-weight="900" letter-spacing="1.1">ATTENTION</text></g>
+    </g>
+    <path d="M 24 23 L 183 22 L 184 87 L 25 89 Z" fill="none" stroke="#b45d51" stroke-opacity=".65" stroke-width=".85" stroke-dasharray="33 .7 16 .4"/>
+    <g clip-path="url(#cut)" fill="#8d2925" text-anchor="middle" font-family="Arial,Helvetica,sans-serif">
+      <text x="105.5" y="37" font-size="9" font-weight="650" letter-spacing="2">SPOTIFY MATCH</text>
+      <g><text x="105.5" y="59.5" font-size="24" font-weight="800" letter-spacing="1.1">NEEDS</text><text x="105.5" y="85.5" font-size="27" font-weight="900" letter-spacing="1.1">ATTENTION</text></g>
+      <text x="105.5" y="86" font-size="8.2" font-weight="700" letter-spacing="1.45">TAP TO RESOLVE</text>
+    </g>
+    <!-- A tiny corner curl catches the light without looking like a button. -->
+    <path d="M177 98 Q187 89 190 83 Q192 90 188 99" fill="#fff5db" stroke="#b45d51" stroke-opacity=".55" stroke-width=".75"/>
+    <path d="M177 98 Q183 91 190 83" fill="none" stroke="#fff9e8" stroke-opacity=".6" stroke-width="1.1"/>
+  </g>
+</svg>

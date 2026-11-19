@@ -1,3 +1,9 @@
+## 0.6.46
+
+- Replace flat loan, collection and matching-warning labels with illustrated paper SVG stickers, including two subtle loan variations, cut edges, ink wear, grain and natural shadows.
+- Attach the album-view sticker to the jacket front so it turns over with the sleeve. Keep matching warnings accessible and clickable in both interfaces.
+- Include offline sticker caching and regressions for SVG integrity and real-browser rendering.
+
 ## 0.6.45
 
 - Add, borrow and keep records without stopping to choose an edition. Borrowed records now receive the same safe, complete background Spotify matching as owned records.
