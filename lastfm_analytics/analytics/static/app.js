@@ -375,18 +375,64 @@ function releaseYearsHTML(data) {
     '</section>' + detail;
 }
 
-function chart(data, filter = null, mode = state.mode) {
-  const bins = data.timeline,
-    max = Math.max(4, ...bins.map((b) => b.plays));
-  const rounded = Math.ceil(max / 4) * 4;
-  const best = bins.reduce((a, b) => (b.plays > a.plays ? b : a), {
-    plays: 0,
-    label: "",
+function prettyPeriod(label) {
+  const value=String(label || "");
+  if (/^\\d{4}-\\d{2}$/.test(value)) {
+    const [year,month]=value.split("-").map(Number);
+    return new Intl.DateTimeFormat("en-GB", {month:"short",year:"2-digit",timeZone:"UTC"}).format(new Date(Date.UTC(year,month-1,1)));
+  }
+  if (/^\\d{4}-\\d{2}-\\d{2}$/.test(value)) {
+    return new Intl.DateTimeFormat("en-GB",{day:"numeric",month:"short",year:"2-digit",timeZone:"UTC"}).format(new Date(value+"T12:00:00Z"));
+  }
+  return value;
+}
+function chartGigMarkers(bins, gigs) {
+  if (!Array.isArray(gigs) || !gigs.length || !bins.length) return "";
+  const clusters=new Map();
+  gigs.forEach(gig => {
+    const date=String(gig.date || "");
+    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)) return;
+    const index=bins.findIndex(b=>date >= b.start && date <= b.end);
+    if (index < 0) return;
+    const row=clusters.get(index) || {date,count:0,festival:false,labels:[]};
+    row.count++;
+    row.festival ||= gig.show_type === "festival";
+    row.labels.push(gig.festival || gig.venue || "Concert");
+    clusters.set(index,row);
   });
+  if (!clusters.size) return "";
+  return '<div class="gig-marker-layer" aria-label="Gigs on this listening timeline">'+
+    [...clusters].map(([index,gig])=>{
+      const label=prettyPeriod(bins[index].label);
+      const aria=gig.count+" live performance"+(gig.count===1?"":"s")+" in "+label+": "+gig.labels.join(", ");
+      const horizontal=((index+.5)/bins.length*100).toFixed(4);
+      return '<button type="button" class="gig-chart-marker" data-gig-marker="'+esc(gig.date)+'" data-gig-type="'+(gig.festival?'festival':'concert')+
+        '" style="left:'+horizontal+'%" aria-label="'+esc(aria)+'" title="'+esc(aria)+'">'+(gig.count>1?gig.count:(gig.festival?'▲':'●'))+'</button>';
+    }).join("")+'</div>';
+}
+function chart(data, filter = null, mode = state.mode, gigs = null, compact = false) {
+  const bins = data.timeline || [], max = Math.max(4,...bins.map(b=>b.plays));
+  const rounded = Math.ceil(max / 4) * 4;
+  const best = bins.reduce((a,b)=>(b.plays>a.plays?b:a),{plays:0,label:""});
   const ds = filter
     ? ` data-entity="${esc(filter.kind)}" data-id="${esc(filter.id)}" data-name="${esc(filter.name)}" data-history-mode="${mode}"`
     : "";
-  return `<div class="chart-tools"><div class="chart-zoom-buttons" role="group" aria-label="Timeline zoom"><button class="button" data-chart-zoom="out" aria-label="Zoom out">−</button><button class="button" data-chart-zoom="reset" aria-label="Reset timeline zoom">Reset</button><button class="button" data-chart-zoom="in" aria-label="Zoom in">+</button></div><small>Pinch to zoom. Scroll sideways. Select a bar for scrobbles.</small></div><div class="chart-layout"><div class="chart-axis"><span>${number(rounded)}</span><span>${number(rounded * 0.75)}</span><span>${number(rounded * 0.5)}</span><span>${number(rounded * 0.25)}</span><span>0</span></div><div class="chart-scroll" tabindex="0" aria-label="Scrollable listening timeline"><div class="bar-chart" style="--bins:${bins.length}" role="group" aria-label="Scrobbles by ${bins[0]?.label.length === 7 ? "month" : "day"}, select a bar to inspect history">${bins.map((b,i) => `<button data-label="${i % 6 === 0 ? esc(b.label) : ""}" data-chart-start="${b.start}" data-chart-end="${b.end}"${ds} style="height:${Math.max(0.5, (b.plays / rounded) * 100)}%" title="${b.label}: ${number(b.plays)} scrobbles. Open history." aria-label="${b.label}, ${number(b.plays)} scrobbles"></button>`).join("")}</div></div></div><div class="chart-foot"><span><strong>${number(data.current.plays)}</strong> scrobbles in this period</span><span>${best.plays ? `Peak: <strong>${esc(best.label)}</strong>` : "No plays yet"}</span></div>${calendarHeatmap(data, filter, mode)}`;
+  const labelEvery=Math.max(1,Math.ceil(bins.length/8));
+  const markers=filter?.kind==="artist" ? chartGigMarkers(bins,gigs) : "";
+  const bars=bins.map((b,i)=>
+    `<button data-label="${i%labelEvery===0?esc(prettyPeriod(b.label)):""}"
+      data-chart-start="${esc(b.start)}" data-chart-end="${esc(b.end)}" data-period-label="${esc(prettyPeriod(b.label))}"
+      data-period-plays="${number(b.plays)}"${ds}
+      style="height:${Math.max(.5,(b.plays/rounded)*100)}%"
+      aria-label="${esc(prettyPeriod(b.label))}, ${number(b.plays)} scrobbles. Open listening history"></button>`).join("");
+  return `<div class="chart-tools"><div class="chart-zoom-buttons" role="group" aria-label="Timeline zoom"><button class="button" data-chart-zoom="out" aria-label="Zoom out">−</button><button class="button" data-chart-zoom="reset" aria-label="Reset zoom">Reset</button><button class="button" data-chart-zoom="in" aria-label="Zoom in">+</button></div><small>Hover or tap a bar to see its count; select it to open the plays.</small></div>
+    <div class="chart-layout"><div class="chart-axis"><span>${number(rounded)}</span><span>${number(rounded*.75)}</span><span>${number(rounded*.5)}</span><span>${number(rounded*.25)}</span><span>0</span></div>
+    <div class="chart-scroll" tabindex="0" aria-label="Scrollable listening timeline">
+      <div class="bar-chart" style="--bins:${bins.length}" role="group" aria-label="Scrobbles over time with gig markers">${bars}${markers}</div>
+    </div></div>
+    <div class="chart-tooltip" role="status" aria-live="polite">Select a bar for its date and count.${markers?' Concerts and festivals are marked on the same timeline.':''}</div>
+    <div class="chart-foot"><span><strong>${number(data.current.plays)}</strong> scrobbles in this period</span><span>${best.plays?`Peak: <strong>${esc(prettyPeriod(best.label))}</strong>`:"No plays yet"}</span></div>
+    ${compact?"":calendarHeatmap(data,filter,mode)}`;
 }
 function detailAttrs(kind, row) {
   return `data-detail="${kind}" data-id="${esc(row.id)}"`;
