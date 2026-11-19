@@ -476,11 +476,13 @@ function spotifyReviewMessage(status){
   return '';
 }
 async function refreshShelfReviewNotice(){
-  const node=document.querySelector('#shelf-match-notice');
+  const shelfNode=document.querySelector('#shelf-match-notice');
+  const pileNode=document.querySelector('.pile-match-notice');
+  const node=shelfNode||pileNode;
   if(!node||document.hidden||offlineReadOnly||statusInfo.role!=='owner')return;
   try{
-    const data=await api('spotify/matching/issues');
-    if(node.isConnected)node.innerHTML=spotifyReviewMessage({failures:data.issues.length,job:data.job});
+    const data=await api(shelfNode?'shelf':'listening-pile');
+    if(node.isConnected)node.innerHTML=spotifyReviewMessage(data.match_status);
   }catch{}
 }
 setInterval(refreshShelfReviewNotice,12000);
@@ -1470,6 +1472,7 @@ document.addEventListener('click',async event=>{
     if(action==='interface'){const result=await api('settings','PUT',{interface:button.dataset.id});statusInfo.interface=result.interface;applyInterface(result.interface);await route();toast(`${result.interface==='vinyl'?'Vinyl':'Classic'} interface saved.`);}
     if(action==='flip-artwork')await loadAlbumBackCover(button);
     if(action==='shelf-expand-all')toggleAllShelves();
+    if(action==='shelf-recent'){showRecentRecords=!showRecentRecords;await route();}
     if(action==='shelf-style'){const result=await api('settings','PUT',{shelf_style:button.dataset.id});statusInfo.shelf_style=result.shelf_style;applyInterface(statusInfo.interface);await route();toast('Shelf style saved.');}
     if(action==='shelf-artist')toggleShelfArtist(button);
     if(action==='shelf-view'){shelfView=button.dataset.view;await route();}
@@ -1515,14 +1518,54 @@ document.addEventListener('click',async event=>{
       }
       toast(added.playable?'Added to your shelf.':'Added to your shelf. Spotify matching continues in the background.');
     }
-    if(action==='borrow')await openPlayableReleasePicker(button.dataset.id,'borrow');
+    if(action==='borrow'){
+      const album=await api('albums/'+id(button.dataset.id)+'/borrow','POST');
+      if(generation!==routeGeneration)return;
+      if(location.hash.startsWith('#album/')&&currentAlbum?.id===album.id){
+        currentAlbum=album;content.innerHTML=albumPage(album);
+      }else{
+        const card=button.closest('.album-card');
+        if(card){
+          const box=document.createElement('div');
+          box.innerHTML=isVinyl()?vinylCards([album],'store'):cards([album],'store');
+          const next=box.querySelector('.album-card');
+          if(next)card.replaceWith(next);
+        }
+      }
+      toast(album.playable?'Borrowed to your Listening Pile.':'Borrowed to your Listening Pile. Matching in the background.');
+    }
+    if(action==='pile-menu'){
+      const menu=button.closest('.pile-card-menu'),panel=menu?.querySelector('.pile-card-options');
+      if(panel){
+        panel.hidden=!panel.hidden;
+        button.setAttribute('aria-expanded',String(!panel.hidden));
+      }
+    }
+    if(action==='pile-keep'||action==='pile-return'||action==='pile-remove-card'){
+      const albumId=button.dataset.id;
+      if(action==='pile-keep'){
+        await api('albums/'+id(albumId)+'/shelf','POST');
+        await route();toast('Kept permanently on your shelf. Still in the Listening Pile.');
+      }else{
+        await api('albums/'+id(albumId)+'/listening-pile','DELETE');
+        await route();
+        toastWithUndo(action==='pile-return'?'Loan returned.':'Removed from Listening Pile.',
+          ()=>api('albums/'+id(albumId)+'/listening-pile','POST'));
+      }
+    }
     if(action==='pile-add'||action==='pile-remove'||action==='return'){
       const album=await api(`albums/${id(currentAlbum.id)}/listening-pile`,
         action==='pile-add'?'POST':'DELETE');
       if(generation!==routeGeneration)return;
       currentAlbum=album;
-      if(action==='return'){location.hash='#listening';toast('Loan returned.');}
-      else {content.innerHTML=albumPage(album);toast(action==='pile-add'?'Added to Listening Pile.':'Removed from Listening Pile.');}
+      if(action==='return'){
+        location.hash='#listening';
+        toastWithUndo('Loan returned.',()=>api('albums/'+id(album.id)+'/listening-pile','POST'));
+      }else{
+        content.innerHTML=albumPage(album);
+        if(action==='pile-remove')toastWithUndo('Removed from Listening Pile.',()=>api('albums/'+id(album.id)+'/listening-pile','POST'));
+        else toast('Added to Listening Pile.');
+      }
     }
     if(action==='keep'){
       const album=await api(`albums/${id(currentAlbum.id)}/shelf`,'POST');
