@@ -274,9 +274,7 @@ window.ListeningGigs = {
     $('rows').addEventListener('click',event=>{
      const button=event.target.closest('[data-artist]');
      if(!button)return;
-     $('artist').value=button.dataset.artist;
-     document.getElementById('artist').scrollIntoView({behavior:'smooth',block:'center'});
-     render();
+     openArtist(button.dataset.artist);
     });
     
   }
