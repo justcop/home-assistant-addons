@@ -1,6 +1,6 @@
 'use strict';
 // The two rooms share the catalogue, actions and permissions with Classic.
-let albumOrigin='', storeSearch={kind:'artist',query:'',results:null}, shelfFilter='';
+let albumOrigin='', storeSearch={kind:'all',query:'',results:null}, shelfFilter='';
 let playbackState=null, playbackBusy=false, playbackChecked=0, playbackEpoch=0, playbackCommand=0, playbackStart=null;
 const browsingPositions=new Map();
 let expandedShelfArtist=null;
@@ -143,7 +143,8 @@ function arrangeShelfRows(){
   });
 }
 matchMedia('(max-width:700px)').addEventListener('change',arrangeShelfRows);
-function markCollected(albumId,owned=true){for(const album of storeSearch.results||[])if(album.id===albumId)album.on_shelf=owned;}
+function markCollected(albumId,owned=true){for(const album of storeSearch.results?.albums||[])if(album.id===albumId)album.on_shelf=owned;}
+document.addEventListener('click',event=>{const peek=event.target.closest('[data-action="peek-record"]');if(!peek)return;event.stopPropagation();const card=peek.closest('.sleeve');card?.classList.toggle('is-peeking');peek.setAttribute('aria-expanded',String(card?.classList.contains('is-peeking')));});
 document.addEventListener('input',event=>{if(event.target.id==='shelf-filter'){shelfFilter=event.target.value;filterShelf();}});
 document.addEventListener('click',event=>{
   const link=event.target.closest('a[href^="#album/"]');
