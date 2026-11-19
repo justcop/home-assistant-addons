@@ -469,17 +469,33 @@ function discovery(data) {
   return `<section class="panel">${panelHead("Discovery & familiarity", "Artists first heard in your imported history")}<div class="insight-number">${d.complete ? `${pct}<span style="font-size:21px">%</span>` : "—"}</div><p style="font-size:12px">${d.complete ? "of plays were artists new to this period" : "Waiting for your complete history"}</p><div class="split-bar" role="img" aria-label="${pct}% new artist plays"><span style="width:${pct}%"></span></div><div class="legend"><span>New ${d.complete ? number(d.plays) : "—"}</span><span>Familiar ${d.complete ? number(data.current.plays - d.plays) : "—"}</span></div><div class="insight-note">${d.complete ? `<strong>${number(d.artists)} artists</strong> first appear in this period. “New” refers to your available Last.fm history, not necessarily the first time you ever heard them.` : "This measure needs the full import so older favourites are not mistaken for discoveries."}</div></section>`;
 }
 function insightsStrip(data) {
-  const g = data.grouping,
-    saved = g.raw_songs - g.songs;
-  const r = data.returning[0];
-  return `<div class="insight-strip"><article class="insight-card"><span class="insight-icon" aria-hidden="true">⇄</span><div><h3>One song, a clearer total</h3><p>${number(g.raw_songs)} song entries become ${number(g.songs)} groups. ${saved ? `${number(saved)} split entries are brought together.` : "Explore grouping to bring related versions together."} <button class="text-button" data-view="settings">Review groups →</button></p></div></article><article class="insight-card"><span class="insight-icon" aria-hidden="true">↺</span><div><h3>${r ? "Back in rotation" : "Returning favourites"}</h3><p>${r ? `<button class="text-button" ${detailAttrs("artist", r)}>${esc(r.name)}</button> returned after ${number(Math.floor(r.gap_days))} days without a recorded play, with ${number(r.plays)} plays this period.` : "Artists returning after at least 90 days without a recorded play will appear here."}${!data.discovery.complete ? " This is based on the history imported so far." : ""}</p></div></article></div>`;
+  const g=data.grouping || {}, saved=(g.raw_songs||0)-(g.songs||0);
+  const r=data.returning?.[0];
+  if (!saved && !r) return "";
+  return `<div class="insight-strip">${saved ? `<article class="insight-card">
+    <svg class="insight-svg" aria-hidden="true"><use href="#icon-song"/></svg><div><h3>One song, a clearer total</h3>
+    <p>${number(saved)} duplicate song entries are grouped together. <button class="text-button" data-view="settings">Review grouping →</button></p></div></article>` : ""}
+    ${r ? `<article class="insight-card"><svg class="insight-svg" aria-hidden="true"><use href="#icon-history"/></svg>
+    <div><h3>Back in rotation</h3><p><button class="text-button" ${detailAttrs("artist",r)}>${esc(r.name)}</button>
+    returned after ${number(Math.floor(r.gap_days))} days without a recorded play, with ${number(r.plays)} plays this period.</p></div></article>` : ""}</div>`;
 }
 function heatmap(data) {
   const max = Math.max(1, ...data.hours.flat());
   return `<section class="panel">${panelHead("When you listen", `Scrobbles by local weekday and hour · ${esc(data.period.timezone)}`)}<div class="heatmap"><span></span>${Array.from({ length: 24 }, (_, i) => `<span class="hour">${i % 3 === 0 ? String(i).padStart(2, "0") : ""}</span>`).join("")}${["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day, d) => `<span class="day">${day}</span>${data.hours[d].map((count, h) => `<span class="cell" role="img" style="opacity:${0.07 + (0.93 * count) / max}" title="${day} ${String(h).padStart(2, "0")}:00: ${number(count)} scrobbles" aria-label="${day} ${h}:00, ${number(count)} scrobbles"></span>`).join("")}`).join("")}</div><p class="method-note">Repeated daylight-saving hours share a cell. These are scrobble timestamps, not measured listening duration.</p></section>`;
 }
 function overviewHTML(data) {
-  return `${metrics(data)}<div class="grid-two"><section class="panel">${panelHead("Listening activity", `${data.period.start_label} to ${data.period.end_label}`, '<span class="pill">Scrobbles</span>')}${chart(data)}</section>${discovery(data)}</div>${insightsStrip(data)}<div class="grid-equal">${topList("Top artists", "artist", data.top_artists, "artists")}${topList("Top albums by scrobbles", "album", data.top_albums, "albums")}${topList("Top songs", "song", data.top_songs, "songs")}</div><div class="grid-two" style="margin-top:18px">${topList("Top albums by estimated listens", "album", data.top_albums_estimated || [], "albums", "estimated")}<section class="panel"><h2>Estimated album listens</h2><p class="method-note">The third least played track from an identified complete tracklist, including tracks with zero plays. Albums must contain at least six tracks. This avoids favouring longer albums. Figures appear as tracklists are identified in the background.</p><button class="button quiet" data-view="albums">Browse album rankings →</button></section></div>`;
+  const estimated=(data.top_albums_estimated || []).filter(a=>a.estimated_listens!==null && a.estimated_listens!==undefined);
+  return `${metrics(data)}
+    <section class="panel overview-chart-panel">${panelHead("Listening activity","A snapshot of plays in the selected period",'<button class="button quiet" data-view="trends">Explore trends →</button>')}${chart(data,null,state.mode,null,true)}</section>
+    ${insightsStrip(data)}
+    ${state.period!=="all" && data.discovery?.complete ? `<div class="compact-insight">${discovery(data)}</div>` : ""}
+    <div class="grid-equal">${topList("Top artists","artist",data.top_artists || [],"artists")}
+      ${topList("Top albums","album",data.top_albums || [],"albums")}
+      ${topList("Top songs","song",data.top_songs || [],"songs")}</div>
+    ${estimated.length ? `<section class="panel estimated-overview">${panelHead("Most played albums (estimated)", "A different measure of listening through an album")}
+      ${topList("Estimated album listens","album",estimated.slice(0,8),"albums","estimated")}
+      <details class="method-note"><summary>How are album listens estimated?</summary>
+      <p>The estimate uses the third least played track from a complete tracklist of six or more songs, including tracks never scrobbled. This avoids favouring longer albums.</p></details></section>` : ""}`;
 }
 
 /* Rolling-year views are loaded independently of the main overview cache. */
@@ -606,7 +622,24 @@ async function loadMusicalEras(serial) {
 }
 
 function trendsHTML(data) {
-  return `${metrics(data)}<section class="panel" style="margin-bottom:22px">${panelHead("Your listening over time", "Select any bar to explore the plays behind it.")}${chart(data)}</section><div class="grid-two">${heatmap(data)}<section class="panel">${panelHead("Artist concentration", "Share of plays from your five most played artists")}<div class="insight-number">${data.top_five_share}%</div><p class="method-note">${number(data.current.artists)} artists in this period. A higher share means more listening centred on your favourites.</p><div class="split-bar"><span style="width:${data.top_five_share}%"></span></div><div class="legend"><span>Top five</span><span>Other artists</span></div></section></div><div class="grid-two">${discovery(data)}<section class="panel">${panelHead("Rediscoveries", "At least 90 days since the previous recorded play")}${data.returning.map((r) => `<button class="list-row" ${detailAttrs("artist", r)}><span class="list-name"><strong>${esc(r.name)}</strong><small>${number(Math.floor(r.gap_days))} days between plays</small></span><span class="list-count">${number(r.plays)}</span></button>`).join("") || '<p class="method-note">No rediscoveries in this period.</p>'}</section></div><div id="musical-eras" class="musical-eras"><section class="panel"><h2>Musical eras</h2><p class="method-note">Preparing rolling 365-day listening shares…</p></section></div>`;
+  const returners=data.returning || [];
+  return `<section class="panel trends-chart-panel">
+    ${panelHead("Your listening over time","Hover or tap a bar to see its count. Select a bar to explore plays.")}${chart(data,null,state.mode,null,true)}
+    <details class="trends-heatmap"><summary>Explore by calendar month</summary>${calendarHeatmap(data)}</details>
+  </section>
+  <div class="grid-two">
+    ${heatmap(data)}
+    <section class="panel">${panelHead("Artist concentration","Share of plays from your five most played artists")}
+      <div class="insight-number">${data.top_five_share}%</div>
+      <p class="method-note">${number(data.current.artists)} artists in this period. Higher numbers mean your plays are concentrated around a few favourites.</p>
+      <div class="split-bar"><span style="width:${data.top_five_share}%"></span></div>
+      <div class="legend"><span>Top five</span><span>Other artists</span></div>
+    </section>
+  </div>
+  ${state.period!=="all" && data.discovery?.complete ? discovery(data) : ""}
+  ${returners.length ? `<section class="panel">${panelHead("Rediscoveries","Artists returning after at least 90 days without a play")}
+    ${returners.map(r=>`<button class="list-row" ${detailAttrs("artist",r)}><span class="list-name"><strong>${esc(r.name)}</strong><small>${number(Math.floor(r.gap_days))} days between plays</small></span><span class="list-count">${number(r.plays)}</span></button>`).join("")}</section>` : ""}
+  <div id="musical-eras" class="musical-eras"><section class="panel"><h2>Musical eras</h2><p class="method-note">Preparing rolling 365-day listening shares…</p></section></div>`;
 }
 function pager(total) {
   return `<div class="pager"><span>${total ? `${number(state.offset + 1)}–${number(Math.min(state.offset + 50, total))} of ${number(total)}` : "No results"}</span><div><button class="button" data-page="prev" ${state.offset === 0 ? "disabled" : ""}>Previous</button><button class="button" data-page="next" ${state.offset + 50 >= total ? "disabled" : ""}>Next</button></div></div>`;
