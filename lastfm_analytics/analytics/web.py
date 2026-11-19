@@ -14,6 +14,7 @@ from flask import (
     Response,
     Flask,
     abort,
+    g,
     jsonify,
     redirect,
     render_template,
@@ -23,6 +24,7 @@ from flask import (
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from . import __version__, insights
+from .cloudflare_access import AccessDenied, CloudflareAccess
 from .cache import ViewCache
 from . import eras
 from .review import review
@@ -47,6 +49,9 @@ DEFAULTS = {
     "reconcile_days": 7,
     "demo_mode": False,
     "web_password": "",
+    "cloudflare_team_domain": "",
+    "cloudflare_audience": "",
+    "cloudflare_owner_email": "",
     "source_api_token": "",
     "audioshelf_url": "",
     "artwork_lookups": True,
@@ -114,6 +119,16 @@ def validate_config(config):
         if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment or any(c in value for c in "\\'\" \r\n;"):
             raise ConfigurationError("AudioShelf URL must be an HTTPS web address")
     config["audioshelf_url"] = value
+    for key in ("cloudflare_team_domain", "cloudflare_audience", "cloudflare_owner_email"):
+        config[key] = str(config.get(key) or "").strip()
+    if any(config[key] for key in ("cloudflare_team_domain", "cloudflare_audience", "cloudflare_owner_email")):
+        # Never silently fall back to passwords with a partially configured Access application.
+        if (
+            not re.fullmatch(r"[a-z0-9-]+\.cloudflareaccess\.com", config["cloudflare_team_domain"])
+            or not config["cloudflare_audience"]
+            or not re.fullmatch(r"[^@\s]+@[^@\s]+", config["cloudflare_owner_email"])
+        ):
+            raise ConfigurationError("Cloudflare login requires the team domain, Listening application audience and owner email together.")
     return config
 
 
@@ -161,6 +176,8 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
         PERMANENT_SESSION_LIFETIME=timedelta(days=7),
     )
     password_hash = generate_password_hash(password) if password else None
+    cloudflare = CloudflareAccess(config)
+    app.extensions['cloudflare_access'] = cloudflare
     login_attempts = {}
     login_lock = threading.Lock()
     csrf = secrets.token_urlsafe(32)
@@ -273,7 +290,16 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
             return None
         ingress = ingress_request()
         local_dev = development and request.remote_addr in ("127.0.0.1", "::1")
-        if not ingress and not local_dev and not password_hash:
+        if not ingress and not local_dev and cloudflare.enabled:
+            # Verify each standalone request, including assets and the service
+            # worker. An old Listening password session grants no access.
+            try:
+                g.access_claims = cloudflare.verify(request.headers.get("Cf-Access-Jwt-Assertion"))
+            except AccessDenied as error:
+                if request.path.startswith("/api/"):
+                    return jsonify(error=str(error)), 401
+                return Response(str(error), status=401, mimetype="text/plain")
+        elif not ingress and not local_dev and not password_hash:
             abort(403)
         if request.path == "/login" or request.path in (
             "/static/style.css",
@@ -283,7 +309,7 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
             "/sw.js",
         ):
             return None
-        if not ingress and not local_dev and not session.get("authenticated"):
+        if not ingress and not local_dev and not cloudflare.enabled and not session.get("authenticated"):
             if request.path.startswith("/api/"):
                 return jsonify(error="Sign in to continue."), 401
             return redirect("/login")
@@ -294,6 +320,10 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
 
     @app.route("/login", methods=["GET", "POST"])
     def login():
+        if cloudflare.enabled:
+            if request.method == "POST":
+                return jsonify(error="Login is managed through Cloudflare and Google."), 403
+            return redirect(request_base())
         if ingress_request():
             return redirect(request_base())
         if not password_hash:
@@ -345,6 +375,8 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
 
     @app.post("/api/logout")
     def logout():
+        if cloudflare.enabled and not ingress_request():
+            return jsonify(error="Sign out through Cloudflare rather than the old Listening password."), 403
         session.clear()
         return jsonify(ok=True)
 
@@ -386,7 +418,7 @@ def create_app(data_dir="/data", config=None, development=False, start_worker=Tr
             "index.html",
             base=request_base(),
             csrf=csrf,
-            direct_login=bool(password_hash) and not ingress_request(),
+            direct_login=bool(password_hash) and not cloudflare.enabled and not ingress_request(),
         )
 
     @app.get("/manifest.webmanifest")
