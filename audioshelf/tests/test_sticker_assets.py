@@ -1,36 +1,38 @@
-"""Keep the illustrated sleeve labels portable and readable across interfaces."""
+"""Check the two physical paper label designs and responsive PNG exports."""
 from pathlib import Path
-from xml.etree import ElementTree as ET
+from PIL import Image
 
 STATIC = Path(__file__).resolve().parents[1] / "app" / "static"
-STICKERS = ("loan", "loan-worn", "collection", "attention", "on-shelf", "on-loan")
-SVG = "{http://www.w3.org/2000/svg}"
+STICKERS = ("loan", "spotify_attention")
+WIDTHS = (96, 160, 256, 384)
 
+def test_responsive_photographic_sticker_assets():
+    for kind in STICKERS:
+        master = STATIC / "stickers" / f"{kind}-master.png"
+        assert master.is_file(), f"Preserve full-resolution {kind} original"
+        with Image.open(master) as img:
+            assert img.mode == "RGBA" and img.width >= 1000
+            master_ratio = img.width / img.height
+        for width in WIDTHS:
+            file = STATIC / "stickers" / f"{kind}-{width}.png"
+            assert file.is_file(), file
+            with Image.open(file) as img:
+                assert img.format == "PNG" and img.mode == "RGBA"
+                assert img.width == width
+                assert abs(img.width / img.height - master_ratio) < .04
 
-def test_paper_stickers_are_self_contained_svg():
-    for name in STICKERS:
-        path = STATIC / "stickers" / f"{name}.svg"
-        root = ET.parse(path).getroot()
-        assert root.tag == SVG + "svg"
-        assert root.attrib.get("viewBox")
-        assert root.findall(".//" + SVG + "text"), name
-        assert root.findall(".//" + SVG + "path"), name
-        assert root.findall(".//" + SVG + "filter"), name
-        data = path.read_text()
-        assert "<script" not in data and "http://" not in data.replace('xmlns="http://www.w3.org/2000/svg"', '')
-
-
-def test_sticker_states_use_assets_in_both_interfaces():
+def test_status_illustrations_are_proportional_and_two_only():
     app = (STATIC / "app.js").read_text()
     vinyl = (STATIC / "vinyl.js").read_text()
-    style = (STATIC / "style.css").read_text()
+    css = (STATIC / "style.css").read_text()
     worker = (STATIC / "sw.js").read_text()
-
     assert "loanStickerArt(album)" in app
     assert "loanStickerArt(album," in app
-    assert "paperSticker('collection'" in app and "paperSticker('collection'" in vinyl
-    assert "paperSticker('attention'" in app and "paperSticker('attention'" in vinyl
-    assert "paperSticker('on-shelf'" in vinyl and "paperSticker('on-loan'" in vinyl
-    assert "match-needed-label" in style and "pointer-events:auto" in style
-    assert "stickers/'+name+'.svg'" in worker
-    assert 'album-sleeve-sticker' not in vinyl
+    assert "paperSticker('spotify_attention'" in app
+    assert "paperSticker('spotify_attention'" in vinyl
+    assert "paperSticker('collection'" not in app + vinyl
+    assert "paperSticker('on-loan'" not in app + vinyl
+    assert "STICKER_WIDTHS=[96,160,256,384]" in app
+    assert "width:53%" in css and "width:34%" in css
+    assert "match-needed-label" in css and "pointer-events:auto" in css
+    assert "flatMap(name=>[96,160,256,384]" in worker
