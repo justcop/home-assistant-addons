@@ -69,15 +69,18 @@ async function assertLogoPixelsInCrop(page, label) {
     const ratio=(a,b)=>{let x=luminance(a),y=luminance(b);return (Math.max(x,y)+.05)/(Math.min(x,y)+.05)};
     const sample=document.createElement("button");
     sample.className="button primary";sample.textContent="Sample";document.body.appendChild(sample);
+    const probe=document.createElement("span");
+    probe.style.color="var(--muted)";probe.style.backgroundColor="var(--bg)";
+    document.body.appendChild(probe);
     const values=[];
     for(const theme of ["light","dark"]) for(const palette of ["violet","ocean","forest","rose","amber"]){
       root.dataset.theme=theme;root.dataset.palette=palette;
-      const css=getComputedStyle(root),btn=getComputedStyle(sample);
+      const label=getComputedStyle(probe),btn=getComputedStyle(sample);
       values.push({theme,palette,
-        text:ratio(css.getPropertyValue("--muted").trim(),css.getPropertyValue("--bg").trim()),
+        text:ratio(label.color,label.backgroundColor),
         button:ratio(btn.color,btn.backgroundColor)});
     }
-    sample.remove();[root.dataset.theme,root.dataset.palette]=previous;
+    sample.remove();probe.remove();[root.dataset.theme,root.dataset.palette]=previous;
     return values;
   });
   for(const c of contrasts){
