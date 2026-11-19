@@ -2,11 +2,15 @@
 
 ## First import
 
-1. Install the add-on, set `web_password` in its Configuration tab, then start it and open its web interface. Ingress uses Home Assistant’s sidebar / Open web UI. Enter the same password on the app login screen.
+1. Install the add-on, start it and open **Open web UI**. Home Assistant ingress uses your Home Assistant login without an extra password. For a standalone website, configure the Google Cloudflare Access sign-in described in README.md, or set the legacy `web_password` option.
 2. In **Backups & settings**, select the separately supplied history JSON and choose **Import history**.
 3. Check the latest financial position, account classifications and active account list.
 
 The initial import includes account classifications, historical balances, aggregate contribution records and original displayed Summary values for audit. It preserves blanks and flags incomplete history as provisional. The app calculates future periods locally. It does not maintain a second editable Google Sheet.
+
+## Sign-in and security
+
+The direct standalone interface uses the same existing Cloudflare Access Google identity provider as Listening and AudioShelf. Configure `cloudflare_team_domain`, a **unique Money Locations** `cloudflare_audience`, and `cloudflare_owner_email` together. The Cloudflare application must allow only your Google identity. The backend enforces the same email restriction, verifies JWT signatures and audience for every request, and does not let an old password cookie bypass it. Sign out via Cloudflare; this also affects other Cloudflare Access sessions. Home Assistant ingress remains protected by Home Assistant instead. Keep the direct port behind an HTTPS Cloudflare Tunnel and Access policy; never expose it unauthenticated.
 
 ## Monthly check-in
 
