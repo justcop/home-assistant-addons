@@ -14,6 +14,20 @@ A Home Assistant add-on that turns your Last.fm history into a clear, local anal
 - Review proposed merges, skipped candidates and existing merges; optionally learn an exact artist-specific suffix from an approved suggestion.
 - Try a clearly labelled fictional demo before connecting an account. Demo data uses its own database and makes no Last.fm requests.
 
+## Cloudflare Google login (same identity provider as AudioShelf)
+
+The external Listening URL `https://scrobble.justcop.co.uk` is secured by its existing Cloudflare Access self-hosted application. It can use the **same Google identity provider** and approved account as AudioShelf; no second Google OAuth client or consent screen is required. Each Cloudflare Access application has **its own audience identifier**; use Listening's audience, never AudioShelf's.
+
+Configure these three Listening add-on options together:
+
+- `cloudflare_team_domain`: `justcop.cloudflareaccess.com` (the existing team).
+- `cloudflare_audience`: Listening's own Access application AUD, from Cloudflare Zero Trust.
+- `cloudflare_owner_email`: the approved Google email.
+
+When configured, Listening validates Cloudflare's signed JWT (signature, issuer, own audience, expiry, human account type and approved email) on **every standalone request**. Old password sessions are no longer accepted in that mode, and its password login page redirects to Listening. An optional existing web password can remain configured as a rollback option, but it does not grant access while Cloudflare mode is enabled. Disable Cloudflare mode only if you intentionally want the old password login.
+
+The trusted Home Assistant ingress path remains available without a Cloudflare JWT. `/health` stays unauthenticated for Supervisor; `/api/source-reports` retains its separate bearer token for Vinyl Guardian. Never exempt any private Listening API from Cloudflare Access.
+
 ## Install
 
 Install from the repository’s `main` branch.
