@@ -321,16 +321,6 @@
 .matching-pending{border:1px dashed var(--line);padding:12px 16px;margin:14px 0;color:var(--muted);font-size:13px}
 .matching-pending p{margin:5px 0 0}
 
-/* Stickers physically overlap the full-size jacket, just as on shelf sleeves. */
+/* SVG labels are on the jacket front and flip with it. */
 [data-interface=vinyl] .listening-sleeve{position:sticky}
 @media(max-width:700px){[data-interface=vinyl] .listening-sleeve{position:relative}}
-.album-sleeve-sticker{
-  position:absolute;z-index:5;top:15px;right:10px;pointer-events:none;
-  max-width:33%;padding:10px 13px;box-sizing:border-box;
-  background:repeating-linear-gradient(12deg,#00000008 0 1px,transparent 1px 4px),#f3dfb8;
-  color:#5d4228;border:1px solid #a9916d;border-radius:2px 4px 2px 3px;
-  box-shadow:0 1px 1px #fff9 inset,0 2px 0 #ad9678,2px 5px 11px #0005;
-  font:800 11px/1.2 system-ui,sans-serif;text-align:center;letter-spacing:.09em;
-  transform:rotate(8deg);
-}
-.album-owned-sticker{background-color:#e6e6d0;color:#344838;border-color:#a6b49c;transform:rotate(-7deg)}
