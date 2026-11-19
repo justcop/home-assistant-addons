@@ -474,7 +474,10 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
 
     await page.goto(base+'/#settings');
     await page.getByRole('heading',{name:'Settings.'}).waitFor();await revealSettings(page);
-    await page.getByRole('button',{name:'Open Security settings'}).click();
+    assert.equal(await page.getByRole('button',{name:'Open Security settings'}).count(),0,
+      'Legacy Security panel is intentionally absent from Settings');
+    // Retain backend security regression coverage without exposing an empty panel.
+    await page.evaluate(()=>securitySettings());
     const supportForm=page.locator('[data-operation="support"]');
     await supportForm.getByLabel('Confirm your password').fill('fixture-owner-password');
     await supportForm.getByRole('button',{name:'Create temporary login'}).click();
