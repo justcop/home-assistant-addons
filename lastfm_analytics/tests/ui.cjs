@@ -593,7 +593,8 @@ async function assertLogoPixelsInCrop(page, label) {
         {id:1004,name:'Alpha (Remaster)',plays:200,group_id:502}],
       reason:'Fixture choices', learnable:false}], total:1,offset:0,rules:[]}});
   });
-  await page.locator('.settings-nav').click();
+  await page.locator("#nav-more").click();
+  await page.locator('#more-nav [data-view="settings"]').click();
   const namesCard = page.locator('.review-card').first();
   await namesCard.locator('.candidate-version').nth(0).check();
   await namesCard.locator('.candidate-version').nth(1).check();
