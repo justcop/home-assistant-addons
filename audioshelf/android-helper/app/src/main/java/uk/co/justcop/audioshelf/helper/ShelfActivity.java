@@ -28,7 +28,6 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
-import android.widget.PopupMenu;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -58,7 +57,6 @@ public final class ShelfActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private WebView web;
-    private TextView options;
     private TextView updaterStatus;
     private HelperUpdater updater;
     private String trustedOrigin;
@@ -68,6 +66,7 @@ public final class ShelfActivity extends Activity {
     private boolean wakeConnecting;
     private boolean loaded;
     private boolean scrollSafeHeaderReady;
+    private boolean launchUpdateChecked;
     private FrameLayout shelfRoot;
     private int statusBarPx;
     private int bottomSafePx;
@@ -167,6 +166,17 @@ public final class ShelfActivity extends Activity {
             @Override public void onPageFinished(WebView view, String url) {
                 loaded = sameOrigin(Uri.parse(url));
                 applyScrollableHeader();
+                if (loaded && !launchUpdateChecked && updater != null) {
+                    launchUpdateChecked = true;
+                    updater.check((version, action) -> {
+                        if (isFinishing() || isDestroyed() || !hasWindowFocus()) return;
+                        new AlertDialog.Builder(this)
+                            .setTitle("AudioShelf Android update available")
+                            .setMessage("Version " + version + " is ready. Download the verified update now?")
+                            .setPositiveButton("Download", (dialog, which) -> action.run())
+                            .setNegativeButton("Later", null).show();
+                    });
+                }
                 if (loaded && ACTION_NOW_PLAYING.equals(getIntent().getAction()))
                     view.evaluateJavascript("window.dispatchEvent(new CustomEvent(\'audioshelf-native-playback\'));", null);
             }
@@ -184,17 +194,6 @@ public final class ShelfActivity extends Activity {
                 } catch (Exception ignored) { }
             });
         root.addView(web, new FrameLayout.LayoutParams(-1,-1));
-        options = new TextView(this);
-        options.setText("⋮");
-        options.setTextSize(25);
-        options.setTextColor(Color.rgb(116,47,56));
-        options.setGravity(Gravity.CENTER);
-        options.setContentDescription("AudioShelf Android options");
-        options.setOnClickListener(v -> showNativeMenu());
-        FrameLayout.LayoutParams button = new FrameLayout.LayoutParams(dp(34),dp(42),Gravity.TOP|Gravity.RIGHT);
-        button.topMargin = dp(3);
-        button.rightMargin = dp(4);
-        root.addView(options,button);
         setContentView(root);
         WindowCompat.getInsetsController(getWindow(), root).setAppearanceLightStatusBars(true);
         WindowCompat.getInsetsController(getWindow(), root).setAppearanceLightNavigationBars(true);
@@ -250,15 +249,6 @@ public final class ShelfActivity extends Activity {
         if (shelfRoot == null) return;
         shelfRoot.setPadding(leftSafePx, scrollSafeHeaderReady ? 0 : statusBarPx,
             rightSafePx, bottomSafePx);
-        if (options != null) {
-            FrameLayout.LayoutParams params =
-                (FrameLayout.LayoutParams) options.getLayoutParams();
-            int top = dp(3) + (scrollSafeHeaderReady ? statusBarPx : 0);
-            if (params.topMargin != top) {
-                params.topMargin = top;
-                options.setLayoutParams(params);
-            }
-        }
     }
 
     /**
@@ -723,32 +713,30 @@ public final class ShelfActivity extends Activity {
             }).setNegativeButton("Cancel",null).show();
     }
 
+    /** Android-only utilities live inside the web Settings page.
+     * No separate floating overflow button overlays the AudioShelf header. */
     private void showNativeMenu() {
-        PopupMenu menu=new PopupMenu(this,options);
         boolean enabled=getSharedPreferences(PREFS,MODE_PRIVATE).getBoolean("playback_notifications",false);
-        menu.getMenu().add("Refresh AudioShelf");
-        menu.getMenu().add("Check for Android updates");
-        menu.getMenu().add("Playback diagnostics / Copy log");
-        menu.getMenu().add("Pair or reconnect Spotify");
-        menu.getMenu().add("Enable Spotify playback awareness…");
-        menu.getMenu().add(enabled?"Disable playback notifications":"Enable playback notifications");
-        menu.getMenu().add("Use companion mode");
-        menu.setOnMenuItemClickListener(item -> {
-            String choice=String.valueOf(item.getTitle());
-            if(choice.equals("Refresh AudioShelf")) web.reload();
-            else if(choice.equals("Check for Android updates")) showUpdater();
-            else if(choice.equals("Playback diagnostics / Copy log")) showPlaybackDiagnostics();
-            else if(choice.equals("Pair or reconnect Spotify"))
-                startActivity(new Intent(this, MainActivity.class).putExtra("force_companion", true));
-            else if(choice.startsWith("Enable Spotify playback awareness")) openMediaPermission();
-            else if(choice.contains("playback notifications")) changeNotifications(!enabled);
-            else if(choice.equals("Use companion mode")) {
-                getSharedPreferences(PREFS,MODE_PRIVATE).edit().putBoolean("integrated_mode",false).apply();
-                stopWake();startActivity(new Intent(this,MainActivity.class));finish();
-            }
-            return true;
-        });
-        menu.show();
+        String[] items={"Refresh AudioShelf", "Check for Android updates",
+            "Playback diagnostics / Copy log", "Pair or reconnect Spotify",
+            "Enable Spotify playback awareness…",
+            enabled?"Disable playback notifications":"Enable playback notifications",
+            "Use companion mode"};
+        new AlertDialog.Builder(this).setTitle("Android app options")
+            .setItems(items, (dialog, index) -> {
+                String choice=items[index];
+                if(choice.equals("Refresh AudioShelf")) web.reload();
+                else if(choice.equals("Check for Android updates")) showUpdater();
+                else if(choice.equals("Playback diagnostics / Copy log")) showPlaybackDiagnostics();
+                else if(choice.equals("Pair or reconnect Spotify"))
+                    startActivity(new Intent(this, MainActivity.class).putExtra("force_companion", true));
+                else if(choice.startsWith("Enable Spotify playback awareness")) openMediaPermission();
+                else if(choice.contains("playback notifications")) changeNotifications(!enabled);
+                else if(choice.equals("Use companion mode")) {
+                    getSharedPreferences(PREFS,MODE_PRIVATE).edit().putBoolean("integrated_mode",false).apply();
+                    stopWake();startActivity(new Intent(this,MainActivity.class));finish();
+                }
+            }).setNegativeButton("Close",null).show();
     }
     /** Accessible directly in integrated mode, including after the wake ends.
      * The companion's previous trace remains readable without mode switching. */
