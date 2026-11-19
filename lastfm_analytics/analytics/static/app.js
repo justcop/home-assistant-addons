@@ -920,9 +920,9 @@ function detailHeaderHTML(detail, kind) {
   return `<div class="detail-entity-hero"><div class="detail-entity-title"><h2>${esc(detail.name)}</h2><p>${esc(detail.artist)}</p></div><div class="detail-heading detail-media-actions"><div id="detail-artwork-slot">${artworkHTML(detail, kind)}</div><div class="artist-actions">${links}</div></div></div>`;
 }
 function audioShelfLink(base, path, label) {
-  // Same-window HTTPS navigation gives installed AudioShelf a chance to handle
-  // its registered web-app scope instead of forcing an ordinary new browser tab.
-  return `<a class="button" href="${esc(base + '/' + path)}">${esc(label)}</a>`;
+  // An external top-level navigation allows Chrome to dispatch verified Android
+  // App Links or the installed PWA, rather than staying in Listening\'s window.
+  return `<a class="button" href="${esc(base + '/' + path)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>`;
 }
 function recordStoreLink(detail, kind) {
   const base = statusData.audioshelf_url;
