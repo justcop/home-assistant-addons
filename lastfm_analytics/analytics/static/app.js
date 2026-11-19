@@ -513,7 +513,7 @@ function discovery(data) {
     data.current.plays && d.complete
       ? Math.round((d.plays / data.current.plays) * 100)
       : 0;
-  return `<section class="panel">${panelHead("Discovery & familiarity", "Artists first heard in your imported history")}<div class="insight-number">${d.complete ? `${pct}<span style="font-size:21px">%</span>` : "—"}</div><p style="font-size:12px">${d.complete ? "of plays were artists new to this period" : "Waiting for your complete history"}</p><div class="split-bar" role="img" aria-label="${pct}% new artist plays"><span style="width:${pct}%"></span></div><div class="legend"><span>New ${d.complete ? number(d.plays) : "—"}</span><span>Familiar ${d.complete ? number(data.current.plays - d.plays) : "—"}</span></div><div class="insight-note">${d.complete ? `<strong>${number(d.artists)} artists</strong> first appear in this period. “New” refers to your available Last.fm history, not necessarily the first time you ever heard them.` : "This measure needs the full import so older favourites are not mistaken for discoveries."}</div></section>`;
+  return `<section class="panel">${panelHead("Discovery & familiarity", "Artists first heard in your imported history")}<div class="insight-number">${d.complete ? `${pct}<span class="discovery-percentage">%</span>` : "—"}</div><p class="discovery-description">${d.complete ? "of plays were artists new to this period" : "Waiting for your complete history"}</p><div class="split-bar" role="img" aria-label="${pct}% new artist plays"><span class="panel-split-progress" style="--ratio:${pct}%"></span></div><div class="legend"><span>New ${d.complete ? number(d.plays) : "—"}</span><span>Familiar ${d.complete ? number(data.current.plays - d.plays) : "—"}</span></div><div class="insight-note">${d.complete ? `<strong>${number(d.artists)} artists</strong> first appear in this period. “New” refers to your available Last.fm history, not necessarily the first time you ever heard them.` : "This measure needs the full import so older favourites are not mistaken for discoveries."}</div></section>`;
 }
 function insightsStrip(data) {
   const g=data.grouping || {}, saved=(g.raw_songs||0)-(g.songs||0);
@@ -528,7 +528,7 @@ function insightsStrip(data) {
 }
 function heatmap(data) {
   const max = Math.max(1, ...data.hours.flat());
-  return `<section class="panel">${panelHead("When you listen", `Scrobbles by local weekday and hour · ${esc(data.period.timezone)}`)}<div class="heatmap"><span></span>${Array.from({ length: 24 }, (_, i) => `<span class="hour">${i % 3 === 0 ? String(i).padStart(2, "0") : ""}</span>`).join("")}${["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day, d) => `<span class="day">${day}</span>${data.hours[d].map((count, h) => `<span class="cell" role="img" style="opacity:${0.07 + (0.93 * count) / max}" title="${day} ${String(h).padStart(2, "0")}:00: ${number(count)} scrobbles" aria-label="${day} ${h}:00, ${number(count)} scrobbles"></span>`).join("")}`).join("")}</div><p class="method-note">Repeated daylight-saving hours share a cell. These are scrobble timestamps, not measured listening duration.</p></section>`;
+  return `<section class="panel">${panelHead("When you listen", `Scrobbles by local weekday and hour · ${esc(data.period.timezone)}`)}<div class="heatmap-scroller" tabindex="0" role="region" aria-label="Hours of listening by weekday, horizontally scrollable"><div class="heatmap"><span></span>${Array.from({ length: 24 }, (_, i) => `<span class="hour">${i % 3 === 0 ? String(i).padStart(2, "0") : ""}</span>`).join("")}${["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day, d) => `<span class="day">${day}</span>${data.hours[d].map((count, h) => `<span class="cell" role="img" style="opacity:${0.07 + (0.93 * count) / max}" title="${day} ${String(h).padStart(2, "0")}:00: ${number(count)} scrobbles" aria-label="${day} ${h}:00, ${number(count)} scrobbles"></span>`).join("")}`).join("")}</div></div><p class="method-note">Repeated daylight-saving hours share a cell. These are scrobble timestamps, not measured listening duration.</p></section>`;
 }
 function overviewHTML(data) {
   const estimated=(data.top_albums_estimated || []).filter(a=>a.estimated_listens!==null && a.estimated_listens!==undefined);
@@ -586,7 +586,7 @@ function eraChart(data, selected) {
     return paths.map(path => '<polyline points="' + path + '" fill="none" stroke="' + colour +
       '" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>').join('');
   }).join('');
-  const legend = artists.map((a,index) => '<span><i style="background:' + colours[index%colours.length] +
+  const legend = artists.map((a,index) => '<span><i class="era-colour-' + (index%5) +
     '"></i>' + esc(a.name) + ' · ' + a.current_share + '% at selected date</span>').join('');
   return '<div class="era-chart-scroll"><svg viewBox="0 0 ' + width + ' ' + height +
     '" role="img" aria-label="365-day rolling artist listening share chart for ' +
@@ -679,7 +679,7 @@ function trendsHTML(data) {
     <section class="panel">${panelHead("Artist concentration","Share of plays from your five most played artists")}
       <div class="insight-number">${data.top_five_share}%</div>
       <p class="method-note">${number(data.current.artists)} artists in this period. Higher numbers mean your plays are concentrated around a few favourites.</p>
-      <div class="split-bar"><span style="width:${data.top_five_share}%"></span></div>
+      <div class="split-bar"><span class="panel-split-progress" style="--ratio:${data.top_five_share}%"></span></div>
       <div class="legend"><span>Top five</span><span>Other artists</span></div>
     </section>
   </div>
@@ -728,7 +728,7 @@ function rankTable(data, kind, settings = false) {
       <td class="name-cell"><button class="text-button rank-row-button" aria-label="${esc(r.name)}" ${detailAttrs(kind,r)}>
         <span class="rank-title">${rowArtwork(kind,r)}<span><strong>${esc(r.name)}</strong>
         ${subtitle?`<small>${esc(subtitle)}</small>`:""}</span></span></button></td>
-      <td class="num"><strong>${number(r.plays)}</strong><div class="row-progress"><i style="width:${(r.plays/max)*100}%"></i></div></td>
+      <td class="num"><strong>${number(r.plays)}</strong><div class="row-progress"><i style="--ratio:${(r.plays/max)*100}%"></i></div></td>
       ${album?`<td class="num"><strong title="${esc(r.estimate_status==="ready"?`${r.track_count} tracks · ${r.tracklist_source}`:"Complete tracklist not yet identified")}">${r.estimated_listens===null||r.estimated_listens===undefined?"—":number(r.estimated_listens)}</strong></td>`:""}
       ${comparison?`<td class="num">${r.previous===null||r.previous===undefined?"—":number(r.previous)}</td><td class="num"><span class="change">${change}</span></td>`:""}
     </tr>`;
@@ -816,7 +816,7 @@ function settingsHTML(data) {
     : `<article class="review-card"><h3>${esc(r.artist)}</h3><fieldset class="review-choices"><legend>Choose the versions to combine</legend>${r.versions.map(v => `<label><input type="checkbox" class="candidate-version" value="${v.id}" data-name="${esc(v.name)}" data-plays="${v.plays}"><span>${esc(v.name)}<small>${number(v.plays)} scrobbles</small></span></label>`).join("")}</fieldset><label class="merge-name">Name from selected versions<select class="candidate-name-choice" disabled><option value="">Select at least two versions</option></select></label><label class="merge-name">Combined name, editable<input class="candidate-name" type="text" maxlength="1000" placeholder="Select versions, then choose a name" disabled></label><p>${esc(r.reason)}</p><div class="review-actions"><button class="button primary" data-candidate-merge="${r.ids.join(",")}" disabled>Merge selected</button>${r.learnable ? `<button class="button" data-candidate-learn="${r.ids.join(",")}" data-suffix="${esc(r.suffix)}" data-artist="${esc(r.artist)}" title="Select every listed version to learn this suffix" disabled>Merge and learn suffix</button>` : ""}${state.groupTab !== "skipped" || r.dismissed ? `<button class="button" data-candidate-key="${esc(r.key)}" data-candidate-action="${state.groupTab === "skipped" ? "restore" : "dismiss"}">${state.groupTab === "skipped" ? "Reconsider" : "Keep separate"}</button>` : ""}</div></article>`;
   return `<section class="panel"><div class="panel-head"><div><h2>Version review</h2><p>Select two or more versions to combine. Unselected versions keep their current grouping.</p></div><button class="button" id="undo" ${statusData.events.some(e => !e.undone) ? "" : "disabled"}>Undo latest change</button></div><div class="segment review-kind-tabs" role="group" aria-label="Review category">
    ${[["artist","Artists"],["song","Songs"],["album","Albums"]].map(([kind,label])=>`<button data-group-kind="${kind}" aria-pressed="${state.groupKind===kind}">${label}</button>`).join("")}
-   </div><div class="review-filters"><input id="search" type="search" aria-label="Search merge candidates" placeholder="Search candidates or merges…" value="${esc(state.q)}"></div><div class="segment review-tabs">${[["suggested","Suggestions"],["skipped","Skipped candidates"],["merged","Already merged"]].map(([tab,label])=>`<button data-group-tab="${tab}" aria-pressed="${tab===state.groupTab}">${label}</button>`).join("")}</div><p class="method-note">Skipped candidates include live performances and mixes that automatic rules kept separate, plus your rejected suggestions. “Merge and learn suffix” remembers only that exact suffix for this artist and type, for future imports with a matching base entry. Undo removes the rule and its later assignments.</p><div class="review-list">${data.rows.map(card).join("") || '<div class="empty">No matches in this review.</div>'}</div>${pager(data.total)}</section><section class="panel" style="margin-top:20px"><h2>Learned rules</h2>${data.rules.length ? data.rules.map(r=>`<p class="method-note">${esc(r.artist)} · ${esc(r.kind)} · ${esc(r.suffix)}</p>`).join("") : '<p class="method-note">Approve a learnable suggestion to create a rule.</p>'}<h3 style="margin-top:20px">Connection and data</h3><p class="method-note">${esc(statusData.username)} · ${number(statusData.counts.plays)} scrobbles · ${esc(statusData.timezone)} · ${statusData.import_state.complete ? "Import complete" : "Import in progress"}. Configure credentials and the web password in Home Assistant. Vinyl reporting: ${statusData.source_reporting_enabled ? "enabled" : "not configured"}, ${number(statusData.source_reports)} reports received.</p></section>`;
+   </div><div class="review-filters"><input id="search" type="search" aria-label="Search merge candidates" placeholder="Search candidates or merges…" value="${esc(state.q)}"></div><div class="segment review-tabs">${[["suggested","Suggestions"],["skipped","Skipped candidates"],["merged","Already merged"]].map(([tab,label])=>`<button data-group-tab="${tab}" aria-pressed="${tab===state.groupTab}">${label}</button>`).join("")}</div><p class="method-note">Skipped candidates include live performances and mixes that automatic rules kept separate, plus your rejected suggestions. “Merge and learn suffix” remembers only that exact suffix for this artist and type, for future imports with a matching base entry. Undo removes the rule and its later assignments.</p><div class="review-list">${data.rows.map(card).join("") || '<div class="empty">No matches in this review.</div>'}</div>${pager(data.total)}</section><section class="panel detail-section-spacing"><h2>Learned rules</h2>${data.rules.length ? data.rules.map(r=>`<p class="method-note">${esc(r.artist)} · ${esc(r.kind)} · ${esc(r.suffix)}</p>`).join("") : '<p class="method-note">Approve a learnable suggestion to create a rule.</p>'}<h3 class="learned-rules-heading">Connection and data</h3><p class="method-note">${esc(statusData.username)} · ${number(statusData.counts.plays)} scrobbles · ${esc(statusData.timezone)} · ${statusData.import_state.complete ? "Import complete" : "Import in progress"}. Configure credentials and the web password in Home Assistant. Vinyl reporting: ${statusData.source_reporting_enabled ? "enabled" : "not configured"}, ${number(statusData.source_reports)} reports received.</p></section>`;
 }
 function setupHTML() {
   return `<section class="panel setup"><div class="setup-mark" aria-hidden="true">◫</div><h2>Your listening, ready to explore</h2><p>Connect Last.fm to bring your listening history together. Explore trends, find returning favourites and combine versions into meaningful totals.</p><ol><li>Open this add-on’s <strong>Configuration</strong> tab in Home Assistant.</li><li>Enter your <strong>Last.fm username</strong> and <a href="https://www.last.fm/api/account/create" target="_blank" rel="noopener noreferrer">API key</a>.</li><li>Save, restart the add-on and reopen this dashboard.</li></ol><p>The first import runs in the background and resumes after restarts. Your Last.fm history is never edited.</p><a class="button primary" href="?demo=1">Explore a fictional demo ↗</a></section>`;
@@ -862,7 +862,7 @@ async function fetchStatus() {
               ((imp.upper - imp.cursor) / (imp.upper - imp.lower)) * 100,
             ),
           );
-    banner = `<span><strong>Importing your history.</strong> ${number(statusData.counts.plays)} plays saved. ${pct}% of the date span checked. You can explore while it runs.<div class="progress-track"><span style="width:${pct}%"></span></div></span>`;
+    banner = `<span><strong>Importing your history.</strong> ${number(statusData.counts.plays)} plays saved. ${pct}% of the date span checked. You can explore while it runs.<div class="progress-track"><span style="--ratio:${pct}%"></span></div></span>`;
   }
   const playing = statusData.now_playing.track;
   $("#now-playing").hidden = !playing || state.source !== "all";
@@ -1295,7 +1295,7 @@ async function showDetail(kind, id, groupMode = false, restoring = false) {
     const renderDetail = next => {
       currentArtistAnalytics = next;
       replaceCachedView("#detail-analytics",
-        `${metrics(next, mode, {kind,id,name:detail.name}, allTime)}<section class="panel">${panelHead("Listening history", "Select a bar to inspect individual scrobbles.")}${chart(next, {kind,id,name:detail.name}, mode, artistGigInfo?.timeline?.gigs)}</section>${kind === "artist" ? artistLiveHTML(artistGigInfo, artistGigError) : ""}${kind === "album" ? albumEstimateHTML(next.album_estimate) : ""}${kind === "artist" ? artistAlbumsHTML(next, id, detail.name) + `<div id="artist-era-section">${artistEraData ? artistEraHTML(artistEraData) : '<p class="method-note">Loading musical eras…</p>'}</div>` : ""}${detail.versions.length ? `<div class="panel-head" style="margin-top:23px"><div><h2>Versions</h2><p>All-time plays for the selected source, including versions outside the selected period.</p></div></div><div class="table-wrap"><table><thead><tr><th>Scrobbled name</th><th class="num">Plays</th><th>First / latest play</th><th></th></tr></thead><tbody>${detail.versions.map(v => `<tr><td class="name-cell"><strong>${esc(v.name)}</strong><small>${v.manual ? "Manual decision" : "Automatic grouping"}</small></td><td class="num">${number(v.plays)}</td><td><small>${formatDate(v.first_play)}<br>${formatDate(v.last_play)}</small></td><td>${detail.versions.length > 1 ? `<button class="button" data-separate="${v.id}" data-name="${esc(v.name)}">Separate</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : ""}<div class="dialog-actions" style="margin-top:18px"><button class="button primary" data-show-history="${kind}" data-id="${esc(id)}" data-name="${esc(detail.name)}" data-mode="${mode}" data-all="${allTime}">View scrobbles →</button></div>`);
+        `${metrics(next, mode, {kind,id,name:detail.name}, allTime)}<section class="panel">${panelHead("Listening history", "Select a bar to inspect individual scrobbles.")}${chart(next, {kind,id,name:detail.name}, mode, artistGigInfo?.timeline?.gigs)}</section>${kind === "artist" ? artistLiveHTML(artistGigInfo, artistGigError) : ""}${kind === "album" ? albumEstimateHTML(next.album_estimate) : ""}${kind === "artist" ? artistAlbumsHTML(next, id, detail.name) + `<div id="artist-era-section">${artistEraData ? artistEraHTML(artistEraData) : '<p class="method-note">Loading musical eras…</p>'}</div>` : ""}${detail.versions.length ? `<div class="panel-head detail-versions-heading"><div><h2>Versions</h2><p>All-time plays for the selected source, including versions outside the selected period.</p></div></div><div class="table-wrap"><table><thead><tr><th>Scrobbled name</th><th class="num">Plays</th><th>First / latest play</th><th></th></tr></thead><tbody>${detail.versions.map(v => `<tr><td class="name-cell"><strong>${esc(v.name)}</strong><small>${v.manual ? "Manual decision" : "Automatic grouping"}</small></td><td class="num">${number(v.plays)}</td><td><small>${formatDate(v.first_play)}<br>${formatDate(v.last_play)}</small></td><td>${detail.versions.length > 1 ? `<button class="button" data-separate="${v.id}" data-name="${esc(v.name)}">Separate</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : ""}<div class="dialog-actions detail-history-action"><button class="button primary" data-show-history="${kind}" data-id="${esc(id)}" data-name="${esc(detail.name)}" data-mode="${mode}" data-all="${allTime}">View scrobbles →</button></div>`);
     };
     renderDetail(data);
     if (kind === "artist") {
@@ -1336,10 +1336,10 @@ function albumEstimateHTML(album) {
       ? "Identifying a complete tracklist in the background. No estimate is calculated from partial scrobbles."
       : `Third least played track of ${number(album.track_count)} canonical tracks · ${esc(album.tracklist_source || "tracklist metadata")}.`;
   const tracks = album.track_breakdown || [];
-  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>Estimated album listens</h2><p>How often you listen through most of the album, rather than a count that favours longer records.</p></div><strong class="insight-number">${count}</strong></div><p class="method-note">${explanation}</p>${tracks.length ? `<div class="table-wrap"><table><thead><tr><th>Canonical track</th><th class="num">Scrobbles</th></tr></thead><tbody>${tracks.map(t => `<tr><td>${esc(t.title)}</td><td class="num">${number(t.plays)}</td></tr>`).join("")}</tbody></table></div>` : ""}</section>`;
+  return `<section class="panel detail-section-spacing"><div class="panel-head"><div><h2>Estimated album listens</h2><p>How often you listen through most of the album, rather than a count that favours longer records.</p></div><strong class="insight-number">${count}</strong></div><p class="method-note">${explanation}</p>${tracks.length ? `<div class="table-wrap"><table><thead><tr><th>Canonical track</th><th class="num">Scrobbles</th></tr></thead><tbody>${tracks.map(t => `<tr><td>${esc(t.title)}</td><td class="num">${number(t.plays)}</td></tr>`).join("")}</tbody></table></div>` : ""}</section>`;
 }
 function artistAlbumsHTML(data, id, name) {
-  return `<div class="grid-two" style="margin-top:18px">${topList("Albums by scrobbles", "album", data.top_albums || [], "albums", "scrobbles", {kind:"artist", id, name})}${topList("Albums by estimated listens", "album", data.top_albums_estimated || [], "albums", "estimated", {kind:"artist", id, name})}</div>`;
+  return `<div class="grid-two detail-section-spacing">${topList("Albums by scrobbles", "album", data.top_albums || [], "albums", "scrobbles", {kind:"artist", id, name})}${topList("Albums by estimated listens", "album", data.top_albums_estimated || [], "albums", "estimated", {kind:"artist", id, name})}</div>`;
 }
 function confirmAction(title, description, fn) {
   $("#confirm-title").textContent = title;
@@ -1650,7 +1650,19 @@ function updateChartTooltip(target) {
 }
 ["pointerover","focusin","pointerdown"].forEach(eventName=>
   document.addEventListener(eventName,event=>updateChartTooltip(event.target)));
+function closeMoreNavigation(restoreFocus = false) {
+  const menu = $("#more-nav");
+  if (menu.hidden) return;
+  menu.hidden = true;
+  $("#nav-more").setAttribute("aria-expanded","false");
+  if (restoreFocus) $("#nav-more").focus();
+}
 document.addEventListener("keydown", event=>{
+  if (event.key === "Escape" && !$("#more-nav").hidden) {
+    event.preventDefault();
+    closeMoreNavigation(true);
+    return;
+  }
   const row=event.target.closest("tr[data-row-detail]");
   if(row && (event.key==="Enter" || event.key===" ") && event.target===row){
     event.preventDefault(); showDetail(row.dataset.rowDetail,row.dataset.rowId);
@@ -1659,6 +1671,9 @@ document.addEventListener("keydown", event=>{
   if(marker && (event.key==="Enter" || event.key===" ")){
     event.preventDefault(); marker.click();
   }
+});
+document.addEventListener("pointerdown", event => {
+  if (!event.target.closest("#more-nav, #nav-more")) closeMoreNavigation();
 });
 document.addEventListener("input", (event) => {
   if (event.target.classList.contains("candidate-name")) {

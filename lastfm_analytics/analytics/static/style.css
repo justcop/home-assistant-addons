@@ -4,13 +4,14 @@
   --surface: #fff;
   --surface2: #f8f9fc;
   --ink: #1c2434;
-  --muted: #6c7689;
+  --muted: #626d80;
   --line: #e6e9f0;
   --accent: #5b5fe9;
   --accent-light: #eeedff;
   --green: #18806a;
   --shadow: 0 4px 24px #1e254608;
   --danger: #b33d4b;
+  --on-accent: #ffffff;
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
@@ -25,6 +26,7 @@
   --green: #6ad6b5;
   --shadow: none;
   --danger: #ff9caa;
+  --on-accent: #11151f;
 }
 * {
   box-sizing: border-box;
@@ -300,7 +302,7 @@ main {
 }
 .button.primary {
   background: var(--accent);
-  color: var(--surface);
+  color: var(--on-accent);
   border-color: var(--accent);
 }
 .button.quiet {
@@ -1625,7 +1627,7 @@ dialog { overscroll-behavior: contain; }
 .release-year-grid { display:grid; grid-template-columns:54px repeat(10,minmax(32px,1fr)); gap:5px; align-items:center; min-width:430px; }
 .release-year-column, .release-year-decade { font-size:11px; color:var(--muted); text-align:center; font-variant-numeric:tabular-nums; }
 .release-year-decade { text-align:left; font-weight:600; }
-.release-year-cell { border:1px solid var(--line); border-radius:5px; min-height:38px; padding:2px; cursor:pointer; color:var(--ink); background:color-mix(in srgb,var(--accent) calc(var(--intensity,0) * 85%),var(--surface2)); font-size:10px; font-variant-numeric:tabular-nums; }
+.release-year-cell { border:1px solid var(--line); border-radius:5px; min-height:38px; padding:2px; cursor:pointer; color:var(--ink); background:color-mix(in srgb,var(--accent) calc(var(--intensity,0) * 42%),var(--surface2)); font-size:12px; font-variant-numeric:tabular-nums; }
 .release-year-cell:hover, .release-year-cell:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
 .release-year-cell[aria-pressed="true"] { outline:2px solid var(--ink); outline-offset:1px; font-weight:700; }
 .release-year-gap { min-height:38px; }
@@ -1951,3 +1953,54 @@ dialog { overscroll-behavior: contain; }
  #source.vinyl-toggle .vinyl-label { font-size:11px; }
  #source.vinyl-toggle { min-height:44px; padding:7px 9px; }
 }
+
+/* Accessibility polish: no 7px labels and no unreadable page-background metadata. */
+.brand-sub, .nav-label, .eyebrow { font-size: 11px; line-height: 1.4; }
+.sidebar-note, .profile span:not(.avatar), .sync-label,
+.metric-foot, .metric-comparison, .change, .pill,
+.panel-head p, .insight-note, .insight-card p, .legend, th,
+.chart-axis, .chart-foot, .chart-tools small,
+.calendar-month, .calendar-year, .release-year-column,
+.release-year-decade, .release-lookup-status small {
+  font-size: 12px;
+}
+.segment button, .review-tabs button { font-size: 12px; }
+.heatmap .day,.heatmap .hour { font-size: 11px; }
+.chart-scroll .bar-chart button::after { font-size: 11px; }
+.release-year-column, .release-year-decade { font-size: 12px; }
+.detail-artwork figcaption { font-size: 12px; opacity: 1; }
+.era-neglected-row span, .era-legend, .gig-shell .muted { color: var(--muted); }
+.button.primary, .button.primary:hover, .button.primary:focus-visible { color: var(--on-accent); }
+button:disabled { opacity: .6; }
+.heatmap-scroller { width:100%; overflow-x:auto; overscroll-behavior-x:contain; padding-bottom:2px; }
+.heatmap-scroller:focus-visible { outline: 2px solid var(--accent); outline-offset:2px; }
+.heatmap-scroller .heatmap { min-width: 570px; }
+.heatmap-scroller .heatmap .day, .heatmap-scroller .heatmap .hour { font-size:11px; }
+.era-legend i.era-colour-0 { background:var(--era-1); }
+.era-legend i.era-colour-1 { background:var(--era-2); }
+.era-legend i.era-colour-2 { background:var(--era-3); }
+.era-legend i.era-colour-3 { background:var(--era-4); }
+.era-legend i.era-colour-4 { background:var(--era-5); }
+.discovery-percentage { font-size:21px; }
+.discovery-description { font-size:12px; }
+.panel-split-progress { width:var(--ratio,0%); }
+.row-progress i { width:var(--ratio,0%); }
+.progress-track span { width:var(--ratio,0%); }
+.detail-section-spacing { margin-top:18px; }
+.detail-versions-heading { margin-top:23px; }
+.detail-history-action { margin-top:18px; }
+.learned-rules-heading { margin-top:20px; }
+@media(max-width:620px) {
+  .brand-sub, .nav-label, .eyebrow { font-size:11px; }
+  .page-header p, .sync-label { font-size:12px; }
+  .chart-axis, .chart-foot, .chart-scroll .bar-chart button::after,
+  .calendar-month, .calendar-year, .heatmap .day,.heatmap .hour,
+  .release-year-column, .release-year-decade { font-size:11px; }
+  #content .release-year-cell { font-size:clamp(9px,2.5vw,11px); }
+  .release-year-grid { grid-template-columns:minmax(32px,40px) repeat(10,minmax(0,1fr)); }
+  .release-year-scroll { overflow-x:auto; }
+  .heatmap-scroller .heatmap { min-width:570px; }
+  #nav button { font-size:clamp(11px,2.6vw,12px); }
+  #nav button svg { width:22px; height:22px; }
+}
+/* Dynamic, real-data geometry is kept in custom properties; no presentation-only markup styles. */
