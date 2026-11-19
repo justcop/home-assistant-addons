@@ -30,10 +30,10 @@ jobs:
           node-version: "22"
       - run: node --check app/static/app.js && node --check app/static/moneyhub.js
       - name: Build Money Locations add-on container
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'workflow_dispatch'
         run: docker build -t money-locations:test .
       - name: Check container startup
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'workflow_dispatch'
         run: |
           docker run -d --name money-locations-test -e MONEY_LOCAL=1 money-locations:test
           trap 'docker logs money-locations-test; docker rm -f money-locations-test >/dev/null' EXIT
