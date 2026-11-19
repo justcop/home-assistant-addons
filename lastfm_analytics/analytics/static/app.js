@@ -1114,7 +1114,7 @@ function artistLiveHTML(info, error = null) {
   const gigCards=gigs.map(g=>{
     const concert=g.show_type==="festival"?"Festival":g.show_type==="concert"?"Concert":"Live performance";
     const place=g.festival || g.venue || "Venue unknown";
-    const url=typeof g.setlist_url==="string" && /^https:\\/\\//.test(g.setlist_url) ? g.setlist_url : null;
+    const url=typeof g.setlist_url==="string" && g.setlist_url.startsWith("https://") ? g.setlist_url : null;
     const impactRow=impact.find(item=>item.id===g.id);
     const change=impactRow?.available && Number.isFinite(Number(impactRow.share_change_pp))
       ? `<small>Share of listening, 30 days before vs after: ${Number(impactRow.share_change_pp)>=0?"+":""}${esc(impactRow.share_change_pp)} percentage points</small>` : "";
