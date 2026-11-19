@@ -307,9 +307,20 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.evaluate(()=>{currentAlbum.tracks[1].disc_number=2;content.innerHTML=albumPage(currentAlbum);});
     // Simulate a status read still in flight when the user chooses new music.
     await page.evaluate(()=>{checkingPlayback=true;});
+    // A prior successful playback can still be visible in Spotify's read-only
+    // status. Force the independently tested unavailable-device response here
+    // so this browser case exercises disc selection and the handoff UI.
+    let discPlayAttempts=0;
+    await page.route('**/api/albums/*/play',route=>{
+      discPlayAttempts++;
+      return route.fulfill({status:409,contentType:'application/json',
+        body:JSON.stringify({error:'Your preferred Spotify device is unavailable. Open Spotify on it.'})});
+    });
     await page.getByRole('button',{name:'Play disc 2'}).click();
     await page.evaluate(()=>{checkingPlayback=false;});
     await expectHandoff();
+    assert.equal(discPlayAttempts,1,'Disc playback tries one direct Play before the handoff');
+    await page.unroute('**/api/albums/*/play');
     await page.getByRole('link',{name:'Open Spotify',exact:true}).click();
     await fixtureOptions({phone_available:true});
     await page.waitForFunction(()=>!document.querySelector('#modal').open);
