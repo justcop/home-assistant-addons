@@ -559,7 +559,7 @@ function eraChart(data, selected) {
   const maximum = Math.ceil(maxShare / 5) * 5;
   const x = index => left + index * (width - left - right) / Math.max(1, points.length - 1);
   const y = share => top + (1 - share / maximum) * (height - top - bottom);
-  const colours = ['#6172d7','#d5825b','#289782','#ab77b7','#b49a3b'];
+  const colours = ['var(--era-1)','var(--era-2)','var(--era-3)','var(--era-4)','var(--era-5)'];
   const grid = [0, .5, 1].map(f =>
     '<line x1="' + left + '" x2="' + (width-right) + '" y1="' + y(maximum*f) + '" y2="' +
     y(maximum*f) + '" stroke="currentColor" opacity=".15"/><text x="' + (left-7) +
