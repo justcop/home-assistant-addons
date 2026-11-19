@@ -3,7 +3,7 @@ const content = document.querySelector('#content');
 const modal = document.querySelector('#modal');
 const modalContent = document.querySelector('#modal-content');
 let offlineReadOnly=false, offlineSaving=false;
-let statusInfo = {}, shelfView = 'artists', searchKind = 'artist', currentAlbum = null, routeGeneration = 0, toastTimer, artworkRevision = 0, releasePicker = null, settingsDirty = false;
+let statusInfo = {}, shelfView = 'artists', searchKind = 'all', currentAlbum = null, routeGeneration = 0, toastTimer, artworkRevision = 0, releasePicker = null, settingsDirty = false;
 const loadedAssets = document.documentElement.dataset.assetVersion;
 let workerRegistration, pendingChanges = 0, renderedHash = '';
 const busyButtons=new WeakSet();
@@ -39,6 +39,18 @@ const artistNames = album => escapeHtml((album.artists || []).map(a => a.name).j
 const duration = ms => ms ? `${Math.floor(ms/60000)}:${String(Math.floor(ms%60000/1000)).padStart(2,'0')}` : '';
 const loading = message => `<div class="loading">${escapeHtml(message)}</div>`;
 function toast(message) {const el=document.querySelector('#toast');el.textContent=message;el.classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('visible'),6500);}
+function toastWithUndo(message, restore){
+  toast(message);
+  const node=document.querySelector('#toast');
+  const button=document.createElement('button');
+  button.type='button';button.className='toast-undo';button.textContent='Undo';
+  node.append(' ',button);
+  button.addEventListener('click',async()=>{
+    button.disabled=true;
+    try{await restore();await route();toast('Restored to your Listening Pile.');}
+    catch(error){showError(error.message);}
+  });
+}
 function showError(message){
   if(!modal.open){toast(message);return;}
   let alert=modalContent.querySelector('#modal-alert');
@@ -478,7 +490,14 @@ function sortArtistsByName(artists){
 }
 function cards(albums,room='store'){
   if(isVinyl())return vinylCards(albums,room);
-  return `<div class="album-grid">${albums.map(a=>`<article class="album-card">${cover(a,false,room==='listening'&&a.on_loan)}${a.on_shelf?'<span class="badge">On your shelf</span>':''}${a.on_shelf&&!a.playable&&room!=='store'?'<a class="match-needed-label" href="#review">Needs Spotify match</a>':''}<a class="album-title" href="#album/${id(a.id)}">${escapeHtml(a.title)}</a><div class="album-meta">${artistNames(a)}<br>${year(a)}</div>${a.on_shelf?'':a.on_loan?'<span class="badge">On loan</span>':`<div class="album-choice-actions"><button class="card-action" data-action="add" data-id="${escapeHtml(a.id)}">+ Add to shelf</button><button class="card-action" data-action="borrow" data-id="${escapeHtml(a.id)}">Borrow</button></div>`}</article>`).join('')}</div>`;
+  return `<div class="album-grid">${albums.map(a=>`<article class="album-card">${cover(a,false,room==='listening'&&a.on_loan)}${a.on_shelf?'<span class="badge">On your shelf</span>':''}${a.match_state==='needs_attention'&&room!=='store'?'<a class="match-needed-label" href="#review">Needs attention</a>':''}<a class="album-title" href="#album/${id(a.id)}">${escapeHtml(a.title)}</a><div class="album-meta">${artistNames(a)}<br>${year(a)}</div>${a.on_shelf?'':a.on_loan?'<span class="badge">On loan</span>':`<div class="album-choice-actions"><button class="card-action" data-action="add" data-id="${escapeHtml(a.id)}">+ Add to shelf</button><button class="card-action" data-action="borrow" data-id="${escapeHtml(a.id)}">Borrow</button></div>`}${room==='listening'?pileCardMenu(a):''}</article>`).join('')}</div>`;
+}
+function pileCardMenu(album){
+  const key=escapeHtml(album.id);
+  const buttons=album.on_loan?
+    '<button data-action="pile-keep" data-id="'+key+'">Keep on my shelf</button><button data-action="pile-return" data-id="'+key+'">Return loan</button>':
+    '<button data-action="pile-remove-card" data-id="'+key+'">Remove from Listening Pile</button>';
+  return '<div class="pile-card-menu"><button class="quiet pile-menu-trigger" data-action="pile-menu" aria-expanded="false" aria-label="Options for '+escapeHtml(album.title)+'">⋯ Options</button><div class="pile-card-options" hidden>'+buttons+'</div></div>';
 }
 function albumMembershipActions(album){
   if(album.on_loan)return '<button class="secondary" data-action="keep">Add to shelf</button><button class="quiet" data-action="return">Return loan</button>';
