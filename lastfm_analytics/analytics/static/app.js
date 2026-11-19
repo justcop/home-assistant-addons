@@ -68,13 +68,18 @@ const titles = {
     "Your connection, data quality and version decisions.",
   ],
 };
-let theme;
-try {
-  theme = localStorage.getItem("listening-theme");
-} catch (_) {}
-document.documentElement.dataset.theme =
-  theme ||
-  (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+let themeChoice = "auto";
+try { themeChoice = localStorage.getItem("listening-theme") || "auto"; } catch (_) {}
+if (!["auto","light","dark"].includes(themeChoice)) themeChoice="auto";
+function applyThemeChoice() {
+  document.documentElement.dataset.theme = themeChoice === "auto"
+    ? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+    : themeChoice;
+  document.querySelectorAll("[data-theme-choice]").forEach(b=>
+    b.setAttribute("aria-pressed", String(b.dataset.themeChoice===themeChoice)));
+  updateThemeColour();
+}
+applyThemeChoice();
 function formatDate(
   ts,
   options = { day: "numeric", month: "short", year: "numeric" },
@@ -249,7 +254,7 @@ async function openArtistFromGig(name) {
 
 function difference(current, previous, compare = true) {
   if (!compare || previous === null || previous === undefined)
-    return '<span class="metric-foot">In selected period</span>';
+    return "";
   if (!previous)
     return `<span class="change">${current ? "New in period" : "No change"}</span>`;
   const pct = ((current - previous) / previous) * 100;
@@ -257,12 +262,12 @@ function difference(current, previous, compare = true) {
 }
 function metrics(data, mode = state.mode, filter = state.filter, all = false) {
   return `<div class="metrics">${[
-    ["plays", "Scrobbles", "↗", "history"],
-    ["artists", "Artists", "◎", "artists"],
-    ["albums", "Albums", "▣", "albums"],
-    ["songs", mode === "raw" ? "Song entries" : "Songs", "♫", "songs"],
+    ["plays", "Scrobbles", "trend", "history"],
+    ["artists", "Artists", "artist", "artists"],
+    ["albums", "Albums", "album", "albums"],
+    ["songs", mode === "raw" ? "Song entries" : "Songs", "song", "songs"],
   ].map(([k, label, icon, view]) =>
-    `<button type="button" class="metric metric-link" data-browse="${view}" data-mode="${mode}" data-all="${all}" ${filter ? `data-entity="${esc(filter.kind)}" data-id="${esc(filter.id)}" data-name="${esc(filter.name)}"` : ""} aria-label="View ${label.toLowerCase()}${filter ? ` for ${esc(filter.name)}` : ""}"><span class="metric-label">${label}<span aria-hidden="true">${icon}</span></span><span class="metric-value">${number(data.current[k])}</span><span class="metric-comparison">${difference(data.current[k], data.previous?.[k], data.period.compare)}</span></button>`
+    `<button type="button" class="metric metric-link" data-browse="${view}" data-mode="${mode}" data-all="${all}" ${filter ? `data-entity="${esc(filter.kind)}" data-id="${esc(filter.id)}" data-name="${esc(filter.name)}"` : ""} aria-label="View ${label.toLowerCase()}${filter ? ` for ${esc(filter.name)}` : ""}"><span class="metric-label">${label}<svg aria-hidden="true"><use href="#icon-${icon}"/></svg></span><span class="metric-value">${number(data.current[k])}</span><span class="metric-comparison">${difference(data.current[k], data.previous?.[k], data.period.compare)}</span></button>`
   ).join("")}</div>`;
 }
 function filterChip() {
@@ -1577,15 +1582,16 @@ $("#close-detail").onclick = closeDetail;
 $("#detail-dialog").addEventListener("cancel", event => {event.preventDefault(); closeDetail();});
 $("#detail-dialog").addEventListener("close", () => detailController?.abort());
 $("#confirm-cancel").onclick = () => $("#confirm-dialog").close();
-$("#theme").onclick = () => {
-  const next =
-    document.documentElement.dataset.theme === "dark" ? "light" : "dark";
-  document.documentElement.dataset.theme = next;
-  try {
-    localStorage.setItem("listening-theme", next);
-  } catch (_) {}
-  updateThemeColour();
-};
+document.querySelectorAll("[data-theme-choice]").forEach(button=>{
+  button.onclick=()=>{
+    themeChoice=button.dataset.themeChoice;
+    try {localStorage.setItem("listening-theme",themeChoice);}catch(_){}
+    applyThemeChoice();
+  };
+});
+matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change",()=>{
+  if(themeChoice==="auto") applyThemeChoice();
+});
 $("#refresh").onclick = async () => {
   try {
     const response = await api("sync", {}, { method: "POST", body: "{}" });
@@ -1641,14 +1647,22 @@ for (const dialog of document.querySelectorAll("dialog")) {
   dialog.addEventListener("close", lockModalBackground);
 }
 
-const palettes = ["violet", "ocean", "forest", "rose", "amber"];
-try { const saved = localStorage.getItem("listening-palette"); document.documentElement.dataset.palette = palettes.includes(saved) ? saved : "violet"; } catch (_) {}
-$("#palette").value = document.documentElement.dataset.palette;
-$("#palette").onchange = () => {
-  document.documentElement.dataset.palette = $("#palette").value;
-  try { localStorage.setItem("listening-palette", $("#palette").value); } catch (_) {}
+const palettes=["violet","ocean","forest","rose","amber"];
+try {
+  const selected=localStorage.getItem("listening-palette");
+  document.documentElement.dataset.palette=palettes.includes(selected)?selected:"violet";
+} catch (_) { document.documentElement.dataset.palette="violet"; }
+function selectPalette(palette) {
+  if(!palettes.includes(palette))return;
+  document.documentElement.dataset.palette=palette;
+  try {localStorage.setItem("listening-palette",palette);}catch(_){}
+  document.querySelectorAll("[data-palette-choice]").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.paletteChoice===palette)));
   updateThemeColour();
-};
+}
+document.querySelectorAll("[data-palette-choice]").forEach(b=>{
+  b.onclick=()=>selectPalette(b.dataset.paletteChoice);
+});
+selectPalette(document.documentElement.dataset.palette);
 if (window.top === window && "serviceWorker" in navigator && window.isSecureContext) {
   navigator.serviceWorker.register(new URL("sw.js", document.baseURI)).catch(() => {});
 }
