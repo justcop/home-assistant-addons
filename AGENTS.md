@@ -22,6 +22,14 @@ These add-ons are primarily used by one person in their own Home Assistant insta
 - Keep version bumping and add-on publishing limited to the add-ons that actually changed. Never cancel an in-progress publishing job automatically.
 - Before finishing, report what was changed, what was actually verified, any failures, and whether the change is only in a PR or has reached main.
 
+## Fast Home Assistant development deployments
+
+- The Add-on Development Manager follows `main` and deploys changed add-on source independently of GitHub Actions. GitHub Actions are checks, not a gate for local deployment.
+- For routine development changes to app Python, JavaScript, CSS or assets, **do not bump `config.yaml`'s version or edit Supervisor build metadata solely to mark the commit**. The Development Manager's Git SHA and history are the authoritative development version and rollback target.
+- A changed app definition, declared version, root build metadata, translations or AppArmor policy forces a slower global Supervisor store refresh. Bump versions and generated release metadata for actual releases, not cosmetic previews.
+- When diagnosing perceived deployment lag, check the manager's deployed commit and phases first; distinguish its polling, store refresh, local Docker build and app restart from independent CI jobs.
+- Code-only changes still require a container rebuild in the current manager; do not claim they are hot-reloaded until an app-specific, verified asset or process-reload mechanism exists.
+
 ## GitHub Actions defaults
 
 - Run ordinary push validation only on main; use pull_request for development branches so one commit does not create duplicate push and PR runs.
