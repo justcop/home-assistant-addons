@@ -156,3 +156,37 @@ button[aria-busy="true"]:after{content:"…";font-weight:800}
 /* An ID-scoped modal label rule must not break checkbox alignment. */
 #modal form label.check-option{display:flex;align-items:center;gap:10px}
 #modal form label.check-option input[type=checkbox]{width:18px;flex:none;margin:0}
+
+/* Matte, imperfect paper labels adhered to the record sleeve. */
+.cover-wrap .loan-sticker,.cover-status-sticker,.match-needed-label{
+  position:absolute;z-index:8;display:inline-grid;place-items:center;
+  box-sizing:border-box;max-width:calc(100% - 14px);
+  padding:9px 12px 10px;line-height:1.08;letter-spacing:.105em;
+  font:800 11px/1.08 system-ui,sans-serif;text-align:center;
+  text-shadow:0 1px #fff7;
+  background-image:repeating-linear-gradient(9deg,#00000005 0 1px,transparent 1px 4px),linear-gradient(140deg,#fff6 0%,transparent 44%,#0000000a 100%);
+  background-color:#f3deb0;color:#533e25;
+  border:1px solid #beaa7e;border-radius:2px 4px 2px 3px;
+  box-shadow:0 1px 1px #fff8 inset,0 2px 0 #917f5a,2px 4px 8px #0006;
+  transform:rotate(9deg);transform-origin:75% 25%;
+  pointer-events:none;isolation:isolate;
+}
+.cover-wrap .loan-sticker{top:8px;right:7px;min-width:61px;min-height:40px;padding:11px 9px;clip-path:polygon(0 2%,97% 0,100% 94%,96% 100%,2% 98%);}
+.cover-status-sticker{top:10px;right:8px;min-height:30px;padding:8px 10px;background-color:#e6e6d0;color:#344838;border-color:#adb49b;transform:rotate(6deg);}
+.match-needed-label{
+  left:6px;top:35px;right:auto;max-width:calc(100% - 12px);background-color:#fff1dd;
+  color:#8e2020;border-color:#c75c4f;font-size:10px;transform:rotate(-6deg);
+  pointer-events:auto;text-decoration:none;
+  clip-path:polygon(0 0,98% 1%,100% 98%,2% 100%);
+}
+.match-needed-label:hover,.match-needed-label:focus-visible{outline:2px solid #8e2020;outline-offset:3px;text-decoration:underline}
+.store-ticket .owned-mark{
+  display:inline-block;width:max-content;max-width:100%;min-height:0;
+  padding:5px 9px;margin:8px 0 5px;
+  background:#f2eacb;color:#46573e;border:1px solid #a9a88b;
+  border-radius:1px 3px 2px 2px;box-shadow:1px 2px 0 #0002;
+  transform:rotate(-2deg);font-size:11px;font-weight:750;letter-spacing:.025em;
+}
+@media(prefers-reduced-motion:reduce){
+  .cover-wrap .loan-sticker,.cover-status-sticker,.match-needed-label,.store-ticket .owned-mark{transition:none}
+}
