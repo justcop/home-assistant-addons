@@ -588,6 +588,7 @@ def create_app(options=None):
     def shelf():
         status = spotify_matching.status(g.account['id'], g.context.store)
         failures = current_failures(store)
+        status['failures'] = sum(1 for row in store.albums(owned=True) if row['id'] in failures)
         return jsonify(artists=store.artists(),
                        albums=[display_album_state(row, failures)
                                for row in store.albums(owned=True)],
@@ -635,8 +636,11 @@ def create_app(options=None):
     @app.get('/api/listening-pile')
     def listening_pile():
         failures = current_failures(store)
-        return jsonify(albums=[display_album_state(row, failures)
-                               for row in store.albums(pile=True)])
+        rows = store.albums(pile=True)
+        status = spotify_matching.status(g.account['id'], g.context.store)
+        status['failures'] = sum(1 for row in rows if row['id'] in failures)
+        return jsonify(albums=[display_album_state(row, failures) for row in rows],
+                       match_status=status)
 
     @app.get('/api/search')
     def search():
