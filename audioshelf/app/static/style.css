@@ -203,3 +203,12 @@ button[aria-busy="true"]:after{content:"…";font-weight:800}
 .record-setting input[type=file]{width:100%;margin:8px 0}
 .record-delete{margin-top:24px;border-top:1px solid var(--line);padding-top:14px}
 #toast .toast-undo{border:1px solid currentColor;border-radius:3px;background:transparent;color:inherit;font-weight:750;margin-left:10px;padding:7px 10px;min-height:36px}
+
+/* Classic collection badges are paper tickets too, not flat UI pills. */
+.album-card>.badge{
+  display:inline-block;max-width:100%;padding:6px 9px;margin:8px 0;
+  border-radius:2px 4px 2px 1px;border:1px solid #b4b49c;
+  background:repeating-linear-gradient(12deg,#00000008 0 1px,transparent 1px 5px),#f5edcc;
+  color:#49583e;box-shadow:1px 2px 0 #0002,2px 4px 5px #0002;
+  font-size:11px;font-weight:700;letter-spacing:.06em;transform:rotate(-2deg);
+}
