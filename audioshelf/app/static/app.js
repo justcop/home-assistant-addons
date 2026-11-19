@@ -341,7 +341,7 @@ function backCoverUrl(albumId,size){return `api/albums/${id(albumId)}/artwork/ba
 
 function albumArtwork(album){
   const title=escapeHtml(album.title);
-  return `<button type="button" class="album-flip" data-action="flip-artwork" data-album="${id(album.id)}" data-side="front" aria-pressed="false" aria-label="Back cover of ${title}" title="Tap to turn over this sleeve"><span class="album-flip-inner"><span class="album-flip-face album-flip-front"><img class="cover" src="${coverUrl(album.id,640)}" alt="${title} front cover" fetchpriority="high">${album.on_loan?loanStickerArt(album,'album-face-sticker loan-face-sticker'):album.on_shelf?paperSticker('collection','album-face-sticker collection-face-sticker','In collection'):''}</span><span class="album-flip-face album-flip-back"><img class="cover" alt="${title} back cover"></span></span><span class="album-flip-hint" aria-hidden="true">Turn over ↻</span></button>`;
+  return `<button type="button" class="album-flip" data-action="flip-artwork" data-album="${id(album.id)}" data-side="front" aria-pressed="false" aria-label="Back cover of ${title}" title="Tap to turn over this sleeve"><span class="album-flip-inner"><span class="album-flip-face album-flip-front"><img class="cover" src="${coverUrl(album.id,640)}" alt="${title} front cover" fetchpriority="high">${album.on_loan?loanStickerArt(album,'album-face-sticker loan-face-sticker'):''}</span><span class="album-flip-face album-flip-back"><img class="cover" alt="${title} back cover"></span></span><span class="album-flip-hint" aria-hidden="true">Turn over ↻</span></button>`;
 }
 function loadAlbumBackCover(button){
   if(button.dataset.side==='back'){
@@ -465,14 +465,23 @@ new MutationObserver(records=>{
   for(const record of records)for(const node of record.addedNodes)observeNewCovers(node);
 }).observe(content,{childList:true,subtree:true});
 
-// Illustrated vintage paper labels used by both interfaces.
+// The source photos are preserved as PNG masters. Four pre-sized PNG exports
+// cover phone cards, record racks and album-detail sleeves at HiDPI density.
+// CSS determines physical proportions; srcset selects an appropriate pixel count.
+const STICKER_WIDTHS=[96,160,256,384];
 function paperSticker(kind,classes,alt){
-  return '<img class="paper-sticker '+classes+'" src="static/stickers/'+kind+'.svg" alt="'+escapeHtml(alt)+'" loading="lazy" decoding="async" draggable="false">';
+  if(kind!=='loan'&&kind!=='spotify_attention')return '';
+  const detail=classes.includes('album-face-sticker');
+  const sizes=detail?'(max-width:700px) 34vw, 180px':
+    '(max-width:700px) 84px, (max-width:1100px) 112px, 140px';
+  const base='static/stickers/'+kind+'-';
+  return '<img class="paper-sticker '+classes+'" src="'+base+'256.png" '+
+    'srcset="'+STICKER_WIDTHS.map(w=>base+w+'.png '+w+'w').join(', ')+'" '+
+    'sizes="'+sizes+'" alt="'+escapeHtml(alt)+'" loading="'+(detail?'eager':'lazy')+'" '+
+    'decoding="async" draggable="false">';
 }
 function loanStickerArt(album,classes='loan-sticker'){
-  const marker=String(album.id||'').replace(/[^0-9a-f]/gi,'');
-  const variant=((parseInt(marker.slice(-2),16)||0)%2)?'loan-worn':'loan';
-  return paperSticker(variant,classes,'On loan');
+  return paperSticker('loan',classes,'On loan');
 }
 
 function cover(album,large=false,loanSticker=false){return `<a class="cover-wrap" href="#album/${id(album.id)}" aria-label="Open ${escapeHtml(album.title)}"><img class="cover" data-cover-src="${coverUrl(album.id,large?640:320)}" data-cover-srcset="${[128,320,640].map(size=>`${coverUrl(album.id,size)} ${size}w`).join(', ')}" sizes="${large?'(max-width: 700px) 85vw, 480px':'(max-width: 700px) 44vw, 260px'}" decoding="async" alt="${escapeHtml(album.title)} album cover" ${large?'fetchpriority="high"':'loading="lazy"'}>${loanSticker?loanStickerArt(album):''}</a>`;}
@@ -502,7 +511,7 @@ function sortArtistsByName(artists){
 }
 function cards(albums,room='store'){
   if(isVinyl())return vinylCards(albums,room);
-  return `<div class="album-grid">${albums.map(a=>`<article class="album-card">${cover(a,false,a.on_loan&&(room==='listening'||room==='store'))}${room==='store'&&a.on_shelf?paperSticker('collection','cover-status-sticker owned-cover-sticker','In collection'):''}${a.match_state==='needs_attention'&&room!=='store'?'<a class="match-needed-label" href="#review" aria-label="Needs attention: fix Spotify match">'+paperSticker('attention','sticker-art','')+'</a>':''}<a class="album-title" href="#album/${id(a.id)}">${escapeHtml(a.title)}</a><div class="album-meta">${artistNames(a)}<br>${year(a)}</div>${a.on_shelf?'':a.on_loan?paperSticker('on-loan','owned-mark ticket-sticker','On loan'):`<div class="album-choice-actions"><button class="card-action" data-action="add" data-id="${escapeHtml(a.id)}">+ Add to shelf</button><button class="card-action" data-action="borrow" data-id="${escapeHtml(a.id)}">Borrow</button></div>`}${room==='listening'?pileCardMenu(a):''}</article>`).join('')}</div>`;
+  return `<div class="album-grid">${albums.map(a=>`<article class="album-card">${cover(a,false,a.on_loan&&(room==='listening'||room==='store'))}${a.match_state==='needs_attention'&&room!=='store'?'<a class="match-needed-label" href="#review" aria-label="Needs attention: fix Spotify match">'+paperSticker('spotify_attention','sticker-art','')+'</a>':''}<a class="album-title" href="#album/${id(a.id)}">${escapeHtml(a.title)}</a><div class="album-meta">${artistNames(a)}<br>${year(a)}</div>${a.on_shelf?'':a.on_loan?'<span class="record-status-text">On loan</span>':`<div class="album-choice-actions"><button class="card-action" data-action="add" data-id="${escapeHtml(a.id)}">+ Add to shelf</button><button class="card-action" data-action="borrow" data-id="${escapeHtml(a.id)}">Borrow</button></div>`}${room==='listening'?pileCardMenu(a):''}</article>`).join('')}</div>`;
 }
 function pileCardMenu(album){
   const key=escapeHtml(album.id);
