@@ -1,6 +1,7 @@
 name: Music Video Companion tests
 on:
   push:
+    branches: [main]
     paths:
       - "music_video_companion/**"
       - ".github/workflows/music-video-companion-tests.yml"
@@ -8,6 +9,9 @@ on:
     paths:
       - "music_video_companion/**"
       - ".github/workflows/music-video-companion-tests.yml"
+concurrency:
+  group: music-video-companion-tests-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 jobs:
   tests:
     runs-on: ubuntu-latest

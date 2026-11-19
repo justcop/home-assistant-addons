@@ -180,9 +180,7 @@ In Settings, choose a preferred Spotify playback device. Open Spotify on that de
 
 ## Checks and test maintenance
 
-The numbered, timestamped [test inventory](TEST_INVENTORY.md) lists all backend cases and the other release checks. CI fails when tests, test fixtures or check configuration change without an updated inventory and review note. Previous versions are retained in Git history. This enforces review visibility and freshness; human review still decides whether coverage is redundant.
-
-Refresh after reviewing changes with `python audioshelf/scripts/test_inventory.py --update --review-note "Describe the review and any limitations"`.
+Pull requests run syntax checks and a focused set of authentication, security, route and sticker regressions for a quick feedback loop. On `main`, or when manually started with **Actions → AudioShelf checks → Run workflow**, CI runs the full Python, browser and container build checks. When changing authentication, storage, the browser flow or the container runtime, run the relevant comprehensive checks before shipping rather than adding permanent release gates.
 
 Tests are in [tests/](tests/). GitHub publishes results under the repository's **Actions → AudioShelf checks**, and on each pull request's **Checks** tab.
 

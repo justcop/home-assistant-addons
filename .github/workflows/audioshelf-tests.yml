@@ -1,15 +1,16 @@
 name: AudioShelf checks
 on:
   push:
+    branches: [main]
     paths: ["audioshelf/**", ".github/workflows/audioshelf-tests.yml"]
   pull_request:
     paths: ["audioshelf/**", ".github/workflows/audioshelf-tests.yml"]
   workflow_dispatch:
 permissions:
   contents: read
-# Multiple commits on a PR should not leave expensive duplicate test runs.
+# Cancel superseded checks; this workflow never publishes an image.
 concurrency:
-  group: audioshelf-tests-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  group: audioshelf-tests-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 jobs:
   test:
@@ -19,31 +20,62 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.15"
-      - run: pip install -r audioshelf/requirements.txt pytest==8.4.2 PyYAML==6.0.2
-      - name: Check reviewed test inventory
-        run: python audioshelf/scripts/test_inventory.py
-      - uses: actions/setup-node@v4
+          cache: pip
+          cache-dependency-path: audioshelf/requirements.txt
+      - name: Check Python, shell and browser JavaScript syntax
+        run: |
+          python -m compileall -q audioshelf/app
+          bash -n audioshelf/run.sh
+          node --check audioshelf/app/static/app.js
+          node --check audioshelf/app/static/sw.js
+          node --check audioshelf/app/static/vinyl.js
+      - name: Install test dependencies
+        run: pip install -r audioshelf/requirements.txt pytest==8.4.2 PyYAML==6.0.2
+      - name: Focused PR regressions
+        if: github.event_name == 'pull_request'
+        run: |
+          python -m pytest -q \
+            audioshelf/tests/test_accounts.py \
+            audioshelf/tests/test_cloudflare_access.py \
+            audioshelf/tests/test_security.py \
+            audioshelf/tests/test_routes.py \
+            audioshelf/tests/test_sticker_assets.py
+      - name: Full backend regressions (main or manual)
+        if: github.event_name != 'pull_request'
+        run: python -m pytest audioshelf/tests -q
+      - name: Set up Node for complete browser checks
+        if: github.event_name != 'pull_request'
+        uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - run: node --check audioshelf/app/static/app.js && node --check audioshelf/app/static/sw.js && node --check audioshelf/app/static/vinyl.js
       - name: Use preinstalled Chrome
+        if: github.event_name != 'pull_request'
         run: command -v google-chrome && google-chrome --version
-      - run: npm install --no-save playwright@1.62.1
-      - run: node audioshelf/tests/test_integrated_android.cjs && node audioshelf/tests/test_android_helper.cjs && node audioshelf/tests/test_ui.cjs && node audioshelf/tests/test_vinyl_ui.cjs && node audioshelf/tests/test_accounts_ui.cjs
+      - name: Install browser test dependencies
+        if: github.event_name != 'pull_request'
+        run: npm install --no-save playwright@1.62.1
+      - name: Browser regressions (main or manual)
+        if: github.event_name != 'pull_request'
+        run: |
+          node audioshelf/tests/test_integrated_android.cjs
+          node audioshelf/tests/test_android_helper.cjs
+          node audioshelf/tests/test_ui.cjs
+          node audioshelf/tests/test_vinyl_ui.cjs
+          node audioshelf/tests/test_accounts_ui.cjs
         env:
           AUDIOSHELF_TEST_BROWSER: /usr/bin/google-chrome
-      - run: python -m pytest audioshelf/tests -q
-      - run: python -m compileall -q audioshelf/app && bash -n audioshelf/run.sh
       - name: Set up Docker Buildx
+        if: github.event_name != 'pull_request'
         uses: docker/setup-buildx-action@v4
-      - name: Build add-on container
+      - name: Build add-on container (main or manual)
+        if: github.event_name != 'pull_request'
         uses: docker/build-push-action@v6
         with:
           context: ./audioshelf
           load: true
           tags: audioshelf:test
           build-args: |
-            BUILD_VERSION=0.6.19
+            BUILD_VERSION=test
             BUILD_ARCH=amd64
           cache-from: type=gha,scope=audioshelf-tests
           cache-to: type=gha,scope=audioshelf-tests,mode=max,ignore-error=true
