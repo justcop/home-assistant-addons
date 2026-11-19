@@ -7,7 +7,8 @@ let state,
   saveChain = Promise.resolve(),
   dirty = false,
   includeHome = false,
-  hasImportedData = false;
+  hasImportedData = false,
+  authProvider = "password";
 const $ = (s) => document.querySelector(s);
 const esc = (v) =>
   String(v ?? "").replace(
@@ -81,7 +82,7 @@ async function api(path, body) {
       : {},
   );
   const data = await r.json();
-  if (r.status === 401 && path !== "auth/login") showLogin();
+  if (r.status === 401 && path !== "auth/login") showLogin(data.error?.includes("Cloudflare") ? "cloudflare" : true);
   if (!r.ok) throw Error(data.error || "Request failed");
   return data;
 }
@@ -648,16 +649,24 @@ window.addEventListener("beforeunload", (e) => {
 function showLogin(configured = true) {
   document.querySelector('.shell').hidden = true;
   $('#login').hidden = false;
-  $('#login-form').hidden = !configured;
-  $('#login-note').textContent = configured ? 'Log in to your financial picture.' : 'Set web_password in the Home Assistant add-on configuration, then restart the add-on.';
+  const cloudflare = configured === "cloudflare";
+  $('#login-form').hidden = !configured || cloudflare;
+  $('#cloudflare-login').hidden = !cloudflare;
+  $('#login-note').textContent = cloudflare
+    ? 'Sign in with your approved Google account through Cloudflare Access.'
+    : configured ? 'Log in to your financial picture.'
+    : 'Set web_password or Cloudflare Access in the Home Assistant add-on configuration, then restart the add-on.';
   clearTimeout(timer);
   $('#view').replaceChildren();
 }
 async function start() {
   try {
     const auth = await api('auth/status');
+    authProvider = auth.provider || "password";
     if (!auth.authenticated) return showLogin(auth.configured);
     $('#login').hidden = true;
+    $('#logout').hidden = authProvider === "ingress";
+    $('#logout').textContent = authProvider === "cloudflare" ? "Sign out" : "Log out";
     document.querySelector('.shell').hidden = false;
     await route();
   } catch (e) { error(e); }
@@ -679,6 +688,10 @@ $('#logout').addEventListener('click', async () => {
     if (editing && dirty && editing.status === "draft") await saveEdit();
     await saveChain;
     if (dirty) { error(Error('Save your changes before logging out.')); return; }
+    if (authProvider === "cloudflare") {
+      window.location.assign("/cdn-cgi/access/logout");
+      return;
+    }
     await api('auth/logout', {});
     showLogin();
   } catch (e) { error(e); }
