@@ -235,7 +235,9 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
       // The fixture can confirm playback before Playwright observes the
       // intermediate "Starting playback" heading. Both states are valid.
       await page.waitForFunction(()=>{
-        const text=document.querySelector('#modal')?.innerText||'';
+        const modal=document.querySelector('#modal');
+        if(!modal?.open)return false;
+        const text=modal.innerText||'';
         return text.includes('Starting playback on Fixture phone')||
                text.includes('Playing on Fixture phone');
       },null,{timeout:8000});
