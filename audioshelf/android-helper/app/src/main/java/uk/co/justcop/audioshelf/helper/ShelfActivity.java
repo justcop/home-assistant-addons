@@ -207,7 +207,21 @@ public final class ShelfActivity extends Activity {
         // Shortcut publication may perform disk IPC and is a worker-thread API.
         executor.execute(() -> ShelfShortcuts.install(getApplicationContext()));
         if(accessLogin.complete(getIntent()))return;
-        web.loadUrl(trustedOrigin + (ACTION_NOW_PLAYING.equals(getIntent().getAction()) ? "/#shelf" : "/#shelf"));
+        web.loadUrl(incomingShelfUrl(getIntent()));
+    }
+
+    /** Accept only deep links to the configured, trusted AudioShelf origin. */
+    private String incomingShelfUrl(Intent intent) {
+        if (intent != null && Intent.ACTION_VIEW.equals(intent.getAction())) {
+            Uri uri = intent.getData();
+            if (uri != null && sameOrigin(uri) && (uri.getPath() == null || uri.getPath().isEmpty() || "/".equals(uri.getPath()))
+                    && uri.getQuery() == null) {
+                String fragment = uri.getEncodedFragment();
+                if (fragment != null && fragment.matches("(?:shelf|album|store)/(?:[A-Za-z0-9%._~-]|/)+"))
+                    return trustedOrigin + "/#" + fragment;
+            }
+        }
+        return trustedOrigin + "/#shelf";
     }
 
     static boolean isTrustedOrigin(String origin) {
@@ -830,6 +844,11 @@ public final class ShelfActivity extends Activity {
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);setIntent(intent);
         if(accessLogin!=null && accessLogin.complete(intent))return;
+        if(web!=null && Intent.ACTION_VIEW.equals(intent.getAction()) && intent.getData()!=null
+                && sameOrigin(intent.getData())) {
+            web.loadUrl(incomingShelfUrl(intent));
+            return;
+        }
         if(web!=null && ACTION_SHELF.equals(intent.getAction()))web.evaluateJavascript("location.hash='#shelf'",null);
         if(web!=null && ACTION_NOW_PLAYING.equals(intent.getAction()))
             web.evaluateJavascript("location.hash='#shelf';window.dispatchEvent(new CustomEvent('audioshelf-native-playback'));",null);
