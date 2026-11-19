@@ -62,10 +62,19 @@ def test_owned_pile_routes_leave_collection_unchanged(client, application):
     assert len(client.get('/api/shelf').json['albums']) == 1
 
 
-def test_borrow_requires_verified_selection(client):
-    response = post(client, f'/api/albums/{ALBUM}/borrow')
+def test_borrow_saves_immediately_without_edition_selection(client, application, monkeypatch):
+    queued=[]
+    monkeypatch.setattr('app.server.spotify_matching.enqueue', lambda *args, **kwargs: queued.append(args[4]))
+    response=post(client, f'/api/albums/{ALBUM}/borrow')
+    assert response.status_code == 200
+    assert response.json['on_loan'] and response.json['in_listening_pile']
+    assert not response.json['on_shelf']
+    assert len(client.get('/api/listening-pile').json['albums']) == 1
+    assert queued == [ALBUM]
+
+def test_manual_borrow_requires_complete_selection(client):
+    response=post(client, f'/api/albums/{ALBUM}/borrow', {'release_id':'not-complete'})
     assert response.status_code == 400
-    assert client.get('/api/listening-pile').json['albums'] == []
 
 
 def test_borrow_then_keep_does_not_clear_selected_recordings(client, application, monkeypatch):
