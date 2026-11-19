@@ -725,7 +725,7 @@ function rankTable(data, kind, settings = false) {
       !r.previous?'New':(r.plays>=r.previous?"+":"")+((r.plays-r.previous)*100/r.previous).toFixed(1)+"%";
     return `<tr data-row-detail="${kind}" data-row-id="${esc(r.id)}" tabindex="0" aria-label="Open ${esc(r.name)} details">
       <td>${state.offset+i+1}</td>
-      <td class="name-cell"><button class="text-button rank-row-button" ${detailAttrs(kind,r)}>
+      <td class="name-cell"><button class="text-button rank-row-button" aria-label="${esc(r.name)}" ${detailAttrs(kind,r)}>
         <span class="rank-title">${rowArtwork(kind,r)}<span><strong>${esc(r.name)}</strong>
         ${subtitle?`<small>${esc(subtitle)}</small>`:""}</span></span></button></td>
       <td class="num"><strong>${number(r.plays)}</strong><div class="row-progress"><i style="width:${(r.plays/max)*100}%"></i></div></td>
