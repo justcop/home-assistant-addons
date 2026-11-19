@@ -201,6 +201,8 @@ button[aria-busy="true"]:after{content:"…";font-weight:800}
   font-size:11px;font-weight:700;letter-spacing:.06em;transform:rotate(-2deg);
 }
 
+/* Development Manager smoke test: source-only updates must rebuild without a store reload. */
+
 /* Clear header controls and prominent album identity in both interfaces. */
 .settings-link{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;padding:4px;border-radius:50%;color:var(--ink)}
 .settings-link .settings-gear{font-size:29px;line-height:1}
