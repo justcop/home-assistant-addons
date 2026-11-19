@@ -207,7 +207,9 @@ public final class ShelfActivity extends Activity {
         // Shortcut publication may perform disk IPC and is a worker-thread API.
         executor.execute(() -> ShelfShortcuts.install(getApplicationContext()));
         if(accessLogin.complete(getIntent()))return;
-        web.loadUrl(incomingShelfUrl(getIntent()));
+        String destination = incomingShelfUrl(getIntent());
+        accessLogin.setReturnUrl(destination);
+        web.loadUrl(destination);
     }
 
     /** Accept only deep links to the configured, trusted AudioShelf origin. */
@@ -846,7 +848,9 @@ public final class ShelfActivity extends Activity {
         if(accessLogin!=null && accessLogin.complete(intent))return;
         if(web!=null && Intent.ACTION_VIEW.equals(intent.getAction()) && intent.getData()!=null
                 && sameOrigin(intent.getData())) {
-            web.loadUrl(incomingShelfUrl(intent));
+            String destination = incomingShelfUrl(intent);
+            accessLogin.setReturnUrl(destination);
+            web.loadUrl(destination);
             return;
         }
         if(web!=null && ACTION_SHELF.equals(intent.getAction()))web.evaluateJavascript("location.hash='#shelf'",null);
