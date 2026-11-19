@@ -118,7 +118,7 @@ def create_app(options=None):
         g.context = owner_context
         g.identity = None
         g.access_claims = None
-        if access.enabled and not ingress() and not request.path.startswith('/api/helper/playback-handoff/') and request.path not in {'/auth/android/exchange', '/health'}:
+        if access.enabled and not ingress() and not request.path.startswith('/api/helper/playback-handoff/') and request.path not in {'/auth/android/exchange', '/health', '/.well-known/assetlinks.json'}:
             g.access_claims = access.verify(request.headers.get('Cf-Access-Jwt-Assertion'))
             g.account = accounts.from_access(g.access_claims, access.owner_email)
         elif access.enabled:
@@ -257,6 +257,15 @@ def create_app(options=None):
         with owner_context.store.connect() as db:
             db.execute('SELECT 1').fetchone()
         return jsonify(ok=True, version=build['version'])
+
+    @app.get('/.well-known/assetlinks.json')
+    def android_app_links():
+        # Public, immutable Android verification data. Do not exempt other
+        # /.well-known/ paths or any user/account API from Cloudflare Access.
+        response = app.send_static_file('assetlinks.json')
+        response.headers['Content-Type'] = 'application/json'
+        response.headers['Cache-Control'] = 'public, max-age=3600'
+        return response
 
     @app.get('/sw.js')
     def service_worker():
