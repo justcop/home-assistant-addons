@@ -190,3 +190,16 @@ button[aria-busy="true"]:after{content:"…";font-weight:800}
 @media(prefers-reduced-motion:reduce){
   .cover-wrap .loan-sticker,.cover-status-sticker,.match-needed-label,.store-ticket .owned-mark{transition:none}
 }
+
+/* Settings can be opened in one intentional step; dense maintenance stays closed. */
+.settings-index{display:flex;flex-wrap:wrap;gap:9px;margin:20px 0 27px}
+.settings-index button{min-height:42px;font-size:13px}
+.settings-group{scroll-margin-top:90px}
+.record-setting{border-top:1px solid var(--line);padding:12px 0}
+.record-setting>summary{cursor:pointer;padding:10px 0;font:550 18px/1.4 var(--display-font);color:var(--ink)}
+.record-setting[open]>summary{margin-bottom:12px}
+.record-setting form{margin:15px 0}
+.record-setting label{font-size:13px}
+.record-setting input[type=file]{width:100%;margin:8px 0}
+.record-delete{margin-top:24px;border-top:1px solid var(--line);padding-top:14px}
+#toast .toast-undo{border:1px solid currentColor;border-radius:3px;background:transparent;color:inherit;font-weight:750;margin-left:10px;padding:7px 10px;min-height:36px}
