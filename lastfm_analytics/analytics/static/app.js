@@ -799,7 +799,9 @@ function settingsHTML(data) {
       '</article>').join('');
     return '<section class="panel"><div class="panel-head"><div><h2>Artist identities</h2><p>Combine alternative names for the same artist. Identically named songs and albums combine automatically while explicit manual separations stay intact.</p></div>' +
       '<button class="button" id="undo" ' + (statusData.events.some(e => !e.undone) ? '' : 'disabled') + '>Undo latest change</button></div>' +
-      '<div class="review-filters"><select id="group-kind" aria-label="Review artist, song or album merges"><option value="artist" selected>Artists</option><option value="song">Songs</option><option value="album">Albums</option></select>' +
+      '<div class="segment review-kind-tabs" role="group" aria-label="Review category">
+   ${[["artist","Artists"],["song","Songs"],["album","Albums"]].map(([kind,label])=>`<button data-group-kind="${kind}" aria-pressed="${state.groupKind===kind}">${label}</button>`).join("")}
+   </div><div class="review-filters">' +
       '<input id="search" type="search" placeholder="Search artist names…" aria-label="Search artists" value="' + esc(state.q) + '"></div>' +
       '<div class="selection-bar"><span id="selected-count">' + state.selected.size + ' selected</span>' +
       '<label>Combined artist name <input id="artist-name" type="text" maxlength="1000" placeholder="Use the selected artist name"></label>' +
@@ -811,7 +813,9 @@ function settingsHTML(data) {
   const card = r => state.groupTab === "merged"
     ? `<article class="review-card"><h3>${esc(r.artist)}</h3><button class="text-button" data-detail="${state.groupKind}" data-id="${r.id}" data-group-detail="true">${esc(r.name)} · ${r.versions.length} versions · ${number(r.plays)} plays</button><p>${r.versions.map(v => esc(v.name)).join(" · ")}</p></article>`
     : `<article class="review-card"><h3>${esc(r.artist)}</h3><fieldset class="review-choices"><legend>Choose the versions to combine</legend>${r.versions.map(v => `<label><input type="checkbox" class="candidate-version" value="${v.id}" data-name="${esc(v.name)}" data-plays="${v.plays}"><span>${esc(v.name)}<small>${number(v.plays)} scrobbles</small></span></label>`).join("")}</fieldset><label class="merge-name">Name from selected versions<select class="candidate-name-choice" disabled><option value="">Select at least two versions</option></select></label><label class="merge-name">Combined name, editable<input class="candidate-name" type="text" maxlength="1000" placeholder="Select versions, then choose a name" disabled></label><p>${esc(r.reason)}</p><div class="review-actions"><button class="button primary" data-candidate-merge="${r.ids.join(",")}" disabled>Merge selected</button>${r.learnable ? `<button class="button" data-candidate-learn="${r.ids.join(",")}" data-suffix="${esc(r.suffix)}" data-artist="${esc(r.artist)}" title="Select every listed version to learn this suffix" disabled>Merge and learn suffix</button>` : ""}${state.groupTab !== "skipped" || r.dismissed ? `<button class="button" data-candidate-key="${esc(r.key)}" data-candidate-action="${state.groupTab === "skipped" ? "restore" : "dismiss"}">${state.groupTab === "skipped" ? "Reconsider" : "Keep separate"}</button>` : ""}</div></article>`;
-  return `<section class="panel"><div class="panel-head"><div><h2>Version review</h2><p>Select two or more versions to combine. Unselected versions keep their current grouping.</p></div><button class="button" id="undo" ${statusData.events.some(e => !e.undone) ? "" : "disabled"}>Undo latest change</button></div><div class="review-filters"><select id="group-kind" aria-label="Review songs or albums"><option value="artist">Artists</option><option value="song" ${state.groupKind === "song" ? "selected" : ""}>Songs</option><option value="album" ${state.groupKind === "album" ? "selected" : ""}>Albums</option></select><input id="search" type="search" aria-label="Search merge candidates" placeholder="Search candidates or merges…" value="${esc(state.q)}"></div><div class="segment review-tabs">${[["suggested","Suggestions"],["skipped","Skipped candidates"],["merged","Already merged"]].map(([tab,label])=>`<button data-group-tab="${tab}" aria-pressed="${tab===state.groupTab}">${label}</button>`).join("")}</div><p class="method-note">Skipped candidates include live performances and mixes that automatic rules kept separate, plus your rejected suggestions. “Merge and learn suffix” remembers only that exact suffix for this artist and type, for future imports with a matching base entry. Undo removes the rule and its later assignments.</p><div class="review-list">${data.rows.map(card).join("") || '<div class="empty">No matches in this review.</div>'}</div>${pager(data.total)}</section><section class="panel" style="margin-top:20px"><h2>Learned rules</h2>${data.rules.length ? data.rules.map(r=>`<p class="method-note">${esc(r.artist)} · ${esc(r.kind)} · ${esc(r.suffix)}</p>`).join("") : '<p class="method-note">Approve a learnable suggestion to create a rule.</p>'}<h3 style="margin-top:20px">Connection and data</h3><p class="method-note">${esc(statusData.username)} · ${number(statusData.counts.plays)} scrobbles · ${esc(statusData.timezone)} · ${statusData.import_state.complete ? "Import complete" : "Import in progress"}. Configure credentials and the web password in Home Assistant. Vinyl reporting: ${statusData.source_reporting_enabled ? "enabled" : "not configured"}, ${number(statusData.source_reports)} reports received.</p></section>`;
+  return `<section class="panel"><div class="panel-head"><div><h2>Version review</h2><p>Select two or more versions to combine. Unselected versions keep their current grouping.</p></div><button class="button" id="undo" ${statusData.events.some(e => !e.undone) ? "" : "disabled"}>Undo latest change</button></div><div class="segment review-kind-tabs" role="group" aria-label="Review category">
+   ${[["artist","Artists"],["song","Songs"],["album","Albums"]].map(([kind,label])=>`<button data-group-kind="${kind}" aria-pressed="${state.groupKind===kind}">${label}</button>`).join("")}
+   </div><div class="review-filters"><input id="search" type="search" aria-label="Search merge candidates" placeholder="Search candidates or merges…" value="${esc(state.q)}"></div><div class="segment review-tabs">${[["suggested","Suggestions"],["skipped","Skipped candidates"],["merged","Already merged"]].map(([tab,label])=>`<button data-group-tab="${tab}" aria-pressed="${tab===state.groupTab}">${label}</button>`).join("")}</div><p class="method-note">Skipped candidates include live performances and mixes that automatic rules kept separate, plus your rejected suggestions. “Merge and learn suffix” remembers only that exact suffix for this artist and type, for future imports with a matching base entry. Undo removes the rule and its later assignments.</p><div class="review-list">${data.rows.map(card).join("") || '<div class="empty">No matches in this review.</div>'}</div>${pager(data.total)}</section><section class="panel" style="margin-top:20px"><h2>Learned rules</h2>${data.rules.length ? data.rules.map(r=>`<p class="method-note">${esc(r.artist)} · ${esc(r.kind)} · ${esc(r.suffix)}</p>`).join("") : '<p class="method-note">Approve a learnable suggestion to create a rule.</p>'}<h3 style="margin-top:20px">Connection and data</h3><p class="method-note">${esc(statusData.username)} · ${number(statusData.counts.plays)} scrobbles · ${esc(statusData.timezone)} · ${statusData.import_state.complete ? "Import complete" : "Import in progress"}. Configure credentials and the web password in Home Assistant. Vinyl reporting: ${statusData.source_reporting_enabled ? "enabled" : "not configured"}, ${number(statusData.source_reports)} reports received.</p></section>`;
 }
 function setupHTML() {
   return `<section class="panel setup"><div class="setup-mark" aria-hidden="true">◫</div><h2>Your listening, ready to explore</h2><p>Connect Last.fm to bring your listening history together. Explore trends, find returning favourites and combine versions into meaningful totals.</p><ol><li>Open this add-on’s <strong>Configuration</strong> tab in Home Assistant.</li><li>Enter your <strong>Last.fm username</strong> and <a href="https://www.last.fm/api/account/create" target="_blank" rel="noopener noreferrer">API key</a>.</li><li>Save, restart the add-on and reopen this dashboard.</li></ol><p>The first import runs in the background and resumes after restarts. Your Last.fm history is never edited.</p><a class="button primary" href="?demo=1">Explore a fictional demo ↗</a></section>`;
@@ -1419,6 +1423,13 @@ document.addEventListener("click", (event) => {
     load();
     return;
   }
+  if (b.dataset.groupKind) {
+    state.groupKind=b.dataset.groupKind;
+    state.groupTab="suggested";
+    state.offset=0;state.q="";state.selected.clear();
+    load();
+    return;
+  }
   if (b.dataset.groupTab) {
     state.groupTab = b.dataset.groupTab;
     state.offset = 0; state.q = ""; load(); return;
@@ -1630,6 +1641,14 @@ document.addEventListener("change", (event) => {
     load();
   }
 });
+function updateChartTooltip(target) {
+  const bar=target?.closest?.(".bar-chart button[data-chart-start]");
+  if(!bar)return;
+  const tooltip=bar.closest(".panel")?.querySelector(".chart-tooltip");
+  if(tooltip)tooltip.textContent=bar.dataset.periodLabel+", "+bar.dataset.periodPlays+" scrobbles. Select to explore plays.";
+}
+["pointerover","focusin","pointerdown"].forEach(eventName=>
+  document.addEventListener(eventName,event=>updateChartTooltip(event.target)));
 document.addEventListener("keydown", event=>{
   const row=event.target.closest("tr[data-row-detail]");
   if(row && (event.key==="Enter" || event.key===" ") && event.target===row){
