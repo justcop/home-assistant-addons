@@ -442,23 +442,70 @@ function chart(data, filter = null, mode = state.mode, gigs = null, compact = fa
 function detailAttrs(kind, row) {
   return `data-detail="${kind}" data-id="${esc(row.id)}"`;
 }
-function topList(title, kind, rows, view, metric = "scrobbles", scope = null) {
-  return `<section class="panel">${panelHead(title, "", `<button class="button quiet" data-view="${view}" ${scope ? `data-scope-kind="${esc(scope.kind)}" data-scope-id="${esc(scope.id)}" data-scope-name="${esc(scope.name)}"` : ""}>View all ↗</button>`)}<div>${
-    rows.length
-      ? rows
-          .map(
-            (r, i) =>
-              `<button class="list-row" ${detailAttrs(kind, r)}><span class="rank">${i + 1}</span><span class="art-tile" aria-hidden="true">${esc(
-                (r.artist || r.name)
-                  .split(/\s+/)
-                  .slice(0, 2)
-                  .map((s) => s[0])
-                  .join(""),
-              )}</span><span class="list-name"><strong>${esc(r.name)}</strong><small>${esc(r.artist || "Artist")}${r.versions > 1 ? ` · ${r.versions} versions` : ""}</small></span><span class="list-count" title="${metric === "estimated" ? "Estimated album listens" : "Track scrobbles"}">${metric === "estimated" ? (r.estimated_listens === null ? "—" : number(r.estimated_listens)) : number(r.plays)}</span></button>`,
-          )
-          .join("")
-      : `<div class="empty">${metric === "estimated" ? "No album estimates yet. Tracklists are being identified in the background." : "No listening in this period."}</div>`
-  }</div></section>`;
+function rowArtwork(kind, row, mode = state.mode) {
+  const name=String(row.artist || row.name || "");
+  const initials=name.split(/\\s+/).filter(Boolean).slice(0,2).map(part=>part[0]).join("").toUpperCase();
+  return `<span class="art-tile" data-art-kind="${esc(kind)}" data-art-id="${esc(row.id)}" data-art-mode="${esc(mode)}" aria-hidden="true"><span class="artwork-fallback">${esc(initials)}</span></span>`;
+}
+const thumbnailCache=new Map();
+const thumbnailQueue=[];
+let thumbnailActive=0;
+function loadArtworkQueue() {
+  while (thumbnailActive<3 && thumbnailQueue.length) {
+    const el=thumbnailQueue.shift();
+    if (!el?.isConnected) continue;
+    const key=[el.dataset.artKind,el.dataset.artId,el.dataset.artMode].join("|");
+    const apply=image=>{
+      if (!el.isConnected || !image) return;
+      const url=String(image);
+      if (!url.startsWith("https://")) return;
+      const img=document.createElement("img");
+      img.alt="";
+      img.loading="lazy";
+      img.referrerPolicy="no-referrer";
+      img.decoding="async";
+      img.onerror=()=>img.remove();
+      img.src=url;
+      el.replaceChildren(img);
+    };
+    if (thumbnailCache.has(key)) {apply(thumbnailCache.get(key));continue;}
+    thumbnailActive++;
+    const params={entity:el.dataset.artKind,id:el.dataset.artId,mode:el.dataset.artMode,source:"all",period:"all"};
+    api("artwork",params).then(data=>{
+      const image=el.dataset.artKind==="artist" ? (data.artist_photo || data.artwork?.url) : data.artwork?.url;
+      if (image) {thumbnailCache.set(key,image);apply(image);}
+    }).catch(()=>{}).finally(()=>{thumbnailActive--;loadArtworkQueue();});
+  }
+}
+function activateRowArtwork(root=document) {
+  const nodes=[...root.querySelectorAll("[data-art-kind][data-art-id]:not([data-art-queued])")];
+  const observer=new IntersectionObserver(entries=>{
+    entries.forEach(entry=>{
+      if (!entry.isIntersecting) return;
+      observer.unobserve(entry.target);
+      thumbnailQueue.push(entry.target);
+      loadArtworkQueue();
+    });
+  },{rootMargin:"120px"});
+  nodes.forEach(node=>{
+    node.dataset.artQueued="true";
+    observer.observe(node);
+  });
+}
+function topList(title, kind, rows, view, metric = "scrobbles", scope = null, totalPlays = null) {
+  const list=(rows||[]).map((r,i)=>{
+    const subtitle=kind==="artist"
+      ? (totalPlays ? (100*r.plays/totalPlays).toFixed(1)+"% of plays" : "Artist")
+      : (r.artist || (r.versions>1 ? number(r.versions)+" editions" : ""));
+    const secondary=kind!=="artist" && r.versions>1 ? " · "+number(r.versions)+" versions" : "";
+    return `<button class="list-row" ${detailAttrs(kind,r)}>
+      <span class="rank">${i+1}</span>${rowArtwork(kind,r)}
+      <span class="list-name"><strong>${esc(r.name)}</strong><small>${esc(subtitle)}${secondary}</small></span>
+      <span class="list-count" title="${metric==="estimated"?"Estimated album listens":"Track scrobbles"}">${metric==="estimated"?(r.estimated_listens===null?"—":number(r.estimated_listens)):number(r.plays)}</span>
+    </button>`;
+  }).join("");
+  return `<section class="panel">${panelHead(title,"",`<button class="button quiet" data-view="${view}" ${scope?`data-scope-kind="${esc(scope.kind)}" data-scope-id="${esc(scope.id)}" data-scope-name="${esc(scope.name)}"`:""}>View all ↗</button>`)}
+    <div>${list || '<div class="empty">No listening in this period.</div>'}</div></section>`;
 }
 function discovery(data) {
   const d = data.discovery;
@@ -489,7 +536,7 @@ function overviewHTML(data) {
     <section class="panel overview-chart-panel">${panelHead("Listening activity","A snapshot of plays in the selected period",'<button class="button quiet" data-view="trends">Explore trends →</button>')}${chart(data,null,state.mode,null,true)}</section>
     ${insightsStrip(data)}
     ${state.period!=="all" && data.discovery?.complete ? `<div class="compact-insight">${discovery(data)}</div>` : ""}
-    <div class="grid-equal">${topList("Top artists","artist",data.top_artists || [],"artists")}
+    <div class="grid-equal">${topList("Top artists","artist",data.top_artists || [],"artists","scrobbles",null,data.current.plays)}
       ${topList("Top albums","album",data.top_albums || [],"albums")}
       ${topList("Top songs","song",data.top_songs || [],"songs")}</div>
     ${estimated.length ? `<section class="panel estimated-overview">${panelHead("Most played albums (estimated)", "A different measure of listening through an album")}
@@ -927,6 +974,7 @@ async function load({historyMode = "push"} = {}) {
     }
     if (serial === loadSerial) {
       $("#content").innerHTML = html;
+      activateRowArtwork($("#content"));
       if (state.view === "gigs") window.ListeningGigs?.mount($("#content"), openArtistFromGig);
       if (state.view === "trends") loadMusicalEras(serial);
       if (cachedView) watchCachedView("main", cachedView.path, cachedView.extra, cachedView.data, cachedView.render, () => serial === loadSerial, "#cache-status");
