@@ -155,33 +155,27 @@ button[aria-busy="true"]:after{content:"…";font-weight:800}
 #modal form label.check-option{display:flex;align-items:center;gap:10px}
 #modal form label.check-option input[type=checkbox]{width:18px;flex:none;margin:0}
 
-/* Real illustrated paper stickers: the SVG contains its own irregular
-   edge, letterpress ink, paper grain, curl, and shadow. */
+/* Two real photographed paper labels, using alpha PNGs at 96/160/256/384 px.
+   Width remains proportional to the physical album cover at every viewport. */
 .paper-sticker{display:block;max-width:none;height:auto;padding:0;border:0;
-  border-radius:0;box-shadow:none;background:none;pointer-events:none;user-select:none}
+  background:none;box-shadow:none;pointer-events:none;user-select:none}
 .cover-wrap img.paper-sticker{position:absolute;z-index:8;top:-3%;right:-3%;
-  width:clamp(64px,53%,120px);height:auto;transform:none;filter:none;
-  padding:0;border:0;background:transparent;box-shadow:none;clip-path:none}
-.album-card>img.cover-status-sticker{position:absolute;z-index:9;top:-2%;right:-3%;
-  width:clamp(79px,56%,134px);height:auto}
-.album-card>a.match-needed-label{display:block;position:absolute;z-index:10;
-  top:29%;left:-4%;right:auto;width:clamp(90px,65%,165px);
-  max-width:78%;height:auto;padding:0;background:none;border:0;
-  box-shadow:none;transform:none;clip-path:none;line-height:0;pointer-events:auto}
+  width:53%;height:auto;object-fit:contain;transform:none;filter:none;
+  border:0;background:transparent;box-shadow:none}
+.album-card>a.match-needed-label{position:absolute;display:block;z-index:10;
+  left:-3%;top:30%;width:65%;height:auto;max-width:65%;padding:0;
+  background:none;border:0;box-shadow:none;transform:none;
+  line-height:0;pointer-events:auto}
 .match-needed-label img.sticker-art{display:block;width:100%;height:auto}
 .album-card>a.match-needed-label:hover{transform:translateY(-2px)}
-.album-card>a.match-needed-label:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
-.store-ticket img.owned-mark,.album-card>img.ticket-sticker{
-  display:block;width:clamp(92px,75%,155px);height:auto;min-height:0;max-width:100%;
-  padding:0;margin:2px 0 5px;border:0;background:none;box-shadow:none;transform:none}
-.album-card>img.ticket-sticker{position:static;margin:9px 0}
+.album-card>a.match-needed-label:focus-visible{outline:3px solid var(--focus);outline-offset:3px}
 .album-flip-face>img.album-face-sticker{position:absolute;z-index:5;top:0;right:0;
-  width:clamp(80px,30%,166px);height:auto;object-fit:contain;box-shadow:none}
-.album-flip-face>img.collection-face-sticker{width:clamp(92px,34%,176px)}
+  width:34%;height:auto;object-fit:contain;box-shadow:none;pointer-events:none}
+.record-status-text{display:inline-block;padding:4px 0;color:var(--green);
+  font-size:11px;font-weight:700;letter-spacing:.02em}
 @media(max-width:520px){
-  .cover-wrap img.paper-sticker{width:57%;min-width:55px}
-  .album-card>img.cover-status-sticker{width:63%;min-width:73px}
-  .album-card>a.match-needed-label{width:72%;min-width:80px}
+  .cover-wrap img.paper-sticker{width:53%}
+  .album-card>a.match-needed-label{width:65%;max-width:65%}
 }
 @media(prefers-reduced-motion:reduce){.album-card>a.match-needed-label{transition:none}}
 
