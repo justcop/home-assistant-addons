@@ -120,6 +120,20 @@ def credited_guest_matches(allowed_names, spotify, album_artist_names):
     return False
 
 
+def interlude_compound_title(canonical_title, spotify_title):
+    """An added *labelled* interlude may be printed inside one audio track.
+
+    Do not erase separate songs, reorder parts, or imply that a missing track
+    is playable. Artist and <=2-second duration checks still apply below.
+    """
+    def parts(value):
+        return [normalize(part, True) for part in value.split('/') if part.strip()]
+    original, digital = parts(canonical_title), parts(spotify_title)
+    return (len(original) >= 2 and len(digital) == len(original) + 1
+            and digital.count('interlude') == 1
+            and [part for part in digital if part != 'interlude'] == original)
+
+
 def compact_title(value):
     """Space and punctuation differences cannot change the printed word sequence."""
     return ''.join(normalize(value, True).split())
@@ -186,8 +200,10 @@ def track_assessment(canonical, spotify, artist_names):
     alternate_titles = {normalize(title, True) for title in
                         [recording_title, *canonical.get('recording_aliases', [])] if title}
     recording_match = bool(canonical.get('recording_id') and right in alternate_titles)
+    interlude_compound = (not exact and interlude_compound_title(canonical['title'], spotify['name'])
+                         and duration and actual and abs(duration-actual) <= 2000)
     similarity = SequenceMatcher(None, left, right).ratio()
-    if not exact and not compact and not subtitle and not parody_credit and not feature_title and not recording_match and not same_isrc and not expanded_title and similarity < .85:
+    if not exact and not compact and not subtitle and not parody_credit and not feature_title and not recording_match and not same_isrc and not expanded_title and not interlude_compound and similarity < .85:
         return {'score': 0, 'verified': False, 'reason': 'title_mismatch', 'canonical_title': left, 'spotify_title': right}
     duration = canonical.get('duration_ms')
     actual = spotify.get('duration_ms')
@@ -195,14 +211,14 @@ def track_assessment(canonical, spotify, artist_names):
     plausible_duration = delta is None or delta <= max(8000, duration*.04)
     if delta is not None and delta > max(30000, duration*.18):
         return {'score': 0, 'verified': False, 'reason': 'duration_mismatch', 'duration_delta_ms': delta}
-    score = (95 if exact or compact or subtitle or parody_credit or feature_title or recording_match or same_isrc or expanded_title else similarity*80) + (5 if delta is not None and delta<2000 else 0)
+    score = (95 if exact or compact or subtitle or parody_credit or feature_title or recording_match or same_isrc or expanded_title or interlude_compound else similarity*80) + (5 if delta is not None and delta<2000 else 0)
     # A trailing-title expansion is only verified with independent duration
     # agreement. A similarly named edit/remix is still rejected above.
     verified = (exact or compact or same_isrc or (recording_match and delta is not None)
-                or (expanded_title and delta is not None)
+                or (expanded_title and delta is not None) or interlude_compound
                 or ((subtitle or feature_title or parody_credit) and delta is not None and delta <= max(5000, duration*.025))) and plausible_duration
     return {'score': score, 'verified': verified,
-            'reason': ('isrc_verified_version_label' if isrc_label_equivalent else 'exact_title' if exact else 'compact_title' if compact else 'printed_subtitle' if subtitle else 'parody_source_credit' if parody_credit else 'credited_feature' if feature_title else 'same_recording_title' if recording_match else 'same_isrc' if same_isrc else 'extended_title') if verified else 'needs_review',
+            'reason': ('isrc_verified_version_label' if isrc_label_equivalent else 'exact_title' if exact else 'compact_title' if compact else 'printed_subtitle' if subtitle else 'parody_source_credit' if parody_credit else 'credited_feature' if feature_title else 'same_recording_title' if recording_match else 'same_isrc' if same_isrc else 'compound_interlude_title' if interlude_compound else 'extended_title') if verified else 'needs_review',
             'duration_delta_ms': delta, 'canonical_title': left, 'spotify_title': right}
 
 
