@@ -232,15 +232,29 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.locator('#toast').filter({hasText:'Playing 2 tracks on Fixture phone.'}).waitFor();
     const fixtureOptions=body=>fixtureFetch(base+'/__test/playback-options',{method:'POST',headers:{'Content-Type':'application/json','X-AudioShelf-Request':'1'},body:JSON.stringify(body)});
     async function expectHandoff(){
-      // The fixture can confirm playback before Playwright observes the
-      // intermediate "Starting playback" heading. Both states are valid.
-      await page.waitForFunction(()=>{
-        const modal=document.querySelector('#modal');
-        if(!modal?.open)return false;
-        const text=modal.innerText||'';
-        return text.includes('Starting playback on Fixture phone')||
-               text.includes('Playing on Fixture phone');
-      },null,{timeout:8000});
+      try{
+        await page.waitForFunction(()=>{
+          const modal=document.querySelector('#modal');
+          if(!modal?.open)return false;
+          const text=modal.innerText||'';
+          return text.includes('Starting playback on Fixture phone')||
+                 text.includes('Playing on Fixture phone');
+        },null,{timeout:8000});
+      }catch(error){
+        const diagnostic=await page.evaluate(()=>({
+          modalOpen:document.querySelector('#modal')?.open,
+          modalText:document.querySelector('#modal')?.innerText.slice(0,1400),
+          toast:document.querySelector('#toast')?.innerText,
+          pending:pendingPlayback?{disc:pendingPlayback.disc,job:!!pendingPlayback.job,detached:pendingPlayback.detached}:null,
+          album:currentAlbum?{name:currentAlbum.title,playable:currentAlbum.playable,discs:currentAlbum.tracks.map(t=>[t.position,t.disc_number,t.verified,!!t.spotify_id])}:null,
+          preferred:statusInfo.preferred_device,
+          connected:statusInfo.spotify_connected,
+          enabledSdk:sdkFullAlbumEnabled(),
+          generation:routeGeneration,
+          busy:pendingChanges,
+        }));
+        throw new Error('Playback handoff not shown: '+JSON.stringify(diagnostic)+'; '+error.message);
+      }
     }
     await fixtureOptions({phone_available:false,external_album:false});
     await page.getByRole('button',{name:'Play album'}).click();
