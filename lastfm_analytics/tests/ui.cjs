@@ -637,8 +637,29 @@ async function assertLogoPixelsInCrop(page, label) {
   await page.unroute("**/api/overview?**");
   // Detail totals drill into the selected entity and Back restores its dialog.
   await page.locator('#nav [data-view="overview"]').click();
+  // Artist gigs belong inside the artist detail, plotted directly on its
+  // listening timeline, not on a separate artist picker/page.
+  const attendedGig={id:710,artist:"The Beatles",date:"2026-06-15",
+    venue:"Demo Theatre",festival:"",show_type:"concert",
+    setlist_url:"https://www.setlist.fm/",sets:null};
+  await page.route("**/api/gigs/timeline?*",route=>route.fulfill({
+    status:200,contentType:"application/json",
+    body:JSON.stringify({listens:[],gigs:[attendedGig],granularity:"month"})
+  }));
+  await page.route("**/api/gigs/artist-insights?*",route=>route.fulfill({
+    status:200,contentType:"application/json",
+    body:JSON.stringify({songs:{performances:1,cached_setlists:0,cached_songs:0,live_songs:[],
+      coverage_note:"No cached setlist yet"},impact:[]})
+  }));
   await page.locator('#content [data-detail="artist"][data-id="the beatles"]').click();
   await page.locator('#detail-dialog [data-browse="albums"]').waitFor();
+  await page.locator('#artist-live-section .gig-performance').waitFor();
+  assert.match(await page.locator('#artist-live-section').innerText(), /Demo Theatre/);
+  await page.locator('#detail-dialog .gig-chart-marker').first().waitFor();
+  await page.locator('#detail-dialog .gig-chart-marker').first().click();
+  assert.equal(await page.locator('#artist-live-section .gig-performance.selected').count(),1);
+  await page.unroute("**/api/gigs/timeline?*");
+  await page.unroute("**/api/gigs/artist-insights?*");
   const artistSpotify = await page.locator('#detail-dialog .spotify-link').getAttribute('href');
   assert.match(decodeURIComponent(artistSpotify), /artist:"The Beatles"/);
   for (const [view, title] of [['albums', 'Albums'], ['songs', 'Songs'], ['history', 'Listening history'], ['artists', 'Artists']]) {
