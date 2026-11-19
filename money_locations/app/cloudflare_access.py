@@ -18,9 +18,9 @@ class CloudflareAccess:
         self.owner_email = str(options.get("cloudflare_owner_email") or "").strip().lower()
         self.enabled = bool(self.team or self.audience or self.owner_email)
         if self.enabled and (
-            not re.fullmatch(r"[a-z0-9-]+\\.cloudflareaccess\\.com", self.team)
+            not re.fullmatch(r"[a-z0-9-]+\.cloudflareaccess\.com", self.team)
             or not self.audience
-            or not re.fullmatch(r"[^@\\s]+@[^@\\s]+", self.owner_email)
+            or not re.fullmatch(r"[^@\s]+@[^@\s]+", self.owner_email)
         ):
             raise ValueError("Cloudflare login requires the team domain, Money Locations application audience and owner email.")
         self.issuer = "https://" + self.team if self.enabled else ""
