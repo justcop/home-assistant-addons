@@ -1650,7 +1650,19 @@ function updateChartTooltip(target) {
 }
 ["pointerover","focusin","pointerdown"].forEach(eventName=>
   document.addEventListener(eventName,event=>updateChartTooltip(event.target)));
+function closeMoreNavigation(restoreFocus = false) {
+  const menu = $("#more-nav");
+  if (menu.hidden) return;
+  menu.hidden = true;
+  $("#nav-more").setAttribute("aria-expanded","false");
+  if (restoreFocus) $("#nav-more").focus();
+}
 document.addEventListener("keydown", event=>{
+  if (event.key === "Escape" && !$("#more-nav").hidden) {
+    event.preventDefault();
+    closeMoreNavigation(true);
+    return;
+  }
   const row=event.target.closest("tr[data-row-detail]");
   if(row && (event.key==="Enter" || event.key===" ") && event.target===row){
     event.preventDefault(); showDetail(row.dataset.rowDetail,row.dataset.rowId);
@@ -1659,6 +1671,9 @@ document.addEventListener("keydown", event=>{
   if(marker && (event.key==="Enter" || event.key===" ")){
     event.preventDefault(); marker.click();
   }
+});
+document.addEventListener("pointerdown", event => {
+  if (!event.target.closest("#more-nav, #nav-more")) closeMoreNavigation();
 });
 document.addEventListener("input", (event) => {
   if (event.target.classList.contains("candidate-name")) {
