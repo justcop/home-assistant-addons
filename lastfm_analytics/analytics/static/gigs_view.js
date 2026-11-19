@@ -237,9 +237,6 @@ window.ListeningGigs = {
      gigs=(await response.json()).gigs;
      $('count').textContent=gigs.length+' attended performances';
      $('rows').innerHTML=gigs.map(g=>'<tr><td>'+esc(g.date)+'</td><td><button class="gig-artist-link" data-artist="'+esc(g.artist)+'" title="Show artist listening and gigs">'+esc(g.artist)+'</button></td><td>'+esc(g.venue)+'</td><td>'+'<select class="gig-type" data-id="'+g.id+'"><option value="unknown" '+(g.show_type==='unknown'?'selected':'')+'>Unclassified</option><option value="concert" '+(g.show_type==='concert'?'selected':'')+'>Concert</option><option value="festival" '+(g.show_type==='festival'?'selected':'')+'>Festival</option></select>'+(g.festival?'<small>'+esc(g.festival)+'</small>':g.show_type==='festival'&&!g.type_override?'<small>Inferred festival</small>':'')+'</td><td>'+(g.setlist_url?'<a target="_blank" rel="noopener noreferrer" href="'+esc(g.setlist_url)+'">Source</a>':g.setlist_id?'Linked':'Not linked')+(g.sets?'<details><summary>Cached songs</summary><ol>'+g.sets.flatMap(set=>set.song||[]).map(song=>'<li>'+esc(song.name||'Unknown')+'</li>').join('')+'</ol></details>':'')+'</td><td>'+esc(g.last_checked||'Never')+'</td></tr>').join('');
-     const names=[...new Set(gigs.map(g=>g.artist))].sort((a,b)=>a.localeCompare(b));
-     $('artists').innerHTML=names.map(s=>'<option value="'+esc(s)+'">').join('');
-     
      loadCollection();
     }
     async function loadAttendanceStatus(){
