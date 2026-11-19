@@ -784,6 +784,9 @@ function updateCandidateName(card) {
 }
 
 function settingsHTML(data) {
+  const groupKindTabs = `<div class="segment review-kind-tabs" role="group" aria-label="Review category">
+    ${[["artist","Artists"],["song","Songs"],["album","Albums"]].map(([kind,label])=>`<button data-group-kind="${kind}" aria-pressed="${state.groupKind===kind}">${label}</button>`).join("")}
+    </div>`;
   if (state.groupKind === "artist") {
     const suggested = (data.suggestions || []).map(item =>
       '<article class="review-card"><strong>' + esc(item.names.join(' ↔ ')) +
@@ -799,9 +802,7 @@ function settingsHTML(data) {
       '</article>').join('');
     return '<section class="panel"><div class="panel-head"><div><h2>Artist identities</h2><p>Combine alternative names for the same artist. Identically named songs and albums combine automatically while explicit manual separations stay intact.</p></div>' +
       '<button class="button" id="undo" ' + (statusData.events.some(e => !e.undone) ? '' : 'disabled') + '>Undo latest change</button></div>' +
-      '<div class="segment review-kind-tabs" role="group" aria-label="Review category">
-   ${[["artist","Artists"],["song","Songs"],["album","Albums"]].map(([kind,label])=>`<button data-group-kind="${kind}" aria-pressed="${state.groupKind===kind}">${label}</button>`).join("")}
-   </div><div class="review-filters">' +
+      groupKindTabs + '<div class="review-filters">' +
       '<input id="search" type="search" placeholder="Search artist names…" aria-label="Search artists" value="' + esc(state.q) + '"></div>' +
       '<div class="selection-bar"><span id="selected-count">' + state.selected.size + ' selected</span>' +
       '<label>Combined artist name <input id="artist-name" type="text" maxlength="1000" placeholder="Use the selected artist name"></label>' +
