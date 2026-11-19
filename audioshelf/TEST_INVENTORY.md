@@ -1,10 +1,10 @@
 # AudioShelf test inventory
 
-Reviewed: 2026-11-19T14:08:40.979Z (Europe/London).
+Reviewed: 2026-11-19T14:12:29.736Z (Europe/London).
 
-Reviewed the two new SVG sticker tests: XML parsing and self-contained assets guard rendering integrity; separate checks cover shared Classic/Vinyl labels, clickable matching warnings and offline pre-caching. No obsolete test cases removed. Existing browser suites cover general shelf flows; physical sticker appearance still benefits from a device visual check.
+Reviewed SVG-sticker asset and interface tests plus updated real-browser collection-label assertion: it now verifies that the SVG decodes and has non-zero natural width, rather than expecting the removed flat label text. Separate XML/integration cases protect the six self-contained SVG assets and interactive matching badge. No cases removed; visual realism still needs human judgement on real devices.
 
-<!-- inventory: {"reviewed_at":"2026-11-19T14:08:40.979Z","review_note":"Reviewed the two new SVG sticker tests: XML parsing and self-contained assets guard rendering integrity; separate checks cover shared Classic/Vinyl labels, clickable matching warnings and offline pre-caching. No obsolete test cases removed. Existing browser suites cover general shelf flows; physical sticker appearance still benefits from a device visual check.","source_sha256":"f9aa9f94c89e91acdc99d71a0b810a676422bcff95a74cb508bbb2efefed299b"} -->
+<!-- inventory: {"reviewed_at":"2026-11-19T14:12:29.736Z","review_note":"Reviewed SVG-sticker asset and interface tests plus updated real-browser collection-label assertion: it now verifies that the SVG decodes and has non-zero natural width, rather than expecting the removed flat label text. Separate XML/integration cases protect the six self-contained SVG assets and interactive matching badge. No cases removed; visual realism still needs human judgement on real devices.","source_sha256":"48ff217542c7a6e186d4fbaa530272c3ae4391e83aa8ebdd97d3196ebc65154c"} -->
 
 ## Backend cases (467)
 
