@@ -17,19 +17,31 @@ A local financial tracker for Home Assistant. Record dated account balances and 
 - Optional Moneyhub / WPS LifeStage login with 2FA, daily or manual data pulls, account mapping and transaction search.
 - Review imported balances in a new draft without changing historical snapshots.
 - SQLite persistence in `/share/money_locations`, recovery copies, complete JSON export/restore and CSV balance export.
-- Home Assistant Ingress and optional password-protected direct access. LifeStage connects using your website login; no paid API account is required.
+- Home Assistant Ingress and optional Google sign-in through Cloudflare Access for the standalone web interface (or an optional standalone password). Only the configured Google account can view financial data. LifeStage connects using your website login; no paid API account is required.
 
 ## Install
 
-Add this repository in the Home Assistant add-on store, refresh the store, then install **Money Locations**. Set `web_password` in Configuration, start it and choose **Open Web UI**.
+Add this repository in the Home Assistant add-on store, refresh the store, then install **Money Locations**. Start it and choose **Open Web UI**; Home Assistant ingress uses your Home Assistant login, without a second password. For direct web access, configure Cloudflare Access Google sign-in as described below (preferred) or set `web_password`.
 
 Open **Backups & settings**, choose your private Money Locations history JSON and press **Import history**. Financial data is deliberately not bundled in the repository. Alternatively, add accounts and create an opening snapshot manually.
 
 See [DOCS.md](DOCS.md) for entry conventions, accounting details and recovery.
 
+## Google sign-in for standalone access
+
+Money Locations uses the same Cloudflare Access Google identity provider as AudioShelf and Listening; this is not a separate Google OAuth client. Create a **separate self-hosted Access application** for the Money Locations hostname (for example, `money.justcop.co.uk`), with the existing Google IdP, an Allow policy restricted to your Google email, and automatic redirect to Google. Protect the hostname with Cloudflare Access and route it over HTTPS to the add-on's **direct port 8100**, not the Home Assistant ingress port.
+
+Set these add-on options and restart:
+
+- `cloudflare_team_domain`: the same team as AudioShelf/Listening (for example, `justcop.cloudflareaccess.com`)
+- `cloudflare_audience`: **Money Locations' own** Access application AUD, not AudioShelf's or Listening's
+- `cloudflare_owner_email`: the sole approved Google address
+
+All three options must be configured together. The app verifies Cloudflare's signed JWT (RS256 signature, issuer, audience, expiry, human application identity, owner email) on **every standalone request**, including static assets. Cloudflare mode ignores any previously issued password sessions. Use the **Sign out** control to revoke your Cloudflare Access session. Home Assistant ingress continues using your Home Assistant authentication. Do not expose the direct add-on port directly to the Internet: use Cloudflare Access and HTTPS. The legacy `web_password` applies only if Cloudflare mode is off.
+
 ## Development and tests
 
-No Python packages or frontend build step are required.
+The app uses PyJWT with cryptographic verification (installed by the add-on image); no frontend build step is required.
 
 ```sh
 python -m unittest discover -s money_locations/tests -v

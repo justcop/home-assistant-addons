@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.2
+
+- Add Google single sign-on using the same Cloudflare Access identity provider and signed JWT validation as AudioShelf and Listening.
+- Restrict standalone financial data to the configured owner email and Money Locations application audience; do not accept old passwords, forged headers or cookies in Cloudflare mode.
+- Keep Home Assistant ingress access authenticated by Home Assistant; provide Cloudflare logout for standalone users.
+- Keep the previous direct-access password as an opt-in fallback only when Cloudflare Access is not configured.
+
 ## 0.5.1
 
 - Use a slate and blue app theme so green and red clearly identify positive and negative financial values.

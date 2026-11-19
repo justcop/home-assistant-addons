@@ -22,6 +22,7 @@ from urllib.parse import urlsplit, parse_qs
 from model import blank_state, validate_state, new_snapshot, problems, report, all_reports, money, previous_snapshot
 
 from moneyhub import Moneyhub, init_schema, export_data, restore_data, validate_export
+from cloudflare_access import CloudflareAccess, AccessDenied
 
 ROOT = Path(__file__).parent
 MAX_BODY = 100 * 1024 * 1024
@@ -207,9 +208,23 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *_):
         pass  # Do not log financial payloads or identifying paths.
 
+    def ingress(self):
+        # The standalone server never treats proxy headers as ingress proof.
+        return not self.server.local and not self.server.direct and self.client_address[0] == '172.30.32.2'
+
+    def cloudflare_mode(self):
+        return self.server.direct and not self.server.local and self.server.access.enabled
+
     def authenticated(self):
-        if self.server.local and not self.server.password_hash:
+        # Home Assistant already authenticated the trusted ingress connection.
+        if self.ingress() or (self.server.local and not self.server.password_hash):
             return True
+        if self.cloudflare_mode():
+            try:
+                self.server.access.verify(self.headers.get('Cf-Access-Jwt-Assertion'))
+                return True
+            except AccessDenied:
+                return False
         cookie = SimpleCookie()
         try:
             cookie.load(self.headers.get('Cookie', ''))
@@ -259,9 +274,21 @@ class Handler(BaseHTTPRequestHandler):
         if not self.allowed():
             self.reply(403, {'error':'Access through Home Assistant is required.'})
             return
+        # Verify signed identity even for HTML, JS and the status endpoint.
+        # Password sessions and forged identity headers cannot bypass Access.
+        if self.cloudflare_mode() and not self.authenticated():
+            message = 'Sign in through Cloudflare with Google to open Money Locations.'
+            if path.startswith('/api/'):
+                self.reply(401, {'error': message})
+            else:
+                self.reply(401, message, 'text/plain; charset=utf-8')
+            return
         try:
             if path == '/api/auth/status':
-                self.reply(200, {'authenticated': self.authenticated(), 'configured': bool(self.server.password_hash) or self.server.local})
+                provider = 'ingress' if self.ingress() else 'cloudflare' if self.cloudflare_mode() else 'password'
+                self.reply(200, {'authenticated': self.authenticated(),
+                                 'configured': bool(self.server.password_hash) or self.server.local or self.server.access.enabled or self.ingress(),
+                                 'provider': provider})
                 return
             if path in ('/','/index.html','/app.js','/style.css','/icon.png','/moneyhub.js'):
                 name='index.html' if path=='/' else path[1:]
@@ -319,6 +346,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             path=urlsplit(self.path).path
             is_login = path == '/api/auth/login'
+            if self.cloudflare_mode() and not self.authenticated():
+                self.reply(401, {'error': 'Sign in through Cloudflare with Google to open Money Locations.'})
+                return
             if not is_login and not self.authenticated():
                 self.reply(401, {'error': 'Please log in to access your financial data.'})
                 return
@@ -328,6 +358,9 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError('Login request is too large.' if is_login else 'Upload must be between 1 byte and 100 MB.')
             data=json.loads(self.rfile.read(size),parse_constant=lambda _: (_ for _ in ()).throw(ValueError('Invalid number.')))
             if is_login:
+                if self.cloudflare_mode() or self.ingress():
+                    self.reply(403, {'error': 'Sign-in is managed by Cloudflare or Home Assistant.'})
+                    return
                 if not self.server.password_hash:
                     self.reply(403, {'error': 'Set web_password in the add-on configuration, then restart.'})
                     return
@@ -357,6 +390,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply(200, {'ok': True}, cookie=self.session_cookie(token, 12 * 3600))
                 return
             if path == '/api/auth/logout':
+                if self.cloudflare_mode():
+                    self.reply(403, {'error': 'Sign out through Cloudflare Access instead.'})
+                    return
+                if self.ingress():
+                    self.reply(200, {'ok': True})
+                    return
                 cookie = SimpleCookie(self.headers.get('Cookie', ''))
                 with self.server.auth_lock:
                     if 'money_session' in cookie:
@@ -417,8 +456,9 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(500,{'error':'The operation could not be saved. Your previous data is unchanged.'})
 
 
-def create_server(path, host='0.0.0.0', port=8099, local=False, password='', direct=False, moneyhub=None):
+def create_server(path, host='0.0.0.0', port=8099, local=False, password='', direct=False, moneyhub=None, access=None):
     server=ThreadingHTTPServer((host,port),Handler)
+    server.access=access if access is not None else CloudflareAccess({})
     server.store=Store(path)
     server.moneyhub=moneyhub or Moneyhub(path)
     server.local=local
@@ -470,9 +510,10 @@ if __name__=='__main__':
     shared=None if local else os.environ.get('MONEY_SHARED','/share/money_locations')
     path=persistent_path(data_dir, shared)
     hub=Moneyhub(path,saved_email=options.get('lifestage_email',''),saved_password=options.get('lifestage_password',''))
-    server=create_server(path,moneyhub=hub,host='127.0.0.1' if local else '0.0.0.0',port=int(os.environ.get('PORT','8099')),local=local,password=password)
-    if not local and password:
-        direct=create_server(path,port=8100,password=password,direct=True,moneyhub=server.moneyhub)
+    access=CloudflareAccess(options)
+    server=create_server(path,moneyhub=hub,host='127.0.0.1' if local else '0.0.0.0',port=int(os.environ.get('PORT','8099')),local=local,password=password,access=access)
+    if not local and (password or access.enabled):
+        direct=create_server(path,port=8100,password=password,direct=True,moneyhub=server.moneyhub,access=access)
         threading.Thread(target=direct.serve_forever, daemon=True).start()
     threading.Thread(target=server.moneyhub.background_loop,daemon=True).start()
     print('Money Locations ready; database: '+str(path), flush=True)
