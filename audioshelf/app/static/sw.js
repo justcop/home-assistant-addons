@@ -9,7 +9,7 @@ const asset = file => {const url=new URL('static/'+file,root);url.searchParams.s
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(async cache=>{
     for(const url of [root,asset('app.js'),asset('style.css'),asset('vinyl.js'),asset('vinyl.css'),
-      ...['loan','loan-worn','collection','attention','on-shelf','on-loan'].map(name=>asset('stickers/'+name+'.svg'))]){
+      ...['loan','spotify_attention'].flatMap(name=>[96,160,256,384].map(width=>asset('stickers/'+name+'-'+width+'.png')))]){
       const response=await fetch(url,{cache:'no-store'});
       if(!response.ok)throw new Error('Could not load updated AudioShelf shell');
       await cache.put(url,response);
