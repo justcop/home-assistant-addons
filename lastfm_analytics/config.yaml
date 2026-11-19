@@ -33,6 +33,9 @@ options:
   demo_mode: false
   artwork_lookups: true
   web_password: ""
+  cloudflare_team_domain: ""
+  cloudflare_audience: ""
+  cloudflare_owner_email: ""
   setlistfm_api_key: ""
   setlistfm_user_id: ""
   setlist_cache_retention_days: 30
@@ -47,6 +50,9 @@ schema:
   demo_mode: bool
   artwork_lookups: bool
   web_password: password?
+  cloudflare_team_domain: str?
+  cloudflare_audience: str?
+  cloudflare_owner_email: str?
   setlistfm_api_key: password?
   setlistfm_user_id: str?
   setlist_cache_retention_days: int(1,999999999999999999999999999999999999999999999999999999999999999)

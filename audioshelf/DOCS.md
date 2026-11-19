@@ -19,6 +19,14 @@ Choose from ten themes under **Settings → Appearance**. In **Album settings**,
 Lost authenticator: in Home Assistant AudioShelf Configuration, set **2FA recovery request (advanced)** to a new value (for example `reset-1`), save and restart. Then log in with your normal password. The request is processed once; use a different value for a future reset. Re-enrol 2FA in AudioShelf Security settings.
 
 
+## Verified Android App Links for AudioShelf
+
+The integrated AudioShelf Android app (version 0.2.23 or newer) registers `https://audioshelf.justcop.co.uk/` as an Android App Link. On an Android device that has the current, stable-signed APK installed and has approved the link, tapping a Listening shelf or record-store link opens the existing native AudioShelf activity, retaining the `#shelf/... `, `#album/...` or `#store/...` destination. If the app has to authenticate through Cloudflare Google SSO, it restores that destination after the app sign-in exchange. Links are limited to the configured trusted AudioShelf origin; foreign URLs are never loaded into the privileged WebView.
+
+Android verifies the application identity using the publicly readable `https://audioshelf.justcop.co.uk/.well-known/assetlinks.json`, serving the actual signing certificate SHA-256 and Android package `uk.co.justcop.audioshelf.helper`. Cloudflare's bypass exception must match **only this exact file**, not the protected AudioShelf app or its API. To inspect domain verification on an Android device, run `adb shell pm get-app-links uk.co.justcop.audioshelf.helper`. The normal HTTPS link remains the fallback for Chrome and the installed PWA.
+
+Listening opens AudioShelf links as external top-level navigations, outside the Listening standalone window, and preserves direct link fragments. The OS/browser decides between the installed verified Android app, installed Chrome PWA and an ordinary external browser tab; Chrome/PWA launch decisions can vary with user defaults and Android version.
+
 ## Links between Listening Analytics and AudioShelf
 
 Update both add-ons. Set `audioshelf_url` in Listening Analytics to the HTTPS AudioShelf address, for example `https://audioshelf.justcop.co.uk`. In AudioShelf, set `listening_analytics_origin` to the origin of the Listening Analytics address (scheme and hostname, with port if needed, without a path). Sign in to AudioShelf in the same browser using the account whose shelf you want to browse.

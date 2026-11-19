@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "uk.co.justcop.audioshelf.helper",
+      "sha256_cert_fingerprints": [
+        "44:8B:CD:7B:65:70:E0:12:7C:92:13:BD:11:F3:21:C6:DB:36:A5:9A:51:C9:9D:F2:8D:8E:22:12:E4:2E:60:68"
+      ]
+    }
+  }
+]
