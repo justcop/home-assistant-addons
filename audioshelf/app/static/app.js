@@ -527,19 +527,31 @@ function playbackSelectionTracks(album,disc){
   }
   return album.tracks.filter(t=>(t.disc_number||1)===disc);
 }
-function trackRows(album){
+function trackRows(album,editable=false){
   const discs=albumDiscs(album);
-  return `<div class="tracklist">${discs.map(disc=>{
+  return '<div class="tracklist">'+discs.map(disc=>{
     const tracks=album.tracks.filter(t=>(t.disc_number||1)===disc);
-    const sideControls=(album.on_shelf||album.in_listening_pile)?(album.playback_sides||[]).filter(side=>side.disc_number===disc).map(side=>`<button class="secondary" data-action="play" data-disc="${disc}:${side.side}">▶ Side ${side.side}</button>`).join(''):'';
-    const heading=discs.length>1?`<div class="actions"><h2>Disc ${disc}</h2><span class="muted">${tracks.length} tracks · ${duration(tracks.reduce((sum,t)=>sum+(t.duration_ms||0),0))}</span>${(album.on_shelf||album.in_listening_pile)?`<button class="secondary" data-action="play" data-disc="${disc}">▶ Play disc ${disc}</button>`:''}${sideControls}</div>`:sideControls?`<div class="actions"><strong>Vinyl sides</strong>${sideControls}</div>`:'';
-    return heading+tracks.map(t=>`<div class="track-row"><span class="track-number">${t.position}</span><span>${escapeHtml(t.title)}<br><small class="${t.verified?'mapped':'unmapped'}">${t.verified?(t.method==='manual'?'Manually mapped':'Mapped to Spotify'):(t.spotify_id?'Check this recording':'Not mapped yet')}</small></span><span class="duration">${duration(t.duration_ms)}</span><button class="quiet" data-action="track" data-position="${t.position}" aria-label="Edit Spotify mapping for ${escapeHtml(t.title)}">Edit</button></div>`).join('');
-  }).join('')}</div>`;
+    const sideControls=(album.on_shelf||album.in_listening_pile)?(album.playback_sides||[]).filter(side=>side.disc_number===disc).map(side=>'<button class="secondary" data-action="play" data-disc="'+disc+':'+side.side+'">▶ Side '+side.side+'</button>').join(''):'';
+    const heading=discs.length>1?'<div class="actions"><h2>Disc '+disc+'</h2><span class="muted">'+tracks.length+' tracks · '+duration(tracks.reduce((sum,t)=>sum+(t.duration_ms||0),0))+'</span>'+((album.on_shelf||album.in_listening_pile)?'<button class="secondary" data-action="play" data-disc="'+disc+'">▶ Play disc '+disc+'</button>':'')+sideControls+'</div>':sideControls?'<div class="actions"><strong>Vinyl sides</strong>'+sideControls+'</div>':'';
+    return heading+tracks.map(t=>'<div class="track-row"><span class="track-number">'+t.position+'</span><span>'+escapeHtml(t.title)+(editable?'<br><small class="'+(t.verified?'mapped':'unmapped')+'">'+(t.verified?(t.method==='manual'?'Manually mapped':'Matched to Spotify'):(t.spotify_id?'Check this recording':'Not matched yet'))+'</small>':'')+'</span><span class="duration">'+duration(t.duration_ms)+'</span>'+(editable?'<button class="quiet" data-action="track" data-position="'+t.position+'" aria-label="Edit Spotify mapping for '+escapeHtml(t.title)+'">Edit</button>':'')+'</div>').join('');
+  }).join('')+'</div>';
 }
 function albumPage(album){
   currentAlbum=album;
   if(isVinyl())return vinylAlbum(album);
-  return `<a class="back" href="${escapeHtml(albumOrigin||'#artist/'+id(album.artists[0]?.id || ''))}">← ${artistNames(album)}</a><div class="album-hero">${albumArtwork(album)}<div><div class="eyebrow">${year(album)} · Studio album</div><h1>${escapeHtml(album.title)}</h1><p class="muted">${artistNames(album)} · ${album.tracks.length} tracks</p><div class="actions">${(album.on_shelf||album.in_listening_pile)?`<button class="primary" data-action="play" ${album.tracks.length?"":"disabled"}>▶ Play album</button>`:`<button class="primary" data-action="add" data-id="${escapeHtml(album.id)}">+ Add to shelf</button>`}${albumMembershipActions(album)}<button class="secondary" data-action="resolve">${album.playable?'Find another edition':'Match Spotify tracks'}</button>${album.on_shelf&&!album.playable?'<button class="secondary" data-action="find-playable-edition">Find playable edition</button>':''}</div><button class="quiet" data-action="devices">Change device</button><button class="quiet" data-action="album-settings">Album settings ↗</button></div></div>${!album.playable?'<div class="matching-alert"><strong>This album needs a Spotify match.</strong> It is saved on your shelf but cannot play yet. <button class="secondary" data-action="fix-match" data-id="${escapeHtml(album.id)}">Fix match</button></div>':`<div class="note">Ready to play ${album.tracks.length} mapped tracks, without the extras.${album.spotify_album_name?` Playback edition: ${escapeHtml(album.spotify_album_name)}.`:''} AudioShelf starts your synced tracklist on an available Spotify device.</div>`}${/\bCassette\b/i.test(album.release_label||'')&&!album.release_filters?.formats.includes('cassette')?'<div class="note">This saved tracklist uses a cassette edition outside your current preferences. Album settings lets you choose a vinyl, CD or digital edition. Your current Spotify matches are kept until you replace the tracklist.</div>':''}${!album.tracks.length?`<div class="note">No Spotify-verified original tracklist is saved for this album. AudioShelf keeps it on your shelf while it searches other editions. Choose Find playable edition to pick a complete Spotify match.</div>`:!album.canonical_reviewed&&album.playable?`<div class="note">Original tracklist selected from MusicBrainz: ${escapeHtml(album.release_label)}. If this includes bonus tracks or misses a track, choose another original edition in Album settings. <button class="quiet" data-action="review">This tracklist is correct ✓</button></div>`:''}${trackRows(album)}<p class="footer-note">Catalogue and artwork: <a href="https://musicbrainz.org/release-group/${id(album.id)}" target="_blank" rel="noopener">MusicBrainz / Cover Art Archive ↗</a>${album.spotify_album_id?` · Playback: <a href="https://open.spotify.com/album/${id(album.spotify_album_id)}" target="_blank" rel="noopener">Spotify ↗</a>`:''}</p>`;
+  const collected=album.on_shelf||album.in_listening_pile;
+  const play=collected?'<button class="primary" data-action="play" '+(album.playable?'':'disabled')+'>▶ Play album</button>':'<button class="primary" data-action="add" data-id="'+escapeHtml(album.id)+'">+ Add to shelf</button>';
+  const matching=album.match_state==='needs_attention'
+    ?'<div class="matching-alert"><strong>Needs attention.</strong> A complete match could not be found. <button class="secondary" data-action="fix-match" data-id="'+escapeHtml(album.id)+'">Fix match</button></div>'
+    :collected&&!album.playable?'<div class="matching-pending" role="status">'+(album.match_state==='not_connected'?'Connect Spotify in Settings to play this record.':'Preparing this record in the background. You can keep browsing.')+'</div>':'';
+  return '<a class="back" href="'+escapeHtml(albumOrigin||'#shelf')+'">← Back to browsing</a>'+
+    '<div class="album-hero">'+albumArtwork(album)+'<div><div class="eyebrow">'+year(album)+' · Studio album</div><h1>'+escapeHtml(album.title)+'</h1><p class="muted">'+artistNames(album)+' · '+album.tracks.length+' tracks</p>'+
+    '<div class="actions">'+play+albumMembershipActions(album)+'</div></div></div>'+matching+
+    trackRows(album)+
+    '<details class="record-details"><summary>Record details & editions</summary><p>Original edition: '+escapeHtml(album.release_label||'Not yet selected')+'</p>'+
+    (album.spotify_album_name?'<p>Playback edition: '+escapeHtml(album.spotify_album_name)+'</p>':'')+
+    '<div class="actions"><button class="secondary" data-action="album-settings">Edit artwork, tracklist or edition</button><button class="secondary" data-action="devices">Change playback device</button></div>'+
+    '<h3>Recording matches</h3>'+trackRows(album,true)+'</details>';
 }
 const themeIds=['record-store','midnight','paper','forest','ocean','sunset','plum','monochrome','amber','high-contrast'];
 function applyTheme(value){
@@ -1079,7 +1091,20 @@ function showModal(html){
 }
 async function albumSettings(){
   const a=currentAlbum;
-  showModal(`<h2>Album settings</h2><p><strong>${escapeHtml(a.title)}</strong><br>Original edition: ${escapeHtml(a.release_label)}</p><button class="secondary" data-action="releases">Change original tracklist</button><form id="album-countries-form"><label for="album-countries">Country preference for this album</label><input id="album-countries" name="countries" value="${escapeHtml((a.release_countries||[]).join(', '))}" placeholder="GB, US, XW, XE"><label class="check-option"><input type="checkbox" name="inherit" ${a.release_countries===null?'checked':''}> Use global country preferences</label><p>Use an album-specific country order when regional editions differ. Leave the global preference enabled to use Settings. Format preferences always come from Settings.</p><button class="secondary">Save album preferences</button></form><p>Changing the original edition clears all Spotify mappings for this album.</p><h3>Album cover</h3><button class="secondary" data-action="cover-editions">Choose cover from another edition</button><p>The automatic cover comes from the album’s MusicBrainz release group. Downloaded covers are cached separately only for albums on your shelf. Store artwork and edition previews are not saved. A cover you upload is saved with your collection.</p><form id="artwork-form"><input type="file" name="image" accept="image/jpeg,image/png,image/webp" aria-label="Choose album cover" required><button class="secondary">Save cover</button></form><button class="quiet" data-action="reset-artwork">Restore automatic cover</button><h3>Spotify playback edition</h3><button class="secondary" data-action="resolve">${a.playable?'Find another edition':'Match Spotify tracks'}</button><p>Automatic matching prefers the newest labelled remaster or dated studio mix with a complete matching tracklist. Your manual choices are kept. Paste any Spotify edition. AudioShelf maps just the original tracks and ignores the extras.</p><form id="mapping-form"><input name="album" placeholder="https://open.spotify.com/album/…" aria-label="Spotify album link" required><button class="primary">Use this Spotify edition</button></form><h3>Report a problem</h3><p>Download this album’s tracklist, matching decisions, edition filters and recent errors. Reproduce the problem first, then send the JSON file for investigation. It contains no account credentials.</p><a class="secondary" href="api/albums/${id(a.id)}/diagnostics" download>Download diagnostic report</a>${a.on_shelf?'<div class="actions"><button class="quiet" data-action="remove">Remove from my shelf</button></div>':''}`);
+  showModal('<h2>Record details</h2><p><strong>'+escapeHtml(a.title)+'</strong> · '+artistNames(a)+'</p>'+
+    '<p class="muted">The best available standard edition is chosen automatically. Change any detail only if you want a different version.</p>'+
+    '<details class="record-setting"><summary>Original tracklist</summary><p>'+escapeHtml(a.release_label||'Not yet selected')+'</p><button class="secondary" data-action="releases">Choose another tracklist</button></details>'+
+    '<details class="record-setting"><summary>Cover artwork</summary><p>Use the automatic cover or choose another official sleeve.</p><button class="secondary" data-action="cover-editions">Choose another cover</button>'+
+    '<form id="artwork-form"><label>Upload your own cover<input type="file" name="image" accept="image/jpeg,image/png,image/webp" required></label><button class="secondary">Save cover</button></form>'+
+    '<button class="quiet" data-action="reset-artwork">Restore automatic cover</button></details>'+
+    '<details class="record-setting"><summary>Spotify playback edition</summary><p>AudioShelf chooses a fully matched edition whenever possible.</p>'+
+    '<button class="secondary" data-action="resolve">'+(a.playable?'Choose another edition':'Find matching recordings')+'</button>'+
+    '<form id="mapping-form"><label>Spotify album link<input name="album" placeholder="https://open.spotify.com/album/…" required></label><button class="secondary">Use this Spotify edition</button></form></details>'+
+    '<details class="record-setting"><summary>Advanced preferences & diagnostics</summary>'+
+    '<form id="album-countries-form"><label>Country preference for this album<input name="countries" value="'+escapeHtml((a.release_countries||[]).join(', '))+'" placeholder="GB, US, XW, XE"></label>'+
+    '<label class="check-option"><input type="checkbox" name="inherit" '+(a.release_countries===null?'checked':'')+'> Use global preferences</label><button class="secondary">Save album preferences</button></form>'+
+    '<a class="secondary" href="api/albums/'+id(a.id)+'/diagnostics" download>Download diagnostic report</a></details>'+
+    (a.on_shelf?'<div class="record-delete"><button class="quiet" data-action="remove">Remove from my shelf</button></div>':''));
 }
 document.addEventListener('error',event=>{if(event.target instanceof HTMLImageElement)event.target.classList.add('failed');},true);
 document.querySelector('.close-modal').addEventListener('click',()=>modal.close());
@@ -1615,11 +1640,10 @@ document.addEventListener('click',async event=>{
       // A status poll must not discard an explicit new Play. startPlayback
       // supersedes the old request, and polling checks request ownership.
       if(!statusInfo.spotify_connected)throw new Error('Connect Spotify in Settings first.');
-      if(!currentAlbum.canonical_reviewed)throw new Error('Check the displayed original tracklist, then choose “This tracklist is correct” before first playback.');
       const disc=button.dataset.disc?(button.dataset.disc.includes(':')?button.dataset.disc:Number(button.dataset.disc)):null;
       const selectedTracks=playbackSelectionTracks(currentAlbum,disc);
       if(!selectedTracks.length)throw new Error('That disc or side has no playable tracks.');
-      if(!selectedTracks.every(t=>t.verified&&t.spotify_id)){toast('Matching Spotify tracks first…');const result=await api(`albums/${id(currentAlbum.id)}/resolve`,'POST');if(generation!==routeGeneration)return;currentAlbum=result.album;content.innerHTML=albumPage(currentAlbum);}
+      if(!selectedTracks.every(t=>t.verified&&t.spotify_id))throw new Error('This record is still being matched. Please try again when it is ready.');
       const request={album:currentAlbum,disc,generation};
       cancelPendingPlayback('new_playback');
       if(!statusInfo.preferred_device){await playbackDevicePicker(request);return;}
