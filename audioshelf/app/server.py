@@ -574,10 +574,23 @@ def create_app(options=None):
                 automatic=True))
         return jsonify(job=result), 202
 
+    def display_album_state(album, failures=None):
+        """A pending match is not a failed match; keep that distinction in every room."""
+        if not (album.get('on_shelf') or album.get('in_listening_pile')):
+            return album
+        issues = failures if failures is not None else current_failures(store)
+        state = ('ready' if album.get('playable') else
+                 'needs_attention' if album['id'] in issues else
+                 'matching' if spotify.connected else 'not_connected')
+        return dict(album, match_state=state)
+
     @app.get('/api/shelf')
     def shelf():
         status = spotify_matching.status(g.account['id'], g.context.store)
-        return jsonify(artists=store.artists(), albums=store.albums(owned=True),
+        failures = current_failures(store)
+        return jsonify(artists=store.artists(),
+                       albums=[display_album_state(row, failures)
+                               for row in store.albums(owned=True)],
                        match_status=status)
 
     @app.get('/api/spotify/matching/issues')
@@ -621,7 +634,9 @@ def create_app(options=None):
 
     @app.get('/api/listening-pile')
     def listening_pile():
-        return jsonify(albums=store.albums(pile=True))
+        failures = current_failures(store)
+        return jsonify(albums=[display_album_state(row, failures)
+                               for row in store.albums(pile=True)])
 
     @app.get('/api/search')
     def search():
@@ -699,8 +714,9 @@ def create_app(options=None):
             existing = store.album(album_id)
             # An unresolved shelf album must not accidentally regain the
             # first unverified MusicBrainz pressing when its page is opened.
-            return jsonify(existing if existing['on_shelf'] or existing['in_listening_pile']
-                           else musicbrainz.ensure_tracks(album_id))
+            result = (existing if existing['on_shelf'] or existing['in_listening_pile']
+                      else musicbrainz.ensure_tracks(album_id))
+            return jsonify(display_album_state(result))
 
     @app.post('/api/artwork/refresh')
     def begin_artwork_refresh():
@@ -861,21 +877,32 @@ def create_app(options=None):
     def borrow_album(album_id):
         album_id = mbid(album_id)
         payload = request.get_json(silent=True) or {}
-        if (payload.get('confirmed') is not True or not payload.get('release_id')
-                or not payload.get('spotify_album_id')):
-            raise AppError('Choose a fully Spotify-matched edition to borrow.')
         with store.catalogue_lock:
-            musicbrainz.ensure_group(album_id)
-            current = store.album(album_id)
+            try:
+                current = store.album(album_id)
+            except KeyError:
+                current = musicbrainz.ensure_group(album_id)
             if current['on_shelf']:
                 raise AppError('This record is already yours. Add it to the Listening Pile instead.', 409)
             if current['on_loan']:
-                return jsonify(current)
-            playable_releases.select(album_id, payload['release_id'],
-                payload['spotify_album_id'], reviewed=False,
-                split_sides=payload.get('split_sides', False))
+                return jsonify(display_album_state(current))
+            # Explicit manual edition choices remain supported, but ordinary
+            # borrowing needs no matching or tracklist selection up front.
+            explicit = bool(payload.get('release_id') or payload.get('spotify_album_id'))
+            if explicit:
+                if (payload.get('confirmed') is not True or
+                        not payload.get('release_id') or not payload.get('spotify_album_id')):
+                    raise AppError('Choose a fully matched edition when selecting one manually.')
+                playable_releases.select(album_id, payload['release_id'],
+                    payload['spotify_album_id'], reviewed=False,
+                    split_sides=payload.get('split_sides', False))
             store.pile(album_id, True)
-            return jsonify(store.album(album_id))
+            result = store.album(album_id)
+            if not result['playable']:
+                spotify_matching.enqueue(g.account['id'], g.context.store,
+                    g.context.spotify, g.context.playable_releases, album_id,
+                    enabled=accounts.enabled)
+            return jsonify(display_album_state(result))
 
     @app.post('/api/albums/<album_id>/listening-pile')
     def add_to_listening_pile(album_id):
