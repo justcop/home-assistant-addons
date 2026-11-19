@@ -175,7 +175,7 @@ class Store:
                 GROUP BY a.id ORDER BY a.name COLLATE NOCASE, a.id''')]
 
     def albums(self, artist_id=None, owned=False, pile=False):
-        query = ('''SELECT a.*,s.added_at IS NOT NULL AS on_shelf,
+        query = ('''SELECT a.*,s.added_at AS collected_at,s.added_at IS NOT NULL AS on_shelf,
             l.added_at IS NOT NULL AS in_listening_pile,
             (l.added_at IS NOT NULL AND s.added_at IS NULL) AS on_loan,
             (EXISTS(SELECT 1 FROM tracks tr WHERE tr.album_id=a.id)
