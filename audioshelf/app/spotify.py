@@ -371,8 +371,6 @@ class Spotify:
                 for d in self.api('GET', 'me/player/devices').get('devices', []) if d.get('id')]
 
     def play_tracks(self, album, disc_number=None):
-        if not album['canonical_reviewed']:
-            raise AppError('Review the MusicBrainz tracklist and choose “This tracklist is correct” before first playback. This prevents a regional bonus edition becoming your original album.')
         tracks = album['tracks']
         if disc_number is not None:
             if type(disc_number) is int and disc_number > 0:
