@@ -267,8 +267,7 @@ window.ListeningGigs = {
     load().catch(e=>$('count').textContent=e.message);
     loadAttendanceStatus();
     loadAllTimeline();
-    loadCollection();
-    
+
     $('rows').addEventListener('click',event=>{
      const button=event.target.closest('[data-artist]');
      if(!button)return;
