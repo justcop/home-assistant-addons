@@ -170,7 +170,7 @@ public final class ShelfActivity extends Activity {
                     launchUpdateChecked = true;
                     updater.check((version, action) -> {
                         if (isFinishing() || isDestroyed() || !hasWindowFocus()) return;
-                        new AlertDialog.Builder(this)
+                        new AlertDialog.Builder(ShelfActivity.this)
                             .setTitle("AudioShelf Android update available")
                             .setMessage("Version " + version + " is ready. Download the verified update now?")
                             .setPositiveButton("Download", (dialog, which) -> action.run())
