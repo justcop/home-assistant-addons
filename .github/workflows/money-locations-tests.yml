@@ -1,12 +1,17 @@
 name: Money Locations checks
 on:
   push:
+    branches: [main]
     paths: ["money_locations/**", ".github/workflows/money-locations-tests.yml"]
   pull_request:
     paths: ["money_locations/**", ".github/workflows/money-locations-tests.yml"]
   workflow_dispatch:
+  workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: money-locations-tests-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -26,8 +31,10 @@ jobs:
           node-version: "22"
       - run: node --check app/static/app.js && node --check app/static/moneyhub.js
       - name: Build Money Locations add-on container
+        if: github.event_name != 'pull_request'
         run: docker build -t money-locations:test .
       - name: Check container startup
+        if: github.event_name != 'pull_request'
         run: |
           docker run -d --name money-locations-test -e MONEY_LOCAL=1 money-locations:test
           trap 'docker logs money-locations-test; docker rm -f money-locations-test >/dev/null' EXIT
