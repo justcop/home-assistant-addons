@@ -57,8 +57,9 @@ assert(android.includes('WindowInsetsCompat.Type.systemBars()') &&
 assert(android.includes('Math.max(safe.bottom, keyboard.bottom)'));
 assert(android.includes('scrollSafeHeaderReady ? 0 : statusBarPx'),
   'Native inset is only the temporary loading fallback; full WebView uses status-bar area');
-assert(android.includes('scrollSafeHeaderReady ? statusBarPx : 0'),
-  'Native overflow control remains below status icons after edge-to-edge');
+assert(!android.includes('root.addView(options,button)') &&
+  android.includes('showNativeMenu()') && android.includes('setTitle("Android app options")'),
+  'Android overflow utilities are launched from web Settings instead of a floating native button');
 assert(android.includes('onPageStarted(WebView view, String url') &&
   android.includes('scrollSafeHeaderReady = false;'),
   'Navigations restore native safety before recalculating page spacer');
@@ -80,8 +81,11 @@ assert(workflow.includes('audioshelf-spotify-helper-'+currentVersion),
   'APK workflow artifact follows the Android version rather than an obsolete patch number');
 const updater=fs.readFileSync(path.join(directory,
   'android-helper/app/src/main/java/uk/co/justcop/audioshelf/helper/HelperUpdater.java'),'utf8');
+assert(android.includes('launchUpdateChecked') &&
+  android.includes('AudioShelf Android update available'),
+  'The integrated Android app checks for updates on first successful page load');
 assert(android.includes('updater.check((version, action) ->') &&
-  android.includes('download.setEnabled(false)') && android.includes('dialog.dismiss();'),
+  android.includes('download.setEnabled(false') && android.includes('dialog.dismiss();'),
   'Integrated app must offer a direct Download button and dismiss before installation');
 assert(updater.includes('check(BiConsumer<String, Runnable> offerDownload)') &&
   updater.includes('offerDownload.accept(update.versionName'),
