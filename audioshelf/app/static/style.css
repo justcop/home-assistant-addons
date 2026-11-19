@@ -200,3 +200,5 @@ button[aria-busy="true"]:after{content:"…";font-weight:800}
   color:#49583e;box-shadow:1px 2px 0 #0002,2px 4px 5px #0002;
   font-size:11px;font-weight:700;letter-spacing:.06em;transform:rotate(-2deg);
 }
+
+/* Development Manager smoke test: source-only updates must rebuild without a store reload. */
