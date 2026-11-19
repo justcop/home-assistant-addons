@@ -24,7 +24,7 @@ PAUSE_UNTIL = 'spotify_matching_pause_until_v1'
 
 
 def eligible(album):
-    return bool(album['on_shelf']) and not (
+    return bool(album['on_shelf'] or album['in_listening_pile']) and not (
         album.get('spotify_album_id') and album['tracks'] and
         all(track.get('spotify_id') and track.get('verified') for track in album['tracks']))
 
@@ -171,8 +171,11 @@ class SpotifyMatching:
     def pending(store, spotify, force=False):
         attempted = store.setting(ATTEMPTS, {}) or {}
         result = []
-        for row in store.albums(owned=True):
-            album = store.album(row['id'])
+        # Borrowed records need the same background matching as owned ones.
+        ids = {row['id'] for row in store.albums(owned=True)}
+        ids.update(row['id'] for row in store.albums(pile=True))
+        for album_id in sorted(ids):
+            album = store.album(album_id)
             if not eligible(album):
                 continue
             if force or attempted.get(album['id']) != signature(album, spotify.market):
@@ -262,7 +265,7 @@ class SpotifyMatching:
                 return
             try:
                 album = store.album(album_id)
-                if not album['on_shelf'] or not eligible(album):
+                if not eligible(album):
                     outcome, issue = 'skipped', None
                 else:
                     # Manual choices and user-reviewed MusicBrainz pressings do
