@@ -208,7 +208,7 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
       'Expand all exposes the header action for each artist');
     await page.setViewportSize({width:1440,height:1000});
     await page.locator('[data-nav="store"]').click();
-    await page.getByRole('button',{name:'Albums',exact:true}).click();
+    // Artist and album results share one search field.
     await page.getByRole('searchbox',{name:'Search record store'}).fill('all records');
     await page.getByRole('button',{name:'Search',exact:true}).click();
     await page.locator('.store-rack').first().waitFor();
@@ -227,8 +227,7 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     assert.equal(await page.locator('.sleeve').count(),17);
     assert.equal(await page.getByRole('button',{name:'Add Open Windows to shelf',exact:true}).count(),0);
     await page.getByRole('link',{name:'The Original Album',exact:true}).click();
-    // Review is only available after a fully Spotify-verified tracklist exists.
-    // Resolve the fixture's original album first, then confirm its tracklist.
+    // Fully verified albums play automatically, without a separate confirmation.
     const spotifyReady=await page.evaluate(async()=>{
       const albumId=decodeURIComponent(location.hash.split('/')[1]);
       const result=await fetch(new URL('api/albums/'+albumId+'/resolve',document.baseURI),{
@@ -238,10 +237,8 @@ const screenshots=process.env.AUDIOSHELF_SCREENSHOT_DIR;
       });
       return result.ok;
     });
-    assert(spotifyReady,'Original album Spotify tracklist must verify before review');
+    assert(spotifyReady,'Original album Spotify tracklist must verify before playback');
     await page.evaluate(()=>route()); // preserve the previous browsing origin
-    await page.getByRole('button',{name:'This tracklist is correct'}).click();
-    await page.getByRole('button',{name:'This tracklist is correct'}).waitFor({state:'hidden'});
     // Spotify can briefly return the old song after accepting a new queue.
     let startupReads=0, confirmStartup;
     const startupGate=new Promise(resolve=>confirmStartup=resolve);
