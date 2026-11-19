@@ -4,7 +4,7 @@ Reviewed: 2026-11-19T11:29:27.236+00:00 (Europe/London).
 
 Reviewed AudioShelf 0.6.45 changed Python and browser regression cases for instant borrowing, fully verified playback without repeated confirmation, unified discovery and the revised album, Listening Pile and settings flows. Replaced obsolete expectations rather than dropping behavioural coverage. Real Spotify device and Android playback remain subject to separate end-to-end checks.
 
-<!-- inventory: {"reviewed_at":"2026-11-19T11:29:27.236+00:00","review_note":"Reviewed AudioShelf 0.6.45 changed Python and browser regression cases for instant borrowing, fully verified playback without repeated confirmation, unified discovery and the revised album, Listening Pile and settings flows. Replaced obsolete expectations rather than dropping behavioural coverage. Real Spotify device and Android playback remain subject to separate end-to-end checks.","source_sha256":"6687c587683922cdb762f5b3014c797d8c00ee05ca9ca3737d0047426d5e7915"} -->
+<!-- inventory: {"reviewed_at":"2026-11-19T11:29:27.236+00:00","review_note":"Reviewed AudioShelf 0.6.45 changed Python and browser regression cases for instant borrowing, fully verified playback without repeated confirmation, unified discovery and the revised album, Listening Pile and settings flows. Replaced obsolete expectations rather than dropping behavioural coverage. Real Spotify device and Android playback remain subject to separate end-to-end checks.","source_sha256":"470266a0ae2e8945c918a4a76ad8ea34beb39a69ec67c3d5da4d582b55476d48"} -->
 
 ## Backend cases (465)
 
