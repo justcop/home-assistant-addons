@@ -1579,7 +1579,7 @@ document.addEventListener('click',async event=>{
         await api('albums/'+id(albumId)+'/listening-pile','DELETE');
         await route();
         toastWithUndo(action==='pile-return'?'Loan returned.':'Removed from Listening Pile.',
-          ()=>api('albums/'+id(albumId)+'/listening-pile','POST'));
+          ()=>api('albums/'+id(albumId)+(action==='pile-return'?'/borrow':'/listening-pile'),'POST'));
       }
     }
     if(action==='pile-add'||action==='pile-remove'||action==='return'){
@@ -1589,7 +1589,7 @@ document.addEventListener('click',async event=>{
       currentAlbum=album;
       if(action==='return'){
         location.hash='#listening';
-        toastWithUndo('Loan returned.',()=>api('albums/'+id(album.id)+'/listening-pile','POST'));
+        toastWithUndo('Loan returned.',()=>api('albums/'+id(album.id)+'/borrow','POST'));
       }else{
         content.innerHTML=albumPage(album);
         if(action==='pile-remove')toastWithUndo('Removed from Listening Pile.',()=>api('albums/'+id(album.id)+'/listening-pile','POST'));
