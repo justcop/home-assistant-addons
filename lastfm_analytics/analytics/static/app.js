@@ -978,7 +978,7 @@ function spotifyLink(detail, kind) {
   return `<a class="button spotify-link" href="${url}" target="_blank" rel="noopener noreferrer" aria-label="Find ${esc(detail.name)} on Spotify">${icon}<span>Find on Spotify</span></a>`;
 }
 function detailHeaderHTML(detail, kind) {
-  const links = `${spotifyLink(detail, kind)} ${recordStoreLink(detail, kind)} ${kind === "artist" ? `<a class="button" href="gigs?artist=${encodeURIComponent(detail.name)}">Live gigs & timeline</a>` : ""} <span id="shelf-link-slot"></span>`;
+  const links = `${spotifyLink(detail, kind)} ${recordStoreLink(detail, kind)} <span id="shelf-link-slot"></span>`;
   if (kind === "artist") {
     return `<div class="artist-detail-hero"><div id="artist-logo-slot" class="artist-logo-stage">${artistLogoHTML(detail)}</div><div class="detail-heading detail-media-actions artist-detail-heading"><div id="detail-artwork-slot">${artworkHTML(detail, kind)}</div><div class="artist-actions">${links}</div></div></div>`;
   }
@@ -1067,6 +1067,40 @@ function bindArtworkError(detail, kind) {
     };
   });
 }
+function artistLiveHTML(info, error = null) {
+  if (!info) return `<section class="panel artist-live-section" id="artist-live-section"><h2>Live performances</h2><p class="method-note">${error?"Live music details are temporarily unavailable.":"Loading concerts, festivals and live songs…"}</p></section>`;
+  const gigs=(info.timeline?.gigs || []).slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+  const songs=info.insights?.songs || {};
+  const impact=info.insights?.impact || [];
+  const listened=(songs.live_songs || []).slice(0,10);
+  const gigCards=gigs.map(g=>{
+    const concert=g.show_type==="festival"?"Festival":g.show_type==="concert"?"Concert":"Live performance";
+    const place=g.festival || g.venue || "Venue unknown";
+    const url=typeof g.setlist_url==="string" && /^https:\\/\\//.test(g.setlist_url) ? g.setlist_url : null;
+    const impactRow=impact.find(item=>item.id===g.id);
+    const change=impactRow?.available && Number.isFinite(Number(impactRow.share_change_pp))
+      ? `<small>Share of listening, 30 days before vs after: ${Number(impactRow.share_change_pp)>=0?"+":""}${esc(impactRow.share_change_pp)} percentage points</small>` : "";
+    return `<article class="gig-performance" data-gig-date="${esc(g.date || "")}">
+      <small>${esc(g.date)} · ${concert}</small>
+      <strong>${esc(place)}</strong>
+      ${g.venue && g.festival ? `<small>${esc(g.venue)}</small>` : ""}
+      ${change}
+      ${url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">View setlist.fm record ↗</a>` : ""}
+    </article>`;
+  }).join("");
+  const songsHTML=listened.length
+    ? `<details class="gig-live-songs"><summary>Songs you have listened to and heard live (${number(listened.length)} shown)</summary>
+       <ul>${listened.map(song=>`<li>${esc(song.title)} <small>· ${number(song.listens)} scrobbles, recorded at ${number(song.performances)} of your gigs</small></li>`).join("")}</ul></details>`
+    : "";
+  return `<section class="panel artist-live-section" id="artist-live-section">
+    <div class="panel-head"><div><h2>Live performances</h2><p>Gigs appear as markers on this artist's listening timeline above.</p></div>
+    <strong>${number(gigs.length)} attended</strong></div>
+    ${gigs.length ? `<div class="gig-performances">${gigCards}</div>` : '<p class="method-note">No gigs for this artist are recorded in your attendance collection yet.</p>'}
+    ${songsHTML}
+    ${songs.coverage_note ? `<p class="gig-data-coverage">${esc(songs.coverage_note)}</p>` : ""}
+    ${impact.length ? '<p class="method-note">Before/after comparisons use 30 complete days each side of a gig, excluding the gig day; they show association, not causation.</p>' : ""}
+  </section>`;
+}
 async function showDetail(kind, id, groupMode = false, restoring = false) {
   if (!restoring) {
     initiallyRestoredDetail = false;
@@ -1133,11 +1167,29 @@ async function showDetail(kind, id, groupMode = false, restoring = false) {
     if (result.error) throw result.error;
     const data = result.data;
     let artistEraData = null;
+    let artistGigInfo = null;
+    let artistGigError = null;
+    let currentArtistAnalytics = data;
     const renderDetail = next => {
+      currentArtistAnalytics = next;
       replaceCachedView("#detail-analytics",
-        `${metrics(next, mode, {kind,id,name:detail.name}, allTime)}<section class="panel">${panelHead("Listening history", "Select a bar to inspect individual scrobbles.")}${chart(next, {kind,id,name:detail.name}, mode)}</section>${kind === "album" ? albumEstimateHTML(next.album_estimate) : ""}${kind === "artist" ? artistAlbumsHTML(next, id, detail.name) + `<div id="artist-era-section">${artistEraData ? artistEraHTML(artistEraData) : '<p class="method-note">Loading musical eras…</p>'}</div>` : ""}${detail.versions.length ? `<div class="panel-head" style="margin-top:23px"><div><h2>Versions</h2><p>All-time plays for the selected source, including versions outside the selected period.</p></div></div><div class="table-wrap"><table><thead><tr><th>Scrobbled name</th><th class="num">Plays</th><th>First / latest play</th><th></th></tr></thead><tbody>${detail.versions.map(v => `<tr><td class="name-cell"><strong>${esc(v.name)}</strong><small>${v.manual ? "Manual decision" : "Automatic grouping"}</small></td><td class="num">${number(v.plays)}</td><td><small>${formatDate(v.first_play)}<br>${formatDate(v.last_play)}</small></td><td>${detail.versions.length > 1 ? `<button class="button" data-separate="${v.id}" data-name="${esc(v.name)}">Separate</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : ""}<div class="dialog-actions" style="margin-top:18px"><button class="button primary" data-show-history="${kind}" data-id="${esc(id)}" data-name="${esc(detail.name)}" data-mode="${mode}" data-all="${allTime}">View scrobbles →</button></div>`);
+        `${metrics(next, mode, {kind,id,name:detail.name}, allTime)}<section class="panel">${panelHead("Listening history", "Select a bar to inspect individual scrobbles.")}${chart(next, {kind,id,name:detail.name}, mode, artistGigInfo?.timeline?.gigs)}</section>${kind === "artist" ? artistLiveHTML(artistGigInfo, artistGigError) : ""}${kind === "album" ? albumEstimateHTML(next.album_estimate) : ""}${kind === "artist" ? artistAlbumsHTML(next, id, detail.name) + `<div id="artist-era-section">${artistEraData ? artistEraHTML(artistEraData) : '<p class="method-note">Loading musical eras…</p>'}</div>` : ""}${detail.versions.length ? `<div class="panel-head" style="margin-top:23px"><div><h2>Versions</h2><p>All-time plays for the selected source, including versions outside the selected period.</p></div></div><div class="table-wrap"><table><thead><tr><th>Scrobbled name</th><th class="num">Plays</th><th>First / latest play</th><th></th></tr></thead><tbody>${detail.versions.map(v => `<tr><td class="name-cell"><strong>${esc(v.name)}</strong><small>${v.manual ? "Manual decision" : "Automatic grouping"}</small></td><td class="num">${number(v.plays)}</td><td><small>${formatDate(v.first_play)}<br>${formatDate(v.last_play)}</small></td><td>${detail.versions.length > 1 ? `<button class="button" data-separate="${v.id}" data-name="${esc(v.name)}">Separate</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : ""}<div class="dialog-actions" style="margin-top:18px"><button class="button primary" data-show-history="${kind}" data-id="${esc(id)}" data-name="${esc(detail.name)}" data-mode="${mode}" data-all="${allTime}">View scrobbles →</button></div>`);
     };
     renderDetail(data);
+    if (kind === "artist") {
+      Promise.all([
+        api("gigs/timeline", {artist:detail.name, granularity:"month"}, {signal}),
+        api("gigs/artist-insights", {artist:detail.name}, {signal})
+      ]).then(([timeline,insights])=>{
+        if (serial !== detailSerial || !dialog.open) return;
+        artistGigInfo = {timeline,insights};
+        renderDetail(currentArtistAnalytics);
+      }).catch(error=>{
+        if (serial !== detailSerial || !dialog.open || signal.aborted) return;
+        artistGigError = error;
+        renderDetail(currentArtistAnalytics);
+      });
+    }
     if (artistEraTask) artistEraTask.then(result=>{
       if (serial !== detailSerial || !dialog.open) return;
       artistEraData = result.data || null;
@@ -1248,6 +1300,15 @@ document.addEventListener("click", (event) => {
   if (b.dataset.groupTab) {
     state.groupTab = b.dataset.groupTab;
     state.offset = 0; state.q = ""; load(); return;
+  }
+  if (b.dataset.gigMarker) {
+    const modal=b.closest(".detail-dialog");
+    const rows=modal?.querySelectorAll("[data-gig-date]") || [];
+    const match=[...rows].find(row=>row.dataset.gigDate===b.dataset.gigMarker);
+    rows.forEach(row=>row.classList.toggle("selected",row===match));
+    if (match) match.scrollIntoView({behavior:"smooth",block:"center"});
+    else modal?.querySelector("#artist-live-section")?.scrollIntoView({behavior:"smooth",block:"center"});
+    return;
   }
   if (b.dataset.chartZoom) {
     const scroller = b.closest(".panel").querySelector(".chart-scroll");
