@@ -64,7 +64,7 @@ def test_owned_pile_routes_leave_collection_unchanged(client, application):
 
 def test_borrow_saves_immediately_without_edition_selection(client, application, monkeypatch):
     queued=[]
-    monkeypatch.setattr('app.server.spotify_matching.enqueue', lambda *args, **kwargs: queued.append(args[4]))
+    monkeypatch.setattr(application.extensions['spotify_matching'], 'enqueue', lambda *args, **kwargs: queued.append(args[4]))
     response=post(client, f'/api/albums/{ALBUM}/borrow')
     assert response.status_code == 200
     assert response.json['on_loan'] and response.json['in_listening_pile']
