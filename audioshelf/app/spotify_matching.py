@@ -24,7 +24,7 @@ PAUSE_UNTIL = 'spotify_matching_pause_until_v1'
 
 
 def eligible(album):
-    return bool(album['on_shelf'] or album['in_listening_pile']) and not (
+    return bool(album.get('on_shelf') or album.get('in_listening_pile')) and not (
         album.get('spotify_album_id') and album['tracks'] and
         all(track.get('spotify_id') and track.get('verified') for track in album['tracks']))
 
