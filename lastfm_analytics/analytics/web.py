@@ -530,7 +530,12 @@ self.addEventListener('fetch', event => {
 
     @app.get("/gigs")
     def gigs_page():
-        return render_template("gigs.html",base=request_base(),csrf=csrf)
+        # Bookmarks from the old separate page now open the same Listening shell.
+        from urllib.parse import quote
+        artist = (request.args.get("artist") or "").strip()
+        if artist:
+            return redirect(request_base() + "?view=artists&q=" + quote(artist[:200]))
+        return redirect(request_base() + "?view=gigs")
 
     @app.get("/api/status")
     def status():
