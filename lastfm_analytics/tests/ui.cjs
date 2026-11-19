@@ -58,6 +58,32 @@ async function assertLogoPixelsInCrop(page, label) {
     path: path.join(output, "overview-light.png"),
     fullPage: true,
   });
+  // Computed-colour AA checks for every accent palette in both appearances.
+  const contrasts=await page.evaluate(()=>{
+    const root=document.documentElement,previous=[root.dataset.theme,root.dataset.palette];
+    const luminance=color=>{
+      const [r,g,b]=(color.match(/[0-9.]+/g)||[]).slice(0,3).map(Number).map(x=>x/255)
+        .map(x=>x<=.04045?x/12.92:Math.pow((x+.055)/1.055,2.4));
+      return .2126*r+.7152*g+.0722*b;
+    };
+    const ratio=(a,b)=>{let x=luminance(a),y=luminance(b);return (Math.max(x,y)+.05)/(Math.min(x,y)+.05)};
+    const sample=document.createElement("button");
+    sample.className="button primary";sample.textContent="Sample";document.body.appendChild(sample);
+    const values=[];
+    for(const theme of ["light","dark"]) for(const palette of ["violet","ocean","forest","rose","amber"]){
+      root.dataset.theme=theme;root.dataset.palette=palette;
+      const css=getComputedStyle(root),btn=getComputedStyle(sample);
+      values.push({theme,palette,
+        text:ratio(css.getPropertyValue("--muted").trim(),css.getPropertyValue("--bg").trim()),
+        button:ratio(btn.color,btn.backgroundColor)});
+    }
+    sample.remove();[root.dataset.theme,root.dataset.palette]=previous;
+    return values;
+  });
+  for(const c of contrasts){
+    assert.ok(c.text>=4.5,"Muted text contrast "+JSON.stringify(c));
+    assert.ok(c.button>=4.5,"Primary button contrast "+JSON.stringify(c));
+  }
   // Real Live gigs UI must execute under our restrictive Content Security Policy.
   // A gig classified by the four-performance rule has no explicit festival
   // name, yet still renders as a festival (purple triangle) in the timeline.
@@ -166,6 +192,12 @@ async function assertLogoPixelsInCrop(page, label) {
   for (const width of [320, 360, 390, 428]) {
     await page.setViewportSize({width, height:844});
     await page.locator("#nav-more").click();
+    if(width===320){
+      await page.keyboard.press("Escape");
+      assert.equal(await page.locator("#more-nav").isVisible(),false);
+      assert.equal(await page.locator("#nav-more").getAttribute("aria-expanded"),"false");
+      await page.locator("#nav-more").click();
+    }
     await page.locator('#more-nav [data-view="release-years"]').click();
     await page.locator('.release-year-cell').first().waitFor();
     const layout = await page.evaluate(() => {
@@ -526,6 +558,13 @@ async function assertLogoPixelsInCrop(page, label) {
   await page.locator('#nav [data-view="trends"]').click();
   await page.locator(".heatmap").waitFor();
   assert.equal(await page.locator('#nav [data-view="trends"]').getAttribute("aria-current"), "page");
+  const readableHeatmap=await page.locator('.heatmap-scroller').evaluate(node=>({
+    scrollable:node.scrollWidth>node.clientWidth,
+    font:parseFloat(getComputedStyle(node.querySelector('.heatmap .day')).fontSize)
+  }));
+  assert.equal(readableHeatmap.scrollable,true,"Heatmap should scroll inside its own panel on phone");
+  assert.ok(readableHeatmap.font>=11,"Phone heatmap labels need to be readable");
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
   await page.locator("#period").selectOption("custom");
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await page.locator("#period").selectOption("30d");
