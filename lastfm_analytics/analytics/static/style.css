@@ -1924,3 +1924,30 @@ dialog { overscroll-behavior: contain; }
   .chart-foot { font-size:12px; }
   .list-name small { font-size:12px; }
 }
+
+/* Chart colours follow the selected theme and accent palette. */
+:root {
+  --era-1: var(--accent);
+  --era-2: color-mix(in srgb,var(--accent) 45%,#dd8b36);
+  --era-3: color-mix(in srgb,var(--accent) 40%,#1d9e81);
+  --era-4: color-mix(in srgb,var(--accent) 38%,#cc5a9e);
+  --era-5: color-mix(in srgb,var(--accent) 42%,#97a03e);
+}
+#source.vinyl-toggle { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; width:auto; min-width:unset; }
+#source.vinyl-toggle .vinyl-label { font-size:12px; font-weight:650; white-space:nowrap; }
+.chart-scroll .bar-chart button:first-child::after { left:0; transform:none; }
+.chart-scroll .bar-chart button:last-child::after { left:auto; right:0; transform:none; }
+.review-kind-tabs { margin:12px 0 18px; max-width:100%; width:max-content; }
+.insight-svg { width:30px; height:30px; flex-shrink:0; stroke:var(--accent); stroke-width:1.8; fill:none; }
+.trends-heatmap { margin-top:16px; padding:12px 0 0; border-top:1px solid var(--line); }
+.trends-heatmap summary { cursor:pointer; color:var(--ink); font-weight:600; }
+.trends-heatmap[open] .calendar-section { padding-top:12px; }
+.overview-chart-panel { margin-bottom:20px; }
+#cache-status:not([hidden]) { display:inline-flex; background:var(--surface2); border:1px solid var(--line); border-radius:7px; padding:7px 12px; margin-bottom:15px; }
+.table-panel .rank-row-button { text-align:left; width:100%; }
+.table-panel .rank-row-button .art-tile { width:36px; height:36px; }
+.table-panel .rank-row-button .rank-title > span:last-child { min-width:0; }
+@media(max-width:620px){
+ #source.vinyl-toggle .vinyl-label { font-size:11px; }
+ #source.vinyl-toggle { min-height:44px; padding:7px 9px; }
+}
