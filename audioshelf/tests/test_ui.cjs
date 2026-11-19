@@ -110,7 +110,7 @@ const screenshotDir=process.env.AUDIOSHELF_SCREENSHOT_DIR;
     await page.locator('.search-result').filter({hasText:'The Artist'}).click();
     await page.getByRole('heading',{name:'The Artist',exact:true}).waitFor();
     await page.getByRole('button',{name:'Add to shelf'}).click();
-    await page.locator('.album-card .badge').filter({hasText:'On your shelf'}).waitFor();
+    await page.locator('.album-card .owned-cover-sticker').filter({hasText:'IN COLLECTION'}).waitFor();
     assert.equal(await page.getByRole('heading',{name:'Choose the album tracklist'}).count(),0,
       'Instant addition should never open the Spotify verification picker');
     await page.locator('.album-title').click();
