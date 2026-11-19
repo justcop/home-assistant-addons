@@ -200,3 +200,18 @@ button[aria-busy="true"]:after{content:"…";font-weight:800}
   color:#49583e;box-shadow:1px 2px 0 #0002,2px 4px 5px #0002;
   font-size:11px;font-weight:700;letter-spacing:.06em;transform:rotate(-2deg);
 }
+
+/* Development Manager smoke test: source-only updates must rebuild without a store reload. */
+
+/* Clear header controls and prominent album identity in both interfaces. */
+.settings-link{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;padding:4px;border-radius:50%;color:var(--ink)}
+.settings-link .settings-gear{font-size:29px;line-height:1}
+.album-identity{min-width:0}
+.album-artist-heading{font:600 clamp(20px,2.5vw,29px)/1.25 Georgia,serif;color:var(--ink);overflow-wrap:anywhere;margin-bottom:10px}
+.album-year{font:700 clamp(18px,2vw,23px)/1.25 Georgia,serif;color:var(--wine);margin:10px 0 15px}
+.album-hero .album-identity h1{font-size:clamp(38px,4.4vw,60px);line-height:1.04;margin:0;overflow-wrap:anywhere}
+/* Sticker geometry is measured against the cover, never against the viewport.
+   The art fits within the cover boundaries at all responsive sizes. */
+.cover-wrap img.loan-sticker{width:32%;top:3%;right:3%}
+.album-flip-face>img.loan-face-sticker{width:32%;top:3%;right:3%}
+@media(max-width:520px){.cover-wrap img.loan-sticker{width:32%;top:3%;right:3%}}

@@ -1,3 +1,12 @@
+## 0.6.48
+
+- Keep the Vinyl player bar visible even between tracks, with idle controls disabled and transport buttons consistently present while playing.
+- Make loan stickers smaller and fully contained, using the same 32% of cover width and 3% top/right inset on shelf thumbnails and full-size sleeves.
+- Remove the little rail “i” buttons; hovering, focusing or opening an album still shows its title.
+- Give album artist, title and year clear hierarchy in both layouts; remove the redundant album Back to browsing link and Turn over badge while retaining cover flipping.
+- Replace the top-right account Settings label with a cog. Move native Android overflow tools into Settings, remove the unused Security entry, and check for signed Android app updates at launch.
+- Recognise a combined “Interlude” label between identical printed track names only with matching duration and performer evidence; never silently certify missing bonus tracks.
+
 ## 0.6.47
 
 - Replace vector labels with two photorealistic transparent PNG overlays: a loan sticker and a clickable Spotify matching-attention sticker.

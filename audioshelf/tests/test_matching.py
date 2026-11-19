@@ -507,3 +507,34 @@ def test_parody_annotation_does_not_erase_recording_versions_or_unplayable():
     song['name']=name
     song['is_playable']=False
     assert not track_assessment(base,song,['The Artist'])['verified']
+
+
+def test_compound_interlude_title_requires_same_components_and_audio():
+    """A combined hidden-track label is not a missing independent song."""
+    from app.matching import track_assessment
+    original = {'title': 'Blue Piccadilly / Miss You', 'duration_ms': 595000}
+    match = spotify_track('Blue Piccadilly / Interlude / Miss You', 'i'*22, 594200)
+    good = track_assessment(original, match, ['The Artist'])
+    assert good['verified'] and good['reason'] == 'compound_interlude_title'
+    for changed in [
+        spotify_track('Blue Piccadilly / Interlude / Another Song', 'j'*22, 594200),
+        spotify_track('Miss You / Interlude / Blue Piccadilly', 'j'*22, 594200),
+        spotify_track('Blue Piccadilly / Interlude / Miss You', 'j'*22, 550000),
+        spotify_track('Blue Piccadilly / Another Song / Miss You', 'j'*22, 594200)
+    ]:
+        assert not track_assessment(original, changed, ['The Artist'])['verified']
+    other = spotify_track('Blue Piccadilly / Interlude / Miss You', 'k'*22, 594200)
+    other['artists'] = [{'name': 'Cover Band'}]
+    assert not track_assessment(original, other, ['The Artist'])['verified']
+
+
+def test_compound_interlude_does_not_consume_a_separate_canonical_song():
+    original = {'title':'The Original Album', 'release_date':'2006',
+                'artists':[{'name':'The Artist'}], 'tracks':[
+                    {'position':1,'title':'Blue Piccadilly','duration_ms':240000},
+                    {'position':2,'title':'Miss You','duration_ms':200000}]}
+    source = {'id':'x'*22,'name':'The Original Album','release_date':'2006',
+              'all_tracks':[spotify_track('Blue Piccadilly / Interlude / Miss You',
+                                          't'*22,440000)]}
+    result = candidate(original, source)
+    assert result['verified'] < len(original['tracks'])

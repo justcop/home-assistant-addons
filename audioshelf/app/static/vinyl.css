@@ -324,3 +324,9 @@
 /* SVG labels are on the jacket front and flip with it. */
 [data-interface=vinyl] .listening-sleeve{position:sticky}
 @media(max-width:700px){[data-interface=vinyl] .listening-sleeve{position:relative}}
+
+/* Only the album title and artwork carry navigation; rail peek affordance is gone. */
+[data-interface=vinyl] .rail-peek-button{display:none!important}
+[data-interface=vinyl] .record-liner .album-artist-heading{font-size:clamp(22px,2.6vw,32px)}
+[data-interface=vinyl] .record-liner .album-year{font-size:clamp(20px,2vw,25px)}
+#turntable .idle-cover{font-size:30px;color:var(--muted);cursor:default}
