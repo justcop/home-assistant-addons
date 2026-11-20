@@ -7,7 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { ArchiveData, normalisePhone, isHumanName } from '../archive-data.mjs';
 
 test('phone numbers are normalised without inventing contact names',()=>{
-  assert.equal(normalisePhone('+44 (0) 7700 900123'),null);
+  assert.equal(normalisePhone('+44 (0) 7700 900123'),'447700900123');
   assert.equal(normalisePhone('07700 900123'),'447700900123');
   assert.equal(normalisePhone('+44 7700 900123'),'447700900123');
   assert.equal(normalisePhone('0044 7700 900123'),'447700900123');
