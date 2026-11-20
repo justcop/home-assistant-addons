@@ -20,5 +20,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Node security regression tests
         run: node --test whatsapp_mcp/tests/*.test.mjs
+      - name: Syntax check browser UI and launcher
+        run: |
+          node --check whatsapp_mcp/archive-ui/app.js
+          node --check whatsapp_mcp/run.mjs
+          node --check whatsapp_mcp/storage.mjs
       - name: Build pinned upstream WhatsApp API and MCP app
         run: docker build -t whatsapp-mcp-addon:ci whatsapp_mcp
