@@ -153,6 +153,25 @@ export class ArchiveData {
       chatName:this.displayName(hit.chat,chat?.name,!!chat?.isGroup),
       sender:hit.sender?{...hit.sender,name:hit.fromMe?'You':this.displayName(hit.sender.id,hit.sender.name)}:hit.sender};
   }
+  archiveDateRange() {
+    // Count both raw WhatsApp events and actual user-visible messages.
+    // No message text, contact names or identifiers are returned.
+    const raw = this.db.prepare(
+      'SELECT COUNT(*) AS count, MIN(ts) AS oldest, MAX(ts) AS newest FROM messages'
+    ).get();
+    const meaningful = this.db.prepare(`
+      SELECT COUNT(*) AS count, MIN(m.ts) AS oldest, MAX(m.ts) AS newest
+      FROM messages m WHERE ${VISIBLE_MESSAGE}
+    `).get();
+    const chats = this.db.prepare(
+      'SELECT COUNT(*) AS count FROM chats'
+    ).get();
+    return {
+      raw: { count:raw.count, oldest:raw.oldest, newest:raw.newest },
+      messages: { count:meaningful.count, oldest:meaningful.oldest, newest:meaningful.newest },
+      chatCount: chats.count
+    };
+  }
   contactNumbers() {
     this.refreshContacts();
     const unique = new Set();
