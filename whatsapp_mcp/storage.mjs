@@ -5,12 +5,12 @@ const INTERNAL = '/data/whatsapp';
 const SHARE_ROOT = '/share';
 
 // An external location must be beneath a named HA shared storage mount.
-// Never allow /data, /share, arbitrary host paths or traversal in this option.
+// Never allow /data, bare /share, arbitrary host paths or traversal in this option.
 export function validateStoragePath(raw) {
   const value = String(raw ?? '').trim().replace(/\/+$/, '');
   if (!value) return null;
   const parts = value.split('/');
-  if (parts.length < 4 || parts[0] !== '' || parts[1] !== 'media'
+  if (parts.length < 4 || parts[0] !== '' || parts[1] !== 'share'
       || parts.slice(2).some(p => !p || p === '.' || p === '..' || !/^[a-zA-Z0-9_.-]+$/.test(p))
       || path.posix.normalize(value) !== value) {
     throw new Error('storage_path must be /share/<mounted-volume>/<folder> (no spaces or ..)');
@@ -26,7 +26,7 @@ function requireMountedDisk(disk) {
   if (diskInfo.isSymbolicLink() || !diskInfo.isDirectory())
     throw new Error('External STORAGE volume is not a normal directory');
   if (fs.statSync(disk).dev === mediaInfo.dev)
-    throw new Error('External media volume is not mounted as a separate filesystem: ' + disk);
+    throw new Error('External STORAGE volume is not mounted as a separate filesystem: ' + disk);
 }
 function chownTree(p) {
   const info = fs.lstatSync(p);
