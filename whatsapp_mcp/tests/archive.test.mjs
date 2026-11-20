@@ -24,7 +24,7 @@ test('external storage path must identify a named HA shared-storage volume and a
   assert.deepEqual(validateStoragePath('/share/STORAGE/whatsapp-mcp'),
     { directory:'/share/STORAGE/whatsapp-mcp', disk:'/share/STORAGE' });
   for (const value of ['/data/whatsapp','/share/STORAGE','/share/STORAGE/..',
-    '/share/STORAGE/../../etc','/share/STORAGE/','/share//archive','/share/STORAGE/wa',
+    '/share/STORAGE/../../etc','/share/STORAGE/','/share//archive','/media/STORAGE/wa',
     '/share/STORAGE/my folder','/share/STORAGE/foo/../bar'])
     assert.throws(() => validateStoragePath(value), value);
 });
