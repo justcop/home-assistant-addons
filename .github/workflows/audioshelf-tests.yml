@@ -39,7 +39,8 @@ jobs:
             audioshelf/tests/test_cloudflare_access.py \
             audioshelf/tests/test_security.py \
             audioshelf/tests/test_routes.py \
-            audioshelf/tests/test_sticker_assets.py
+            audioshelf/tests/test_sticker_assets.py \
+            audioshelf/tests/test_live_assets.py
       - name: Full backend regressions (manual)
         if: github.event_name == 'workflow_dispatch'
         run: python -m pytest audioshelf/tests -q
