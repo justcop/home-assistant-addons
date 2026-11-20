@@ -1,5 +1,6 @@
 name: Work Audit checks
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths: ["work_audit/**", ".github/workflows/work-audit-tests.yml"]
