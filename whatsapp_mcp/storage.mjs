@@ -53,10 +53,11 @@ export function configureWhatsAppStorage(storagePath) {
     if (fs.existsSync(segment) && fs.lstatSync(segment).isSymbolicLink())
       throw new Error('A component of storage_path is a symlink');
   }
+  let migrated = false;
   if (fs.existsSync(target)) {
     if (!fs.statSync(target).isDirectory()) throw new Error('storage_path is not a directory');
-    if (hasFiles(INTERNAL) && !hasFiles(target))
-      throw new Error('External archive folder is empty while local archive contains data; refusing to start');
+    if (hasFiles(INTERNAL) && !fs.existsSync(path.join(target, 'whatsapp.db')))
+      throw new Error('External archive folder has no WhatsApp database while local archive contains data; refusing to start');
     // A previously migrated target takes priority. The old source is kept as
     // a rollback copy; never automatically merge stale and live databases.
   } else {
@@ -66,13 +67,16 @@ export function configureWhatsAppStorage(storagePath) {
       fs.cpSync(INTERNAL, temporary, { recursive: true, force: false, errorOnExist: true });
       chownTree(temporary);
       fs.renameSync(temporary, target);
+      migrated = true;
     } catch (error) {
       // Do not silently revert to INTERNAL or delete the original archive.
       try { if (fs.existsSync(temporary)) fs.rmSync(temporary, { recursive: true, force: true }); } catch { /* retained for manual recovery */ }
       throw error;
     }
   }
-  chownTree(target);
+  // Full recursive chown is only necessary after migration. Repeating it on
+  // every startup would traverse every cached attachment and slow boot badly.
+  if (!migrated) { fs.chownSync(target, 1000, 1000); fs.chmodSync(target, 0o700); }
   // Verify that the unprivileged WhatsApp API can write here, before launch.
   const probe = path.join(target, '.write-test-' + process.pid);
   fs.writeFileSync(probe, 'ok', { flag: 'wx', mode: 0o600 });
