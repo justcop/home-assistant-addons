@@ -9,9 +9,39 @@ Private WhatsApp search using [spare-cycles/whatsapp-mcp](https://github.com/spa
 - The gateway **rejects every request** until Cloudflare Access team domain, app audience (AUD), and the single permitted email are configured.
 - On every request the gateway verifies Cloudflare's `Cf-Access-Jwt-Assertion` signature, issuer, audience, expiry, and permitted email against Cloudflare's JWKS. Merely supplying an Access-looking header is insufficient.
 - The gateway permits only `/mcp`, forwards the authenticated request to the upstream MCP backend, and strips client-supplied authorization and Access headers.
-- All database state, linked-device credentials, downloaded media and internal secrets live under **/data** (Home Assistant app persistent storage). Do not put them in /share or a public Git repository.
+- By default, database state, linked-device credentials and downloaded media live under **/data/whatsapp** (Home Assistant app persistent storage). They can be moved together to an explicitly configured verified local STORAGE disk. The internal gateway secrets remain under **/data/.whatsapp-mcp-secrets**. Never put private data in a public Git repository.
 - There is no public or host-mapped port by default. **Do not set a host port mapping or expose the upstream API.**
 - Do not use this with clinical patient-identifiable data or material requiring NHS-approved handling.
+
+## Private WhatsApp Archive web interface
+
+From version 0.2.0, the app provides a read-only archive viewer through Home Assistant **Ingress**. Open **Settings → Apps → WhatsApp MCP (Read Only) → Open Web UI**, or enable **Show in sidebar**.
+
+- Conversation list, groups, timestamps, sender names, message bubbles and attachment downloads.
+- Search conversations and full-text search messages/transcripts; click a result to open that period of the conversation.
+- Responsive desktop/mobile layout. No direct port is published. The ingress listener is on **8100**, separate from Cloudflare MCP **8099**, and only accepts the Home Assistant Supervisor ingress peer.
+- Home Assistant login and admin-only app panel protect the viewer. All browsing routes are GET-only; none can send, edit, delete or mark messages read.
+- The viewer reads via the existing upstream read-only REST API, so it does **not** open a second live SQLite writer. The archive shows WhatsApp history actually synchronised to this linked device; it does not guarantee older history which WhatsApp did not provide.
+
+## Move live WhatsApp storage to the separate STORAGE drive
+
+**Do not use "Move data disk"**: that moves all Home Assistant data and may overwrite a disk. Instead, on Home Assistant 2026.11+ use **Settings → System → Storage → Add storage → Local disk**, select your already-formatted STORAGE volume, choose **Usage: Media**, **Read-only: off**, and name the mount **STORAGE**. This should make it available at `/media/STORAGE` in apps mapping Home Assistant media storage. If the disk is already mounted at a host-only path (such as `/mnt/storage`), that does **not** necessarily make it accessible inside this app; verify the actual mounted volume first. Do not format or erase existing files.
+
+When the volume is visible, set this app option and restart it:
+
+```yaml
+storage_path: /media/STORAGE/whatsapp-mcp
+```
+
+**Migration safeguards:**
+1. On startup (before the WhatsApp API opens SQLite), the app verifies that `/media/STORAGE` is a separate mounted filesystem, not an ordinary directory on the internal disk. A missing/invalid mount **stops the app**, rather than creating a second empty archive.
+2. If the destination is absent, it copies the entire stopped WhatsApp data directory to a temporary folder on STORAGE, fixes ownership, then atomically renames it into place. This includes SQLite, WhatsApp linked-device state, and cached media.
+3. The original `/data/whatsapp` is **retained as a rollback copy** until the new archive is verified; no automatic deletion takes place. After migration the live API uses only the external directory.
+4. If an external archive already exists, it takes priority. Do not switch the option off casually: that would bring back the older internal archive. Keep an independent encrypted backup.
+
+The option defaults to an empty string, meaning the existing Home Assistant app-local `/data/whatsapp` is used. If a migration fails, fix the volume or filesystem permissions; never bypass the mount check. **SQLite should be hosted on a locally attached filesystem that supports normal file locking** (prefer ext4); do not put its live WAL files on SMB/NFS shares.
+
+Note that the MCP gateway's two private bearer tokens remain in `/data/.whatsapp-mcp-secrets` under app storage, while WhatsApp account state and the conversation archive move together. The archive viewer reports whether it is using app-local or external storage.
 
 ## Install and link WhatsApp
 
