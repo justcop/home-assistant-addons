@@ -1,0 +1,26 @@
+name: WhatsApp MCP (Read Only)
+version: "0.1.0"
+slug: whatsapp_mcp
+description: Private, read-only WhatsApp search over MCP with Cloudflare Access JWT verification.
+url: https://github.com/justcop/home-assistant-addons/tree/main/whatsapp_mcp
+arch:
+  - amd64
+startup: application
+boot: manual
+init: false
+stage: experimental
+panel_icon: mdi:message-text-lock
+ports:
+  8099/tcp: null
+ports_description:
+  8099/tcp: "MCP gateway (Cloudflare Access JWT required). Do not publish directly."
+options:
+  phone_number: ""
+  access_team_domain: ""
+  access_audience: ""
+  allowed_email: ""
+schema:
+  phone_number: str?
+  access_team_domain: str?
+  access_audience: str?
+  allowed_email: str?
