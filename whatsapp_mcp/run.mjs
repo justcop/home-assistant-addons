@@ -4,11 +4,14 @@ import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { createArchiveServer } from './archive-server.mjs';
+import { configureWhatsAppStorage } from './storage.mjs';
 
 const ROOT = '/data';
 const API_PORT = 8097;
 const MCP_PORT = 8098;
 const PUBLIC_PORT = 8099;
+const ARCHIVE_PORT = 8100;
 const UPSTREAM = '127.0.0.1';
 const maxJwtBytes = 12_000;
 
@@ -54,7 +57,7 @@ export function verifyAccessJwt(token, settings, jwks, now = Date.now()) {
 
 function loadOptions() {
   const raw = JSON.parse(fs.readFileSync(path.join(ROOT, 'options.json'), 'utf8'));
-  const options = Object.fromEntries(['phone_number', 'access_team_domain', 'access_audience', 'allowed_email']
+  const options = Object.fromEntries(['phone_number', 'access_team_domain', 'access_audience', 'allowed_email', 'storage_path']
     .map(key => [key, String(raw[key] ?? '').trim()]));
   options.access_team_domain = options.access_team_domain.replace(/^https?:\/\//i, '').replace(/\/$/, '').toLowerCase();
   options.allowed_email = options.allowed_email.toLowerCase();
@@ -95,12 +98,13 @@ function startChild(label, executable, env) {
   return child;
 }
 
-let api, mcp, gateway;
+let api, mcp, gateway, archive;
 let stopping = false;
 function shutdown() {
   if (stopping) return;
   stopping = true;
   if (gateway) gateway.close();
+  if (archive) archive.close();
   if (mcp) mcp.kill('SIGTERM');
   if (api) api.kill('SIGTERM');
   setTimeout(() => process.exit(process.exitCode || 0), 2000).unref();
@@ -126,6 +130,7 @@ async function waitForServer(port, child) {
 async function main() {
   fs.mkdirSync(path.join(ROOT, 'whatsapp'), { recursive: true });
   const opts = loadOptions();
+  const storage = configureWhatsAppStorage(opts.storage_path);
   const apiToken = loadToken('api-token');
   const mcpToken = loadToken('mcp-token');
   // The app starts as root on Supervisor; the WhatsApp database and listeners
@@ -137,7 +142,7 @@ async function main() {
 
   api = startChild('WhatsApp API', '/opt/whatsapp-api/dist/main.js', {
     PORT: String(API_PORT),
-    WHATSAPP_DATA_DIR: path.join(ROOT, 'whatsapp'),
+    WHATSAPP_DATA_DIR: storage.dataDir,
     WHATSAPP_API_TOKEN: apiToken,
     WHATSAPP_PHONE_NUMBER: opts.phone_number,
     WHATSAPP_MCP_READONLY: 'true',
@@ -152,6 +157,20 @@ async function main() {
     LOG_LEVEL: 'info'
   });
   await waitForServer(MCP_PORT, mcp);
+
+  // Only Supervisor's ingress proxy can connect to this separate listener.
+  // The public Cloudflare /mcp gateway remains entirely separate.
+  archive = createArchiveServer({ apiToken, port: ARCHIVE_PORT, storagePath: storage.dataDir });
+  archive.listen(ARCHIVE_PORT, '0.0.0.0', () => {
+    console.log('Private WhatsApp Archive UI ready through Home Assistant Ingress (port ' + ARCHIVE_PORT + ').');
+    console.log('WhatsApp data location: ' + (storage.external ? 'verified external media volume' : 'internal app storage') + '.');
+    if (!storage.external) {
+      let volumes = [];
+      try { volumes = fs.readdirSync('/media', { withFileTypes: true }).filter(d=>d.isDirectory()).map(d=>d.name); }
+      catch { /* the media map may be unavailable until the app definition is refreshed */ }
+      console.log('Available media folders: ' + (volumes.join(', ') || '(none)') + '.');
+    }
+  });
 
   let cachedKeys, fetchedAt = 0;
   async function getKeys(force = false) {
