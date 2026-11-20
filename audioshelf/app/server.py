@@ -17,6 +17,10 @@ from werkzeug.security import check_password_hash
 from types import SimpleNamespace
 
 from .accounts import Accounts
+from .live_assets import LiveAssets
+
+# Read-only local app source mounted by Supervisor for fast development.
+LIVE_SOURCE_ROOT = Path('/local_apps/devmgr_audioshelf')
 from .cloudflare_access import CloudflareAccess
 from .listening_links import shelf_matches
 from .lastfm_import import LastFmImporter
@@ -81,6 +85,12 @@ def create_app(options=None):
     assets = Path(__file__).resolve().parent / 'static'
     digest = hashlib.sha256(b''.join((assets / name).read_bytes() for name in ('app.js', 'style.css', 'vinyl.js', 'vinyl.css', 'sw.js'))).hexdigest()[:16]
     build['asset_version'] = build['version']+'-'+digest
+    live_assets = LiveAssets(LIVE_SOURCE_ROOT, build['asset_version'])
+    live_static = live_assets.static_root()
+    if live_static is not None:
+        # Flask looks up this directory for each static request, so manager
+        # updates are visible without replacing/restarting this container.
+        app.static_folder = str(live_static)
     password = options.get('web_password','')
     security = Security(private_dir, password, options.get('allow_support_access', False))
     if security.recover_from_options(options.get('two_factor_reset_request', '')):
@@ -250,7 +260,7 @@ def create_app(options=None):
         prefix = request.headers.get('X-Ingress-Path','') if ingress() else ''
         if not prefix.startswith('/') or any(c in prefix for c in ['<','>','"',"'",'\\']) or prefix.startswith('//'):
             prefix = ''
-        return render_template('index.html', base=prefix.rstrip('/')+'/', asset_version=build['asset_version'])
+        return render_template('index.html', base=prefix.rstrip('/')+'/', asset_version=live_assets.version())
 
     @app.get('/health')
     def health():
@@ -320,7 +330,7 @@ def create_app(options=None):
         # Do not launch expensive catalogue scans from ordinary navigation or
         # playback-status requests. Imports, OAuth and Matching Settings kick
         # the independent worker instead.
-        result = {'build':build,'authenticated':authenticated(),'password_required':not bool((identity() or {}).get('ingress')), 'password_configured':bool(password) or len(accounts.listing()) > 1, 'two_factor_enabled':bool(security.get('totp')), 'ingress_available':ingress()}
+        result = {'build':{**build, 'asset_version':live_assets.version()},'authenticated':authenticated(),'password_required':not bool((identity() or {}).get('ingress')), 'password_configured':bool(password) or len(accounts.listing()) > 1, 'two_factor_enabled':bool(security.get('totp')), 'ingress_available':ingress()}
         if access.enabled:
             result.update(auth_provider='cloudflare', password_required=False, password_configured=False,
                           two_factor_enabled=False)
