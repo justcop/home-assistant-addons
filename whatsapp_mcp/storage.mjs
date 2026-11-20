@@ -2,9 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const INTERNAL = '/data/whatsapp';
-const MEDIA_ROOT = '/media';
+const SHARE_ROOT = '/share';
 
-// An external location must be beneath a named HA media mount.
+// An external location must be beneath a named HA shared storage mount.
 // Never allow /data, /share, arbitrary host paths or traversal in this option.
 export function validateStoragePath(raw) {
   const value = String(raw ?? '').trim().replace(/\/+$/, '');
@@ -13,18 +13,18 @@ export function validateStoragePath(raw) {
   if (parts.length < 4 || parts[0] !== '' || parts[1] !== 'media'
       || parts.slice(2).some(p => !p || p === '.' || p === '..' || !/^[a-zA-Z0-9_.-]+$/.test(p))
       || path.posix.normalize(value) !== value) {
-    throw new Error('storage_path must be /media/<mounted-volume>/<folder> (no spaces or ..)');
+    throw new Error('storage_path must be /share/<mounted-volume>/<folder> (no spaces or ..)');
   }
-  return { directory: value, disk: path.join(MEDIA_ROOT, parts[2]) };
+  return { directory: value, disk: path.join(SHARE_ROOT, parts[2]) };
 }
 
 function requireMountedDisk(disk) {
-  // An ordinary folder under /media is NOT an external drive. Refuse to
+  // An ordinary folder under /share is NOT an external drive. Refuse to
   // initialise a second database on the internal disk if STORAGE is absent.
-  const mediaInfo = fs.statSync(MEDIA_ROOT);
+  const mediaInfo = fs.statSync(SHARE_ROOT);
   const diskInfo = fs.lstatSync(disk);
   if (diskInfo.isSymbolicLink() || !diskInfo.isDirectory())
-    throw new Error('External media volume is not a normal directory');
+    throw new Error('External STORAGE volume is not a normal directory');
   if (fs.statSync(disk).dev === mediaInfo.dev)
     throw new Error('External media volume is not mounted as a separate filesystem: ' + disk);
 }
