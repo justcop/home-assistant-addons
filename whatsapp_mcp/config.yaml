@@ -1,5 +1,5 @@
 name: WhatsApp MCP (Read Only)
-version: "0.2.2"
+version: "0.2.3"
 slug: whatsapp_mcp
 description: Private, read-only WhatsApp search over MCP with Cloudflare Access JWT verification.
 url: https://github.com/justcop/home-assistant-addons/tree/main/whatsapp_mcp
@@ -14,6 +14,7 @@ panel_title: WhatsApp Archive
 panel_admin: true
 ingress: true
 ingress_port: 8100
+homeassistant_api: true
 map:
   - type: share
     read_only: false
