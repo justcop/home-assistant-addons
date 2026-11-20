@@ -265,3 +265,38 @@ $('contact-file').addEventListener('change',async e=>{
   } catch(err) {info.textContent=err.message;}
   finally {button.disabled=false;}
 });
+
+
+async function refreshGoogleStatus() {
+  const status=$('google-status');
+  try {
+    const data=await get('api/google-contacts');
+    if(data.status==='connected'){
+      status.textContent='Connected · '+data.matched+' names matched'+
+        (data.lastSync?' · '+new Date(data.lastSync).toLocaleString():'');
+    } else if(data.running){
+      status.textContent='Updating Google Contacts names… ('+data.matched+' cached)';
+    } else if(data.status==='setup_required'){
+      status.textContent='Google authorisation required. Open Home Assistant → Settings → Devices & services → Google Phonebook.';
+    } else {
+      status.textContent='Google sync: '+(data.message||'Unavailable')+'. '+data.matched+' names cached.';
+    }
+  } catch {
+    status.textContent='Google Phonebook status temporarily unavailable';
+  }
+}
+$('google-refresh').addEventListener('click',async()=>{
+  const button=$('google-refresh');
+  button.disabled=true;
+  $('google-status').textContent='Checking Google Phonebook…';
+  try {
+    const response=await fetch('api/google-contacts/sync',{
+      method:'POST', headers:{'X-Archive-Action':'google-sync'},cache:'no-store'
+    });
+    if(!response.ok)throw new Error('Refresh unavailable ('+response.status+')');
+    await refreshGoogleStatus();
+  } catch(err){$('google-status').textContent=err.message;}
+  finally{button.disabled=false;}
+});
+refreshGoogleStatus();
+setInterval(refreshGoogleStatus,45000);
