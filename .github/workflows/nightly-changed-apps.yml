@@ -1,0 +1,39 @@
+name: Nightly changed-app validation
+on:
+  schedule:
+    - cron: '0 5 * * *'
+      timezone: Europe/London
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/nightly-changed-apps.yml'
+      - '.github/scripts/nightly_changed_addons.py'
+permissions:
+  contents: read
+  actions: write
+concurrency:
+  group: nightly-changed-addons
+  cancel-in-progress: false
+jobs:
+  validate:
+    name: Check recently modified apps
+    runs-on: ubuntu-24.04
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify change classification on PR
+        if: github.event_name == 'pull_request'
+        run: python .github/scripts/nightly_changed_addons.py --dry-run
+      - name: Run comprehensive checks only for recently changed apps
+        if: github.event_name != 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python .github/scripts/nightly_changed_addons.py
