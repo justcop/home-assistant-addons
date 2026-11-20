@@ -25,16 +25,16 @@ From version 0.2.0, the app provides a read-only archive viewer through Home Ass
 
 ## Move live WhatsApp storage to the separate STORAGE drive
 
-**Do not use "Move data disk"**: that moves all Home Assistant data and may overwrite a disk. Instead, on Home Assistant 2026.11+ use **Settings → System → Storage → Add storage → Local disk**, select your already-formatted STORAGE volume, choose **Usage: Media**, **Read-only: off**, and name the mount **STORAGE**. This should make it available at `/media/STORAGE` in apps mapping Home Assistant media storage. If the disk is already mounted at a host-only path (such as `/mnt/storage`), that does **not** necessarily make it accessible inside this app; verify the actual mounted volume first. Do not format or erase existing files.
+**Do not use "Move data disk"**: that moves all Home Assistant data and may overwrite a disk. Instead, on Home Assistant 2026.11+ use **Settings → System → Storage → Add storage → Local disk**, select your already-formatted STORAGE volume, choose **Usage: Share**, **Read-only: off**, and name the mount **STORAGE**. This should make it available at `/share/STORAGE` in apps mapping Home Assistant shared storage. If the disk is already mounted at a host-only path (such as `/mnt/storage`), that does **not** necessarily make it accessible inside this app; verify the actual mounted volume first. Do not format or erase existing files.
 
 When the volume is visible, set this app option and restart it:
 
 ```yaml
-storage_path: /media/STORAGE/whatsapp-mcp
+storage_path: /share/STORAGE/whatsapp-mcp
 ```
 
 **Migration safeguards:**
-1. On startup (before the WhatsApp API opens SQLite), the app verifies that `/media/STORAGE` is a separate mounted filesystem, not an ordinary directory on the internal disk. A missing/invalid mount **stops the app**, rather than creating a second empty archive.
+1. On startup (before the WhatsApp API opens SQLite), the app verifies that `/share/STORAGE` is a separate mounted filesystem, not an ordinary directory on the internal disk. A missing/invalid mount **stops the app**, rather than creating a second empty archive.
 2. If the destination is absent, it copies the entire stopped WhatsApp data directory to a temporary folder on STORAGE, fixes ownership, then atomically renames it into place. This includes SQLite, WhatsApp linked-device state, and cached media.
 3. The original `/data/whatsapp` is **retained as a rollback copy** until the new archive is verified; no automatic deletion takes place. After migration the live API uses only the external directory.
 4. If an external archive already exists, it takes priority. Do not switch the option off casually: that would bring back the older internal archive. Keep an independent encrypted backup.
