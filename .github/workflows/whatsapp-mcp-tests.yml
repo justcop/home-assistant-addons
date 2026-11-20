@@ -1,0 +1,24 @@
+name: WhatsApp MCP app tests
+on:
+  pull_request:
+    paths:
+      - 'whatsapp_mcp/**'
+      - '.github/workflows/whatsapp-mcp-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'whatsapp_mcp/**'
+      - '.github/workflows/whatsapp-mcp-tests.yml'
+  workflow_dispatch:
+jobs:
+  security-and-container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Node security regression tests
+        run: node --test whatsapp_mcp/tests/access.test.mjs
+      - name: Build pinned upstream WhatsApp API and MCP app
+        run: docker build -t whatsapp-mcp-addon:ci whatsapp_mcp
