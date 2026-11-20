@@ -163,12 +163,12 @@ async function main() {
   archive = createArchiveServer({ apiToken, port: ARCHIVE_PORT, storagePath: storage.dataDir });
   archive.listen(ARCHIVE_PORT, '0.0.0.0', () => {
     console.log('Private WhatsApp Archive UI ready through Home Assistant Ingress (port ' + ARCHIVE_PORT + ').');
-    console.log('WhatsApp data location: ' + (storage.external ? 'verified external media volume' : 'internal app storage') + '.');
+    console.log('WhatsApp data location: ' + (storage.external ? 'verified external shared-storage volume' : 'internal app storage') + '.');
     if (!storage.external) {
       let volumes = [];
-      try { volumes = fs.readdirSync('/media', { withFileTypes: true }).filter(d=>d.isDirectory()).map(d=>d.name); }
-      catch { /* the media map may be unavailable until the app definition is refreshed */ }
-      console.log('Available media folders: ' + (volumes.join(', ') || '(none)') + '.');
+      try { volumes = fs.readdirSync('/share', { withFileTypes: true }).filter(d=>d.isDirectory()).map(d=>d.name); }
+      catch { /* the share map may be unavailable until the app definition is refreshed */ }
+      console.log('Available shared-storage folders: ' + (volumes.join(', ') || '(none)') + '.');
     }
   });
 
