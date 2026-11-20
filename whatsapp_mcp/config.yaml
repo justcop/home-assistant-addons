@@ -15,9 +15,9 @@ panel_admin: true
 ingress: true
 ingress_port: 8100
 map:
-  - type: media
+  - type: share
     read_only: false
-    path: /media
+    path: /share
 ports:
   8099/tcp: null
 ports_description:
