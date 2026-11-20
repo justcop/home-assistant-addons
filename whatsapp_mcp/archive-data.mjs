@@ -53,6 +53,7 @@ export class ArchiveData {
               ORDER BY m.ts DESC, m.rowid DESC LIMIT 1) AS lastMessageTs
       FROM chats c
     `);
+    this.chatNameStmt = this.db.prepare('SELECT name, is_group AS isGroup FROM chats WHERE id = ?');
     this.messagesStmt = this.db.prepare(`
       SELECT m.id, m.chat_id AS chat, m.sender_id AS senderId, m.ts,
              m.from_me AS fromMe, m.kind, m.text, m.transcript,
@@ -142,7 +143,10 @@ export class ArchiveData {
   }
   renameHit(hit) {
     if(!hit || typeof hit!=='object')return hit;
-    return {...hit,sender:hit.sender?{...hit.sender,name:hit.fromMe?'You':this.displayName(hit.sender.id,hit.sender.name)}:hit.sender};
+    const chat=this.chatNameStmt.get(hit.chat);
+    return {...hit,
+      chatName:this.displayName(hit.chat,chat?.name,!!chat?.isGroup),
+      sender:hit.sender?{...hit.sender,name:hit.fromMe?'You':this.displayName(hit.sender.id,hit.sender.name)}:hit.sender};
   }
   mergeAliases(entries) {
     if(!Array.isArray(entries)||entries.length>20000)throw new RangeError('Invalid contact import');
