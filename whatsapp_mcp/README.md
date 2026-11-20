@@ -23,25 +23,28 @@ From version 0.2.0, the app provides a read-only archive viewer through Home Ass
 - Home Assistant login and admin-only app panel protect the viewer. All browsing routes are GET-only; none can send, edit, delete or mark messages read.
 - The viewer reads via the existing upstream read-only REST API, so it does **not** open a second live SQLite writer. The archive shows WhatsApp history actually synchronised to this linked device; it does not guarantee older history which WhatsApp did not provide.
 
-## Move live WhatsApp storage to the separate STORAGE drive
+## Move WhatsApp data to your existing STORAGE drive
 
-**Do not use "Move data disk"**: that moves all Home Assistant data and may overwrite a disk. Instead, on Home Assistant 2026.11+ use **Settings → System → Storage → Add storage → Local disk**, select your already-formatted STORAGE volume, choose **Usage: Share**, **Read-only: off**, and name the mount **STORAGE**. This should make it available at `/share/STORAGE` in apps mapping Home Assistant shared storage. If the disk is already mounted at a host-only path (such as `/mnt/storage`), that does **not** necessarily make it accessible inside this app; verify the actual mounted volume first. Do not format or erase existing files.
+If Home Assistant **Settings → System → Storage** already lists the local ext4 drive named `storage` with **Usage: Media**, **leave it exactly as it is**. Changing its usage to Share could break other apps. This version supports both existing Media and Share disk mounts.
 
-When the volume is visible, set this app option and restart it:
+For the existing local Media mount, set the app's `storage_path` to:
 
 ```yaml
-storage_path: /share/STORAGE/whatsapp-mcp
+storage_path: /media/storage/.whatsapp-mcp-private
 ```
 
+The app definition maps Home Assistant's `/media` and `/share` to the container. The folder is deliberately dot-prefixed and owner-only (0700); it is not meant to be browsed through Home Assistant's media browser. **Because Media is also available to other HA components, this is not a separate access-control boundary against Home Assistant administrators or integrations running with elevated filesystem privileges.** Only the private Ingress archive UI should serve it to a browser; do not publish the underlying database or media files.
+
+The previous configuration `/share/storage/whatsapp-mcp` **will not work** for a disk configured as Usage: Media. The correct mount path depends on its existing Usage.
+
 **Migration safeguards:**
-1. On startup (before the WhatsApp API opens SQLite), the app verifies that `/share/STORAGE` is a separate mounted filesystem, not an ordinary directory on the internal disk. A missing/invalid mount **stops the app**, rather than creating a second empty archive.
-2. If the destination is absent, it copies the entire stopped WhatsApp data directory to a temporary folder on STORAGE, fixes ownership, then atomically renames it into place. This includes SQLite, WhatsApp linked-device state, and cached media.
-3. The original `/data/whatsapp` is **retained as a rollback copy** until the new archive is verified; no automatic deletion takes place. After migration the live API uses only the external directory.
-4. If an external archive already exists, it takes priority. Do not switch the option off casually: that would bring back the older internal archive. Keep an independent encrypted backup.
+1. On startup before the WhatsApp API opens SQLite, verify that the selected `/media/storage` or `/share/<name>` is a separate mounted filesystem. A missing mount stops the app rather than creating a second empty archive.
+2. If the private destination folder is absent, copy the stopped WhatsApp data directory into a temporary folder **on the external disk**, set private permissions and atomically rename it into place. This includes SQLite, linked-device state and cached media.
+3. Keep the original `/data/whatsapp` intact as a rollback copy. The live API moves to the external directory only after a successful migration.
+4. Never automatically merge with an existing archive or remove the original.
+5. Test for actual write permission after dropping privileges to the app's unprivileged user.
 
-The option defaults to an empty string, meaning the existing Home Assistant app-local `/data/whatsapp` is used. If a migration fails, fix the volume or filesystem permissions; never bypass the mount check. **SQLite should be hosted on a locally attached filesystem that supports normal file locking** (prefer ext4); do not put its live WAL files on SMB/NFS shares.
-
-Note that the MCP gateway's two private bearer tokens remain in `/data/.whatsapp-mcp-secrets` under app storage, while WhatsApp account state and the conversation archive move together. The archive viewer reports whether it is using app-local or external storage.
+`storage_path: ""` continues to use `/data/whatsapp` in app-local storage. Only place live SQLite WAL files on a real local filesystem with working file locks (e.g. ext4), not an SMB/NFS share. Keep independent encrypted backups; this move is **not** a substitute for them. Internal API/gateway bearer tokens remain under `/data/.whatsapp-mcp-secrets`.
 
 ## Install and link WhatsApp
 

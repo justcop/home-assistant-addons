@@ -171,9 +171,9 @@ async function main() {
     console.log('WhatsApp data location: ' + (storage.external ? 'verified external shared-storage volume' : 'internal app storage') + '.');
     if (!storage.external) {
       let volumes = [];
-      try { volumes = fs.readdirSync('/share', { withFileTypes: true }).filter(d=>d.isDirectory()).map(d=>d.name); }
+      try { volumes = ['share', 'media'].flatMap(root => fs.readdirSync('/' + root, { withFileTypes: true }).filter(d=>d.isDirectory()).map(d=>root + '/' + d.name)); }
       catch { /* the share map may be unavailable until the app definition is refreshed */ }
-      console.log('Available shared-storage folders: ' + (volumes.join(', ') || '(none)') + '.');
+      console.log('Available storage folders: ' + (volumes.join(', ') || '(none)') + '.');
     }
   });
 
