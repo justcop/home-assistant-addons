@@ -19,13 +19,13 @@ test('archive API can only address upstream read routes with approved filters', 
     '/api/messages?limit=NaN']) assert.equal(archiveTarget(url), null, url);
 });
 
-test('external storage path must identify a named HA media volume and a folder', () => {
+test('external storage path must identify a named HA shared-storage volume and a folder', () => {
   assert.equal(validateStoragePath(''), null);
-  assert.deepEqual(validateStoragePath('/media/STORAGE/whatsapp-mcp'),
-    { directory:'/media/STORAGE/whatsapp-mcp', disk:'/media/STORAGE' });
-  for (const value of ['/data/whatsapp','/media/STORAGE','/media/STORAGE/..',
-    '/media/STORAGE/../../etc','/media/STORAGE/','/media//archive','/share/STORAGE/wa',
-    '/media/STORAGE/my folder','/media/STORAGE/foo/../bar'])
+  assert.deepEqual(validateStoragePath('/share/STORAGE/whatsapp-mcp'),
+    { directory:'/share/STORAGE/whatsapp-mcp', disk:'/share/STORAGE' });
+  for (const value of ['/data/whatsapp','/share/STORAGE','/share/STORAGE/..',
+    '/share/STORAGE/../../etc','/share/STORAGE/','/share//archive','/share/STORAGE/wa',
+    '/share/STORAGE/my folder','/share/STORAGE/foo/../bar'])
     assert.throws(() => validateStoragePath(value), value);
 });
 
