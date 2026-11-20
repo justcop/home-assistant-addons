@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { createArchiveServer } from './archive-server.mjs';
 import { ArchiveData } from './archive-data.mjs';
+import { GooglePhonebookBridge } from './google-phonebook-sync.mjs';
 import { configureWhatsAppStorage } from './storage.mjs';
 
 const ROOT = '/data';
@@ -84,10 +85,17 @@ function loadToken(name) {
   }
 }
 
+export function childEnvironment(env, parent = process.env) {
+  // SUPERVISOR_TOKEN is an unrestricted Home Assistant admin credential.
+  // Never grant it to the third-party WhatsApp API or MCP children.
+  const safe = { ...parent, ...env };
+  for (const key of ['SUPERVISOR_TOKEN', 'HASSIO_TOKEN', 'SUPERVISOR_API', 'HASSIO_API']) delete safe[key];
+  return safe;
+}
 function startChild(label, executable, env) {
   const child = spawn(process.execPath, [executable], {
     cwd: path.dirname(path.dirname(executable)),
-    env: { ...process.env, ...env },
+    env: childEnvironment(env),
     stdio: 'inherit',
     uid: process.getuid(),
     gid: process.getgid()
@@ -99,13 +107,14 @@ function startChild(label, executable, env) {
   return child;
 }
 
-let api, mcp, gateway, archive, archiveData;
+let api, mcp, gateway, archive, archiveData, googleBridge;
 let stopping = false;
 function shutdown() {
   if (stopping) return;
   stopping = true;
   if (gateway) gateway.close();
   if (archive) archive.close();
+  if (googleBridge) googleBridge.stop();
   if (archiveData) archiveData.close();
   if (mcp) mcp.kill('SIGTERM');
   if (api) api.kill('SIGTERM');
@@ -168,7 +177,10 @@ async function main() {
   // Only Supervisor's ingress proxy can connect to this separate listener.
   // The public Cloudflare /mcp gateway remains entirely separate.
   archiveData = new ArchiveData(storage.dataDir);
-  archive = createArchiveServer({ apiToken, port: ARCHIVE_PORT, storagePath: storage.dataDir, dataStore: archiveData });
+  googleBridge = new GooglePhonebookBridge(archiveData);
+  archive = createArchiveServer({ apiToken, port: ARCHIVE_PORT,
+    storagePath: storage.dataDir, dataStore: archiveData, googleBridge });
+  googleBridge.start();
   archive.listen(ARCHIVE_PORT, '0.0.0.0', () => {
     console.log('Private WhatsApp Archive UI ready through Home Assistant Ingress (port ' + ARCHIVE_PORT + ').');
     console.log('WhatsApp data location: ' + (storage.external ? 'verified external shared-storage volume' : 'internal app storage') + '.');
