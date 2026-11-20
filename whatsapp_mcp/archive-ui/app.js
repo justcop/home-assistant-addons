@@ -161,7 +161,7 @@ function showSearch() {
   $('message-search').focus();
 }
 function searchHitNode(hit) {
-  const chat = chatById.get(hit.chat) || {id:hit.chat,name:hit.chat,isGroup:hit.chat?.endsWith('@g.us')};
+  const chat = chatById.get(hit.chat) || {id:hit.chat,name:hit.chatName || null,isGroup:hit.chat?.endsWith('@g.us')};
   const btn = el('button','search-hit');
   btn.type = 'button';
   const title = el('div','hit-title');
