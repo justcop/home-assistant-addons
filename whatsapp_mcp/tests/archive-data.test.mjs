@@ -79,3 +79,13 @@ test('visible message pagination does not leave pages of protocol notices',t=>{
   assert.equal(second.items[0].id,'old@g.us');
   assert.throws(()=>store.listMessages(new URLSearchParams('chat=old%40g.us&cursor=-1')),RangeError);
 });
+
+test('archive date range includes raw WhatsApp events separately from readable messages', t => {
+  const store=fixture(t);
+  const stats=store.archiveDateRange();
+  assert.deepEqual(stats,{
+    raw:{count:5,oldest:100,newest:520},
+    messages:{count:2,oldest:100,newest:400},
+    chatCount:3
+  });
+});

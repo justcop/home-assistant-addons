@@ -110,6 +110,11 @@ export function createArchiveServer({ apiToken, port = 8100, storagePath = '/dat
         if (!googleBridge) return send(res, 503, 'Google sync unavailable');
         return send(res, 200, JSON.stringify(googleBridge.status()), 'application/json; charset=utf-8');
       }
+      if (url.pathname === '/api/archive/date-range') {
+        if (!dataStore) return send(res, 503, 'Archive statistics unavailable');
+        if (req.method === 'HEAD') return send(res, 405, 'Method not allowed');
+        return send(res, 200, JSON.stringify(dataStore.archiveDateRange()), 'application/json; charset=utf-8');
+      }
       if (url.pathname === '/api/contact-names') {
         if (!dataStore) return send(res, 503, 'Private name support unavailable');
         return send(res, 200, JSON.stringify({ total: Object.keys(dataStore.aliases).length }), 'application/json; charset=utf-8');
