@@ -25,5 +25,7 @@ jobs:
           node --check whatsapp_mcp/archive-ui/app.js
           node --check whatsapp_mcp/run.mjs
           node --check whatsapp_mcp/storage.mjs
+          node --check whatsapp_mcp/google-phonebook-sync.mjs
+          node --check whatsapp_mcp/archive-data.mjs
       - name: Build pinned upstream WhatsApp API and MCP app
         run: docker build -t whatsapp-mcp-addon:ci whatsapp_mcp
