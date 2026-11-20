@@ -13,6 +13,18 @@ Private WhatsApp search using [spare-cycles/whatsapp-mcp](https://github.com/spa
 - There is no public or host-mapped port by default. **Do not set a host port mapping or expose the upstream API.**
 - Do not use this with clinical patient-identifiable data or material requiring NHS-approved handling.
 
+## Meaningful conversation activity and contact names
+
+From version 0.2.2, the **private archive viewer** ignores WhatsApp protocol notices when listing conversations and messages. It ignores `system` events and empty `other` entries (no text, transcript or media). In particular, repeated security-code/identity notices no longer make an otherwise inactive group appear recently active.
+
+- Conversation order and date are computed **read-only from actual human messages in SQLite**; the upstream WhatsApp/MCP database is unchanged. An empty group has no last activity date.
+- Contact names are taken from saved WhatsApp contact entries and their WhatsApp display names when available. Raw phone numbers remain the fallback if no known name exists.
+- Use **Import contact names (.vcf)** at the bottom of the archive sidebar to supply names from a Google Contacts or Android address-book vCard export. The browser extracts only full names and phone numbers and sends them privately to Home Assistant Ingress; no address data, emails or birthdays are sent or stored.
+- The imported mapping is saved alongside the archive at `.archive-contact-names.json` with file mode 0600; it's never committed to GitHub. It only affects *display names* and searching the viewer. It cannot send, edit or delete WhatsApp messages, and never modifies WhatsApp's contacts or chats.
+- For number formats, include international country codes in exported contacts where possible. UK `07…`, `+44…`, `0044…` and `+44 (0)…` numbers are normalised.
+- Without an address-book import, names unavailable to WhatsApp will still appear as phone numbers or “Unknown contact”; do not invent identity matches.
+- MCP retains the original archive and system messages. The filtering applies only to the private browser viewer.
+
 ## Private WhatsApp Archive web interface
 
 From version 0.2.0, the app provides a read-only archive viewer through Home Assistant **Ingress**. Open **Settings → Apps → WhatsApp MCP (Read Only) → Open Web UI**, or enable **Show in sidebar**.
