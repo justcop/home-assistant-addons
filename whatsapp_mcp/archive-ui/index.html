@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>WhatsApp Archive</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="shell" id="shell">
+    <aside class="sidebar" id="sidebar" aria-label="Conversation list">
+      <header class="brand">
+        <div class="brand-icon" aria-hidden="true">◉</div>
+        <div><h1>WhatsApp Archive</h1><p>Private · read-only</p></div>
+      </header>
+      <div class="side-search">
+        <label for="chat-filter">Conversations</label>
+        <input id="chat-filter" type="search" placeholder="Find a conversation…" autocomplete="off">
+        <button id="all-search" type="button" class="search-action">⌕ &nbsp; Search all messages</button>
+      </div>
+      <div id="chat-list" class="chat-list" role="list" aria-live="polite"><p class="placeholder">Loading conversations…</p></div>
+      <footer class="sidebar-footer"><span id="storage-status">Checking storage…</span><span id="connection-status"></span></footer>
+    </aside>
+    <main id="main" class="main">
+      <header class="conversation-header">
+        <button id="show-chats" class="icon-button mobile-only" type="button" aria-label="Show conversations">☰</button>
+        <div class="conversation-heading"><h2 id="conversation-name">Your private archive</h2><p id="conversation-description">Select a conversation or search all messages</p></div>
+        <span class="read-only-pill">READ ONLY</span>
+      </header>
+      <div id="empty-state" class="empty-state">
+        <div class="empty-icon">▤</div>
+        <h3>Messages, without the noise</h3>
+        <p>Browse your synchronised conversations, or search the full archive. Nothing you do here sends messages or marks them as read.</p>
+      </div>
+      <div id="messages-view" class="messages-view hidden">
+        <button id="older" class="older hidden" type="button">Load older messages</button>
+        <div id="messages" class="messages" aria-live="polite"></div>
+        <p id="message-status" class="message-status"></p>
+      </div>
+      <div id="search-view" class="search-view hidden">
+        <div class="search-intro"><h3>Search your messages</h3><p>Searches message text and any transcripts that have been indexed.</p></div>
+        <form id="message-search-form" class="message-search-form" autocomplete="off">
+          <input id="message-search" name="q" type="search" placeholder="Words or a phrase…" aria-label="Search message text" required>
+          <button type="submit">Search</button>
+        </form>
+        <p id="search-summary" class="search-summary"></p>
+        <div id="search-results" class="search-results"></div>
+        <button id="more-results" class="older hidden" type="button">More results</button>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
