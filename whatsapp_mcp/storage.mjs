@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const INTERNAL = '/data/whatsapp';
-const SHARE_ROOT = '/share';
+const VOLUME_ROOTS = new Set(['/share', '/media']);
 
 // An external location must be beneath a named HA shared storage mount.
 // Never allow /data, bare /share, arbitrary host paths or traversal in this option.
@@ -10,18 +10,23 @@ export function validateStoragePath(raw) {
   const value = String(raw ?? '').trim().replace(/\/+$/, '');
   if (!value) return null;
   const parts = value.split('/');
-  if (parts.length < 4 || parts[0] !== '' || parts[1] !== 'share'
+  if (parts.length < 4 || parts[0] !== '' || !VOLUME_ROOTS.has('/' + parts[1])
       || parts.slice(2).some(p => !p || p === '.' || p === '..' || !/^[a-zA-Z0-9_.-]+$/.test(p))
       || path.posix.normalize(value) !== value) {
-    throw new Error('storage_path must be /share/<mounted-volume>/<folder> (no spaces or ..)');
+    throw new Error('storage_path must be /media/<mounted-volume>/.whatsapp-mcp-private or /share/<mounted-volume>/<folder>');
   }
-  return { directory: value, disk: path.join(SHARE_ROOT, parts[2]) };
+  // Media volumes are normally browser-visible. Use a dot-prefixed,
+  // owner-only private folder to avoid indexing or listing the archive.
+  // This is not an access-control boundary against HA administrators.
+  if (parts[1] === 'media' && parts[3] !== '.whatsapp-mcp-private')
+    throw new Error('Media volume archives must use a private hidden .whatsapp-mcp-private directory');
+  return { directory: value, disk: path.join('/', parts[1], parts[2]), root: '/' + parts[1] };
 }
 
-function requireMountedDisk(disk) {
-  // An ordinary folder under /share is NOT an external drive. Refuse to
+function requireMountedDisk(disk, root) {
+  // A normal directory inside /share or /media is NOT an external drive. Refuse to
   // initialise a second database on the internal disk if STORAGE is absent.
-  const mediaInfo = fs.statSync(SHARE_ROOT);
+  const mediaInfo = fs.statSync(root);
   const diskInfo = fs.lstatSync(disk);
   if (diskInfo.isSymbolicLink() || !diskInfo.isDirectory())
     throw new Error('External STORAGE volume is not a normal directory');
@@ -43,8 +48,8 @@ export function configureWhatsAppStorage(storagePath) {
   fs.mkdirSync(INTERNAL, { recursive: true, mode: 0o700 });
   if (!requested) return { dataDir: INTERNAL, external: false };
 
-  const { directory: target, disk } = requested;
-  requireMountedDisk(disk);
+  const { directory: target, disk, root } = requested;
+  requireMountedDisk(disk, root);
   const relative = path.relative(disk, target);
   // No part of the selected archive directory may be a symlink.
   let segment = disk;
