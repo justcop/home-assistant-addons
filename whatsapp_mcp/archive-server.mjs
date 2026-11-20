@@ -71,7 +71,7 @@ export function createArchiveServer({ apiToken, port = 8100, storagePath = '/dat
         return res.end(req.method === 'HEAD' ? undefined : bytes);
       }
       if (url.pathname === '/api/storage') {
-        return send(res, 200, JSON.stringify({ location: storagePath.startsWith('/media/') ? 'STORAGE drive' : 'Home Assistant app storage' }), 'application/json');
+        return send(res, 200, JSON.stringify({ location: storagePath.startsWith('/share/') ? 'STORAGE drive' : 'Home Assistant app storage' }), 'application/json');
       }
       if (req.method === 'HEAD') return send(res, 405, 'Method not allowed');
       let target = archiveTarget(req.url);
