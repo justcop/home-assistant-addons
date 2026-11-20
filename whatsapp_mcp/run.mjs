@@ -114,7 +114,9 @@ async function waitForServer(port, child) {
     try {
       const res = await fetch('http://' + UPSTREAM + ':' + port + '/health',
         { signal: AbortSignal.timeout(1000) });
-      if (res.status === 200) return;
+      // HTTP is listening even when the account has not yet paired.
+      // An MCP health response can be unhealthy (503) until WhatsApp pairs.
+      if (res.status === 200 || res.status === 503) return;
     } catch { /* not listening yet */ }
     await new Promise(resolve => setTimeout(resolve, 500));
   }
