@@ -139,6 +139,11 @@ async function main() {
     fs.chownSync(dir, 1000, 1000);
   }
   if (process.getuid?.() === 0) { process.setgid(1000); process.setuid(1000); }
+  // Verify write access as the actual API user, not only as root, before
+  // allowing an external SQLite database to be opened.
+  const writeProbe = path.join(storage.dataDir, '.permission-test-' + process.pid);
+  fs.writeFileSync(writeProbe, 'ok', { flag: 'wx', mode: 0o600 });
+  fs.unlinkSync(writeProbe);
 
   api = startChild('WhatsApp API', '/opt/whatsapp-api/dist/main.js', {
     PORT: String(API_PORT),
