@@ -50,7 +50,14 @@ def classify(paths):
                         and path.startswith("audioshelf/android-helper/"))
                for path in paths)
     )
-    smoke = sorted(directory for directory in SMOKE_ONLY
+    # Discover future add-ons automatically, rather than silently omitting a
+    # new app until somebody adds it to this orchestration script.
+    discovered = {
+        child.name for child in Path(".").iterdir()
+        if child.is_dir() and (child / "config.yaml").is_file()
+        and child.name not in WORKFLOWS
+    }
+    smoke = sorted(directory for directory in set(SMOKE_ONLY) | discovered
                    if any(path.startswith(directory + "/") for path in paths))
     android = any(path.startswith("audioshelf/android-helper/") for path in paths)
     return dispatched, smoke, android
