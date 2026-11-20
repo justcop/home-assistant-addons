@@ -28,7 +28,7 @@ export function normalisePhone(value) {
   let digits = String(value ?? '').replace(/[^0-9]/g, '');
   if (digits.startsWith('00')) digits = digits.slice(2);
   // Some exported UK address books include an optional domestic trunk zero.
-  if (/^4407\\d{9}$/.test(digits)) digits = '44' + digits.slice(3);
+  if (/^4407\d{9}$/.test(digits)) digits = '44' + digits.slice(3);
   if (/^07\d{9}$/.test(digits)) digits = '44' + digits.slice(1);
   return /^[1-9][0-9]{6,14}$/.test(digits) ? digits : null;
 }
