@@ -54,11 +54,19 @@ function send(res, status, data, type = 'text/plain; charset=utf-8') {
 
 // All viewer endpoints are GET-only. The WhatsApp API's write operations are
 // NEVER exposed to the viewer, even if the upstream read-only mode regresses.
-export function createArchiveServer({ apiToken, port = 8100, storagePath = '/data/whatsapp', dataStore = null, allowPeer = isIngressPeer }) {
+export function createArchiveServer({ apiToken, port = 8100, storagePath = '/data/whatsapp', dataStore = null, googleBridge = null, allowPeer = isIngressPeer }) {
   if (!apiToken) throw new Error('Missing internal WhatsApp API token');
   return http.createServer(async (req, res) => {
     if (!allowPeer(req.socket.remoteAddress)) return send(res, 403, 'Ingress only');
-    // The sole write route saves local display-name aliases. It cannot touch
+    if (req.method === 'POST' && req.url === '/api/google-contacts/sync') {
+      if (!googleBridge) return send(res, 503, 'Google sync unavailable');
+      if (req.headers['x-archive-action'] !== 'google-sync')
+        return send(res, 403, 'Invalid sync request');
+      // Only schedules read-only local lookups; never changes WhatsApp or Google.
+      googleBridge.sync().catch(err => console.error('Google contact refresh failed:', err.message));
+      return send(res, 202, JSON.stringify(googleBridge.status()), 'application/json; charset=utf-8');
+    }
+    // The sole data-write route saves local display-name aliases. It cannot touch
     // WhatsApp, SQLite, media, chat state, or any upstream write endpoint.
     if (req.method === 'POST' && req.url === '/api/contact-names') {
       if (!dataStore) return send(res, 503, 'Contact name imports unavailable');
@@ -97,6 +105,10 @@ export function createArchiveServer({ apiToken, port = 8100, storagePath = '/dat
       }
       if (url.pathname === '/api/storage') {
         return send(res, 200, JSON.stringify({ location: (storagePath.startsWith('/share/') || storagePath.startsWith('/media/')) ? 'STORAGE drive' : 'Home Assistant app storage' }), 'application/json');
+      }
+      if (url.pathname === '/api/google-contacts') {
+        if (!googleBridge) return send(res, 503, 'Google sync unavailable');
+        return send(res, 200, JSON.stringify(googleBridge.status()), 'application/json; charset=utf-8');
       }
       if (url.pathname === '/api/contact-names') {
         if (!dataStore) return send(res, 503, 'Private name support unavailable');

@@ -47,6 +47,8 @@ export class ArchiveData {
     this.db.exec('PRAGMA query_only = ON; PRAGMA busy_timeout = 2000;');
     this.aliasFile = options.aliasFile || path.join(storagePath, '.archive-contact-names.json');
     this.aliases = this.loadAliases();
+    this.googleFile = options.googleFile || path.join(storagePath, '.archive-google-names.json');
+    this.googleNames = this.loadAliases(this.googleFile);
     this.refreshContacts();
     this.chatsStmt = this.db.prepare(`
       SELECT c.id, c.name, c.is_group AS isGroup, c.unread_count AS unreadCount,
@@ -77,9 +79,9 @@ export class ArchiveData {
     this.lidContacts=new Map();
     for(const c of all) if(c.lid) this.lidContacts.set(String(c.lid),c);
   }
-  loadAliases() {
+  loadAliases(file = this.aliasFile) {
     try {
-      const data=JSON.parse(fs.readFileSync(this.aliasFile,'utf8'));
+      const data=JSON.parse(fs.readFileSync(file,'utf8'));
       if (!data || typeof data!=='object' || Array.isArray(data)) return {};
       return Object.fromEntries(Object.entries(data).filter(([phone,name])=>
         normalisePhone(phone)===phone && typeof name==='string' && name.length<=160 && isHumanName(name)));
@@ -96,6 +98,7 @@ export class ArchiveData {
     const contact=this.contactFor(id);
     const phone=normalisePhone(numberFromJid(id)||contact?.phone_number||numberFromJid(contact?.id));
     if(phone && this.aliases[phone]) return this.aliases[phone];
+    if(phone && this.googleNames[phone]) return this.googleNames[phone];
     for(const n of [contact?.name, currentName, contact?.notify])
       if (isHumanName(n)) return n.trim();
     if(phone) return '+'+phone;
@@ -149,6 +152,35 @@ export class ArchiveData {
     return {...hit,
       chatName:this.displayName(hit.chat,chat?.name,!!chat?.isGroup),
       sender:hit.sender?{...hit.sender,name:hit.fromMe?'You':this.displayName(hit.sender.id,hit.sender.name)}:hit.sender};
+  }
+  contactNumbers() {
+    this.refreshContacts();
+    const unique = new Set();
+    for (const c of this.contacts.values()) {
+      const phone = normalisePhone(c.phone_number || numberFromJid(c.id));
+      if (phone) unique.add(phone);
+    }
+    for (const row of this.db.prepare('SELECT id FROM chats WHERE is_group=0').all()) {
+      const phone = normalisePhone(numberFromJid(row.id));
+      if (phone) unique.add(phone);
+    }
+    for (const row of this.db.prepare('SELECT DISTINCT sender_id FROM messages WHERE sender_id LIKE \'%@s.whatsapp.net\'').all()) {
+      const phone = normalisePhone(numberFromJid(row.sender_id));
+      if (phone) unique.add(phone);
+    }
+    return [...unique].sort();
+  }
+  setGoogleNames(entries) {
+    if (!entries || typeof entries !== 'object' || Array.isArray(entries)) throw new TypeError('Invalid Google names');
+    const validated = Object.fromEntries(Object.entries(entries).filter(([phone,name]) =>
+      normalisePhone(phone) === phone && isHumanName(name) && typeof name === 'string' && name.length <= 160));
+    const temp = this.googleFile + '.tmp-' + process.pid;
+    try {
+      fs.writeFileSync(temp, JSON.stringify(validated), { mode:0o600, flag:'wx' });
+      fs.renameSync(temp, this.googleFile);
+      this.googleNames = validated;
+    } catch(err) {try {fs.unlinkSync(temp);} catch {} throw err;}
+    return Object.keys(validated).length;
   }
   mergeAliases(entries) {
     if(!Array.isArray(entries)||entries.length>20000)throw new RangeError('Invalid contact import');

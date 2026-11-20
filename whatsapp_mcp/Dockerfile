@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg poppler-
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /opt/out/api /opt/whatsapp-api
 COPY --from=build /opt/out/mcp /opt/whatsapp-mcp
-COPY run.mjs archive-server.mjs archive-data.mjs storage.mjs /opt/whatsapp-addon/
+COPY run.mjs archive-server.mjs archive-data.mjs storage.mjs google-phonebook-sync.mjs /opt/whatsapp-addon/
 COPY archive-ui/ /opt/whatsapp-addon/archive-ui/
 ENV NODE_ENV=production
 EXPOSE 8099
