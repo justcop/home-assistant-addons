@@ -215,5 +215,3 @@ button[aria-busy="true"]:after{content:"…";font-weight:800}
 .cover-wrap img.loan-sticker{width:32%;top:3%;right:3%}
 .album-flip-face>img.loan-face-sticker{width:32%;top:3%;right:3%}
 @media(max-width:520px){.cover-wrap img.loan-sticker{width:32%;top:3%;right:3%}}
-
-/* Live-static deployment smoke test: no Docker rebuild or app restart. */
