@@ -21,7 +21,11 @@
         <button id="all-search" type="button" class="search-action">⌕ &nbsp; Search all messages</button>
       </div>
       <div id="chat-list" class="chat-list" role="list" aria-live="polite"><p class="placeholder">Loading conversations…</p></div>
-      <footer class="sidebar-footer"><span id="storage-status">Checking storage…</span><span id="connection-status"></span></footer>
+      <footer class="sidebar-footer">
+        <button id="import-contacts" class="contacts-import" type="button">Import contact names (.vcf)</button>
+        <input id="contact-file" type="file" accept=".vcf,text/vcard,text/x-vcard" class="hidden" aria-label="Choose exported contacts vCard file">
+        <span id="import-status" aria-live="polite">Use your phone or Google Contacts export to show saved names.</span>
+        <span id="storage-status">Checking storage…</span><span id="connection-status"></span></footer>
     </aside>
     <main id="main" class="main">
       <header class="conversation-header">
