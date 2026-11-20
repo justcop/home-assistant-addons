@@ -31,7 +31,7 @@ document.querySelector('#reload-update').addEventListener('click',()=>{
 });
 window.addEventListener('focus',checkForUpdates);
 document.addEventListener('visibilitychange',checkForUpdates);
-setInterval(checkForUpdates,60000);
+setInterval(checkForUpdates,15000);
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const id = value => encodeURIComponent(value);
 const year = album => escapeHtml(album.release_date?.slice(0,4) || 'Date unknown');
