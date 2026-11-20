@@ -202,3 +202,66 @@ $('older').addEventListener('click',()=>loadMessages(true));
 $('show-chats').addEventListener('click',()=>$('shell').classList.remove('chat-open'));
 get('api/storage').then(data=>$('storage-status').textContent='Storage: '+data.location).catch(()=>$('storage-status').textContent='Storage status unavailable');
 loadChats(true);
+
+
+function parseContactCards(raw) {
+  if (typeof raw !== 'string' || raw.length > 3000000) throw new Error('This address book is too large');
+  const lines=raw.replace(/\r\n?/g,'\n').split('\n');
+  const folded=[];
+  for (const line of lines) {
+    if (/^[ \t]/.test(line) && folded.length) folded[folded.length-1]+=line.slice(1);
+    else folded.push(line);
+  }
+  const contacts=[];
+  let name='',phones=[],inside=false;
+  function flush() {
+    if(name.trim() && phones.length) for(const phone of phones) contacts.push({name:name.trim(),phone});
+    name=''; phones=[];
+  }
+  for (const line of folded) {
+    if (line.toUpperCase()==='BEGIN:VCARD') {inside=true;name='';phones=[];continue;}
+    if (line.toUpperCase()==='END:VCARD') {flush();inside=false;continue;}
+    if (!inside) continue;
+    const pos=line.indexOf(':');
+    if(pos<0)continue;
+    const key=line.slice(0,pos).toUpperCase().split(';')[0];
+    let value=line.slice(pos+1).trim();
+    if (key==='FN') {
+      name=value.replace(/\\([nN,;\\])/g,(_,ch)=>/[nN]/.test(ch)?' ':ch);
+    } else if (key==='TEL') {
+      value=value.replace(/^tel:/i,'');
+      if(value)phones.push(value);
+    }
+    if(contacts.length>20000)throw new Error('Too many contacts in this file');
+  }
+  return contacts;
+}
+$('import-contacts').addEventListener('click',()=> $('contact-file').click());
+$('contact-file').addEventListener('change',async e=>{
+  const file=e.target.files?.[0];
+  e.target.value='';
+  if(!file)return;
+  const info=$('import-status'),button=$('import-contacts');
+  if(file.size>3000000){info.textContent='Contact file is too large (maximum 3 MB).';return;}
+  button.disabled=true;
+  info.textContent='Importing saved contact names…';
+  try {
+    const entries=parseContactCards(await file.text());
+    if(!entries.length)throw new Error('No contact names with phone numbers found. Export as vCard (.vcf).');
+    const response=await fetch('api/contact-names',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-Archive-Action':'contact-import'},
+      body:JSON.stringify({contacts:entries}),
+      cache:'no-store'
+    });
+    if(!response.ok)throw new Error('Import failed ('+response.status+')');
+    const result=await response.json();
+    info.textContent=result.total+' names available; '+result.imported+' added or updated. Stored privately on your archive drive.';
+    await loadChats(true);
+    if(state.activeChat) {
+      const chat=chatById.get(state.activeChat.id);
+      if(chat)await openChat(chat);
+    }
+  } catch(err) {info.textContent=err.message;}
+  finally {button.disabled=false;}
+});
