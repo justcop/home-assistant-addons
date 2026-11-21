@@ -86,6 +86,8 @@ test('archive date range includes raw WhatsApp events separately from readable m
   assert.deepEqual(stats,{
     raw:{count:5,oldest:100,newest:520},
     messages:{count:2,oldest:100,newest:400},
-    chatCount:3
+    chatCount:3,
+    kindCounts:{other:2,system:1,text:2},
+    emptyOtherCount:2
   });
 });

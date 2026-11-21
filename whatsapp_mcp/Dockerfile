@@ -9,6 +9,8 @@ WORKDIR /src
 RUN curl -fLsS --retry 3 "https://github.com/spare-cycles/whatsapp-mcp/archive/${UPSTREAM_COMMIT}.tar.gz" -o /tmp/source.tar.gz \
     && tar -xzf /tmp/source.tar.gz --strip-components=1 -C /src \
     && rm /tmp/source.tar.gz
+COPY patch-upstream.mjs /src/patch-upstream.mjs
+RUN node /src/patch-upstream.mjs
 RUN corepack enable && pnpm install --frozen-lockfile \
     && pnpm -r run build \
     && pnpm deploy --filter whatsapp-api --prod --legacy /opt/out/api \
@@ -19,7 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg poppler-
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /opt/out/api /opt/whatsapp-api
 COPY --from=build /opt/out/mcp /opt/whatsapp-mcp
-COPY run.mjs archive-server.mjs archive-data.mjs storage.mjs google-phonebook-sync.mjs /opt/whatsapp-addon/
+COPY run.mjs archive-server.mjs archive-data.mjs storage.mjs prune-meta-ai.mjs /opt/whatsapp-addon/
 COPY archive-ui/ /opt/whatsapp-addon/archive-ui/
 ENV NODE_ENV=production
 EXPOSE 8099

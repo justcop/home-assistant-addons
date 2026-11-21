@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { createArchiveServer } from './archive-server.mjs';
 import { ArchiveData } from './archive-data.mjs';
-import { GooglePhonebookBridge } from './google-phonebook-sync.mjs';
+import { pruneMetaAI } from './prune-meta-ai.mjs';
 import { configureWhatsAppStorage } from './storage.mjs';
 
 const ROOT = '/data';
@@ -107,14 +107,13 @@ function startChild(label, executable, env) {
   return child;
 }
 
-let api, mcp, gateway, archive, archiveData, googleBridge;
+let api, mcp, gateway, archive, archiveData;
 let stopping = false;
 function shutdown() {
   if (stopping) return;
   stopping = true;
   if (gateway) gateway.close();
   if (archive) archive.close();
-  if (googleBridge) googleBridge.stop();
   if (archiveData) archiveData.close();
   if (mcp) mcp.kill('SIGTERM');
   if (api) api.kill('SIGTERM');
@@ -155,6 +154,9 @@ async function main() {
   const writeProbe = path.join(storage.dataDir, '.permission-test-' + process.pid);
   fs.writeFileSync(writeProbe, 'ok', { flag: 'wx', mode: 0o600 });
   fs.unlinkSync(writeProbe);
+  // Prune only this verified Meta AI JID before the WhatsApp writer starts.
+  const pruned = pruneMetaAI(storage.dataDir);
+  if (pruned) console.log('Removed ' + pruned + ' Meta AI messages from the local archive.');
 
   api = startChild('WhatsApp API', '/opt/whatsapp-api/dist/main.js', {
     PORT: String(API_PORT),
@@ -177,10 +179,8 @@ async function main() {
   // Only Supervisor's ingress proxy can connect to this separate listener.
   // The public Cloudflare /mcp gateway remains entirely separate.
   archiveData = new ArchiveData(storage.dataDir);
-  googleBridge = new GooglePhonebookBridge(archiveData);
   archive = createArchiveServer({ apiToken, port: ARCHIVE_PORT,
-    storagePath: storage.dataDir, dataStore: archiveData, googleBridge });
-  googleBridge.start();
+    storagePath: storage.dataDir, dataStore: archiveData });
   archive.listen(ARCHIVE_PORT, '0.0.0.0', () => {
     console.log('Private WhatsApp Archive UI ready through Home Assistant Ingress (port ' + ARCHIVE_PORT + ').');
     console.log('WhatsApp data location: ' + (storage.external ? 'verified external shared-storage volume' : 'internal app storage') + '.');

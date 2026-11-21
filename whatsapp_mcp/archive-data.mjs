@@ -11,6 +11,8 @@ export const VISIBLE_MESSAGE = `m.kind != 'system' AND (
   OR m.media_type IS NOT NULL OR m.media_sha IS NOT NULL
 )`;
 const MAX_PAGE = 200;
+// Only this confirmed WhatsApp account, not a chat named "Meta AI" by a user.
+export const META_AI_JID = '13135550002@s.whatsapp.net';
 const normalize = value => String(value || '').trim();
 function integer(value, fallback, min, max) {
   if (value === null || value === undefined || value === '') return fallback;
@@ -47,8 +49,6 @@ export class ArchiveData {
     this.db.exec('PRAGMA query_only = ON; PRAGMA busy_timeout = 2000;');
     this.aliasFile = options.aliasFile || path.join(storagePath, '.archive-contact-names.json');
     this.aliases = this.loadAliases();
-    this.googleFile = options.googleFile || path.join(storagePath, '.archive-google-names.json');
-    this.googleNames = this.loadAliases(this.googleFile);
     this.refreshContacts();
     this.chatsStmt = this.db.prepare(`
       SELECT c.id, c.name, c.is_group AS isGroup, c.unread_count AS unreadCount,
@@ -98,7 +98,6 @@ export class ArchiveData {
     const contact=this.contactFor(id);
     const phone=normalisePhone(numberFromJid(id)||contact?.phone_number||numberFromJid(contact?.id));
     if(phone && this.aliases[phone]) return this.aliases[phone];
-    if(phone && this.googleNames[phone]) return this.googleNames[phone];
     for(const n of [contact?.name, currentName, contact?.notify])
       if (isHumanName(n)) return n.trim();
     if(phone) return '+'+phone;
@@ -116,6 +115,7 @@ export class ArchiveData {
       lastMessageTs:c.lastMessageTs,unreadCount:c.unreadCount,archived:!!c.archived,
       mutedUntil:c.mutedUntil,participantCount:c.participantCount
     })).filter(c=>{
+      if(c.id===META_AI_JID)return false;
       if(q && !(c.name.toLocaleLowerCase().includes(q)||c.id.toLocaleLowerCase().includes(q)))return false;
       if(group!==null && group!==String(c.isGroup))return false;
       if(archived!==null && archived!==String(c.archived))return false;
@@ -128,6 +128,7 @@ export class ArchiveData {
   listMessages(searchParams) {
     const chat=searchParams.get('chat');
     if(!chat || chat.length>300)throw new RangeError('Invalid chat');
+    if(chat===META_AI_JID)return {items:[],nextCursor:null};
     this.refreshContacts();
     const limit=integer(searchParams.get('limit'),100,1,MAX_PAGE);
     const offset=integer(searchParams.get('cursor'),0,0,1000000);
@@ -147,7 +148,7 @@ export class ArchiveData {
     };
   }
   renameHit(hit) {
-    if(!hit || typeof hit!=='object')return hit;
+    if(!hit || typeof hit!=='object' || hit.chat===META_AI_JID)return null;
     const chat=this.chatNameStmt.get(hit.chat);
     return {...hit,
       chatName:this.displayName(hit.chat,chat?.name,!!chat?.isGroup),
@@ -169,37 +170,10 @@ export class ArchiveData {
     return {
       raw: { count:raw.count, oldest:raw.oldest, newest:raw.newest },
       messages: { count:meaningful.count, oldest:meaningful.oldest, newest:meaningful.newest },
-      chatCount: chats.count
+      chatCount: chats.count,
+      kindCounts: Object.fromEntries(this.db.prepare('SELECT kind, COUNT(*) AS n FROM messages GROUP BY kind').all().map(r=>[r.kind,r.n])),
+      emptyOtherCount: this.db.prepare("SELECT COUNT(*) AS n FROM messages WHERE kind='other' AND NULLIF(TRIM(COALESCE(text,'')),'') IS NULL AND NULLIF(TRIM(COALESCE(transcript,'')),'') IS NULL AND media_type IS NULL AND media_sha IS NULL").get().n
     };
-  }
-  contactNumbers() {
-    this.refreshContacts();
-    const unique = new Set();
-    for (const c of this.contacts.values()) {
-      const phone = normalisePhone(c.phone_number || numberFromJid(c.id));
-      if (phone) unique.add(phone);
-    }
-    for (const row of this.db.prepare('SELECT id FROM chats WHERE is_group=0').all()) {
-      const phone = normalisePhone(numberFromJid(row.id));
-      if (phone) unique.add(phone);
-    }
-    for (const row of this.db.prepare('SELECT DISTINCT sender_id FROM messages WHERE sender_id LIKE \'%@s.whatsapp.net\'').all()) {
-      const phone = normalisePhone(numberFromJid(row.sender_id));
-      if (phone) unique.add(phone);
-    }
-    return [...unique].sort();
-  }
-  setGoogleNames(entries) {
-    if (!entries || typeof entries !== 'object' || Array.isArray(entries)) throw new TypeError('Invalid Google names');
-    const validated = Object.fromEntries(Object.entries(entries).filter(([phone,name]) =>
-      normalisePhone(phone) === phone && isHumanName(name) && typeof name === 'string' && name.length <= 160));
-    const temp = this.googleFile + '.tmp-' + process.pid;
-    try {
-      fs.writeFileSync(temp, JSON.stringify(validated), { mode:0o600, flag:'wx' });
-      fs.renameSync(temp, this.googleFile);
-      this.googleNames = validated;
-    } catch(err) {try {fs.unlinkSync(temp);} catch {} throw err;}
-    return Object.keys(validated).length;
   }
   mergeAliases(entries) {
     if(!Array.isArray(entries)||entries.length>20000)throw new RangeError('Invalid contact import');

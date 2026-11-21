@@ -23,26 +23,13 @@ From version 0.2.2, the **private archive viewer** ignores WhatsApp protocol not
 - The imported mapping is saved alongside the archive at `.archive-contact-names.json` with file mode 0600; it's never committed to GitHub. It only affects *display names* and searching the viewer. It cannot send, edit or delete WhatsApp messages, and never modifies WhatsApp's contacts or chats.
 - For number formats, include international country codes in exported contacts where possible. UK `07…`, `+44…`, `0044…` and `+44 (0)…` numbers are normalised.
 - Without an address-book import, names unavailable to WhatsApp will still appear as phone numbers or “Unknown contact”; do not invent identity matches.
-- MCP retains the original archive and system messages. The filtering applies only to the private browser viewer.
+- Protocol and system notices remain in the raw database pending a separate retention decision; the viewer excludes them from human conversation activity.
 
-## Automatic Google Contacts names (Google Phonebook)
+## Meta AI is excluded from the local archive
 
-Version 0.2.3 of the WhatsApp Archive viewer can resolve saved numbers using [spueli99/ha-google-phonebook](https://github.com/spueli99/ha-google-phonebook) v0.5.2 (Home Assistant Marketplace custom integration). The integration is responsible for **Google OAuth, Google People API access and its 6-hour local contact cache**. The WhatsApp app does *not* connect to Google or store Google OAuth tokens.
+Starting with 0.2.5, the explicitly identified Meta AI JID `13135550002@s.whatsapp.net` is skipped on WhatsApp ingestion (both live messages and history replay), omitted from the private viewer and search, and removed from the **local** SQLite archive on app startup before the upstream API is launched. The narrow filter does not delete messages from the user's phone or WhatsApp's servers, and does not match chats simply named Meta AI. The prune operates in one SQLite transaction, keeps normal chats intact and checkpoints the local WAL. Old HA backups and any retained pre-migration rollback database may still contain earlier copies.
 
-One-time Google authorisation is required separately: install Google Phonebook in Marketplace, restart Home Assistant, enable the Google People API for a Google Cloud OAuth project, provide a Web OAuth client with `https://my.home-assistant.io/redirect/oauth`, and complete the Home Assistant Google Contacts read-only consent screen. If Google Calendar is already using a suitable project, the project may be reused; Google Phonebook still needs its own Home Assistant integration authorization. Set country calling code to **44** for UK numbers and the optional call-log sensor exposure to **0** when not using the SIP features.
-
-After Google Phonebook has completed its own sync and registered the `google_phonebook.lookup` action, the archive app:
-
-- Finds distinct phone numbers already present in WhatsApp contacts/chats/message senders.
-- Calls only `google_phonebook.lookup` with `?return_response` through the Home Assistant Supervisor Core API proxy, not the Google People API directly.
-- Populates a **separate**, owner-only (0600) cache `.archive-google-names.json` alongside the WhatsApp archive on STORAGE. This holds only matched phone-number/name mappings, never access tokens.
-- Refreshes on start (without blocking WhatsApp) and every 6 hours, retrying when Google Phonebook is not yet authorised. It leaves last-known names in place on temporary failures and never writes into WhatsApp SQLite.
-- Uses precedence: manually imported archive aliases > Google Phonebook names > WhatsApp saved names > WhatsApp display name > phone number.
-- Shows Google sync status and a **Refresh names** control in the internal Ingress viewer. Unmapped WhatsApp LIDs with no corresponding phone contact cannot be resolved from a phonebook.
-
-**Security boundary:** This app declares `homeassistant_api: true` to call Home Assistant's registered service via `SUPERVISOR_TOKEN`. This token is administrator-level, so the launcher *explicitly removes it from the environment of both third-party child processes* (WhatsApp API and MCP). The token is never sent to the browser, Cloudflare, Google, or committed to GitHub. A compromise of the launcher process would still present a Home Assistant administrator risk; keep third-party code pinned and reviewed.
-
-**No manual import is required after authorisation.** The older `.vcf` import remains optional for manually overriding a small number of names.
+WhatsApp contact names are read directly from the synchronised contacts table; no Google Phonebook integration, administrator token or periodic Google API lookup is used. Optional manual vCard aliases remain available as a fallback.
 
 ## Private WhatsApp Archive web interface
 
