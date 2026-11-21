@@ -6,12 +6,14 @@ import { validateStoragePath } from '../storage.mjs';
 
 test('desktop archive layout keeps both panes independently scrollable', () => {
   const css = readFileSync(new URL('../archive-ui/style.css', import.meta.url), 'utf8');
-  assert.match(css, /\\.shell\\{[^}]*grid-template-rows:minmax\\(0,1fr\\)/);
-  assert.match(css, /\\.sidebar\\{[^}]*min-height:0;overflow:hidden/);
-  assert.match(css, /\\.main\\{[^}]*min-height:0;overflow:hidden/);
-  assert.match(css, /\\.chat-list\\{[^}]*min-height:0;overflow-y:auto/);
-  assert.match(css, /\\.messages-view\\{[^}]*min-height:0;overflow-y:auto/);
-  assert.match(css, /\\.sidebar-footer\\{[^}]*flex-shrink:0/);
+  for (const rule of [
+    'grid-template-rows:minmax(0,1fr)',
+    '.sidebar{background:var(--panel);border-right:1px solid var(--stroke);display:flex;flex-direction:column;height:100%;min-height:0;overflow:hidden',
+    '.main{min-width:0;height:100%;min-height:0;overflow:hidden',
+    '.chat-list{flex:1 1 0;min-height:0;overflow-y:auto',
+    '.messages-view{flex:1 1 0;min-height:0;overflow-y:auto',
+    '.sidebar-footer{padding:13px 17px;border-top:1px solid var(--stroke);color:var(--muted);font-size:11px;display:flex;flex-direction:column;flex-shrink:0'
+  ]) assert.ok(css.includes(rule), 'Missing scroll layout rule: ' + rule);
 });
 
 test('only Home Assistant Supervisor ingress peer can enter the archive', () => {
