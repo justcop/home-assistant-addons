@@ -9,6 +9,7 @@ import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from reactive import ReactiveController, ensure_ssh_key
+from ha_countdown import CountdownBinding
 
 WIDTH, HEIGHT, FRAME_BYTES = 52, 32, 4992
 MAX_FRAMES = 2400
@@ -17,15 +18,16 @@ with open("/data/options.json", encoding="utf-8") as file:
 HOST = opts["host"]
 DEFAULT_TIMEOUT = int(opts.get("default_timeout", 30))
 MAX_TIMEOUT = int(opts.get("max_timeout", 3600))
-state = {"frames": (), "fps": 12., "start": 0., "expires": 0., "loop": False, "last_error": None}
+state = {"frames": (), "fps": 12., "start": 0., "expires": 0., "loop": False, "last_error": None, "owner": "idle"}
 lock = threading.RLock()
 udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 reactive = ReactiveController(opts, lock, state)
 ssh_key_path = opts.get('ssh_key_file', '/data/ssh/id_ed25519')
 public_key = ensure_ssh_key(ssh_key_path)
+countdown = CountdownBinding(lock, state)
 
 def clear():
-    state.update(frames=(), start=0., expires=0., loop=False)
+    state.update(frames=(), start=0., expires=0., loop=False, owner="idle")
 
 def snapshot():
     now = time.monotonic()
@@ -80,6 +82,9 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(200, {"public_key": public_key,
                              "username": opts.get("ssh_user", "root"),
                              "host": HOST})
+        elif self.path == "/api/countdown/status":
+            with lock:
+                self.reply(200, dict(countdown.status, owner=state.get("owner","idle")))
         elif self.path == "/api/audio/status":
             with lock:
                 self.reply(200, dict(reactive.metrics))
@@ -89,7 +94,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply(200, {"active": frame is not None, "seconds_remaining":
                     max(0, round(state["expires"] - time.monotonic(), 1)) if frame is not None else 0,
                     "frame_count": len(state["frames"]), "fps": state["fps"], "loop": state["loop"],
-                    "host": HOST, "width": WIDTH, "height": HEIGHT, "last_error": state["last_error"]})
+                    "host": HOST, "width": WIDTH, "height": HEIGHT, "last_error": state["last_error"],
+                    "owner": state.get("owner", "idle")})
         else:
             self.reply(404, {"error": "not found"})
 
@@ -106,6 +112,9 @@ class Handler(BaseHTTPRequestHandler):
                     reactive.stop()
                     clear()
                 return self.reply(200, {"ok": True, "active": False})
+            if self.path == "/api/countdown/configure":
+                current = countdown.configure(body)
+                return self.reply(200, {"ok": True, "binding": current})
             if self.path == "/api/reactive/start":
                 timeout = int(body.get("timeout", DEFAULT_TIMEOUT))
                 if not 1 <= timeout <= MAX_TIMEOUT:
@@ -114,6 +123,8 @@ class Handler(BaseHTTPRequestHandler):
                 if not Path(key_path).is_file():
                     return self.reply(503, {"error": "SSH key missing from " + key_path})
                 reactive.start(timeout, body.get("renderer", "psychedelic"))
+                with lock:
+                    state["owner"] = "reactive"
                 return self.reply(200, {"ok": True, "timeout": timeout,
                                         "audio_source": "Govee built-in microphone",
                                         "renderer": reactive.metrics.get("renderer")})
@@ -154,7 +165,7 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("timeout out of range")
             with lock:
                 reactive.stop()
-                state.update(frames=frames, fps=fps, loop=looping,
+                state.update(frames=frames, fps=fps, loop=looping, owner="manual",
                              start=time.monotonic(), expires=time.monotonic()+timeout)
             return self.reply(200, {"ok": True, "frames": len(frames), "fps": fps, "loop": looping,
                                     "timeout": timeout})
