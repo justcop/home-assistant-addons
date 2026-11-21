@@ -56,7 +56,7 @@ test('protocol security notices are excluded from activity and messages but pres
 test('synchronised WhatsApp contact names appear without an imported phonebook', t=>{
   const store=fixture(t);
   const chats=store.listChats(new URLSearchParams());
-  assert.equal(chats.items[1].name,'WhatsApp nickname');
+  assert.equal(chats.items[0].name,'WhatsApp nickname');
   assert.equal(store.listMessages(new URLSearchParams('chat=old%40g.us')).items[0].sender.name,'WhatsApp nickname');
 });
 test('visible message pagination does not leave pages of protocol notices',t=>{
