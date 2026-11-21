@@ -8,6 +8,7 @@ import math
 import os
 from pathlib import Path
 import random
+from renderers import make_renderer
 import select
 import subprocess
 import threading
@@ -113,29 +114,6 @@ class Analyser:
         }
 
 
-def psychedelic_frame(features, t):
-    """Replaceable proof renderer. The transport is effect-agnostic."""
-    out = bytearray(SIZE)
-    vol = features["volume"]
-    bass = features["bass"]
-    treble = features["treble"]
-    pulse = 1 + (1.0 if features["beat"] else 0)
-    for y in range(32):
-        for x in range(52):
-            dx = x-25.5
-            dy = (y-15.5)*1.6
-            r = math.hypot(dx,dy)
-            a = math.atan2(dy,dx)
-            wave = math.sin(r*(.35+bass*.2)-t*(2+vol*3)+math.sin(a*5+t*.9))
-            hue = a*2 + t*.7 + math.sin(r*.3-t)*.65
-            brightness = min(1., max(0., .24+.35*wave+.23*vol)*pulse)
-            i=(y*52+x)*3
-            out[i] = int((.5+.5*math.sin(hue))*255*brightness)
-            out[i+1] = int((.5+.5*math.sin(hue+2.1))*255*brightness)
-            out[i+2] = int((.5+.5*math.sin(hue+4.2))*255*brightness*(.7+.3*treble))
-    return bytes(out)
-
-
 class ReactiveController:
     def __init__(self, options, lock, state):
         self.options, self.lock, self.state = options, lock, state
@@ -148,18 +126,20 @@ class ReactiveController:
             self.generation += 1
             self.metrics["running"] = False
 
-    def start(self, timeout):
+    def start(self, timeout, renderer_spec='psychedelic'):
+        renderer = make_renderer(renderer_spec)
         with self.lock:
             self.generation += 1
             generation = self.generation
-            self.metrics = {"running": True, "error": None, "audio": None, "frames": 0}
+            self.metrics = {"running": True, "error": None, "audio": None, "frames": 0,
+                            "renderer": "psychedelic" if isinstance(renderer_spec, str) else "scene"}
             self.state.update(frames=(bytes(SIZE),), loop=True, fps=12.,
                               start=time.monotonic(), expires=time.monotonic()+timeout)
-        self.thread = threading.Thread(target=self.run, args=(generation,),
+        self.thread = threading.Thread(target=self.run, args=(generation, renderer),
                                        name="reactive-mic", daemon=True)
         self.thread.start()
 
-    def run(self, generation):
+    def run(self, generation, renderer):
         try:
             with MicStream(self.options["host"],
                            self.options.get("ssh_key_file", "/data/ssh/id_ed25519"),
@@ -171,7 +151,7 @@ class ReactiveController:
                         if generation != self.generation or time.monotonic() >= self.state["expires"]:
                             return
                     audio = analyzer.features(mic.read())
-                    frame = psychedelic_frame(audio, time.monotonic()-started)
+                    frame = renderer.render(audio, time.monotonic()-started)
                     with self.lock:
                         if generation != self.generation:
                             return
