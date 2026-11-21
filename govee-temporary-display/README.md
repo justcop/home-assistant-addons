@@ -37,15 +37,15 @@ The generic renderer provides tunable position, spread, velocity, lifetime, grav
 
 ## Automatic Home Assistant countdown display
 
-This is a generic state-driven countdown, not a GTA-specific API. A saved binding connects an active-state entity and a deadline entity to a pixel-art layout. The add-on polls the HA Core states API locally using its Supervisor token (requires `homeassistant_api: true`), renders a large hours-and-minutes countdown (for example `1H 22M`, rounded up to whole minutes) and releases the display after the session ends. The watcher still tracks the exact deadline in seconds internally. It does not change any gaming controls or state.
+This is a generic state-driven countdown, not a GTA-specific API. A saved binding connects an active-state entity and a deadline entity to a pixel-art layout. An optional `power_entity` can gate the display so the gaming overlay is visible only when the relevant device reports `on` (and disappears on `off`, `unknown` or `unavailable`). The underlying session timer is unaffected. The add-on polls the HA Core states API locally using its Supervisor token (requires `homeassistant_api: true`), renders a large hours-and-minutes countdown (for example `1H 22M`, rounded up to whole minutes) and releases the display after the session ends. The watcher still tracks the exact deadline in seconds internally. It does not change any gaming controls or state.
 
 Configure once via `POST /api/countdown/configure`:
 
 ```json
-{"state_entity":"input_select.gaming_session_state","deadline_entity":"input_datetime.gaming_session_deadline","active_states":["active"],"title_lines":["GRAND","THEFT","AUTO"],"mark":"VI"}
+{"state_entity":"input_select.gaming_session_state","deadline_entity":"input_datetime.gaming_session_deadline","power_entity":"switch.ps5_044_power","active_states":["active"],"title_lines":["GRAND","THEFT","AUTO"],"mark":"VI"}
 ```
 
-`GET /api/countdown/status` reports the binding, source errors and remaining seconds. Countdown uses the existing UDP pipeline; manual temporary animations and reactive playback take priority while they run, then the countdown resumes if the session remains active. Inactive sessions are black. The configured binding persists in the add-on data area.
+`GET /api/countdown/status` reports the saved binding, source errors and remaining seconds. Countdown uses the existing UDP pipeline; manual temporary animations and reactive playback take priority while they run, then the countdown resumes if the session remains active. Inactive sessions are black. The configured binding persists in the add-on data area.
 
 ### Countdown display preview
 
