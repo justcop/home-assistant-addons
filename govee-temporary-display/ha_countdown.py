@@ -38,8 +38,9 @@ FONT={
 
 def validate(cfg):
     if not isinstance(cfg,dict): raise ValueError("configuration must be an object")
-    for name in ("state_entity","deadline_entity"):
+    for name in ("state_entity","deadline_entity","power_entity"):
         value=cfg.get(name)
+        if name=="power_entity" and value is None: continue
         if not isinstance(value,str) or len(value)>120 or not value.replace("_","").replace(".","").isalnum() or "." not in value:
             raise ValueError("invalid "+name)
     states=cfg.get("active_states",["active"])
@@ -51,8 +52,11 @@ def validate(cfg):
     marker=cfg.get("mark","VI")
     if not isinstance(marker,str) or len(marker)>3 or any(k.upper() not in FONT for k in marker):
         raise ValueError("invalid mark")
-    return {"state_entity":cfg["state_entity"],"deadline_entity":cfg["deadline_entity"],
-            "active_states":states,"title_lines":[x.upper() for x in title],"mark":marker.upper()}
+    binding={"state_entity":cfg["state_entity"],"deadline_entity":cfg["deadline_entity"],
+             "active_states":states,"title_lines":[x.upper() for x in title],"mark":marker.upper()}
+    if cfg.get("power_entity"):
+        binding["power_entity"]=cfg["power_entity"]
+    return binding
 
 def render(cfg,remaining):
     out=bytearray(W*H*3)
@@ -121,6 +125,7 @@ class CountdownBinding:
             try:self.config=validate(json.loads(FILE.read_text()))
             except (OSError,ValueError):pass
         self.status["configured"]=self.config is not None
+        self.status["binding"]=self.config
         threading.Thread(target=self.worker,daemon=True,name="ha-countdown-watcher").start()
 
     def configure(self,cfg):
@@ -133,6 +138,7 @@ class CountdownBinding:
             self.config=new
             self.status["configured"]=True
             self.status["error"]=None
+            self.status["binding"]=new
         return new
 
     def worker(self):
@@ -152,7 +158,12 @@ class CountdownBinding:
                     dt=read_entity(cfg["deadline_entity"])
                     # HA input_datetime's timestamp is Unix time (handles UK BST correctly).
                     end_time=float(dt["attributes"]["timestamp"])
-                    visible=(st["state"] in cfg["active_states"] and end_time>time.time())
+                    # The overlay is visible only while the bound device is actually on.
+                    # Unknown/unavailable/off all hide it (fail closed).
+                    power_on=True
+                    if cfg.get("power_entity"):
+                        power_on=(read_entity(cfg["power_entity"])["state"]=="on")
+                    visible=(st["state"] in cfg["active_states"] and end_time>time.time() and power_on)
                     with self.lock:self.status["error"]=None
                 except Exception as exc:
                     visible=False
