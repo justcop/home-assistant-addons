@@ -20,7 +20,7 @@ function fixture(t) {
       ('group@g.us','Friends',1,0,0,NULL,10),
       ('other@s.whatsapp.net','Chris',0,0,0,NULL,0);
     INSERT INTO messages(chat_id,id,sender_id,ts,from_me,kind,text) VALUES
-      ('one@s.whatsapp.net','promise','one@s.whatsapp.net',1000,1,'text','I\'ll sort the referral'),
+      ('one@s.whatsapp.net','promise','one@s.whatsapp.net',1000,1,'text','I''ll sort the referral'),
       ('one@s.whatsapp.net','question','one@s.whatsapp.net',1010,0,'text','Can you confirm when it is done?'),
       ('two@s.whatsapp.net','asked','two@s.whatsapp.net',1015,0,'text','Can you book this?'),
       ('two@s.whatsapp.net','answered','two@s.whatsapp.net',1020,1,'text','Done'),
@@ -29,7 +29,7 @@ function fixture(t) {
       ('group@g.us','groupmention','two@s.whatsapp.net',1035,0,'text','Justin, could you check this?');
     INSERT INTO messages(chat_id,id,sender_id,ts,from_me,kind,text) VALUES
       ('one@s.whatsapp.net','protocol','one@s.whatsapp.net',1050,0,'system','Security code changed');
-  `.replace("I''ll sort", "I'll sort"));
+  `);
   db.close();
   t.after(() => fs.rmSync(dir, {recursive:true,force:true}));
   return dir;
