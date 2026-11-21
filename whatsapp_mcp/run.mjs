@@ -210,17 +210,35 @@ async function main() {
   }
 
   gateway = http.createServer(async (req, res) => {
+    // Diagnostic metadata only: never log headers, JWTs, URLs with queries,
+    // client addresses, message bodies, or WhatsApp identifiers.
+    const started = Date.now();
+    const requestPath = (() => {
+      try { return new URL(req.url, 'http://localhost').pathname === '/mcp' ? '/mcp' : '(other)'; }
+      catch { return '(invalid)'; }
+    })();
+    let stage = 'received';
+    res.once('finish', () => {
+      console.log('MCP gateway diagnostic: ' + JSON.stringify({
+        method: ['GET', 'POST', 'DELETE', 'OPTIONS'].includes(req.method) ? req.method : 'OTHER',
+        path: requestPath, status: res.statusCode, stage,
+        duration_ms: Date.now() - started
+      }));
+    });
     try {
       if (!opts.access_team_domain || !opts.access_audience || !opts.allowed_email) {
+        stage = 'configuration_incomplete';
         res.writeHead(503).end('Cloudflare Access configuration incomplete');
         return;
       }
       const token = req.headers['cf-access-jwt-assertion'];
-      if (typeof token !== 'string') { res.writeHead(401).end('Access assertion required'); return; }
+      if (typeof token !== 'string') { stage = 'assertion_missing'; res.writeHead(401).end('Access assertion required'); return; }
       let good = verifyAccessJwt(token, opts, await getKeys());
       if (!good) good = verifyAccessJwt(token, opts, await getKeys(true));
-      if (!good) { res.writeHead(403).end('Access assertion rejected'); return; }
+      if (!good) { stage = 'assertion_invalid'; res.writeHead(403).end('Access assertion rejected'); return; }
+      stage = 'authenticated';
       if (new URL(req.url, 'http://localhost').pathname !== '/mcp') {
+        stage = 'path_not_found';
         res.writeHead(404).end('Not found'); return;
       }
       const headers = { ...req.headers };
@@ -231,22 +249,27 @@ async function main() {
       }
       headers.authorization = 'Bearer ' + mcpToken;
       headers.host = UPSTREAM + ':' + MCP_PORT;
+      stage = 'upstream_connecting';
       const upstream = http.request({
         hostname: UPSTREAM, port: MCP_PORT, path: req.url,
         method: req.method, headers
       }, upstreamRes => {
         const responseHeaders = { ...upstreamRes.headers };
         delete responseHeaders['connection'];
+        stage = 'upstream_response';
         res.writeHead(upstreamRes.statusCode || 502, responseHeaders);
         upstreamRes.pipe(res);
       });
       upstream.on('error', () => {
+        stage = 'upstream_error';
         if (!res.headersSent) res.writeHead(502);
         res.end('MCP backend unavailable');
       });
       req.pipe(upstream);
     } catch (err) {
-      console.error('MCP gateway error:', err.message);
+      // Avoid leaking exception strings containing URLs or upstream metadata.
+      stage = 'gateway_exception';
+      console.error('MCP gateway exception at stage: ' + stage);
       if (!res.headersSent) res.writeHead(503);
       res.end('Access validation unavailable');
     }
