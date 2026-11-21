@@ -22,3 +22,15 @@ Animations are generated outside the add-on and kept in RAM only for the duratio
 ### Safer one-time pairing
 
 The add-on now generates its own private SSH key under `/data/ssh/id_ed25519` and never exposes it. Call `GET /api/audio/ssh-public-key` to retrieve its **public** key, then authorise it once in the Govee device's root `authorized_keys` using the previously working Windows SSH connection. No private key needs transferring to Home Assistant.
+
+## Generic music-reactive scene API
+
+`POST /api/reactive/start` accepts `{"timeout":30,"renderer":{...}}` where `renderer` is either `"psychedelic"` (legacy demo) or a declarative particle scene. No executable Python is accepted over HTTP. The microphone/SSH and transport are independent of scene rendering; adding a new particle design requires only new JSON, not an add-on release.
+
+Example animated rocket-and-burst configuration:
+
+```json
+{"timeout":10,"renderer":{"type":"particles","emitters":[{"trigger":"both","interval":0.16,"count":4,"origin_x":0.5,"origin_y":1,"spread_x":0.95,"velocity_y":-20,"velocity_variance":7,"gravity":6,"lifetime":0.7,"children":48,"child_speed":18,"child_gravity":10,"child_lifetime":1.1,"beat_boost":3,"energy":"bass","palette":[[255,56,90],[255,197,38],[47,194,255],[178,78,255],[53,255,137]]}]}}
+```
+
+The generic renderer provides tunable position, spread, velocity, lifetime, gravity, colour palette, music-triggered/periodic emission, beat intensity and child bursts. Nothing is saved on the Govee. Existing `/api/show`, `/api/play`, `/api/clear` remain available.
