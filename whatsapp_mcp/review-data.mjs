@@ -8,7 +8,13 @@ const MAX_SCAN = 50000;
 const actionWords = /(?:\b(?:could|can|would|will) you\b|\bplease (?:send|check|call|book|pay|confirm|let me know)\b|\b(?:let me know|remind me|are you free|what time|when can|when are)\b|\?)/i;
 const promiseWords = /(?:\bi['’]?ll\s+(?:send|check|book|pay|call|sort|ask|organis|arrang|bring|pick|refer|follow|confirm|transfer|look|do|get)|\bi will\s+(?:send|check|book|pay|call|sort|ask|organis|arrang|bring|pick|refer|follow|confirm|transfer|look|do|get)|\bi (?:need|have) to\s+(?:send|check|book|pay|call|sort|ask|organis|arrang|refer|follow|confirm)|\bwill send\b)/i;
 const arrangements = /(?:\b(?:tomorrow|tonight|next (?:week|month|sunday|monday|tuesday|wednesday|thursday|friday|saturday)|this (?:weekend|sunday|monday|tuesday|wednesday|thursday|friday|saturday))\b|\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\b|\b\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)\b)/i;
-const groupMention = /\b(?:justin|justcop|copitch|juz|juzzy)\b/i;
+function groupMention(text, hint) {
+  const body = normalize(text);
+  if (/@[0-9A-Za-z_]{3,}/.test(body)) return true;
+  if (typeof hint !== 'string' || !hint.trim() || hint.length > 80) return false;
+  const safe = hint.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\const groupMention = /\b(?:justin|justcop|copitch|juz|juzzy)\b/i;');
+  return new RegExp('\\b' + safe + '\\b', 'i').test(body);
+}
 const normalize = value => String(value ?? '').replace(/\s+/g, ' ').trim();
 function int(value, fallback, min, max, name) {
   if (value === undefined || value === null) return fallback;
@@ -76,12 +82,12 @@ export function reviewConversations(dataDir, options = {}) {
       const last = ms[0];
       const lastInbound = ms.find(m => !m.from_me);
       const lastOutbound = ms.find(m => m.from_me);
-      const pending = !last.from_me && (!c.is_group || groupMention.test(normalize(last.text)))
+      const pending = !last.from_me && (!c.is_group || groupMention(last.text, options.name_hint))
         && actionWords.test(normalize(last.text || last.transcript));
       const commitments = ms.filter(m => m.from_me && promiseWords.test(normalize(m.text))).slice(0, 3);
       const planned = ms.filter(m => arrangements.test(normalize(m.text || m.transcript))).slice(0, 2);
       // Generic group questions are not addressed to the account owner.
-      const mentions = c.is_group && ms.some(m => !m.from_me && groupMention.test(normalize(m.text)));
+      const mentions = c.is_group && ms.some(m => !m.from_me && groupMention(m.text, options.name_hint));
       const isCandidate = pending || commitments.length > 0 || (!c.is_group && planned.length > 0) || mentions;
       if (onlyCandidates && !isCandidate) continue;
       const flags = [];
