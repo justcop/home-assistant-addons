@@ -28,5 +28,10 @@ jobs:
           node --check whatsapp_mcp/prune-meta-ai.mjs
           node --check whatsapp_mcp/patch-upstream.mjs
           node --check whatsapp_mcp/archive-data.mjs
+      - name: Check app branding files
+        run: |
+          file whatsapp_mcp/icon.png whatsapp_mcp/logo.png
+          file whatsapp_mcp/icon.png | grep -q 'PNG image data, 128 x 128'
+          file whatsapp_mcp/logo.png | grep -q 'PNG image data, 500 x 200'
       - name: Build pinned upstream WhatsApp API and MCP app
         run: docker build -t whatsapp-mcp-addon:ci whatsapp_mcp

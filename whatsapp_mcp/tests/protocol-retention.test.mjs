@@ -43,7 +43,7 @@ test('prune removes only non-content; preserves referenced, unrecognized, and un
  put.run('c@g.us','quoted','other',null,raw({messageStubType:38,message:{}}),null);
  put.run('c@g.us','reply','text','reply',raw({message:{conversation:'reply'}}),'quoted');
  db.close();
- const decoder=b=>JSON.parse(b.toString('utf8'));
+ const decoder=b=>JSON.parse(Buffer.from(b).toString('utf8'));
  const result=await pruneProtocolNoise(dir,{decode:decoder});
  assert.deepEqual(result,{deleted:2,retained:3,quotedProtected:1,undecodable:1});
  const verify=new DatabaseSync(path.join(dir,'whatsapp.db'),{readOnly:true});

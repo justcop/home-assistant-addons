@@ -34,6 +34,10 @@ Starting with 0.2.5, the explicitly identified Meta AI JID `13135550002@s.whatsa
 
 WhatsApp contact names are read directly from the synchronised contacts table; no Google Phonebook integration, administrator token or periodic Google API lookup is used. Manual vCard imports are no longer supported.
 
+## Home Assistant app branding
+
+The app supplies an original green messaging/archive/shield design as `icon.png` (square 128×128) and `logo.png` (horizontal 500×200), as recommended for Home Assistant app presentation. The icons convey a locally stored, read-only messaging archive rather than implying this is an official WhatsApp client.
+
 ## Private WhatsApp Archive web interface
 
 The archive uses WhatsApp's own synchronised contact names. The vCard import screen, write endpoint and local alias cache have been removed in 0.2.6; no external contact provider is required.
