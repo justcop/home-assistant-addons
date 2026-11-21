@@ -1,0 +1,22 @@
+name: Govee Temporary Display
+version: "0.1.0"
+slug: govee_temporary_display
+description: Stream temporary 52x32 images over UDP with timeout and heartbeat
+arch:
+  - amd64
+  - aarch64
+init: false
+startup: application
+boot: auto
+host_network: false
+ingress: true
+ingress_port: 8098
+panel_icon: mdi:image-outline
+options:
+  host: 192.168.1.47
+  default_timeout: 30
+  max_timeout: 3600
+schema:
+  host: str
+  default_timeout: int(1,3600)
+  max_timeout: int(1,86400)
