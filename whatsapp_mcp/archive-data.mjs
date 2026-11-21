@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { isDisposableProtocolMessage } from './protocol-retention.mjs';
 
 // These are WhatsApp protocol/control events, not human conversation activity.
 // Preserve the raw rows for audit and to avoid changing the upstream MCP API.
@@ -174,7 +175,7 @@ export class ArchiveData {
         AND m.media_type IS NULL AND m.media_sha IS NULL
     `).all();
     const byPayload = {}, byStub = {}, byMonth = {}, byLength = {};
-    let missingRaw=0, decodeErrors=0, withStub=0, referenced=0, withReactions=0;
+    let missingRaw=0, decodeErrors=0, withStub=0, referenced=0, withReactions=0, disposable=0, preserved=0, disposableReferenced=0;
     const quoted = this.db.prepare('SELECT 1 FROM messages WHERE chat_id=? AND quoted_id=? LIMIT 1');
     const reactions = this.db.prepare('SELECT 1 FROM reactions WHERE chat_id=? AND message_id=? LIMIT 1');
     for (const row of rows) {
@@ -188,12 +189,15 @@ export class ArchiveData {
       byLength[band]=(byLength[band]||0)+1;
       try {
         const decoded=proto.WebMessageInfo.decode(row.raw);
+        const safe=isDisposableProtocolMessage(decoded);
+        if(safe){disposable++;if(quoted.get(row.chat_id,row.id)||reactions.get(row.chat_id,row.id))disposableReferenced++;}
+        else preserved++;
         const payload=Object.keys(decoded.message||{}).sort().join(',') || '<empty message>';
         byPayload[payload]=(byPayload[payload]||0)+1;
         const stub=decoded.messageStubType;
         if(stub!=null){withStub++;const label=String(stub);byStub[label]=(byStub[label]||0)+1;}
       } catch {decodeErrors++;byPayload['<decode failed>']=(byPayload['<decode failed>']||0)+1;}
     }
-    return {total:rows.length,missingRaw,decodeErrors,withStub,referenced,withReactions,byPayload,byStub,byLength,byMonth};
+    return {total:rows.length,disposable,preserved,disposableReferenced,missingRaw,decodeErrors,withStub,referenced,withReactions,byPayload,byStub,byLength,byMonth};
   }
 }

@@ -7,6 +7,7 @@ import path from 'node:path';
 import { createArchiveServer } from './archive-server.mjs';
 import { ArchiveData } from './archive-data.mjs';
 import { pruneMetaAI } from './prune-meta-ai.mjs';
+import { pruneProtocolNoise } from './protocol-retention.mjs';
 import { configureWhatsAppStorage } from './storage.mjs';
 
 const ROOT = '/data';
@@ -157,6 +158,8 @@ async function main() {
   // Prune only this verified Meta AI JID before the WhatsApp writer starts.
   const pruned = pruneMetaAI(storage.dataDir);
   if (pruned) console.log('Removed ' + pruned + ' Meta AI messages from the local archive.');
+  const protocol = await pruneProtocolNoise(storage.dataDir);
+  console.log('WhatsApp protocol retention cleanup: '+JSON.stringify(protocol));
 
   api = startChild('WhatsApp API', '/opt/whatsapp-api/dist/main.js', {
     PORT: String(API_PORT),

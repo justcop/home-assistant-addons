@@ -19,9 +19,14 @@ From version 0.2.2, the **private archive viewer** ignores WhatsApp protocol not
 
 - Conversation order and date are computed **read-only from actual human messages in SQLite**; the upstream WhatsApp/MCP database is unchanged. An empty group has no last activity date.
 - Contact names are taken from saved WhatsApp contact entries and their WhatsApp display names when available. Raw phone numbers remain the fallback if no known name exists.
-- The imported mapping is saved alongside the archive at `.archive-contact-names.json` with file mode 0600; it's never committed to GitHub. It only affects *display names* and searching the viewer. It cannot send, edit or delete WhatsApp messages, and never modifies WhatsApp's contacts or chats.
 - Names unavailable to WhatsApp appear as phone numbers or “Unknown contact”; identity matches are never invented.
-- Protocol and system notices remain in the raw database pending a separate retention decision; the viewer excludes them from human conversation activity.
+- As of 0.2.7, unreferenced, decoded non-conversation notices are pruned on startup and omitted from new ingestion. Quotes and reactions protect referenced historical rows from deletion. The viewer excludes any remaining empty notices.
+
+## Protocol retention (0.2.7)
+
+A read-only diagnostic decoded the empty `kind=other` records using the exact pinned Baileys protobuf: 4,639 message-stub group/security notices, and 307 pure history/sender-key transport envelopes were confidently classified as disposable (4,946 combined at inspection). The remaining 121 records included 23 polls, 44 albums, 24 comments, 9 templates, 5 interactive messages, 2 events, placeholders, and unknown messages. Those are retained even if the current viewer does not render them yet.
+
+The pruning pass runs **before** the WhatsApp API writer, deletes only the identified non-content records, preserves rows quoted by another message or carrying reactions, and compacts SQLite in one transaction. New copies of the same clearly disposable record types are filtered in the pinned upstream ingestion code; unknown types are retained. Separate current UI/date-range statistics exclude hidden records. Restorable Home Assistant backups are unchanged. The internal read-only diagnostic endpoint `/api/archive/unknown-types` returns aggregate counters, not message content or identifiers.
 
 ## Meta AI is excluded from the local archive
 
