@@ -46,3 +46,7 @@ Configure once via `POST /api/countdown/configure`:
 ```
 
 `GET /api/countdown/status` reports the binding, source errors and remaining seconds. Countdown uses the existing UDP pipeline; manual temporary animations and reactive playback take priority while they run, then the countdown resumes if the session remains active. Inactive sessions are black. The configured binding persists in the add-on data area.
+
+### Countdown display preview
+
+`POST /api/countdown/preview` with `{"remaining":3600,"timeout":10}` renders the configured title and a mock remaining time for up to 30 seconds, without touching the real gaming helpers. The live countdown watcher takes over on the next active session.
