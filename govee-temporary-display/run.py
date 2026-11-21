@@ -8,6 +8,7 @@ import time
 import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from reactive import ReactiveController
 
 WIDTH, HEIGHT, FRAME_BYTES = 52, 32, 4992
 MAX_FRAMES = 2400
@@ -19,6 +20,7 @@ MAX_TIMEOUT = int(opts.get("max_timeout", 3600))
 state = {"frames": (), "fps": 12., "start": 0., "expires": 0., "loop": False, "last_error": None}
 lock = threading.RLock()
 udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+reactive = ReactiveController(opts, lock, state)
 
 def clear():
     state.update(frames=(), start=0., expires=0., loop=False)
@@ -72,6 +74,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(html)))
             self.end_headers()
             self.wfile.write(html)
+        elif self.path == "/api/audio/status":
+            with lock:
+                self.reply(200, dict(reactive.metrics))
         elif self.path == "/api/status":
             with lock:
                 frame = snapshot()
@@ -92,8 +97,19 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("expected JSON object")
             if self.path == "/api/clear":
                 with lock:
+                    reactive.stop()
                     clear()
                 return self.reply(200, {"ok": True, "active": False})
+            if self.path == "/api/reactive/start":
+                timeout = int(body.get("timeout", DEFAULT_TIMEOUT))
+                if not 1 <= timeout <= MAX_TIMEOUT:
+                    raise ValueError("timeout out of range")
+                key_path = opts.get("ssh_key_file", "/share/govee/id_ed25519")
+                if not Path(key_path).is_file():
+                    return self.reply(503, {"error": "SSH key missing from " + key_path})
+                reactive.start(timeout)
+                return self.reply(200, {"ok": True, "timeout": timeout,
+                                        "audio_source": "Govee built-in microphone"})
             if self.path == "/api/heartbeat":
                 timeout = int(body.get("timeout", DEFAULT_TIMEOUT))
                 if not 1 <= timeout <= MAX_TIMEOUT:
@@ -130,6 +146,7 @@ class Handler(BaseHTTPRequestHandler):
             if not 1 <= timeout <= MAX_TIMEOUT:
                 raise ValueError("timeout out of range")
             with lock:
+                reactive.stop()
                 state.update(frames=frames, fps=fps, loop=looping,
                              start=time.monotonic(), expires=time.monotonic()+timeout)
             return self.reply(200, {"ok": True, "frames": len(frames), "fps": fps, "loop": looping,
