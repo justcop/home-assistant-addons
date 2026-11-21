@@ -6,6 +6,7 @@ import socket
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 WIDTH, HEIGHT, FRAME_BYTES = 52, 32, 52 * 32 * 3
 with open("/data/options.json", encoding="utf-8") as f:
@@ -48,7 +49,15 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
-        if self.path in ("/", "/api/status"):
+        if self.path in ("/", "/index.html"):
+            html = Path("/index.html").read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(html)))
+            self.end_headers()
+            self.wfile.write(html)
+        elif self.path == "/api/status":
             with lock:
                 active = state["frame"] is not None and time.monotonic() < state["expires"]
                 self.reply(200, {
