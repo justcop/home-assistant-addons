@@ -91,12 +91,17 @@ def render(cfg,remaining):
     # Separating neon horizon.
     for x in range(2,W-2):put(x,20,(224,51,151) if x%3 else (255,147,109))
     remaining=max(0,int(remaining))
-    mins,seconds=divmod(remaining,60)
-    label=f"{mins:02d}:{seconds:02d}"
-    if mins>99:label=f"{mins:03d}:{seconds:02d}"
-    total=sum((len(FONT[c][0])+1)*2 for c in label)-2
+    # Display whole hours and minutes only. Round up so a partial minute
+    # is never shown as zero while the session is still running.
+    total_minutes=(remaining+59)//60
+    hours,minutes=divmod(total_minutes,60)
+    label=f"{hours}H {minutes:02d}M"
+    # Keep long custom sessions within the 52-pixel display as well.
+    double_width=sum((len(FONT[c][0])+1)*2 for c in label)-2
+    scale=2 if double_width<=W-2 else 1
+    total=sum((len(FONT[c][0])+1)*scale for c in label)-scale
     start=(W-total)//2
-    text(label,start,22,(255,231,241),1 if total>W-2 else 2)
+    text(label,start,22,(255,231,241),scale)
     return bytes(out)
 
 def read_entity(entity):
@@ -134,7 +139,7 @@ class CountdownBinding:
         last_check=0
         end_time=0
         visible=False
-        last_second=None
+        last_minute=None
         while True:
             now=time.monotonic()
             with self.lock:cfg=self.config
@@ -158,14 +163,15 @@ class CountdownBinding:
                 self.status.update(active=visible,seconds_remaining=remaining if visible else 0)
                 owner=self.state.get("owner","idle")
                 if visible and owner in ("idle","countdown"):
-                    if remaining!=last_second or owner!="countdown":
+                    display_minute=(remaining+59)//60
+                    if display_minute!=last_minute or owner!="countdown":
                         self.state.update(frames=(render(cfg,remaining),),fps=12.,
                                           loop=True,start=time.monotonic(),
                                           expires=time.monotonic()+3,owner="countdown")
-                        last_second=remaining
+                        last_minute=display_minute
                     else:
                         self.state["expires"]=time.monotonic()+3
                 elif not visible and owner=="countdown":
                     self.state.update(frames=(),expires=0.,owner="idle")
-                    last_second=None
+                    last_minute=None
             time.sleep(.15)
