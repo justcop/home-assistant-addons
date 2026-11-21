@@ -19,19 +19,20 @@ From version 0.2.2, the **private archive viewer** ignores WhatsApp protocol not
 
 - Conversation order and date are computed **read-only from actual human messages in SQLite**; the upstream WhatsApp/MCP database is unchanged. An empty group has no last activity date.
 - Contact names are taken from saved WhatsApp contact entries and their WhatsApp display names when available. Raw phone numbers remain the fallback if no known name exists.
-- Use **Import contact names (.vcf)** at the bottom of the archive sidebar to supply names from a Google Contacts or Android address-book vCard export. The browser extracts only full names and phone numbers and sends them privately to Home Assistant Ingress; no address data, emails or birthdays are sent or stored.
 - The imported mapping is saved alongside the archive at `.archive-contact-names.json` with file mode 0600; it's never committed to GitHub. It only affects *display names* and searching the viewer. It cannot send, edit or delete WhatsApp messages, and never modifies WhatsApp's contacts or chats.
-- For number formats, include international country codes in exported contacts where possible. UK `07…`, `+44…`, `0044…` and `+44 (0)…` numbers are normalised.
-- Without an address-book import, names unavailable to WhatsApp will still appear as phone numbers or “Unknown contact”; do not invent identity matches.
+- Names unavailable to WhatsApp appear as phone numbers or “Unknown contact”; identity matches are never invented.
 - Protocol and system notices remain in the raw database pending a separate retention decision; the viewer excludes them from human conversation activity.
 
 ## Meta AI is excluded from the local archive
 
 Starting with 0.2.5, the explicitly identified Meta AI JID `13135550002@s.whatsapp.net` is skipped on WhatsApp ingestion (both live messages and history replay), omitted from the private viewer and search, and removed from the **local** SQLite archive on app startup before the upstream API is launched. The narrow filter does not delete messages from the user's phone or WhatsApp's servers, and does not match chats simply named Meta AI. The prune operates in one SQLite transaction, keeps normal chats intact and checkpoints the local WAL. Old HA backups and any retained pre-migration rollback database may still contain earlier copies.
 
-WhatsApp contact names are read directly from the synchronised contacts table; no Google Phonebook integration, administrator token or periodic Google API lookup is used. Optional manual vCard aliases remain available as a fallback.
+WhatsApp contact names are read directly from the synchronised contacts table; no Google Phonebook integration, administrator token or periodic Google API lookup is used. Manual vCard imports are no longer supported.
 
 ## Private WhatsApp Archive web interface
+
+The archive uses WhatsApp's own synchronised contact names. The vCard import screen, write endpoint and local alias cache have been removed in 0.2.6; no external contact provider is required.
+
 
 From version 0.2.0, the app provides a read-only archive viewer through Home Assistant **Ingress**. Open **Settings → Apps → WhatsApp MCP (Read Only) → Open Web UI**, or enable **Show in sidebar**.
 

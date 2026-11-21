@@ -53,18 +53,11 @@ test('protocol security notices are excluded from activity and messages but pres
   assert.deepEqual(visible.items.map(x=>x.id),['real']);
   assert.equal(store.db.prepare("SELECT COUNT(*) AS n FROM messages WHERE chat_id='old@g.us'").get().n,4);
 });
-test('saved WhatsApp names are displayed and phone aliases override them', t=>{
+test('synchronised WhatsApp contact names appear without an imported phonebook', t=>{
   const store=fixture(t);
-  let chats=store.listChats(new URLSearchParams());
-  assert.equal(chats.items[0].name,'WhatsApp nickname');
-  const imported=store.mergeAliases([{phone:'07700 900123',name:'Jane Example'},{phone:'INVALID',name:'Not Me'}]);
-  assert.deepEqual(imported,{imported:1,total:1});
-  chats=store.listChats(new URLSearchParams('query=Jane'));
-  assert.equal(chats.items.length,1);
-  assert.equal(chats.items[0].name,'Jane Example');
-  assert.equal(store.listMessages(new URLSearchParams('chat=old%40g.us')).items[0].sender.name,'Jane Example');
-  assert.equal(store.renameHit({chat:'old@g.us',sender:{id:'447700900123@s.whatsapp.net'},fromMe:false}).sender.name,'Jane Example');
-  assert.equal(store.loadAliases()['447700900123'],'Jane Example');
+  const chats=store.listChats(new URLSearchParams());
+  assert.equal(chats.items[1].name,'WhatsApp nickname');
+  assert.equal(store.listMessages(new URLSearchParams('chat=old%40g.us')).items[0].sender.name,'WhatsApp nickname');
 });
 test('visible message pagination does not leave pages of protocol notices',t=>{
   const store=fixture(t);

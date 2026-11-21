@@ -47,8 +47,6 @@ export class ArchiveData {
     const dbPath = options.dbPath || path.join(storagePath, 'whatsapp.db');
     this.db = new DatabaseSync(dbPath, { readOnly: true });
     this.db.exec('PRAGMA query_only = ON; PRAGMA busy_timeout = 2000;');
-    this.aliasFile = options.aliasFile || path.join(storagePath, '.archive-contact-names.json');
-    this.aliases = this.loadAliases();
     this.refreshContacts();
     this.chatsStmt = this.db.prepare(`
       SELECT c.id, c.name, c.is_group AS isGroup, c.unread_count AS unreadCount,
@@ -79,17 +77,6 @@ export class ArchiveData {
     this.lidContacts=new Map();
     for(const c of all) if(c.lid) this.lidContacts.set(String(c.lid),c);
   }
-  loadAliases(file = this.aliasFile) {
-    try {
-      const data=JSON.parse(fs.readFileSync(file,'utf8'));
-      if (!data || typeof data!=='object' || Array.isArray(data)) return {};
-      return Object.fromEntries(Object.entries(data).filter(([phone,name])=>
-        normalisePhone(phone)===phone && typeof name==='string' && name.length<=160 && isHumanName(name)));
-    } catch (e) {
-      if (e.code==='ENOENT') return {};
-      throw e;
-    }
-  }
   contactFor(id) {
     return this.contacts.get(id) || (id?.endsWith('@lid')?this.lidContacts.get(id.split('@')[0]):null);
   }
@@ -97,7 +84,6 @@ export class ArchiveData {
     if(isGroup) return isHumanName(currentName)?currentName:'Unnamed group';
     const contact=this.contactFor(id);
     const phone=normalisePhone(numberFromJid(id)||contact?.phone_number||numberFromJid(contact?.id));
-    if(phone && this.aliases[phone]) return this.aliases[phone];
     for(const n of [contact?.name, currentName, contact?.notify])
       if (isHumanName(n)) return n.trim();
     if(phone) return '+'+phone;
@@ -175,23 +161,39 @@ export class ArchiveData {
       emptyOtherCount: this.db.prepare("SELECT COUNT(*) AS n FROM messages WHERE kind='other' AND NULLIF(TRIM(COALESCE(text,'')),'') IS NULL AND NULLIF(TRIM(COALESCE(transcript,'')),'') IS NULL AND media_type IS NULL AND media_sha IS NULL").get().n
     };
   }
-  mergeAliases(entries) {
-    if(!Array.isArray(entries)||entries.length>20000)throw new RangeError('Invalid contact import');
-    const next={...this.aliases};
-    let applied=0;
-    for (const entry of entries) {
-      if(!entry || typeof entry!=='object')continue;
-      const phone=normalisePhone(entry.phone);
-      const name=normalize(entry.name);
-      if(!phone || !isHumanName(name) || name.length>160)continue;
-      if(next[phone]!==name){next[phone]=name;applied++;}
+  /** Read-only, metadata-only classification of currently hidden records. */
+  async classifyEmptyOther() {
+    // The sibling upstream WhatsApp API has Baileys already installed. Do not
+    // add a second copy of a protobuf implementation or export raw messages.
+    const { proto } = await import('file:///opt/whatsapp-api/node_modules/baileys/lib/index.js');
+    const rows = this.db.prepare(`
+      SELECT m.raw, m.chat_id, m.id, m.ts FROM messages m
+      WHERE m.kind='other'
+        AND NULLIF(TRIM(COALESCE(m.text,'')),'') IS NULL
+        AND NULLIF(TRIM(COALESCE(m.transcript,'')),'') IS NULL
+        AND m.media_type IS NULL AND m.media_sha IS NULL
+    `).all();
+    const byPayload = {}, byStub = {}, byMonth = {}, byLength = {};
+    let missingRaw=0, decodeErrors=0, withStub=0, referenced=0, withReactions=0;
+    const quoted = this.db.prepare('SELECT 1 FROM messages WHERE chat_id=? AND quoted_id=? LIMIT 1');
+    const reactions = this.db.prepare('SELECT 1 FROM reactions WHERE chat_id=? AND message_id=? LIMIT 1');
+    for (const row of rows) {
+      const month = new Date(row.ts*1000).toISOString().slice(0,7);
+      byMonth[month] = (byMonth[month]||0)+1;
+      if (quoted.get(row.chat_id,row.id)) referenced++;
+      if (reactions.get(row.chat_id,row.id)) withReactions++;
+      if (!row.raw) {missingRaw++;byPayload['<no raw>']=(byPayload['<no raw>']||0)+1;continue;}
+      const len = row.raw.length;
+      const band=len<100?'<100':len<1000?'100-999':len<10000?'1000-9999':'10000+';
+      byLength[band]=(byLength[band]||0)+1;
+      try {
+        const decoded=proto.WebMessageInfo.decode(row.raw);
+        const payload=Object.keys(decoded.message||{}).sort().join(',') || '<empty message>';
+        byPayload[payload]=(byPayload[payload]||0)+1;
+        const stub=decoded.messageStubType;
+        if(stub!=null){withStub++;const label=String(stub);byStub[label]=(byStub[label]||0)+1;}
+      } catch {decodeErrors++;byPayload['<decode failed>']=(byPayload['<decode failed>']||0)+1;}
     }
-    const temp=this.aliasFile+'.tmp-'+process.pid;
-    try {
-      fs.writeFileSync(temp,JSON.stringify(next),{mode:0o600,flag:'wx'});
-      fs.renameSync(temp,this.aliasFile);
-      this.aliases=next;
-    }catch(e){try{fs.unlinkSync(temp)}catch{}throw e;}
-    return {imported:applied,total:Object.keys(next).length};
+    return {total:rows.length,missingRaw,decodeErrors,withStub,referenced,withReactions,byPayload,byStub,byLength,byMonth};
   }
 }

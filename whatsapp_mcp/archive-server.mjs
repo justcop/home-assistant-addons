@@ -58,31 +58,6 @@ export function createArchiveServer({ apiToken, port = 8100, storagePath = '/dat
   if (!apiToken) throw new Error('Missing internal WhatsApp API token');
   return http.createServer(async (req, res) => {
     if (!allowPeer(req.socket.remoteAddress)) return send(res, 403, 'Ingress only');
-    // The sole data-write route saves local display-name aliases. It cannot touch
-    // WhatsApp, SQLite, media, chat state, or any upstream write endpoint.
-    if (req.method === 'POST' && req.url === '/api/contact-names') {
-      if (!dataStore) return send(res, 503, 'Contact name imports unavailable');
-      if (req.headers['x-archive-action'] !== 'contact-import'
-          || !/^application\/json(?:;|$)/i.test(req.headers['content-type'] || ''))
-        return send(res, 403, 'Invalid import request');
-      try {
-        const chunks = [];
-        let size = 0;
-        for await (const chunk of req) {
-          size += chunk.length;
-          if (size > 3_000_000) return send(res, 413, 'Import too large');
-          chunks.push(chunk);
-        }
-        const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-        const outcome = dataStore.mergeAliases(parsed?.contacts);
-        return send(res, 200, JSON.stringify(outcome), 'application/json; charset=utf-8');
-      } catch (err) {
-        if (err instanceof RangeError || err instanceof SyntaxError)
-          return send(res, 400, 'Invalid contact data');
-        console.error('Private contact name import failed:', err.message);
-        return send(res, 503, 'Could not save private names');
-      }
-    }
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'Read-only archive');
     try {
       const url = new URL(req.url, 'http://archive.invalid');
@@ -103,9 +78,11 @@ export function createArchiveServer({ apiToken, port = 8100, storagePath = '/dat
         if (req.method === 'HEAD') return send(res, 405, 'Method not allowed');
         return send(res, 200, JSON.stringify(dataStore.archiveDateRange()), 'application/json; charset=utf-8');
       }
-      if (url.pathname === '/api/contact-names') {
-        if (!dataStore) return send(res, 503, 'Private name support unavailable');
-        return send(res, 200, JSON.stringify({ total: Object.keys(dataStore.aliases).length }), 'application/json; charset=utf-8');
+      if (url.pathname === '/api/archive/unknown-types') {
+        if (!dataStore) return send(res, 503, 'Archive diagnostics unavailable');
+        if (req.method === 'HEAD') return send(res, 405, 'Method not allowed');
+        const counts = await dataStore.classifyEmptyOther();
+        return send(res, 200, JSON.stringify(counts), 'application/json; charset=utf-8');
       }
       if (dataStore && (url.pathname === '/api/chats' || url.pathname === '/api/messages')) {
         if (req.method === 'HEAD') return send(res, 405, 'Method not allowed');
