@@ -19,6 +19,8 @@
             .describe("Optional inclusive Unix seconds UTC for latest message; defaults to now."),
           mode: z.enum(["direct","groups","all"]).default("direct")
             .describe("Direct messages by default; groups or all are optional."),
+          name_hint: z.string().min(3).max(80).optional()
+            .describe("Optional name or nickname to recognise when other participants address you in a group; no name is stored in the add-on."),
           only_candidates: z.boolean().default(true)
             .describe("True returns conversations with task/reply/date indicators; false also includes ordinary conversations."),
           limit: z.number().int().min(1).max(80).default(35)
