@@ -9,7 +9,7 @@ import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from reactive import ReactiveController, ensure_ssh_key
-from ha_countdown import CountdownBinding
+from ha_countdown import CountdownBinding, render as render_countdown
 
 WIDTH, HEIGHT, FRAME_BYTES = 52, 32, 4992
 MAX_FRAMES = 2400
@@ -112,6 +112,19 @@ class Handler(BaseHTTPRequestHandler):
                     reactive.stop()
                     clear()
                 return self.reply(200, {"ok": True, "active": False})
+            if self.path == "/api/countdown/preview":
+                seconds = int(body.get("remaining", 3600))
+                timeout = int(body.get("timeout", 10))
+                if not 0 <= seconds <= 359999 or not 1 <= timeout <= 30:
+                    raise ValueError("preview duration or time remaining outside range")
+                with lock:
+                    if countdown.config is None:
+                        return self.reply(409, {"error": "configure countdown first"})
+                    reactive.stop()
+                    state.update(frames=(render_countdown(countdown.config, seconds),),
+                                 start=time.monotonic(),fps=12.,loop=True,
+                                 expires=time.monotonic()+timeout, owner="manual")
+                return self.reply(200, {"ok": True, "preview_seconds":timeout})
             if self.path == "/api/countdown/configure":
                 current = countdown.configure(body)
                 return self.reply(200, {"ok": True, "binding": current})
