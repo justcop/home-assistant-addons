@@ -89,14 +89,14 @@ def render(cfg,remaining):
         text(line,3,2+idx*7,(17,5,36),2 if len(line)<=3 else 1)
         text(line,2,1+idx*7,(255,250,237),2 if len(line)<=3 else 1)
     # Separating neon horizon.
-    for x in range(2,W-2):put(x,23,(224,51,151) if x%3 else (255,147,109))
+    for x in range(2,W-2):put(x,20,(224,51,151) if x%3 else (255,147,109))
     remaining=max(0,int(remaining))
     mins,seconds=divmod(remaining,60)
     label=f"{mins:02d}:{seconds:02d}"
     if mins>99:label=f"{mins:03d}:{seconds:02d}"
     total=sum((len(FONT[c][0])+1)*2 for c in label)-2
     start=(W-total)//2
-    text(label,start,25,(255,231,241),1 if total>W-2 else 2)
+    text(label,start,22,(255,231,241),1 if total>W-2 else 2)
     return bytes(out)
 
 def read_entity(entity):
