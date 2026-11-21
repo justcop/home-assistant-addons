@@ -18,3 +18,7 @@ Animations are generated outside the add-on and kept in RAM only for the duratio
 `POST /api/reactive/start` with `{"timeout":30}` starts live microphone capture on the Govee using the proven pixeld command `arecord -q -D hw:0,0 -f S16_LE -r 16000 -c 1 -t raw` over SSH. `GET /api/audio/status` returns audio metrics and errors. `POST /api/clear` stops it. This first renderer is a psychedelic test pattern only; future renderer functions can consume the same features without modifying transport.
 
 **SSH setup:** provide a private key already authorised to access `root@192.168.1.47` at `/share/govee/id_ed25519` on Home Assistant (or adjust the option). Store securely, restrict file permissions, do not put its contents in repository or responses. SSH host fingerprints are recorded in `/data/known_hosts` on first connection. Audio stays in RAM and is discarded after analysis. The microphone must not be concurrently owned by pixeld's built-in Music mode; use Idle Black animation.
+
+### Safer one-time pairing
+
+The add-on now generates its own private SSH key under `/data/ssh/id_ed25519` and never exposes it. Call `GET /api/audio/ssh-public-key` to retrieve its **public** key, then authorise it once in the Govee device's root `authorized_keys` using the previously working Windows SSH connection. No private key needs transferring to Home Assistant.
