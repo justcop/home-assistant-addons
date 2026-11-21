@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Govee Music Fireworks</title><style>
+:root{color-scheme:dark}body{font:16px system-ui,sans-serif;background:#0c1022;color:#f2f3ff;margin:0;padding:24px;max-width:800px}
+h1{font-size:1.55rem}p{color:#bdc6df;line-height:1.5}.controls{display:flex;flex-wrap:wrap;gap:12px;margin:16px 0}button{font:inherit;padding:12px 22px;border-radius:12px;border:1px solid #6673a3;background:#293b7d;color:white;cursor:pointer}button:disabled{opacity:.4}canvas{width:min(100%,728px);image-rendering:pixelated;border:1px solid #425075;border-radius:8px;background:#030713}label{display:block;margin:15px 0}input{vertical-align:middle}#status{font-weight:600;color:#b6ddff}
+</style></head><body>
+<h1>🎆 Music-responsive fireworks</h1>
+<p>Uses your browser microphone to detect beats and frequency bands. Only the rendered 52×32 RGB frames are sent to the Govee; audio stays in your browser. Keep this page open while playing.</p>
+<div class="controls"><button id="start">Start fireworks + microphone</button><button id="stop" disabled>Stop and go black</button></div>
+<label>Sensitivity <input id="sensitivity" type="range" min="50" max="250" value="130"> <output id="sensvalue">130%</output></label>
+<canvas id="screen" width="52" height="32"></canvas><p id="status">Stopped. Waiting for microphone permission.</p>
+<script>
+'use strict';
+const W=52,H=32,canvas=document.getElementById('screen'),ctx=canvas.getContext('2d',{willReadFrequently:true});
+const status=document.getElementById('status'),start=document.getElementById('start'),stop=document.getElementById('stop');
+const slider=document.getElementById('sensitivity'),sensvalue=document.getElementById('sensvalue');
+slider.oninput=()=>sensvalue.textContent=slider.value+'%';
+let stream,audio,analyser,data,particles=[],rockets=[],running=false,raf,last=0,lastPost=0,lastBeat=0,avg=0,beatCount=0,posts=0,failures=0;
+const palettes=[[255,73,112],[64,218,255],[255,193,60],[174,108,255],[76,255,151],[255,110,49]];
+function burst(x,y,energy,color){
+  const count=Math.round(10+energy*21);
+  for(let i=0;i<count;i++){let a=i*Math.PI*2/count+(Math.random()-.5)*.18,v=(.65+Math.random()*1.2)*(1+energy*.9);
+    particles.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,life:1,decay:.018+Math.random()*.02,c:color});}
+}
+function launch(energy,high){
+ const x=5+Math.random()*42,ty=3+Math.random()*15;
+ const c=palettes[(beatCount++ +Math.floor(high*palettes.length))%palettes.length];
+ rockets.push({x,y:31,ty,v:1.2+energy*.6,c,energy});
+}
+function frame(t){
+ if(!running)return;
+ const dt=Math.min(2.5,Math.max(.5,(t-last)/16.67||1));last=t;
+ analyser.getByteFrequencyData(data);
+ const bass=data.slice(1,Math.floor(data.length*.12)).reduce((a,b)=>a+b,0)/(Math.floor(data.length*.12)-1)/255;
+ const mid=data.slice(Math.floor(data.length*.12),Math.floor(data.length*.4)).reduce((a,b)=>a+b,0)/(Math.floor(data.length*.28))/255;
+ const treble=data.slice(Math.floor(data.length*.4),Math.floor(data.length*.8)).reduce((a,b)=>a+b,0)/(Math.floor(data.length*.4))/255;
+ const energy=(bass*.65+mid*.35)*Number(slider.value)/100;
+ avg=avg*.96+energy*.04;
+ if(energy>Math.max(.10,avg*1.38)&&t-lastBeat>230){launch(Math.min(1.6,energy*2),treble);lastBeat=t;}
+ if(t-lastBeat>1800&&energy>.04){launch(.4,treble);lastBeat=t;}
+ ctx.fillStyle='#030713';ctx.fillRect(0,0,W,H);
+ for(let i=0;i<25;i++){let x=(i*19+3)%W,y=(i*13+5)%24;ctx.fillStyle='rgba(75,95,155,'+(.15+.12*Math.sin(t/900+i))+')';ctx.fillRect(x,y,1,1);}
+ for(const r of rockets){r.y-=r.v*dt;ctx.fillStyle='rgb('+r.c.join(',')+')';ctx.fillRect(Math.round(r.x),Math.round(r.y),1,2);}
+ const ready=rockets.filter(r=>r.y<=r.ty);rockets=rockets.filter(r=>r.y>r.ty);
+ for(const r of ready)burst(r.x,r.ty,r.energy,r.c);
+ for(const p of particles){p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=.035*dt;p.vx*=.994;p.life-=p.decay*dt;
+  let k=Math.max(0,p.life),c=p.c.map(v=>Math.round(v*k));ctx.fillStyle='rgb('+c.join(',')+')';ctx.fillRect(Math.round(p.x),Math.round(p.y),1,1);}
+ particles=particles.filter(p=>p.life>0&&p.x>=0&&p.x<W&&p.y>=0&&p.y<H);
+ if(t-lastPost>115){lastPost=t;sendFrame();}
+ raf=requestAnimationFrame(frame);
+}
+function encode(bytes){let s='';for(let i=0;i<bytes.length;i+=8192)s+=String.fromCharCode(...bytes.subarray(i,i+8192));return btoa(s);}
+let inFlight=false;
+async function sendFrame(){
+ if(inFlight||!running)return;inFlight=true;
+ try{
+  const rgba=ctx.getImageData(0,0,W,H).data,rgb=new Uint8Array(W*H*3);
+  for(let i=0,j=0;i<rgba.length;i+=4){rgb[j++]=rgba[i];rgb[j++]=rgba[i+1];rgb[j++]=rgba[i+2];}
+  const response=await fetch('api/show',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rgb_base64:encode(rgb),timeout:3}),cache:'no-store'});
+  if(!response.ok)throw Error('HTTP '+response.status);
+  posts++;if(posts%15===0)status.textContent='Live • '+posts+' frames sent • '+beatCount+' launches';
+ }catch(e){failures++;status.textContent='Streaming error: '+e.message;}
+ finally{inFlight=false;}
+}
+start.onclick=async()=>{
+ start.disabled=true;status.textContent='Requesting microphone…';
+ try{
+  stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false},video:false});
+  audio=new (window.AudioContext||window.webkitAudioContext)();await audio.resume();
+  analyser=audio.createAnalyser();analyser.fftSize=1024;analyser.smoothingTimeConstant=.72;
+  const source=audio.createMediaStreamSource(stream);source.connect(analyser);data=new Uint8Array(analyser.frequencyBinCount);
+  running=true;stop.disabled=false;last=performance.now();status.textContent='Live • listening for beats';raf=requestAnimationFrame(frame);
+ }catch(e){start.disabled=false;status.textContent='Microphone unavailable: '+e.message+' (HTTPS or localhost required).';}
+};
+stop.onclick=async()=>{
+ running=false;cancelAnimationFrame(raf);stop.disabled=true;start.disabled=false;
+ stream?.getTracks().forEach(t=>t.stop());stream=null;await audio?.close();audio=null;
+ particles=[];rockets=[];ctx.clearRect(0,0,W,H);status.textContent='Stopped • returning to Idle Black';
+ try{await fetch('api/clear',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});}catch(e){status.textContent='Stopped; controller will expire in 3 seconds';}
+};
+window.addEventListener('pagehide',()=>{if(running){navigator.sendBeacon?.('api/clear',new Blob(['{}'],{type:'application/json'}));}});
+</script></body></html>
