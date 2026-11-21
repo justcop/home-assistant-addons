@@ -1,19 +1,14 @@
 # Govee Temporary Display
 
-Temporary RGB frame streaming for a Govee H6631 running pixeld custom firmware. No animation files are created.
+Reusable, volatile image/animation transport for Govee H6631 pixeld (52×32, RGB, UDP 7777). **No specific visual effects are built into the add-on.**
 
-The Govee's normal mode should be the Idle Black animation (already configured on this display). pixeld automatically restores it approximately 3 seconds after UDP streaming stops.
+The controller has an authenticated Home Assistant Ingress API:
+- `POST /api/show`: JSON `{"rgb_base64":"...", "timeout":30}` for a static image (4992 bytes)
+- `POST /api/play`: JSON `{"frames_zlib_base64":"...", "fps":12, "loop":false}` for a packed, zlib-compressed sequence of consecutive 4992-byte RGB frames. Defaults to stopping at end of sequence. Up to 2400 frames, 1–12 fps, request under 4 MB. Optional timeout in seconds and loop=true.
+- `POST /api/heartbeat`: JSON `{"timeout":30}` extends an existing display; naturally ending nonlooping sequences are not repeated.
+- `POST /api/clear`: JSON `{}` stops streaming immediately.
+- `GET /api/status`: transport state.
 
-## API (Home Assistant authenticated Ingress, no external port)
+The add-on streams frames at 12 Hz while active and sends **nothing** when idle, leaving pixeld to return to its selected Idle Black animation after about three seconds.
 
-- GET /api/status
-- POST /api/show: JSON {"rgb_base64":"...", "timeout":30}. The decoded base64 should be 4992 RGB bytes, 52x32, row-major.
-- POST /api/heartbeat: JSON {"timeout":30} extends the existing frame; repeat to keep it indefinitely.
-- POST /api/clear: JSON {} stops streaming, returns to black after ~3s.
-
-Frames are sent to UDP port 7777 twice a second only while active. Expiry is maintained by the service and a restart cancels the image.
-
-Do not expose port 8098 publicly. Only use authenticated Home Assistant Ingress.
-
-## Installation
-Install Govee Temporary Display from the justcop/home-assistant-addons repository and start it.
+Animations are generated outside the add-on and kept in RAM only for the duration of playback. No named animation endpoints, effect presets, file uploads or persistent image storage. The built-in browser visualiser is optional and independent of the transport API. Don't expose the service's port to the internet.
