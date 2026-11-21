@@ -51,6 +51,17 @@ From version 0.2.0, the app provides a read-only archive viewer through Home Ass
 - Home Assistant login and admin-only app panel protect the viewer. All browsing routes are GET-only; none can send, edit, delete or mark messages read.
 - The viewer reads via the existing upstream read-only REST API, so it does **not** open a second live SQLite writer. The archive shows WhatsApp history actually synchronised to this linked device; it does not guarantee older history which WhatsApp did not provide.
 
+## Context-efficient MCP conversation reviews (0.3.0)
+
+Two additional **read-only** tools are available to ChatGPT from this Home Assistant package:
+
+- `whatsapp_review_conversations` performs one bounded local SQLite scan of up to 90 days (21 days by default). It returns compact conversation contexts, message IDs and tentative flags for reply requests, commitments and upcoming arrangements. Default scope is direct messages; set `mode=all` to include groups. Results are paginated with `offset` and `next_offset`.
+- `whatsapp_get_review_context` reads up to 20 chat IDs in a single request, with the recent messages, timestamps and IDs needed to verify those tentative findings.
+
+These tools use the existing verified database path, run in the MCP container under the same unprivileged account and do not open an additional network listener or WhatsApp connection. They neither send messages nor mark any read. They do not call an external AI service, write message summaries to disk or alter SQLite. Query results are exposed only through the existing Cloudflare Access JWT-verified `/mcp` gateway.
+
+**Important:** The detection is heuristic. A pending reply may have been handled in person; a promise may already have been fulfilled elsewhere. An incomplete WhatsApp sync, media attachments and unavailable voice-note transcripts can conceal relevant actions. Treat flagged conversations as leads, read the context and verify before declaring anything overdue. The 50,000-message per-request scan cap is reported explicitly if reached.
+
 ## Move WhatsApp data to your existing STORAGE drive
 
 If Home Assistant **Settings → System → Storage** already lists the local ext4 drive named `storage` with **Usage: Media**, **leave it exactly as it is**. Changing its usage to Share could break other apps. This version supports both existing Media and Share disk mounts.
