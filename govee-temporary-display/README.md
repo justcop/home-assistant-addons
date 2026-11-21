@@ -34,3 +34,15 @@ Example animated rocket-and-burst configuration:
 ```
 
 The generic renderer provides tunable position, spread, velocity, lifetime, gravity, colour palette, music-triggered/periodic emission, beat intensity and child bursts. Nothing is saved on the Govee. Existing `/api/show`, `/api/play`, `/api/clear` remain available.
+
+## Automatic Home Assistant countdown display
+
+This is a generic state-driven countdown, not a GTA-specific API. A saved binding connects an active-state entity and a deadline entity to a pixel-art layout. The add-on polls the HA Core states API locally using its Supervisor token (requires `homeassistant_api: true`), renders the countdown every second, and releases the display after the session ends. It does not change any gaming controls or state.
+
+Configure once via `POST /api/countdown/configure`:
+
+```json
+{"state_entity":"input_select.gaming_session_state","deadline_entity":"input_datetime.gaming_session_deadline","active_states":["active"],"title_lines":["GRAND","THEFT","AUTO"],"mark":"VI"}
+```
+
+`GET /api/countdown/status` reports the binding, source errors and remaining seconds. Countdown uses the existing UDP pipeline; manual temporary animations and reactive playback take priority while they run, then the countdown resumes if the session remains active. Inactive sessions are black. The configured binding persists in the add-on data area.
