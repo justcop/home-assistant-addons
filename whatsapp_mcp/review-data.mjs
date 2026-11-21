@@ -12,8 +12,8 @@ function groupMention(text, hint) {
   const body = normalize(text);
   if (/@[0-9A-Za-z_]{3,}/.test(body)) return true;
   if (typeof hint !== 'string' || !hint.trim() || hint.length > 80) return false;
-  const safe = hint.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\const groupMention = /\b(?:justin|justcop|copitch|juz|juzzy)\b/i;');
-  return new RegExp('\\b' + safe + '\\b', 'i').test(body);
+  const safe = hint.trim().toLowerCase().replace(/[^a-z0-9 ]/g, '');
+  return safe.length >= 3 && body.toLowerCase().includes(safe);
 }
 const normalize = value => String(value ?? '').replace(/\s+/g, ' ').trim();
 function int(value, fallback, min, max, name) {
