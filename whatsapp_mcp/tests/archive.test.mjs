@@ -1,7 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { createArchiveServer, archiveTarget, isIngressPeer } from '../archive-server.mjs';
 import { validateStoragePath } from '../storage.mjs';
+
+test('desktop archive layout keeps both panes independently scrollable', () => {
+  const css = readFileSync(new URL('../archive-ui/style.css', import.meta.url), 'utf8');
+  assert.match(css, /\\.shell\\{[^}]*grid-template-rows:minmax\\(0,1fr\\)/);
+  assert.match(css, /\\.sidebar\\{[^}]*min-height:0;overflow:hidden/);
+  assert.match(css, /\\.main\\{[^}]*min-height:0;overflow:hidden/);
+  assert.match(css, /\\.chat-list\\{[^}]*min-height:0;overflow-y:auto/);
+  assert.match(css, /\\.messages-view\\{[^}]*min-height:0;overflow-y:auto/);
+  assert.match(css, /\\.sidebar-footer\\{[^}]*flex-shrink:0/);
+});
 
 test('only Home Assistant Supervisor ingress peer can enter the archive', () => {
   assert.equal(isIngressPeer('172.30.32.2'), true);
