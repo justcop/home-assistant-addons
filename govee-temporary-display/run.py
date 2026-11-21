@@ -8,7 +8,7 @@ import time
 import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from reactive import ReactiveController
+from reactive import ReactiveController, ensure_ssh_key
 
 WIDTH, HEIGHT, FRAME_BYTES = 52, 32, 4992
 MAX_FRAMES = 2400
@@ -21,6 +21,8 @@ state = {"frames": (), "fps": 12., "start": 0., "expires": 0., "loop": False, "l
 lock = threading.RLock()
 udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 reactive = ReactiveController(opts, lock, state)
+ssh_key_path = opts.get('ssh_key_file', '/data/ssh/id_ed25519')
+public_key = ensure_ssh_key(ssh_key_path)
 
 def clear():
     state.update(frames=(), start=0., expires=0., loop=False)
@@ -74,6 +76,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(html)))
             self.end_headers()
             self.wfile.write(html)
+        elif self.path == "/api/audio/ssh-public-key":
+            self.reply(200, {"public_key": public_key,
+                             "username": opts.get("ssh_user", "root"),
+                             "host": HOST})
         elif self.path == "/api/audio/status":
             with lock:
                 self.reply(200, dict(reactive.metrics))
@@ -104,7 +110,7 @@ class Handler(BaseHTTPRequestHandler):
                 timeout = int(body.get("timeout", DEFAULT_TIMEOUT))
                 if not 1 <= timeout <= MAX_TIMEOUT:
                     raise ValueError("timeout out of range")
-                key_path = opts.get("ssh_key_file", "/share/govee/id_ed25519")
+                key_path = ssh_key_path
                 if not Path(key_path).is_file():
                     return self.reply(503, {"error": "SSH key missing from " + key_path})
                 reactive.start(timeout)
