@@ -113,9 +113,10 @@ class Handler(BaseHTTPRequestHandler):
                 key_path = ssh_key_path
                 if not Path(key_path).is_file():
                     return self.reply(503, {"error": "SSH key missing from " + key_path})
-                reactive.start(timeout)
+                reactive.start(timeout, body.get("renderer", "psychedelic"))
                 return self.reply(200, {"ok": True, "timeout": timeout,
-                                        "audio_source": "Govee built-in microphone"})
+                                        "audio_source": "Govee built-in microphone",
+                                        "renderer": reactive.metrics.get("renderer")})
             if self.path == "/api/heartbeat":
                 timeout = int(body.get("timeout", DEFAULT_TIMEOUT))
                 if not 1 <= timeout <= MAX_TIMEOUT:
