@@ -29,3 +29,15 @@ replaceOnce(
 );
 fs.writeFileSync(file,source);
 console.log('Pinned upstream patched to skip Meta AI conversation on ingestion.');
+
+// Extend the bundled MCP server without introducing a second public listener.
+// The anchor is deliberately strict, so an upstream update cannot silently
+// drop the read-only review tools.
+const readToolsFile = '/src/packages/mcp/src/tools/reads.ts';
+const readTools = fs.readFileSync(readToolsFile, 'utf8');
+const insertionPoint = readTools.lastIndexOf('\n}');
+if (!readTools.endsWith('\n}\n') || insertionPoint < 0)
+  throw new Error('Upstream read-tools registration anchor changed');
+const extraTools = fs.readFileSync('/src/review-mcp-register.ts', 'utf8');
+fs.writeFileSync(readToolsFile, readTools.slice(0,insertionPoint) + '\n' + extraTools + readTools.slice(insertionPoint));
+console.log('Pinned MCP read tool registrations extended for bounded local review.');
