@@ -1,5 +1,5 @@
 name: Govee Temporary Display
-version: "0.2.0"
+version: "0.3.0"
 slug: govee_temporary_display
 description: Stream temporary 52x32 images over UDP with timeout and heartbeat
 arch:
@@ -9,6 +9,8 @@ init: false
 startup: application
 boot: auto
 host_network: false
+map:
+  - share:ro
 ingress: true
 ingress_port: 8098
 panel_icon: mdi:image-outline
@@ -16,7 +18,11 @@ options:
   host: 192.168.1.47
   default_timeout: 30
   max_timeout: 3600
+  ssh_user: root
+  ssh_key_file: /share/govee/id_ed25519
 schema:
   host: str
   default_timeout: int(1,3600)
   max_timeout: int(1,86400)
+  ssh_user: str
+  ssh_key_file: str
