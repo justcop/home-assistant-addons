@@ -175,6 +175,8 @@ async function main() {
     WHATSAPP_API_URL: 'http://' + UPSTREAM + ':' + API_PORT,
     WHATSAPP_API_TOKEN: apiToken,
     WHATSAPP_MCP_TOKEN: mcpToken,
+    WHATSAPP_DATA_DIR: storage.dataDir,
+    WHATSAPP_REVIEW_MODULE: '/opt/whatsapp-addon/review-data.mjs',
     LOG_LEVEL: 'info'
   });
   await waitForServer(MCP_PORT, mcp);
