@@ -28,6 +28,7 @@ jobs:
           node --check whatsapp_mcp/prune-meta-ai.mjs
           node --check whatsapp_mcp/patch-upstream.mjs
           node --check whatsapp_mcp/archive-data.mjs
+          node --check whatsapp_mcp/review-data.mjs
       - name: Check app branding files
         run: |
           file whatsapp_mcp/icon.png whatsapp_mcp/logo.png
