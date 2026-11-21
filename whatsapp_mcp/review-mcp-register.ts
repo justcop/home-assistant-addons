@@ -1,7 +1,7 @@
 
   // Supplemental read-only review tools. This HA packaging feature is not
   // available when the upstream MCP is built without WHATSAPP_REVIEW_MODULE.
-  if (process.env.WHATSAPP_REVIEW_MODULE && process.env.WHATSAPP_DATA_DIR) {
+  if (process.env["WHATSAPP_REVIEW_MODULE"] && process.env["WHATSAPP_DATA_DIR"]) {
     server.registerTool(
       "whatsapp_review_conversations",
       {
@@ -34,8 +34,8 @@
       },
       async (options) => {
         try {
-          const modulePath = process.env.WHATSAPP_REVIEW_MODULE;
-          const storagePath = process.env.WHATSAPP_DATA_DIR;
+          const modulePath = process.env["WHATSAPP_REVIEW_MODULE"];
+          const storagePath = process.env["WHATSAPP_DATA_DIR"];
           if (!modulePath || !storagePath) throw new Error("Review module is not configured");
           const { reviewConversations } = await import(modulePath);
           const result = reviewConversations(storagePath, options);
@@ -67,8 +67,8 @@
       },
       async (options) => {
         try {
-          const modulePath = process.env.WHATSAPP_REVIEW_MODULE;
-          const storagePath = process.env.WHATSAPP_DATA_DIR;
+          const modulePath = process.env["WHATSAPP_REVIEW_MODULE"];
+          const storagePath = process.env["WHATSAPP_DATA_DIR"];
           if (!modulePath || !storagePath) throw new Error("Review module is not configured");
           const { reviewContext } = await import(modulePath);
           return jsonResult(reviewContext(storagePath, options), ctx.config.maxResultChars);
