@@ -61,7 +61,7 @@ test('review does not treat a completed message response as an unanswered questi
 
 test('group review excludes generic questions but includes messages addressing the owner',t=>{
   const dir=fixture(t);
-  const result=reviewConversations(dir,{after:900,before:1100,mode:'groups'});
+  const result=reviewConversations(dir,{after:900,before:1100,mode:'groups',name_hint:'Justin'});
   assert.equal(result.items.length,1);
   assert.ok(result.items[0].flags.includes('group_mention'));
   assert.equal(result.items[0].context.length,2);
