@@ -37,7 +37,7 @@ The generic renderer provides tunable position, spread, velocity, lifetime, grav
 
 ## Automatic Home Assistant countdown display
 
-This is a generic state-driven countdown, not a GTA-specific API. A saved binding connects an active-state entity and a deadline entity to a pixel-art layout. The add-on polls the HA Core states API locally using its Supervisor token (requires `homeassistant_api: true`), renders the countdown every second, and releases the display after the session ends. It does not change any gaming controls or state.
+This is a generic state-driven countdown, not a GTA-specific API. A saved binding connects an active-state entity and a deadline entity to a pixel-art layout. The add-on polls the HA Core states API locally using its Supervisor token (requires `homeassistant_api: true`), renders a large hours-and-minutes countdown (for example `1H 22M`, rounded up to whole minutes) and releases the display after the session ends. The watcher still tracks the exact deadline in seconds internally. It does not change any gaming controls or state.
 
 Configure once via `POST /api/countdown/configure`:
 
