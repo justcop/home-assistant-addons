@@ -6,6 +6,7 @@ audio reader separate from the rendering function.
 import array
 import math
 import os
+from pathlib import Path
 import random
 import select
 import subprocess
@@ -15,6 +16,15 @@ import time
 SIZE = 52 * 32 * 3
 SAMPLE_RATE = 16000
 BLOCK_SAMPLES = 2048
+
+def ensure_ssh_key(key_file):
+    key_path = Path(key_file)
+    key_path.parent.mkdir(parents=True, exist_ok=True)
+    if not key_path.is_file():
+        subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key_path)], check=True)
+        key_path.chmod(0o600)
+    return key_path.with_suffix(key_path.suffix + ".pub").read_text(encoding="utf-8").strip()
+
 
 class MicStream:
     def __init__(self, host, key_file, user="root"):
@@ -152,7 +162,7 @@ class ReactiveController:
     def run(self, generation):
         try:
             with MicStream(self.options["host"],
-                           self.options.get("ssh_key_file", "/share/govee/id_ed25519"),
+                           self.options.get("ssh_key_file", "/data/ssh/id_ed25519"),
                            self.options.get("ssh_user", "root")) as mic:
                 analyzer = Analyser()
                 started = time.monotonic()
