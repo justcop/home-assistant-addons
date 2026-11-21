@@ -39,7 +39,7 @@ test('review identifies unanswered question and outgoing commitment with traceab
   const dir = fixture(t);
   const result = reviewConversations(dir,{after:900,before:1100});
   assert.equal(result.scan_truncated,false);
-  assert.equal(result.scanned_messages,7); // system notice omitted
+  assert.equal(result.scanned_messages,5); // system notice and group messages excluded in direct mode
   assert.equal(result.scanned_conversations,3);
   assert.equal(result.candidate_conversations,1);
   const [item]=result.items;
