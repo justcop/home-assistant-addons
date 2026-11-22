@@ -1,9 +1,9 @@
 ARG BUILD_FROM
 FROM ${BUILD_FROM}
-RUN apk add --no-cache openssh-client
-COPY gta_vi_fullscreen.py /gta_vi_fullscreen.py
+RUN apk add --no-cache openssh-client && python3 -m pip install --no-cache-dir Pillow==11.3.0
+COPY artwork/ /artwork/
+COPY artwork_loader.py /artwork_loader.py
 COPY artwork_modes.py /artwork_modes.py
-COPY gta_vi_art.py /gta_vi_art.py
 COPY ha_countdown.py /ha_countdown.py
 COPY renderers.py /renderers.py
 COPY reactive.py /reactive.py
