@@ -10,6 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from reactive import ReactiveController, ensure_ssh_key
 from ha_countdown import CountdownBinding, render as render_countdown
+from artwork_modes import get_artwork_rgb, list_artwork_modes
 
 WIDTH, HEIGHT, FRAME_BYTES = 52, 32, 4992
 MAX_FRAMES = 2400
@@ -82,6 +83,9 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(200, {"public_key": public_key,
                              "username": opts.get("ssh_user", "root"),
                              "host": HOST})
+        elif self.path == "/api/artwork/modes":
+            self.reply(200, {"modes":list_artwork_modes(), "selected_mode":
+                             countdown.config.get("artwork_mode") if countdown.config else None})
         elif self.path == "/api/countdown/status":
             with lock:
                 self.reply(200, dict(countdown.status, owner=state.get("owner","idle")))
@@ -112,6 +116,18 @@ class Handler(BaseHTTPRequestHandler):
                     reactive.stop()
                     clear()
                 return self.reply(200, {"ok": True, "active": False})
+            if self.path == "/api/artwork/show":
+                mode=body.get("mode")
+                timeout=int(body.get("timeout", DEFAULT_TIMEOUT))
+                if not 1 <= timeout <= MAX_TIMEOUT:
+                    raise ValueError("timeout out of range")
+                frame=get_artwork_rgb(mode)
+                with lock:
+                    reactive.stop()
+                    state.update(frames=(frame,), fps=12., loop=True,
+                                 start=time.monotonic(),
+                                 expires=time.monotonic()+timeout, owner="manual")
+                return self.reply(200, {"ok":True,"mode":mode,"timeout":timeout})
             if self.path == "/api/countdown/preview":
                 seconds = int(body.get("remaining", 3600))
                 timeout = int(body.get("timeout", 10))
