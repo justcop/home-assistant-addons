@@ -23,6 +23,21 @@ _ARTWORK = {
         "height": HEIGHT,
         "file": "gta_vi.png",
     },
+    "ffvii_revelation": {
+        "name": "Final Fantasy VII Revelation",
+        "kind": "static",
+        "game": "Final Fantasy VII Revelation",
+        "game_names": [
+            "Final Fantasy VII Revelation",
+            "Final Fantasy VII: Revelation",
+            "Final Fantasy VII - Revelation",
+            "Final Fantasy 7 Revelation",
+            "FFVII Revelation",
+        ],
+        "width": WIDTH,
+        "height": HEIGHT,
+        "file": "ffvii_revelation.png",
+    },
     "ps5_default": {
         "name": "PS5 Default",
         "kind": "static",
