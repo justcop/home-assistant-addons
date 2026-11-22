@@ -58,6 +58,19 @@ def validate(cfg):
         binding["power_entity"]=cfg["power_entity"]
     return binding
 
+def countdown_label(remaining):
+    """Use minutes alone below one hour, retaining rounded-up whole minutes.
+
+    59:59 deliberately displays 60M rather than 1H 00M; hours only appear
+    once at least a full hour actually remains.
+    """
+    remaining=max(0,int(remaining))
+    total_minutes=(remaining+59)//60
+    if remaining < 3600:
+        return f"{total_minutes}M"
+    hours,minutes=divmod(total_minutes,60)
+    return f"{hours}H {minutes:02d}M"
+
 def render(cfg,remaining):
     out=bytearray(W*H*3)
     def put(x,y,c):
@@ -101,9 +114,7 @@ def render(cfg,remaining):
     remaining=max(0,int(remaining))
     # Display whole hours and minutes only. Round up so a partial minute
     # is never shown as zero while the session is still running.
-    total_minutes=(remaining+59)//60
-    hours,minutes=divmod(total_minutes,60)
-    label=f"{hours}H {minutes:02d}M"
+    label=countdown_label(remaining)
     # Keep long custom sessions within the 52-pixel display as well.
     double_width=sum((len(FONT[c][0])+1)*2 for c in label)-2
     scale=2 if double_width<=W-2 else 1
@@ -174,7 +185,7 @@ class CountdownBinding:
         last_check=0
         end_time=0
         visible=False
-        last_minute=None
+        last_label=None
         while True:
             now=time.monotonic()
             with self.lock:cfg=self.config
@@ -203,15 +214,15 @@ class CountdownBinding:
                 self.status.update(active=visible,seconds_remaining=remaining if visible else 0)
                 owner=self.state.get("owner","idle")
                 if visible and owner in ("idle","countdown"):
-                    display_minute=(remaining+59)//60
-                    if display_minute!=last_minute or owner!="countdown":
+                    display_label=countdown_label(remaining)
+                    if display_label!=last_label or owner!="countdown":
                         self.state.update(frames=(render(cfg,remaining),),fps=12.,
                                           loop=True,start=time.monotonic(),
                                           expires=time.monotonic()+3,owner="countdown")
-                        last_minute=display_minute
+                        last_label=display_label
                     else:
                         self.state["expires"]=time.monotonic()+3
                 elif not visible and owner=="countdown":
                     self.state.update(frames=(),expires=0.,owner="idle")
-                    last_minute=None
+                    last_label=None
             time.sleep(.15)
