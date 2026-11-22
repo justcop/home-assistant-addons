@@ -1,5 +1,5 @@
 name: Govee Temporary Display
-version: "0.5.5"
+version: "0.5.6"
 slug: govee_temporary_display
 description: Stream temporary 52x32 images over UDP with timeout and heartbeat
 arch:
