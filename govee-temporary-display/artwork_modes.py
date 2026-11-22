@@ -1,27 +1,57 @@
-"""Installed, reusable 52x32 artwork library for the Govee pixel display.
+"""Persistent game-artwork registry for the 52x32 Govee Pixel display.
 
-Artwork is versioned in the add-on image (and GitHub), *not* written into
-the Govee itself. Transport remains temporary: streaming stops when idle.
-Adding a game later only requires registering another asset here.
+Artwork is stored with the Home Assistant app, not on the display.
+Game names can later be mapped to further graphics without changing the
+temporary transport or the PS5 session-control automations.
 """
+import re
 from gta_vi_fullscreen import HEIGHT, RGB as GTA_VI_RGB, WIDTH
 
-# Keyed by stable mode IDs, so countdown configurations can survive renaming
-# an artwork's friendly title.
+PIXELS = WIDTH * HEIGHT * 3
+UNKNOWN_GAME = {"", "none", "unknown", "unavailable", "null", "off", "idle"}
+
+
+def _generic_background():
+    """Neutral PS5 fallback, retaining a colourful full-screen timer."""
+    frame = bytearray()
+    for y in range(HEIGHT):
+        for x in range(WIDTH):
+            # Blue-violet diagonal gradient with a diffuse magenta horizon.
+            horizon = max(0, 12 - abs(y - 21) * 2)
+            stripe = 16 if abs((x + y // 2) % 19 - 8) <= 1 else 0
+            frame.extend((
+                min(255, 13 + y // 2 + horizon * 2 + stripe),
+                min(255, 15 + y // 3 + stripe // 3),
+                min(255, 48 + x // 2 + horizon * 3 + stripe),
+            ))
+    return bytes(frame)
+
+
+# Stable IDs: future entries can attach their own game aliases and assets.
 _ARTWORK = {
     "gta_vi": {
         "name": "GTA VI Sunset",
         "kind": "static",
         "game": "Grand Theft Auto VI",
+        "game_names": ["Grand Theft Auto VI", "Grand Theft Auto 6", "GTA VI", "GTA 6"],
         "width": WIDTH,
         "height": HEIGHT,
         "rgb": GTA_VI_RGB,
+    },
+    "ps5_default": {
+        "name": "PS5 Default",
+        "kind": "generated",
+        "game": None,
+        "game_names": [],
+        "width": WIDTH,
+        "height": HEIGHT,
+        "rgb": _generic_background(),
     },
 }
 
 
 def list_artwork_modes():
-    """Return safe, JSON-ready metadata, never raw image bytes."""
+    """Return JSON metadata for selectable built-in modes."""
     return [
         {"id": mode_id, **{k: v for k, v in item.items() if k != "rgb"}}
         for mode_id, item in _ARTWORK.items()
@@ -29,14 +59,36 @@ def list_artwork_modes():
 
 
 def get_artwork_rgb(mode_id):
-    """Load the original image for a named mode (without timer overlays)."""
     if not isinstance(mode_id, str) or mode_id not in _ARTWORK:
         raise ValueError("unknown artwork mode")
     data = _ARTWORK[mode_id]["rgb"]
-    if len(data) != 52 * 32 * 3:
+    if len(data) != PIXELS:
         raise ValueError("artwork mode has invalid frame size")
     return data
 
 
 def is_artwork_mode(mode_id):
     return isinstance(mode_id, str) and mode_id in _ARTWORK
+
+
+def _normalise(title):
+    if not isinstance(title, str):
+        return ""
+    return re.sub(r"\s+", " ", title.replace("™", "").replace("®", "").strip()).casefold()
+
+
+def resolve_game_artwork(game_title, activity="playing"):
+    """Recognise only confirmed titles while the console is playing.
+
+    An unavailable/stale PSN title, unknown game, or idle PS5 uses the
+    neutral background. Never label an unrelated game as GTA.
+    """
+    if activity != "playing":
+        return "ps5_default"
+    title = _normalise(game_title)
+    if title in UNKNOWN_GAME:
+        return "ps5_default"
+    for mode_id, item in _ARTWORK.items():
+        if title in (_normalise(x) for x in item["game_names"]):
+            return mode_id
+    return "ps5_default"
