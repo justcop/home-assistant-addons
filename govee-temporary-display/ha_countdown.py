@@ -211,7 +211,7 @@ class CountdownBinding:
         last_config=None
         game_title="unknown"
         activity="none"
-        resolved_mode=selected_artwork_mode(self.config)
+        resolved_mode=selected_artwork_mode(self.config) if self.config else "ps5_default"
         while True:
             now=time.monotonic()
             with self.lock:cfg=self.config
