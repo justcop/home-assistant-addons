@@ -11,7 +11,7 @@ The controller has an authenticated Home Assistant Ingress API:
 
 The add-on streams frames at 12 Hz while active and sends **nothing** when idle, leaving pixeld to return to its selected Idle Black animation after about three seconds.
 
-Animations are generated outside the add-on and kept in RAM only for the duration of playback. No named animation endpoints, effect presets, file uploads or persistent image storage. The built-in browser visualiser is optional and independent of the transport API. Don't expose the service's port to the internet.
+Temporary animations are generated outside the app and kept in RAM only for playback. Built-in artwork modes are separately versioned with the app in GitHub. They are not saved to Govee firmware, and user-defined uploads are not persisted. The built-in browser visualiser is optional and independent of the transport API. Don't expose the service's port to the internet.
 
 ## Reactive proof of concept
 
@@ -37,12 +37,12 @@ The generic renderer provides tunable position, spread, velocity, lifetime, grav
 
 ## Automatic Home Assistant countdown display
 
-This is a generic state-driven countdown, not a GTA-specific API. A saved binding connects an active-state entity and a deadline entity to a pixel-art layout. An optional `power_entity` can gate the display so the gaming overlay is visible only when the relevant device reports `on` (and disappears on `off`, `unknown` or `unavailable`). The underlying session timer is unaffected. The add-on polls the HA Core states API locally using its Supervisor token (requires `homeassistant_api: true`), renders a large hours-and-minutes countdown (for example `1H 22M`, rounded up to whole minutes) and releases the display after the session ends. For the `VI` marker it fills the entire 52×32 panel with the sunset/palm logo, omits the stacked game title, and outlines the timer directly over the lower logo without a solid black panel. The custom `title_lines` setting is retained for backwards compatibility but ignored for `VI`. The watcher still tracks the exact deadline in seconds internally. It does not change any gaming controls or state.
+This is a generic state-driven countdown, not a GTA-specific API. A saved binding connects an active-state entity and a deadline entity to a pixel-art layout. An optional `power_entity` can gate the display so the gaming overlay is visible only when the relevant device reports `on` (and disappears on `off`, `unknown` or `unavailable`). The underlying session timer is unaffected. The add-on polls the HA Core states API locally using its Supervisor token (requires `homeassistant_api: true`), renders a large hours-and-minutes countdown (for example `1H 22M`, rounded up to whole minutes) and releases the display after the session ends. With `artwork_mode: "auto"`, the app reads `sensor.justcop_now_playing` and `sensor.ps5_044_activity` to select a named, stored game image. Currently **Grand Theft Auto VI** maps to the full-screen VI sunset art. Other games or unknown/unavailable PSN data use a game-neutral full-screen PS5 background. The timer is outlined over either image, without a solid black bar. The legacy `classic` layout remains available and supports `title_lines` and `mark`. Old VI bindings migrate to `auto`. The watcher still tracks the exact deadline in seconds internally. It does not change any gaming controls or state.
 
 Configure once via `POST /api/countdown/configure`:
 
 ```json
-{"state_entity":"input_select.gaming_session_state","deadline_entity":"input_datetime.gaming_session_deadline","power_entity":"switch.ps5_044_power","active_states":["active"],"title_lines":["GRAND","THEFT","AUTO"],"mark":"VI"}
+{"state_entity":"input_select.gaming_session_state","deadline_entity":"input_datetime.gaming_session_deadline","power_entity":"switch.ps5_044_power","active_states":["active"],"artwork_mode":"auto","game_entity":"sensor.justcop_now_playing","activity_entity":"sensor.ps5_044_activity","title_lines":["GRAND","THEFT","AUTO"],"mark":"VI"}
 ```
 
 `GET /api/countdown/status` reports the saved binding, source errors and remaining seconds. Countdown uses the existing UDP pipeline; manual temporary animations and reactive playback take priority while they run, then the countdown resumes if the session remains active. Inactive sessions are black. The configured binding persists in the add-on data area.
@@ -50,3 +50,32 @@ Configure once via `POST /api/countdown/configure`:
 ### Countdown display preview
 
 `POST /api/countdown/preview` with `{"remaining":3600,"timeout":10}` renders the configured logo (or generic title) and a mock remaining time for up to 30 seconds, without touching the real gaming helpers. The live countdown watcher takes over on the next active session.
+
+## Persistent artwork modes and game detection
+
+The registry lives in `artwork_modes.py`. Image data is bundled into the
+installed app image (under version control); only the currently displayed frame
+is transmitted to the Govee. Register more artworks and exact game-title
+aliases in this file to add game-specific screens later.
+
+| ID | Purpose |
+| --- | --- |
+| `auto` | Automatic game detection (default for existing VI countdowns) |
+| `gta_vi` | GTA VI sunset art, manually selectable if desired |
+| `ps5_default` | Neutral blue/purple background for other or unidentified games |
+| `classic` | Original text-based countdown appearance |
+
+Matching requires an activity state of `playing` and a recognised game title
+from `sensor.justcop_now_playing`. Inactive, unknown and unavailable states do
+not produce a false GTA logo. Game detection failures **never** stop the timer
+or modify gaming restrictions. The countdown still appears only while the
+PS5 power and authorised-session conditions are true.
+
+- `GET /api/artwork/modes` lists available saved artwork and the active selection.
+- `POST /api/artwork/show` with `{"mode":"gta_vi","timeout":10}` temporarily displays the raw saved image without a timer.
+- `POST /api/countdown/preview` with `{"remaining":2100,"timeout":10,"game_title":"Grand Theft Auto VI"}` previews game-specific selection without changing the authorised session. Substitute another game title to preview the fallback.
+- `POST /api/countdown/configure` persists the mode and sensor mapping in `/data/countdown_binding.json`.
+- `GET /api/countdown/status` reports the current game title, activity and resolved artwork mode.
+
+The hardware returns to its existing idle-black display when no countdown or
+manual artwork is active.
