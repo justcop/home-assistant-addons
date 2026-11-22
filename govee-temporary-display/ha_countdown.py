@@ -11,6 +11,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from artwork_modes import get_artwork_rgb, is_artwork_mode
 
 W,H=52,32
 FILE=Path("/data/countdown_binding.json")
@@ -52,8 +53,15 @@ def validate(cfg):
     marker=cfg.get("mark","VI")
     if not isinstance(marker,str) or len(marker)>3 or any(k.upper() not in FONT for k in marker):
         raise ValueError("invalid mark")
+    mode=cfg.get("artwork_mode")
+    if mode is None:
+        # Existing persisted VI bindings migrate seamlessly on restart.
+        mode="gta_vi" if marker.upper()=="VI" else "classic"
+    if mode!="classic" and not is_artwork_mode(mode):
+        raise ValueError("unknown artwork_mode")
     binding={"state_entity":cfg["state_entity"],"deadline_entity":cfg["deadline_entity"],
-             "active_states":states,"title_lines":[x.upper() for x in title],"mark":marker.upper()}
+             "active_states":states,"title_lines":[x.upper() for x in title],
+             "mark":marker.upper(),"artwork_mode":mode}
     if cfg.get("power_entity"):
         binding["power_entity"]=cfg["power_entity"]
     return binding
@@ -89,11 +97,10 @@ def render(cfg,remaining):
                                 put(x+ix*scale+dx,y+iy*scale+dy,color)
             x+=(width+1)*scale
     mark=cfg["mark"]
-    if mark=="VI":
-        # The real GTA artwork spans the whole display, not a small corner.
-        # Keep the original 52x32 pixels intact and lay the timer over them.
-        from gta_vi_fullscreen import RGB as full_screen_logo
-        out[:] = full_screen_logo
+    artwork_mode=cfg.get("artwork_mode", "gta_vi" if mark=="VI" else "classic")
+    if artwork_mode!="classic":
+        # Persistent, selectable artwork mode. The timer is a separate overlay.
+        out[:] = get_artwork_rgb(artwork_mode)
     else:
         # Legacy generic title/mark layout, preserved for other bindings.
         for y in range(H):
@@ -120,7 +127,7 @@ def render(cfg,remaining):
     scale=2 if double_width<=W-2 else 1
     total=sum((len(FONT[c][0])+1)*scale for c in label)-scale
     start=(W-total)//2
-    if mark=="VI":
+    if artwork_mode!="classic":
         # Overprint a high-contrast timer on the logo; only digit outlines
         # go dark, rather than obscuring the colours with a black footer bar.
         y0=20 if scale==2 else 23
@@ -186,6 +193,7 @@ class CountdownBinding:
         end_time=0
         visible=False
         last_label=None
+        last_config=None
         while True:
             now=time.monotonic()
             with self.lock:cfg=self.config
@@ -215,14 +223,16 @@ class CountdownBinding:
                 owner=self.state.get("owner","idle")
                 if visible and owner in ("idle","countdown"):
                     display_label=countdown_label(remaining)
-                    if display_label!=last_label or owner!="countdown":
+                    if display_label!=last_label or owner!="countdown" or cfg is not last_config:
                         self.state.update(frames=(render(cfg,remaining),),fps=12.,
                                           loop=True,start=time.monotonic(),
                                           expires=time.monotonic()+3,owner="countdown")
                         last_label=display_label
+                        last_config=cfg
                     else:
                         self.state["expires"]=time.monotonic()+3
                 elif not visible and owner=="countdown":
                     self.state.update(frames=(),expires=0.,owner="idle")
                     last_label=None
+                    last_config=None
             time.sleep(.15)
