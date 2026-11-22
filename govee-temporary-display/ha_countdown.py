@@ -11,7 +11,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from artwork_modes import get_artwork_rgb, is_artwork_mode
+from artwork_modes import get_artwork_rgb, is_artwork_mode, resolve_game_artwork
 
 W,H=52,32
 FILE=Path("/data/countdown_binding.json")
@@ -55,13 +55,19 @@ def validate(cfg):
         raise ValueError("invalid mark")
     mode=cfg.get("artwork_mode")
     if mode is None:
-        # Existing persisted VI bindings migrate seamlessly on restart.
-        mode="gta_vi" if marker.upper()=="VI" else "classic"
-    if mode!="classic" and not is_artwork_mode(mode):
+        # Migrate existing GTA countdown bindings to automatic game selection.
+        mode="auto" if marker.upper()=="VI" else "classic"
+    if mode not in ("auto", "classic") and not is_artwork_mode(mode):
         raise ValueError("unknown artwork_mode")
+    game_entity=cfg.get("game_entity", "sensor.justcop_now_playing")
+    activity_entity=cfg.get("activity_entity", "sensor.ps5_044_activity")
+    for name,value in (("game_entity",game_entity),("activity_entity",activity_entity)):
+        if not isinstance(value,str) or len(value)>120 or not value.replace("_","").replace(".","").isalnum() or "." not in value:
+            raise ValueError("invalid "+name)
     binding={"state_entity":cfg["state_entity"],"deadline_entity":cfg["deadline_entity"],
              "active_states":states,"title_lines":[x.upper() for x in title],
-             "mark":marker.upper(),"artwork_mode":mode}
+             "mark":marker.upper(),"artwork_mode":mode,
+             "game_entity":game_entity,"activity_entity":activity_entity}
     if cfg.get("power_entity"):
         binding["power_entity"]=cfg["power_entity"]
     return binding
@@ -79,7 +85,15 @@ def countdown_label(remaining):
     hours,minutes=divmod(total_minutes,60)
     return f"{hours}H {minutes:02d}M"
 
-def render(cfg,remaining):
+def selected_artwork_mode(cfg,game_title=None,activity="none"):
+    """Resolve a fixed or game-specific display mode from one saved binding."""
+    mode=cfg.get("artwork_mode", "auto" if cfg.get("mark")=="VI" else "classic")
+    if mode=="auto":
+        return resolve_game_artwork(game_title,activity)
+    return mode
+
+
+def render(cfg,remaining,game_title=None,activity="none"):
     out=bytearray(W*H*3)
     def put(x,y,c):
         if 0<=x<W and 0<=y<H:
@@ -97,7 +111,7 @@ def render(cfg,remaining):
                                 put(x+ix*scale+dx,y+iy*scale+dy,color)
             x+=(width+1)*scale
     mark=cfg["mark"]
-    artwork_mode=cfg.get("artwork_mode", "gta_vi" if mark=="VI" else "classic")
+    artwork_mode=selected_artwork_mode(cfg,game_title,activity)
     if artwork_mode!="classic":
         # Persistent, selectable artwork mode. The timer is a separate overlay.
         out[:] = get_artwork_rgb(artwork_mode)
@@ -193,7 +207,11 @@ class CountdownBinding:
         end_time=0
         visible=False
         last_label=None
+        last_mode=None
         last_config=None
+        game_title="unknown"
+        activity="none"
+        resolved_mode=selected_artwork_mode(self.config)
         while True:
             now=time.monotonic()
             with self.lock:cfg=self.config
@@ -216,6 +234,24 @@ class CountdownBinding:
                 except Exception as exc:
                     visible=False
                     with self.lock:self.status["error"]=str(exc)[:250]
+                # Game selection never alters the gaming limits or the
+                # countdown's visibility. An unavailable sensor means fallback.
+                game_title="unknown"
+                activity="none"
+                game_error=None
+                if cfg["artwork_mode"]=="auto":
+                    try:
+                        activity=read_entity(cfg["activity_entity"]).get("state","none")
+                        game_title=read_entity(cfg["game_entity"]).get("state","unknown")
+                    except Exception as exc:
+                        game_error=str(exc)[:250]
+                resolved_mode=selected_artwork_mode(cfg,game_title,activity)
+                with self.lock:
+                    self.status.update(game_entity=cfg["game_entity"],
+                                       activity_entity=cfg["activity_entity"],
+                                       game_title=game_title,ps5_activity=activity,
+                                       selected_artwork_mode=resolved_mode,
+                                       game_detection_error=game_error)
             remaining=max(0,int(end_time-time.time()+.999))
             if not remaining:visible=False
             with self.lock:
@@ -223,16 +259,19 @@ class CountdownBinding:
                 owner=self.state.get("owner","idle")
                 if visible and owner in ("idle","countdown"):
                     display_label=countdown_label(remaining)
-                    if display_label!=last_label or owner!="countdown" or cfg is not last_config:
-                        self.state.update(frames=(render(cfg,remaining),),fps=12.,
+                    if (display_label!=last_label or resolved_mode!=last_mode
+                            or owner!="countdown" or cfg is not last_config):
+                        self.state.update(frames=(render(cfg,remaining,game_title,activity),),fps=12.,
                                           loop=True,start=time.monotonic(),
                                           expires=time.monotonic()+3,owner="countdown")
                         last_label=display_label
+                        last_mode=resolved_mode
                         last_config=cfg
                     else:
                         self.state["expires"]=time.monotonic()+3
                 elif not visible and owner=="countdown":
                     self.state.update(frames=(),expires=0.,owner="idle")
                     last_label=None
+                    last_mode=None
                     last_config=None
             time.sleep(.15)
