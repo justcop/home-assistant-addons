@@ -53,10 +53,12 @@ Configure once via `POST /api/countdown/configure`:
 
 ## Persistent artwork modes and game detection
 
-The registry lives in `artwork_modes.py`. Image data is bundled into the
-installed app image (under version control); only the currently displayed frame
-is transmitted to the Govee. Register more artworks and exact game-title
-aliases in this file to add game-specific screens later.
+The registry lives in `artwork_modes.py`. The actual pixel data is stored in
+**ordinary PNG files** under `artwork/`, included in the app at build time.
+`artwork_loader.py` validates and caches their native 52×32 RGB data; only the
+currently displayed frame is streamed to the Govee. To add a new game, commit
+a 52×32 PNG in this folder and add its filename and exact title aliases to
+`artwork_modes.py`. Images are not permanently installed on the Govee.
 
 | ID | Purpose |
 | --- | --- |
@@ -79,3 +81,13 @@ PS5 power and authorised-session conditions are true.
 
 The hardware returns to its existing idle-black display when no countdown or
 manual artwork is active.
+
+### Artwork files
+
+- [`artwork/gta_vi.png`](artwork/gta_vi.png) — original GTA VI image, preserved pixel-for-pixel.
+- [`artwork/ps5_default.png`](artwork/ps5_default.png) — neutral background for other titles.
+
+Both images are PNG files directly previewable in GitHub. These replace the
+previous Base85/64-colour encoded Python image data. The app uses Pillow only
+for loading the installed images; no network fetches or image conversion
+occur on every countdown update.
