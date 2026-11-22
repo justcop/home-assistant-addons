@@ -9,7 +9,7 @@ import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from reactive import ReactiveController, ensure_ssh_key
-from ha_countdown import CountdownBinding, render as render_countdown
+from ha_countdown import CountdownBinding, render as render_countdown, selected_artwork_mode
 from artwork_modes import get_artwork_rgb, list_artwork_modes
 
 WIDTH, HEIGHT, FRAME_BYTES = 52, 32, 4992
@@ -84,8 +84,13 @@ class Handler(BaseHTTPRequestHandler):
                              "username": opts.get("ssh_user", "root"),
                              "host": HOST})
         elif self.path == "/api/artwork/modes":
-            self.reply(200, {"modes":list_artwork_modes(), "selected_mode":
-                             countdown.config.get("artwork_mode") if countdown.config else None})
+            with lock:
+                cfg=countdown.config
+                self.reply(200, {"modes":list_artwork_modes(),
+                                 "selection":cfg.get("artwork_mode") if cfg else None,
+                                 "selected_artwork_mode":countdown.status.get("selected_artwork_mode"),
+                                 "game_entity":cfg.get("game_entity") if cfg else None,
+                                 "game_title":countdown.status.get("game_title")})
         elif self.path == "/api/countdown/status":
             with lock:
                 self.reply(200, dict(countdown.status, owner=state.get("owner","idle")))
@@ -136,11 +141,20 @@ class Handler(BaseHTTPRequestHandler):
                 with lock:
                     if countdown.config is None:
                         return self.reply(409, {"error": "configure countdown first"})
+                    # Optional simulated title allows testing game selection
+                    # without starting a PS5 session or modifying its timer.
+                    title=body.get("game_title",countdown.status.get("game_title"))
+                    if title is not None and (not isinstance(title,str) or len(title)>160):
+                        raise ValueError("invalid game_title")
+                    activity=body.get("activity","playing" if title else countdown.status.get("ps5_activity","none"))
+                    if not isinstance(activity,str) or len(activity)>50:
+                        raise ValueError("invalid activity")
+                    mode=selected_artwork_mode(countdown.config,title,activity)
                     reactive.stop()
-                    state.update(frames=(render_countdown(countdown.config, seconds),),
+                    state.update(frames=(render_countdown(countdown.config,seconds,title,activity),),
                                  start=time.monotonic(),fps=12.,loop=True,
                                  expires=time.monotonic()+timeout, owner="manual")
-                return self.reply(200, {"ok": True, "preview_seconds":timeout})
+                return self.reply(200, {"ok":True,"preview_seconds":timeout,"artwork_mode":mode})
             if self.path == "/api/countdown/configure":
                 current = countdown.configure(body)
                 return self.reply(200, {"ok": True, "binding": current})
