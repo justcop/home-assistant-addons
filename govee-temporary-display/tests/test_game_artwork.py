@@ -34,6 +34,20 @@ class GameArtworkTests(unittest.TestCase):
         self.assertEqual(resolve_game_artwork("grand theft auto vi™", "playing"), "gta_vi")
         self.assertEqual(resolve_game_artwork("GTA 6", "playing"), "gta_vi")
 
+    def test_ffvii_revelation_title_and_png(self):
+        for title in ("Final Fantasy VII Revelation",
+                      "Final Fantasy VII: Revelation",
+                      "FFVII Revelation"):
+            with self.subTest(title=title):
+                self.assertEqual(resolve_game_artwork(title, "playing"),
+                                 "ffvii_revelation")
+        self.assertEqual(resolve_game_artwork("Final Fantasy VII Rebirth", "playing"),
+                         "ps5_default")
+        self.assertEqual(
+            sha256(load_rgb_image("ffvii_revelation.png")).hexdigest(),
+            "e046e9a83cb937081731307a6b5aa70c8689ed6a931a1c5c0be94f5be52d25b8"
+        )
+
     def test_other_titles_do_not_show_gta_art(self):
         for title in ("Grand Theft Auto V", "Astro Bot", "Final Fantasy VII Rebirth", "unknown", "unavailable", None):
             with self.subTest(title=title):
