@@ -64,6 +64,7 @@ a 52×32 PNG in this folder and add its filename and exact title aliases to
 | --- | --- |
 | `auto` | Automatic game detection (default for existing VI countdowns) |
 | `gta_vi` | GTA VI sunset art, manually selectable if desired |
+| `ffvii_revelation` | Final Fantasy VII Revelation artwork, selectable automatically by game title |
 | `ps5_default` | Neutral blue/purple background for other or unidentified games |
 | `classic` | Original text-based countdown appearance |
 
@@ -85,6 +86,7 @@ manual artwork is active.
 ### Artwork files
 
 - [`artwork/gta_vi.png`](artwork/gta_vi.png) — original GTA VI image, preserved pixel-for-pixel.
+- [`artwork/ffvii_revelation.png`](artwork/ffvii_revelation.png) — Final Fantasy VII Revelation logo, 52×32 pixels.
 - [`artwork/ps5_default.png`](artwork/ps5_default.png) — neutral background for other titles.
 
 Both images are PNG files directly previewable in GitHub. These replace the
