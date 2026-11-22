@@ -83,9 +83,17 @@ def render(cfg,remaining):
         for x in range(28,51):
             if (x-39)**2/135+(y-11)**2/75<=1:
                 put(x,y,(129+min(120,y*5),40+y*4,112+max(0,13-y)*4))
-    # Prominent VI monogram on the right, dark-outline underdraw.
+    # Draw the supplied sunset-and-palm VI artwork at native LED resolution.
+    # Keep the reusable font path for custom non-VI marks.
     mark=cfg["mark"]
-    if mark:
+    if mark=="VI":
+        from gta_vi_art import RGBA as logo, WIDTH as lw, HEIGHT as lh
+        for iy in range(lh):
+            for ix in range(lw):
+                offset=(iy*lw+ix)*4
+                if logo[offset+3]:
+                    put(27+ix,1+iy,logo[offset:offset+3])
+    elif mark:
         text(mark,32,5,(25,3,40),3)
         text(mark,31,4,(250,129,122),3)
     # Game title on left in stacked compact arcade lettering.
