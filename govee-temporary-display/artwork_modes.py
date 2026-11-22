@@ -5,26 +5,11 @@ Game names can later be mapped to further graphics without changing the
 temporary transport or the PS5 session-control automations.
 """
 import re
-from gta_vi_fullscreen import HEIGHT, RGB as GTA_VI_RGB, WIDTH
+from artwork_loader import HEIGHT, WIDTH, load_rgb_image
 
 PIXELS = WIDTH * HEIGHT * 3
 UNKNOWN_GAME = {"", "none", "unknown", "unavailable", "null", "off", "idle"}
 
-
-def _generic_background():
-    """Neutral PS5 fallback, retaining a colourful full-screen timer."""
-    frame = bytearray()
-    for y in range(HEIGHT):
-        for x in range(WIDTH):
-            # Blue-violet diagonal gradient with a diffuse magenta horizon.
-            horizon = max(0, 12 - abs(y - 21) * 2)
-            stripe = 16 if abs((x + y // 2) % 19 - 8) <= 1 else 0
-            frame.extend((
-                min(255, 13 + y // 2 + horizon * 2 + stripe),
-                min(255, 15 + y // 3 + stripe // 3),
-                min(255, 48 + x // 2 + horizon * 3 + stripe),
-            ))
-    return bytes(frame)
 
 
 # Stable IDs: future entries can attach their own game aliases and assets.
@@ -36,16 +21,16 @@ _ARTWORK = {
         "game_names": ["Grand Theft Auto VI", "Grand Theft Auto 6", "GTA VI", "GTA 6"],
         "width": WIDTH,
         "height": HEIGHT,
-        "rgb": GTA_VI_RGB,
+        "file": "gta_vi.png",
     },
     "ps5_default": {
         "name": "PS5 Default",
-        "kind": "generated",
+        "kind": "static",
         "game": None,
         "game_names": [],
         "width": WIDTH,
         "height": HEIGHT,
-        "rgb": _generic_background(),
+        "file": "ps5_default.png",
     },
 }
 
@@ -61,7 +46,7 @@ def list_artwork_modes():
 def get_artwork_rgb(mode_id):
     if not isinstance(mode_id, str) or mode_id not in _ARTWORK:
         raise ValueError("unknown artwork mode")
-    data = _ARTWORK[mode_id]["rgb"]
+    data = load_rgb_image(_ARTWORK[mode_id]["file"])
     if len(data) != PIXELS:
         raise ValueError("artwork mode has invalid frame size")
     return data
