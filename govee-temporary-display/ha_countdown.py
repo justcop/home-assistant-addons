@@ -75,33 +75,29 @@ def render(cfg,remaining):
                             for dy in range(scale):
                                 put(x+ix*scale+dx,y+iy*scale+dy,color)
             x+=(width+1)*scale
-    # Dark purple background and subtle vice-city sunset halo.
-    for y in range(H):
-        for x in range(W):
-            put(x,y,(max(0,10+y//5),4,22+y//3))
-    for y in range(2,22):
-        for x in range(28,51):
-            if (x-39)**2/135+(y-11)**2/75<=1:
-                put(x,y,(129+min(120,y*5),40+y*4,112+max(0,13-y)*4))
-    # Draw the supplied sunset-and-palm VI artwork at native LED resolution.
-    # Keep the reusable font path for custom non-VI marks.
     mark=cfg["mark"]
     if mark=="VI":
-        from gta_vi_art import RGBA as logo, WIDTH as lw, HEIGHT as lh
-        for iy in range(lh):
-            for ix in range(lw):
-                offset=(iy*lw+ix)*4
-                if logo[offset+3]:
-                    put(27+ix,1+iy,logo[offset:offset+3])
-    elif mark:
-        text(mark,32,5,(25,3,40),3)
-        text(mark,31,4,(250,129,122),3)
-    # Game title on left in stacked compact arcade lettering.
-    for idx,line in enumerate(cfg["title_lines"]):
-        text(line,3,2+idx*7,(17,5,36),2 if len(line)<=3 else 1)
-        text(line,2,1+idx*7,(255,250,237),2 if len(line)<=3 else 1)
-    # Separating neon horizon.
-    for x in range(2,W-2):put(x,20,(224,51,151) if x%3 else (255,147,109))
+        # The real GTA artwork spans the whole display, not a small corner.
+        # Keep the original 52x32 pixels intact and lay the timer over them.
+        from gta_vi_fullscreen import RGB as full_screen_logo
+        out[:] = full_screen_logo
+    else:
+        # Legacy generic title/mark layout, preserved for other bindings.
+        for y in range(H):
+            for x in range(W):
+                put(x,y,(max(0,10+y//5),4,22+y//3))
+        for y in range(2,22):
+            for x in range(28,51):
+                if (x-39)**2/135+(y-11)**2/75<=1:
+                    put(x,y,(129+min(120,y*5),40+y*4,112+max(0,13-y)*4))
+        if mark:
+            text(mark,32,5,(25,3,40),3)
+            text(mark,31,4,(250,129,122),3)
+        for idx,line in enumerate(cfg["title_lines"]):
+            text(line,3,2+idx*7,(17,5,36),2 if len(line)<=3 else 1)
+            text(line,2,1+idx*7,(255,250,237),2 if len(line)<=3 else 1)
+        for x in range(2,W-2):
+            put(x,20,(224,51,151) if x%3 else (255,147,109))
     remaining=max(0,int(remaining))
     # Display whole hours and minutes only. Round up so a partial minute
     # is never shown as zero while the session is still running.
@@ -113,7 +109,32 @@ def render(cfg,remaining):
     scale=2 if double_width<=W-2 else 1
     total=sum((len(FONT[c][0])+1)*scale for c in label)-scale
     start=(W-total)//2
-    text(label,start,22,(255,231,241),scale)
+    if mark=="VI":
+        # Overprint a high-contrast timer on the logo; only digit outlines
+        # go dark, rather than obscuring the colours with a black footer bar.
+        y0=20 if scale==2 else 23
+        lit=set()
+        xpos=start
+        for ch in label:
+            for gy,row in enumerate(FONT[ch]):
+                for gx,cell in enumerate(row):
+                    if cell=="1":
+                        for dy in range(scale):
+                            for dx in range(scale):
+                                lit.add((xpos+gx*scale+dx,y0+gy*scale+dy))
+            xpos+=(len(FONT[ch][0])+1)*scale
+        outline=set()
+        for x,y in lit:
+            for dy in (-1,0,1):
+                for dx in (-1,0,1):
+                    if 0<=x+dx<W and 0<=y+dy<H:
+                        outline.add((x+dx,y+dy))
+        for x,y in outline:
+            put(x,y,(18,2,39))
+        for x,y in lit:
+            put(x,y,(255,249,228))
+    else:
+        text(label,start,22,(255,231,241),scale)
     return bytes(out)
 
 def read_entity(entity):
