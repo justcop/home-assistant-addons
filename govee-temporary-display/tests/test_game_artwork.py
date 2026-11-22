@@ -4,6 +4,9 @@ Run with: PYTHONPATH=govee-temporary-display python3 -m unittest discover
        -s govee-temporary-display/tests
 """
 import unittest
+from pathlib import Path
+from hashlib import sha256
+from artwork_loader import load_rgb_image
 
 from artwork_modes import get_artwork_rgb, resolve_game_artwork
 from ha_countdown import countdown_label, render, selected_artwork_mode, validate
@@ -43,6 +46,17 @@ class GameArtworkTests(unittest.TestCase):
     def test_fixed_mode_overrides_game_selection(self):
         cfg = validate(dict(CONFIG, artwork_mode="gta_vi"))
         self.assertEqual(selected_artwork_mode(cfg, "Astro Bot", "playing"), "gta_vi")
+
+    def test_artwork_stored_as_exact_png_files(self):
+        root=Path(__file__).resolve().parents[1] / "artwork"
+        expected={
+            "gta_vi.png":"fc42bdbc34cb7c39c4526a96c3188da67e6ab29f60f92e7916e3e8a5eca4cbda",
+            "ps5_default.png":"079ab8c98b29bbf8f21928e9b7893947c097c604909f8fd4c8c4495fa5230639",
+        }
+        for name,digest in expected.items():
+            with self.subTest(name=name):
+                self.assertTrue((root/name).is_file())
+                self.assertEqual(sha256(load_rgb_image(name)).hexdigest(),digest)
 
     def test_artwork_and_overlay_are_distinct_and_complete(self):
         self.assertEqual(len(get_artwork_rgb("gta_vi")), 52 * 32 * 3)
