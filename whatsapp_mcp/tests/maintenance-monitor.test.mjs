@@ -6,6 +6,7 @@ function mock(outcomes) {
   const calls = [];
   const request = async (url, options = {}) => {
     calls.push({url, options});
+    if (String(url).includes('/issues?')) return new Response('[]',{status:200});
     if (String(url).includes('api.github.com')) {
       const name = String(url).includes('whatsapp-upstream.yml') ? 'upstream' : 'delivery';
       const conclusion = outcomes[name];
@@ -56,6 +57,7 @@ test('GitHub API failure cannot clear an existing notification',async()=>{
     calls.push(String(url));
     if (String(url).includes('api.github.com')) {
       if (broken) return new Response('{}',{status:403});
+      if (String(url).includes('/issues?')) return new Response('[]',{status:200});
       return new Response(JSON.stringify({workflow_runs:[{status:'completed',conclusion:'failure',id:123}]}),{status:200});
     }
     return new Response('[]',{status:200});
@@ -67,4 +69,25 @@ test('GitHub API failure cannot clear an existing notification',async()=>{
   await monitor.check();
   assert.ok(monitor.status().problem);
   assert.equal(calls.filter(c=>c.endsWith('/persistent_notification/dismiss')).length,0);
+});
+
+test('high-risk upstream PR generates HA notification even when Actions are green', async () => {
+  const calls=[];
+  const request=async(url, options={})=>{
+    calls.push({url:String(url),options});
+    if(String(url).includes('/issues?')){
+      return new Response(JSON.stringify(String(url).includes('whatsapp-upstream-high-risk')
+        ?[{number:124,title:'New Baileys protocol change',state:'open'}]:[]),{status:200});
+    }
+    if(String(url).includes('api.github.com')){
+      return new Response(JSON.stringify({workflow_runs:[{id:111,status:'completed',conclusion:'success'}]}),{status:200});
+    }
+    return new Response('[]',{status:200});
+  };
+  const monitor=new WhatsAppMaintenanceMonitor({request,haToken:'test',logger:{warn(){}}});
+  await monitor.check();
+  assert.match(monitor.status().problem,/high-risk WhatsApp upstream PR/);
+  const notification=calls.find(c=>c.url.endsWith('/persistent_notification/create'));
+  assert.ok(notification);
+  assert.match(JSON.parse(notification.options.body).message,/manual review/);
 });

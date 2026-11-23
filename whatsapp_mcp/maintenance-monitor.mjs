@@ -1,6 +1,7 @@
 // Read-only public GitHub Actions health monitor for WhatsApp maintenance.
 // It never needs a GitHub token or access to WhatsApp messages/database.
-const URL_ROOT = 'https://api.github.com/repos/justcop/home-assistant-addons/actions/workflows/';
+const REPO_API = 'https://api.github.com/repos/justcop/home-assistant-addons';
+const URL_ROOT = REPO_API + '/actions/workflows/';
 const CHECKS = [
   {name: 'WhatsApp upstream checks', file: 'whatsapp-upstream.yml'},
   {name: 'Add-on Docker image publication', file: 'addon-delivery.yml'}
@@ -35,6 +36,18 @@ export class WhatsAppMaintenanceMonitor {
       // Links are derived from GitHub IDs only, not untrusted API URLs.
       id: Number(run.id), updated: run.updated_at};
   }
+  async _pendingReview(label) {
+    const url = REPO_API + '/issues?state=open&labels=' + encodeURIComponent(label) + '&per_page=20';
+    const response = await this.request(url, {
+      headers: {'Accept': 'application/vnd.github+json',
+        'User-Agent': 'WhatsApp-Archive-Maintenance-Monitor'},
+      signal: AbortSignal.timeout(15000)
+    });
+    if (!response.ok) throw new Error('GitHub issue status API HTTP ' + response.status);
+    const issues = await response.json();
+    if (!Array.isArray(issues)) throw new Error('Unexpected GitHub issue response');
+    return issues.slice(0, 20);
+  }
   async _notify(message) {
     if (!this.haToken) throw new Error('Home Assistant Core API token unavailable');
     const action = message ? 'create' : 'dismiss';
@@ -64,6 +77,12 @@ export class WhatsAppMaintenanceMonitor {
             ' (run ' + run.id + ')');
         }
       }
+      // High-risk upstream candidates require review even if their CI passes.
+      // They are never silently merged or installed in Home Assistant.
+      const pending = await this._pendingReview('whatsapp-upstream-high-risk');
+      const blockers = await this._pendingReview('whatsapp-upstream-action-needed');
+      if (pending.length) issues.push(pending.length + ' high-risk WhatsApp upstream PR(s) await manual review');
+      if (blockers.length) issues.push(blockers.length + ' WhatsApp update issue(s) need attention');
       const problem = issues.join('; ') || null;
       this.currentProblem = problem;
       // First healthy observation also dismisses a previous notification

@@ -129,7 +129,12 @@ jobs:
         run: |
           docker logout ghcr.io
           docker manifest inspect "$IMAGE" >/dev/null || {
-            echo 'The image has published but its GHCR package must be public before Supervisor can install it.' >&2
+            echo 'GHCR image is missing or not public; refusing publication.' >&2
+            exit 1
+          }
+          docker image rm "$IMAGE" >/dev/null 2>&1 || true
+          docker pull --platform "${{ matrix.platform }}" "$IMAGE" || {
+            echo 'Actual anonymous image pull failed, not advertising this version.' >&2
             exit 1
           }
   advertise:
@@ -164,7 +169,7 @@ jobs:
             echo "Checking external manifest for $image"
             ok=0
             for attempt in 1 2 3 4 5 6; do
-              if docker manifest inspect "$image" >/dev/null 2>&1; then
+              if docker manifest inspect "$image" >/dev/null 2>&1 && docker pull "$image" >/dev/null 2>&1; then
                 ok=1
                 break
               fi
@@ -182,7 +187,13 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add '*/config.yaml' delivery/releases.json
-          git commit -m 'chore: advertise verified add-on images'
-          git fetch origin main
-          git rebase origin/main
-          git push origin HEAD:main
+          # Rebuilding an already-advertised missing image has no metadata
+          # change to commit. Successful repair must not be reported as failure.
+          if git diff --cached --quiet; then
+            echo 'Previously advertised image repaired and verified; no metadata update needed.'
+          else
+            git commit -m 'chore: advertise verified add-on images'
+            git fetch origin main
+            git rebase origin/main
+            git push origin HEAD:main
+          fi
