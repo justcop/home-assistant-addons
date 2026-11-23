@@ -1,7 +1,4 @@
-# https://developers.home-assistant.io/docs/apps/configuration#app-dockerfile
-# base-python is now published as a single multi-arch (amd64/aarch64) manifest,
-# so there is no need to select a per-arch image via build.yaml/BUILD_FROM anymore.
-FROM ghcr.io/home-assistant/base-python:3.13-alpine3.22
+FROM python:3.13-slim-bookworm@sha256:a5a7017efc5969e00ae2b91c8eb0631049a569652aa4ffc4501769049ae45c72
 
 ARG BUILD_ARCH
 ARG BUILD_VERSION="1.1.0"
@@ -10,10 +7,9 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PIP_NO_CACHE_DIR=1
 
-RUN apk add --no-cache \
-    tesseract-ocr \
-    tesseract-ocr-data-eng \
-    libstdc++
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tesseract-ocr tesseract-ocr-eng ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt

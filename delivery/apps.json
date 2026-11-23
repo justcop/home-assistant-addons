@@ -194,6 +194,6 @@
     "protected": [],
     "destination": "/app",
     "strip": "",
-    "with_contenv": true
+    "with_contenv": false
   }
 }

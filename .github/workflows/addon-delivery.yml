@@ -109,6 +109,20 @@ jobs:
             github_actions_cleanup|python) exit 0;;
           esac
           docker run --rm --network none --entrypoint python3 "$IMAGE" -c 'import json,pathlib; p=pathlib.Path("/opt/delivery/manifest.json"); print(json.loads(p.read_text())["sha"]) if p.exists() else print("standard updater image")'
+          if [ '${{ matrix.addon }}' = 'ocr_tool' ]; then
+            docker run -d --network none --name ocr-startup "$IMAGE"
+            trap 'docker logs ocr-startup; docker rm -f ocr-startup >/dev/null' EXIT
+            ready=false
+            for attempt in $(seq 1 20); do
+              if docker exec ocr-startup python3 -c 'import urllib.request,json; assert json.load(urllib.request.urlopen("http://127.0.0.1:18799/status"))["running"]; assert urllib.request.urlopen("http://127.0.0.1:8099/").status == 200'; then
+                ready=true
+                break
+              fi
+              sleep 1
+            done
+            test "$ready" = true
+            docker exec ocr-startup tesseract --version
+          fi
       - name: Verify anonymous Home Assistant pull access
         env:
           IMAGE: ${{ matrix.image }}:${{ matrix.version }}
