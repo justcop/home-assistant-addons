@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 
 const INTERNAL = '/data/whatsapp';
 const VOLUME_ROOTS = new Set(['/share', '/media']);
@@ -43,15 +44,56 @@ function chownTree(p) {
 function hasFiles(p) {
   return fs.existsSync(p) && fs.readdirSync(p).length > 0;
 }
+
+// Before removing a stale internal rollback copy, verify that the selected
+// external database is readable and internally consistent. A lower message
+// count is NOT a failure: legitimate user deletions must stay deleted.
+export function verifyExternalArchive(target, requiresExistingArchive) {
+  const dbFile = path.join(target, 'whatsapp.db');
+  if (!fs.existsSync(dbFile)) {
+    if (requiresExistingArchive)
+      throw new Error('External WhatsApp archive database missing; refusing to remove internal copy');
+    return false; // A genuinely fresh app has not created its database yet.
+  }
+  const db = new DatabaseSync(dbFile, { readOnly: true });
+  try {
+    const result = db.prepare('PRAGMA integrity_check').get();
+    if (!result || Object.values(result)[0] !== 'ok')
+      throw new Error('External WhatsApp database failed SQLite integrity check');
+    db.prepare('SELECT COUNT(*) AS n FROM messages').get();
+    db.prepare('SELECT COUNT(*) AS n FROM chats').get();
+    return true;
+  } finally {
+    db.close();
+  }
+}
+
+function removeStaleInternalArchive(target) {
+  if (!fs.existsSync(INTERNAL)) return false;
+  if (fs.lstatSync(INTERNAL).isSymbolicLink())
+    throw new Error('Internal archive path is a symlink; refusing unsafe deletion');
+  if (!fs.lstatSync(INTERNAL).isDirectory())
+    throw new Error('Internal archive is not a directory');
+  const nonempty = hasFiles(INTERNAL);
+  // The active archive is on a verified distinct disk. Never compare rows
+  // or copy missing rows back: intentionally deleted messages must stay gone.
+  verifyExternalArchive(target, nonempty);
+  fs.rmSync(INTERNAL, { recursive: true, force: false, maxRetries: 2 });
+  console.log('Privacy: removed retired internal WhatsApp archive directory (no rollback copy retained).');
+  return true;
+}
 export function configureWhatsAppStorage(storagePath) {
   const requested = validateStoragePath(storagePath);
-  fs.mkdirSync(INTERNAL, { recursive: true, mode: 0o700 });
-  if (!requested) return { dataDir: INTERNAL, external: false };
+  if (!requested) {
+    fs.mkdirSync(INTERNAL, { recursive: true, mode: 0o700 });
+    return { dataDir: INTERNAL, external: false };
+  }
 
   const { directory: target, disk, root } = requested;
+  // If the storage volume is disconnected, fail closed; never create an
+  // empty archive on /data or restore messages from a stale fallback.
   requireMountedDisk(disk, root);
   const relative = path.relative(disk, target);
-  // No part of the selected archive directory may be a symlink.
   let segment = disk;
   for (const name of relative.split(path.sep)) {
     segment = path.join(segment, name);
@@ -59,33 +101,41 @@ export function configureWhatsAppStorage(storagePath) {
       throw new Error('A component of storage_path is a symlink');
   }
   let migrated = false;
+  const sourceHasFiles = hasFiles(INTERNAL);
   if (fs.existsSync(target)) {
     if (!fs.statSync(target).isDirectory()) throw new Error('storage_path is not a directory');
-    if (hasFiles(INTERNAL) && !fs.existsSync(path.join(target, 'whatsapp.db')))
+    if (sourceHasFiles && !fs.existsSync(path.join(target, 'whatsapp.db')))
       throw new Error('External archive folder has no WhatsApp database while local archive contains data; refusing to start');
-    // A previously migrated target takes priority. The old source is kept as
-    // a rollback copy; never automatically merge stale and live databases.
-  } else {
+  } else if (sourceHasFiles) {
     const temporary = path.join(disk, '.whatsapp-migration-' + process.pid + '-' + Date.now());
-    console.log('Migrating WhatsApp archive to the verified mounted external volume (old files retained for rollback).');
+    console.log('Migrating WhatsApp archive to verified external storage; no permanent internal backup.');
     try {
       fs.cpSync(INTERNAL, temporary, { recursive: true, force: false, errorOnExist: true });
       chownTree(temporary);
+      verifyExternalArchive(temporary, true);
       fs.renameSync(temporary, target);
       migrated = true;
     } catch (error) {
-      // Do not silently revert to INTERNAL or delete the original archive.
-      try { if (fs.existsSync(temporary)) fs.rmSync(temporary, { recursive: true, force: true }); } catch { /* retained for manual recovery */ }
+      try { if (fs.existsSync(temporary)) fs.rmSync(temporary, { recursive: true, force: true }); } catch { /* recovery remains manual */ }
       throw error;
     }
+  } else {
+    fs.mkdirSync(target, { recursive: true, mode: 0o700 });
+    migrated = true;
   }
-  // Full recursive chown is only necessary after migration. Repeating it on
-  // every startup would traverse every cached attachment and slow boot badly.
-  if (!migrated) { fs.chownSync(target, 1000, 1000); fs.chmodSync(target, 0o700); }
-  // Verify that the unprivileged WhatsApp API can write here, before launch.
+  if (migrated) chownTree(target);
+  else { fs.chownSync(target, 1000, 1000); fs.chmodSync(target, 0o700); }
+
+  // Confirm database integrity and that we can write on the mounted target
+  // before removing anything from /data.
+  verifyExternalArchive(target, sourceHasFiles);
   const probe = path.join(target, '.write-test-' + process.pid);
   fs.writeFileSync(probe, 'ok', { flag: 'wx', mode: 0o600 });
   fs.chownSync(probe, 1000, 1000);
   fs.rmSync(probe);
+
+  // No permanently retained /data/whatsapp snapshot. This also prevents
+  // full app backups from containing messages removed from the live archive.
+  removeStaleInternalArchive(target);
   return { dataDir: target, external: true };
 }

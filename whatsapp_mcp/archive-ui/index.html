@@ -20,6 +20,10 @@
         <input id="chat-filter" type="search" placeholder="Find a conversation…" autocomplete="off">
         <button id="all-search" type="button" class="search-action">⌕ &nbsp; Search all messages</button>
       </div>
+      <div class="chat-tabs" role="tablist" aria-label="Conversation type">
+        <button id="tab-direct" class="chat-tab active" type="button" role="tab" aria-controls="chat-list" aria-selected="true">Direct</button>
+        <button id="tab-groups" class="chat-tab" type="button" role="tab" aria-controls="chat-list" aria-selected="false">Groups</button>
+      </div>
       <div id="chat-list" class="chat-list" role="list" aria-live="polite"><p class="placeholder">Loading conversations…</p></div>
       <footer class="sidebar-footer">
         <span id="storage-status">Checking storage…</span><span id="connection-status"></span></footer>

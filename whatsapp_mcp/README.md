@@ -45,7 +45,8 @@ The archive uses WhatsApp's own synchronised contact names. The vCard import scr
 
 From version 0.2.0, the app provides a read-only archive viewer through Home Assistant **Ingress**. Open **Settings → Apps → WhatsApp MCP (Read Only) → Open Web UI**, or enable **Show in sidebar**.
 
-- Conversation list, groups, timestamps, sender names, message bubbles and attachment downloads.
+- Separate **Direct** and **Groups** tabs for browsing. Conversation-name search and full-text message search remain global across both types, including search-result navigation.
+- Conversation timestamps, sender names, message bubbles and attachment downloads.
 - Search conversations and full-text search messages/transcripts; click a result to open that period of the conversation.
 - Responsive desktop/mobile layout. No direct port is published. The ingress listener is on **8100**, separate from Cloudflare MCP **8099**, and only accepts the Home Assistant Supervisor ingress peer.
 - Home Assistant login and admin-only app panel protect the viewer. All browsing routes are GET-only; none can send, edit, delete or mark messages read.
@@ -162,11 +163,15 @@ The previous configuration `/share/storage/whatsapp-mcp` **will not work** for a
 **Migration safeguards:**
 1. On startup before the WhatsApp API opens SQLite, verify that the selected `/media/storage` or `/share/<name>` is a separate mounted filesystem. A missing mount stops the app rather than creating a second empty archive.
 2. If the private destination folder is absent, copy the stopped WhatsApp data directory into a temporary folder **on the external disk**, set private permissions and atomically rename it into place. This includes SQLite, linked-device state and cached media.
-3. Keep the original `/data/whatsapp` intact as a rollback copy. The live API moves to the external directory only after a successful migration.
-4. Never automatically merge with an existing archive or remove the original.
-5. Test for actual write permission after dropping privileges to the app's unprivileged user.
+3. Validate the external SQLite database using an integrity check and schema read, and test for actual write permission before starting any WhatsApp worker.
+4. After that verification, **delete** the retired `/data/whatsapp` copy so old/deleted messages are not carried indefinitely in future Home Assistant app backups. If validation fails, stop the app **without** deleting the old copy. No row-count comparison or old-data merge is performed: fewer external rows may represent intentional deletion.
+5. Once configured, always use the same external path. A missing external drive fails startup rather than silently falling back to internal storage.
 
-`storage_path: ""` continues to use `/data/whatsapp` in app-local storage. Only place live SQLite WAL files on a real local filesystem with working file locks (e.g. ext4), not an SMB/NFS share. Keep independent encrypted backups; this move is **not** a substitute for them. Internal API/gateway bearer tokens remain under `/data/.whatsapp-mcp-secrets`.
+The app also declares `backup_exclude` patterns for `/data/whatsapp` as defence in depth against future app backups. The remaining `/data/.whatsapp-mcp-secrets` contains gateway credentials, **not the message database**.
+
+**Deleted-message privacy and backups:** Do not include the external `media` volume in Home Assistant automatic or manual backups, and exclude this folder from other NAS/cloud/snapshot backup jobs. Deleting a message from live SQLite **does not remove it from backups already taken**. Review old Home Assistant snapshots, Google Drive backups and any other previously created backup copies independently. If the archive volume itself uses filesystem snapshots, those may still retain prior data. Keeping no historic message backups entails accepting loss of the archive if the drive fails.
+
+`storage_path: ""` still permits an explicitly configured internal archive (to avoid breaking other installations), but it is **not** the intended privacy-focused configuration. Only place live SQLite WAL files on a real local filesystem with working file locks (e.g. ext4), not an SMB/NFS share.
 
 ## Install and link WhatsApp
 
