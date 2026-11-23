@@ -10,7 +10,7 @@ from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from PIL import Image, ImageOps, ImageFilter
 
-app = FastAPI(title="OCR Tool")
+app = FastAPI(title="OCR Tool", description="Extract text from screenshots and PDFs locally.")
 
 MAX_BYTES = 50 * 1024 * 1024
 

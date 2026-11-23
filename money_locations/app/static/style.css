@@ -646,3 +646,4 @@ img.mark { object-fit: contain; padding: 0; }
 .chart text.negative { fill: var(--red); }
 .income-sources { display: grid; gap: 8px; margin-bottom: 18px; max-width: 500px; }
 .income-source { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+button:focus-visible,a:focus-visible{outline:2px solid currentColor;outline-offset:3px}
