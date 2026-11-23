@@ -160,7 +160,7 @@ export function createArchiveServer({ apiToken, port = 8100, storagePath = '/dat
           updatedAt: state.updatedAt, startedAt: state.startedAt,
           conversations: all.length, phases: counts,
           requests: state.requests, requestsToday: state.requestsToday,
-          dailyLimit: 60, importedEstimate: state.importedEstimate, recent: chats
+          dailyLimit: 2000, importedEstimate: state.importedEstimate, recent: chats
         }), 'application/json');
       }
       if (url.pathname === '/api/archive/date-range') {
