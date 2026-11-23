@@ -63,7 +63,7 @@
         <p id="backfill-summary" class="backup-status" role="status">Loading history recovery progress…</p>
         <section class="backup-card">
           <h3>Conversation progress</h3>
-          <p>Imported counts are estimates and can include duplicates. A short, matched reply marks a conversation as probably complete; WhatsApp does not provide definitive per-thread completion. A retry means no usable reply yet. Stalled conversations need further investigation, not automatic deletion.</p>
+          <p>Imported counts are estimates and can include duplicates. Short replies trigger another history request, not completion. Only a matched empty follow-up can suggest that no older messages remain. WhatsApp does not provide definitive per-thread completion; an unanswered request is never considered empty. Stalled conversations need further investigation, not automatic deletion.</p>
           <div id="backfill-chats" class="backfill-list"><p class="placeholder">Loading…</p></div>
         </section>
       </div>
