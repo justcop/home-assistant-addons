@@ -29,7 +29,7 @@ These add-ons are primarily used by one person in their own Home Assistant insta
 - Every supported architecture must publish successfully before the new version is advertised to Supervisor. The publisher serializes release jobs and reads the committed version state before selecting the next version.
 - Application Python, templates and static files may use compatible code deployments. The central updater stages checksummed runtime files on `/media/storage/addon-code`, atomically selects a revision and restarts the application. It does not rebuild an image or change installed options.
 - Changes to protected/schema-bearing modules require an image and appropriate explicit migration safeguards. A code revert must never be treated as a database rollback.
-- Use the My Add-ons interface to check status, deploy a compatible commit or recover an interrupted transaction. The legacy Development Manager is being retired; verify each installation's migration status and do not recreate local source-based installations.
+- Use the My Add-ons interface to check status, deploy a compatible commit or recover an interrupted transaction. The legacy Development Manager has been retired after verified migration; do not recreate local source-based installations.
 
 ## File placement and backup design
 

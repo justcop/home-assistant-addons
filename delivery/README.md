@@ -17,3 +17,9 @@ Only the active runtime release is retained after successful verification. Media
 The old Add-on Development Manager is stopped during migration, then retired only after its replacement is verified. Existing local installations are retained until their replacements have been checked. Supervisor repository prefixes change the full slug, so their private data and options must be explicitly copied; changing repository metadata in Supervisor's internal files is not supported.
 
 The legacy Python SSH utility previously advertised ARMv6 (`armhf`) although its current pinned upstream Python image does not publish ARMv6. Its configuration now accurately lists the four architectures that upstream supports; no installed application used this obsolete claim.
+
+## Failure visibility
+
+The central updater reports failed/interrupted deployments immediately through a stable Home Assistant persistent notification, with a link to recovery. Repository/network and independent application-readiness failures need two consecutive checks to avoid alerts for planned short restarts. Deliberately stopped applications are not treated as failures. Verified recovery dismisses the existing alert; repeat failures update the same notification. Failed HA notification delivery is retained in the updater's backed-up state and retried, without replacing the original error.
+
+This independent check covers launcher/application availability and deployment readiness. It does not claim that every application's background sync, authentication or external backup job is succeeding; those operations retain their application-specific monitoring. When Home Assistant itself is down, the updater retains pending notification state and delivers it after reconnection.

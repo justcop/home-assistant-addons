@@ -16,6 +16,7 @@ import requests
 import yaml
 
 from contract import manifest, safe_path
+from notifier import reconcile
 
 REPO = "justcop/home-assistant-addons"
 PREFIX = "64b28acc_"
@@ -146,6 +147,14 @@ class Updater:
                 continue
             try:
                 running, info = self.status(slug)
+                if not running.get("running") and not running.get("error"):
+                    raise ValueError("Application process is not running")
+                spec = candidate(files, directory, sha)
+                if spec and running.get("running"):
+                    health = SESSION.get(f"http://{info['ip_address']}:{spec['spec']['health_port']}{spec['spec']['health_path']}",
+                                         timeout=4, allow_redirects=False)
+                    if health.status_code not in {200, 301, 302, 401, 403}:
+                        raise ValueError("Application readiness check failed")
                 row.update(deployed=running["sha"], image_sha=running["image_sha"], error=running.get("error"))
                 desired = candidate(files, directory, sha)
                 if desired is None or desired["compatibility"] != running["compatibility"]:
@@ -322,5 +331,11 @@ class Updater:
             self.state["error"] = str(exc)
             self.save()
         finally:
+            try:
+                reconcile(self.state)
+                self.save()
+            except Exception:
+                # Preserve the deployment error even if alert persistence fails.
+                self.state["notification_error"] = "Unable to persist notification status; inspect updater storage."
             self.busy = False
             self.lock.release()
