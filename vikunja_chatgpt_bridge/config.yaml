@@ -6,21 +6,24 @@ init: false
 startup: services
 boot: auto
 arch:
-  - amd64
-  - aarch64
+- amd64
+- aarch64
 ports:
   3000/tcp: 3000
 ports_description:
   3000/tcp: MCP OAuth bridge (use HTTPS Cloudflare Tunnel)
 options:
-  vikunja_mcp_url: "https://vikunja.example.com/api/v2/mcp"
-  mcp_base_url: "https://mcp.example.com"
-  vikunja_mcp_token: ""
-  oauth_password: ""
-  session_secret: ""
+  vikunja_mcp_url: https://vikunja.example.com/api/v2/mcp
+  mcp_base_url: https://mcp.example.com
+  vikunja_mcp_token: ''
+  oauth_password: ''
+  session_secret: ''
 schema:
   vikunja_mcp_url: str
   mcp_base_url: str
   vikunja_mcp_token: password
   oauth_password: password
   session_secret: password
+map:
+- type: media
+  read_only: true

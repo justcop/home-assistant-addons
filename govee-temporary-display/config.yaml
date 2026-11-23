@@ -1,18 +1,18 @@
 name: Govee Pixel Studio
-version: "0.6.1"
+version: 0.6.1
 slug: govee_temporary_display
 description: Manage pixel artwork on external storage and stream temporary 52x32 displays
 arch:
-  - amd64
-  - aarch64
+- amd64
+- aarch64
 init: false
 startup: application
 boot: auto
 host_network: false
 homeassistant_api: true
 map:
-  - share:ro
-  - media:rw
+- share:ro
+- media:rw
 ingress: true
 ingress_port: 8098
 panel_icon: mdi:image-multiple-outline

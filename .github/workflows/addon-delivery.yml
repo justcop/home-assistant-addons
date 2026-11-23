@@ -1,0 +1,149 @@
+name: Classify and publish add-on updates
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'delivery/**'
+      - 'addon_updater/**'
+      - '.github/workflows/addon-delivery.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: addon-delivery-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  classify:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      changed: ${{ steps.plan.outputs.changed }}
+      source: ${{ steps.plan.outputs.source }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.ref || 'main' }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - run: pip install PyYAML==6.0.2 Flask==3.1.1 requests==2.32.4 waitress==3.0.2 pytest==8.4.2
+      - run: python -m pytest delivery/tests -q
+      - run: python -m compileall -q delivery addon_updater
+      - run: node --check addon_updater/app/static/app.js
+      - name: Select only applications requiring an image
+        id: plan
+        run: |
+          python delivery/release.py prepare
+          python - <<'PY'
+          import json,os,subprocess
+          rows=json.load(open('/tmp/addon-release-plan.json'))
+          for row in rows:
+              row['runner']='ubuntu-24.04-arm' if row['arch']=='aarch64' else 'ubuntu-latest'
+          with open(os.environ['GITHUB_OUTPUT'],'a') as out:
+              print('matrix='+json.dumps({'include':rows},separators=(',',':')),file=out)
+              print('changed='+str(bool(rows)).lower(),file=out)
+              print('source='+subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),file=out)
+          print(json.dumps(rows,indent=2))
+          PY
+      - name: Save source-specific generated contexts
+        if: github.event_name != 'pull_request' && steps.plan.outputs.changed == 'true'
+        run: |
+          mkdir -p /tmp/delivery-context
+          cp /tmp/addon-release-plan.json /tmp/addon-release-state.json /tmp/delivery-context/
+          tar -czf /tmp/delivery-context/source.tgz --exclude=.git .
+      - if: github.event_name != 'pull_request' && steps.plan.outputs.changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: delivery-context
+          path: /tmp/delivery-context/*
+          retention-days: 1
+  build:
+    needs: classify
+    if: github.event_name != 'pull_request' && needs.classify.outputs.changed == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.classify.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: delivery-context
+          path: /tmp/delivery-context
+      - run: tar -xzf /tmp/delivery-context/source.tgz
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-qemu-action@v3
+        if: matrix.arch != 'amd64' && matrix.arch != 'aarch64'
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./${{ matrix.addon }}
+          file: ./${{ matrix.addon }}/.delivery.Dockerfile
+          platforms: ${{ matrix.platform }}
+          push: true
+          labels: |
+            org.opencontainers.image.source=https://github.com/justcop/home-assistant-addons
+            org.opencontainers.image.revision=${{ needs.classify.outputs.source }}
+          tags: ${{ matrix.image }}:${{ matrix.version }}
+          build-args: |
+            BUILD_ARCH=${{ matrix.arch }}
+            BUILD_VERSION=${{ matrix.version }}
+            BUILD_FROM=${{ matrix.build_from }}
+          cache-from: type=gha,scope=delivery-${{ matrix.addon }}-${{ matrix.arch }}
+          cache-to: type=gha,scope=delivery-${{ matrix.addon }}-${{ matrix.arch }},mode=max,ignore-error=true
+      - name: Verify published launcher and Python syntax
+        if: matrix.arch == 'amd64' || matrix.arch == 'aarch64'
+        env:
+          IMAGE: ${{ matrix.image }}:${{ matrix.version }}
+        run: |
+          case '${{ matrix.addon }}' in
+            github_actions_cleanup|python) exit 0;;
+          esac
+          docker run --rm --network none --entrypoint python3 "$IMAGE" -c 'import json,pathlib; p=pathlib.Path("/opt/delivery/manifest.json"); print(json.loads(p.read_text())["sha"]) if p.exists() else print("standard updater image")'
+      - name: Verify anonymous Home Assistant pull access
+        env:
+          IMAGE: ${{ matrix.image }}:${{ matrix.version }}
+        run: |
+          docker logout ghcr.io
+          docker manifest inspect "$IMAGE" >/dev/null || {
+            echo 'The image has published but its GHCR package must be public before Supervisor can install it.' >&2
+            exit 1
+          }
+  advertise:
+    needs: [classify, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.classify.outputs.source }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: delivery-context
+          path: /tmp/delivery-context
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - run: pip install PyYAML==6.0.2
+      - name: Advertise versions only after every architecture succeeds
+        run: |
+          cp /tmp/delivery-context/addon-release-*.json /tmp/
+          python delivery/release.py publish
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add '*/config.yaml' delivery/releases.json
+          git commit -m 'chore: advertise verified add-on images'
+          git fetch origin main
+          git rebase origin/main
+          git push origin HEAD:main

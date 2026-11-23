@@ -1,9 +1,12 @@
 name: Money Locations
-version: "0.5.2"
+version: 0.5.2
 slug: money_locations
-description: Net financial assets, inferred savings and investment returns from flexible snapshots.
+description: Net financial assets, inferred savings and investment returns from flexible
+  snapshots.
 url: https://github.com/justcop/home-assistant-addons/tree/main/money_locations
-arch: [aarch64, amd64]
+arch:
+- aarch64
+- amd64
 startup: application
 boot: auto
 init: false
@@ -15,19 +18,21 @@ panel_title: Money Locations
 panel_admin: true
 backup: cold
 map:
-  - share:rw
+- share:rw
+- type: media
+  read_only: true
 ports:
   8100/tcp: null
 ports_description:
   8100/tcp: Optional Cloudflare Access Google SSO or password-protected web interface
 webui: http://[HOST]:[PORT:8100]
 options:
-  web_password: ""
-  cloudflare_team_domain: ""
-  cloudflare_audience: ""
-  cloudflare_owner_email: ""
-  lifestage_email: ""
-  lifestage_password: ""
+  web_password: ''
+  cloudflare_team_domain: ''
+  cloudflare_audience: ''
+  cloudflare_owner_email: ''
+  lifestage_email: ''
+  lifestage_password: ''
 schema:
   web_password: password?
   cloudflare_team_domain: str?

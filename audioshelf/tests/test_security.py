@@ -92,7 +92,10 @@ def test_totp_requires_factor_rejects_replay_and_recovery_is_single_use(secured)
     secret, codes = provision(app, client)
     stranger = app.test_client()
     assert login(stranger).status_code == 401
-    assert login(stranger, code=totp(secret,int(time.time()//30))).status_code == 401
+    # Replay the exact counter consumed by provisioning. The wall clock can
+    # legitimately advance into a new 30-second slot between these requests.
+    used_counter = app.extensions['security'].get('last_counter')
+    assert login(stranger, code=totp(secret, used_counter)).status_code == 401
     assert login(stranger, code=codes[0]).status_code == 200
     assert login(app.test_client(), code=codes[0]).status_code == 401
     assert len(app.extensions['security'].get('recovery')) == 9

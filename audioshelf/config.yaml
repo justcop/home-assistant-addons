@@ -1,11 +1,11 @@
 name: AudioShelf
-version: "0.6.49"
+version: 0.6.49
 slug: audioshelf
 description: Your album collection, with original tracklists and Spotify playback.
 url: https://github.com/justcop/home-assistant-addons/tree/main/audioshelf
 arch:
-  - aarch64
-  - amd64
+- aarch64
+- amd64
 startup: application
 boot: auto
 init: false
@@ -18,27 +18,26 @@ panel_title: AudioShelf
 ports:
   8099/tcp: 8098
 ports_description:
-  8099/tcp: Standalone mobile UI and Spotify callback. Standalone access requires Cloudflare Access or a web password, and HTTPS.
+  8099/tcp: Standalone mobile UI and Spotify callback. Standalone access requires
+    Cloudflare Access or a web password, and HTTPS.
 map:
-  - type: share
-    read_only: false
-  - type: media
-    read_only: false
-  - type: local_apps
-    read_only: true
+- type: share
+  read_only: false
+- type: media
+  read_only: false
 options:
-  cloudflare_team_domain: ""
-  cloudflare_audience: ""
-  cloudflare_owner_email: ""
-  listening_analytics_origin: ""
+  cloudflare_team_domain: ''
+  cloudflare_audience: ''
+  cloudflare_owner_email: ''
+  listening_analytics_origin: ''
   data_directory: /data/audioshelf-collection
   cache_directory: /media/audioshelf-cache
-  spotify_client_id: ""
-  spotify_redirect_uri: ""
+  spotify_client_id: ''
+  spotify_redirect_uri: ''
   spotify_market: GB
-  web_password: ""
+  web_password: ''
   allow_support_access: false
-  two_factor_reset_request: ""
+  two_factor_reset_request: ''
 schema:
   cloudflare_team_domain: str?
   cloudflare_audience: str?

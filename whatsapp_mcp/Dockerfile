@@ -19,7 +19,7 @@ RUN corepack enable && pnpm install --frozen-lockfile \
     && node /src/patch-baileys-meta-ai.mjs
 
 FROM node:24-bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg poppler-utils ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg poppler-utils ca-certificates python3 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /opt/out/api /opt/whatsapp-api
 COPY --from=build /opt/out/mcp /opt/whatsapp-mcp

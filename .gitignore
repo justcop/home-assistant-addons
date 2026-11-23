@@ -1,0 +1,5 @@
+**/__pycache__/
+**/*.pyc
+**/.delivery/
+**/.delivery.Dockerfile
+.pytest_cache/
