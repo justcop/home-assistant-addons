@@ -165,3 +165,38 @@ patchConnection(
 );
 fs.writeFileSync(connectionFile, connection);
 console.log('Extended history requested for authenticated sessions; initial pairing remains Chrome.');
+
+// Bounded, one-shot on-demand history trial. Keep it out of the public REST
+// and MCP surfaces, and fail the image build if upstream bootstrap shifts.
+const mainPath = '/src/packages/api/src/main.ts';
+let mainSource = fs.readFileSync(mainPath, 'utf8');
+const historyImportAnchor = 'import { makeSender } from "./whatsapp/send.js";';
+const historyStartAnchor = '  live = conn;\n';
+if (mainSource.split(historyImportAnchor).length !== 2 || mainSource.split(historyStartAnchor).length !== 2) {
+  throw new Error('History backfill bootstrap anchors changed');
+}
+mainSource = mainSource.replace(historyImportAnchor,
+  historyImportAnchor + '\nimport { startHistoryBackfillTrial } from "./history-backfill.js";');
+mainSource = mainSource.replace(historyStartAnchor,
+  historyStartAnchor + '\n  if (process.env[\"WHATSAPP_HISTORY_BACKFILL_TRIAL\"] === "1") {\n' +
+  '    startHistoryBackfillTrial({ conn, chats, messages, dataDir: config.dataDir, logger });\n' +
+  '  }\n');
+fs.writeFileSync(mainPath, mainSource);
+fs.copyFileSync('/src/history-backfill.ts', '/src/packages/api/src/history-backfill.ts');
+console.log('One-shot history trial included; requires explicit opt-in environment flag.');
+
+// Privacy-safe read-state diagnostics: count only server read-zero updates,
+// without logging message data, group/contact IDs or chat names. These do not
+// read or write WhatsApp state; they only identify why unread badges stay stale.
+const readSyncAnchor = '    sock.ev.on("chats.update", (cs) => {\n      guard("chats.update", () => {\n        runChunked(cs, "chats", applyChat);';
+if (ingest.split(readSyncAnchor).length !== 2) {
+  throw new Error('Read-state diagnostics anchor changed');
+}
+ingest = ingest.replace(readSyncAnchor,
+  '    sock.ev.on("chats.update", (cs) => {\n' +
+  '      guard("chats.update", () => {\n' +
+  '        const zeroUpdates = cs.filter(c => c.unreadCount === 0).length;\n' +
+  '        if (zeroUpdates > 0) logger.info({ count: zeroUpdates }, "unread-sync: read-zero updates received");\n' +
+  '        runChunked(cs, "chats", applyChat);');
+fs.writeFileSync(ingestFile, ingest);
+console.log('Privacy-safe read-state diagnostics included.');

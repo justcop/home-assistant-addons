@@ -182,6 +182,8 @@ async function main() {
     WHATSAPP_API_TOKEN: apiToken,
     WHATSAPP_PHONE_NUMBER: opts.phone_number,
     WHATSAPP_MCP_READONLY: 'true',
+    // Bounded three-chat, one-shot on-demand history experiment.
+    WHATSAPP_HISTORY_BACKFILL_TRIAL: '1',
     LOG_LEVEL: 'info'
   });
   await waitForServer(API_PORT, api);
