@@ -164,17 +164,17 @@ The live database continues to be stored on the local mounted STORAGE drive.
    then click **Connect Google Drive**. Visit Google's displayed verification
    URL and enter the one-time code; the app polls Google's device-token
    endpoint over HTTPS until authorised. Google Drive's limited
-   \`drive.file\` scope permits this new app to manage **only its own files**.
+   `drive.file` scope permits this new app to manage **only its own files**.
    It cannot directly reuse the other add-on's private OAuth credentials.
 3. Select **Show / generate recovery key**. Copy the 32-byte base64url
    recovery key to a password manager **outside Home Assistant**, then confirm.
    Neither the recovery key nor the Google refresh token is included in Home
-   Assistant app backups: \`/data/.whatsapp-cloud-backup\` is excluded.
+   Assistant app backups: `/data/.whatsapp-cloud-backup` is excluded.
 4. Click **Enable daily backup**, choose the default **05:30 Europe/London**
    schedule or edit it, and optionally **Run backup now** for the first test.
 
 The live SQLite writer is not stopped. Each run uses Node's SQLite online
-backup API to create a consistent snapshot; verifies \`PRAGMA integrity_check\`;
+backup API to create a consistent snapshot; verifies `PRAGMA integrity_check`;
 encrypts with AES-256-GCM using a fresh random nonce per run; uploads via the
 Google Drive resumable API to a dedicated app-owned private folder; checks
 the Drive object size and MD5 of the encrypted bytes; then deletes all other
@@ -183,12 +183,12 @@ managed backup files in that folder. A failed snapshot, encryption or upload
 marks cleanup pending and retries rather than reporting successful
 one-copy retention. There can be a brief overlap during upload and deletion.
 
-Backup files are named \`whatsapp-db-<UTC timestamp>.wacloud\`, not shared
+Backup files are named `whatsapp-db-<UTC timestamp>.wacloud`, not shared
 publicly, and no WhatsApp message text, media, OAuth tokens, or encryption
 key is written to normal backup logs. The UI reports the last successful
 backup, any errors, and whether cleanup remains incomplete.
 
-**What is backed up:** \`whatsapp.db\`, including messages and the database's
+**What is backed up:** `whatsapp.db`, including messages and the database's
 existing tables, but **not** downloaded media/attachments, the WhatsApp
 linked-device credentials, the cloud configuration or separate internal API
 tokens. A full disaster recovery may require re-pairing WhatsApp.
@@ -204,13 +204,13 @@ predating this feature are unaffected.
 
 In the archive's backup panel, click **Download latest encrypted backup**.
 On a trusted computer with Node 24+, download the companion source files
-\`cloud-backup.mjs\` and \`restore-cloud-backup.mjs\` from this repository,
+`cloud-backup.mjs` and `restore-cloud-backup.mjs` from this repository,
 and create a private text file containing only the saved recovery key.
 Then run:
 
-\`\`\`sh
+```sh
 node restore-cloud-backup.mjs whatsapp-db-DATE.wacloud recovered.sqlite recovery-key.txt
-\`\`\`
+```
 
 The tool verifies AES-GCM authenticity and SQLite integrity, refuses to
 overwrite an existing output and leaves the encrypted input unchanged.
