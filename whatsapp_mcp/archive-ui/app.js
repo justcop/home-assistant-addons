@@ -36,6 +36,7 @@ function view(name) {
   $('messages-view').classList.toggle('hidden', name !== 'messages');
   $('search-view').classList.toggle('hidden', name !== 'search');
   $('backup-view').classList.toggle('hidden', name !== 'backup');
+  $('backfill-view').classList.toggle('hidden', name !== 'backfill');
   $('read-only-pill').classList.toggle('hidden', name === 'backup');
 }
 function setHeading(title, description) {
@@ -417,6 +418,48 @@ setInterval(async () => {
   }
   await refreshCloudBackup();
 }, 7000);
+
+async function showBackfill() {
+  setHeading('History recovery', 'Resumable background retrieval from WhatsApp');
+  view('backfill');
+  $('shell').classList.add('chat-open');
+  await updateBackfill();
+}
+async function updateBackfill() {
+  if (state.view !== 'backfill') return;
+  try {
+    const result = await get('api/archive/backfill');
+    if (result.state === 'not_started') {
+      $('backfill-summary').textContent = 'No history recovery has started yet.';
+      $('backfill-chats').replaceChildren();
+      return;
+    }
+    const phases = result.phases || {};
+    const summary = (result.state === 'running' ? 'Running' : 'Paused') +
+      ' · ' + result.requests + ' requests (' + result.requestsToday +
+      '/' + result.dailyLimit + ' today) · ' + result.conversations + ' conversations' +
+      ' · ' + (phases.stalled || 0) + ' stalled' +
+      ' · ' + (phases.no_anchor || 0) + ' without a usable starting message';
+    $('backfill-summary').textContent = summary;
+    const list = $('backfill-chats');
+    list.replaceChildren();
+    for (const chat of result.recent || []) {
+      const item = el('div','backfill-item');
+      const heading = el('strong','',chat.name);
+      const detail = el('p','',chat.phase + ' · ' + chat.requests + ' requests' +
+        ' · approx. ' + chat.importedEstimate + ' delivered messages' +
+        (chat.oldestTimestamp ? ' · oldest ' +
+          stamp(chat.oldestTimestamp, {day:'numeric',month:'short',year:'numeric'}) : ''));
+      item.append(heading,detail);
+      list.append(item);
+    }
+    if (!list.childElementCount) list.append(el('p','placeholder','No conversations processed yet.'));
+  } catch(err) {
+    $('backfill-summary').textContent = err.message;
+  }
+}
+$('show-backfill').addEventListener('click',showBackfill);
+setInterval(updateBackfill, 15_000);
 
 $('tab-direct').addEventListener('click', () => setChatType('direct'));
 $('tab-groups').addEventListener('click', () => setChatType('groups'));
