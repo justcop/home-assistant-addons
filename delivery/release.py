@@ -65,16 +65,48 @@ def next_version(current, previous):
     return f"{major}.{minor}.{patch + 1}"
 
 
+def missing_whatsapp_image(version):
+    """Repair an advertised GHCR tag that is not anonymously downloadable.
+
+    Only WhatsApp is recovered automatically because it is the known affected
+    package. Do not silently bump every installed app or rebuild an unrelated
+    image when GHCR has a transient outage.
+    """
+    if not version:
+        return False
+    image = "ghcr.io/justcop/whatsapp-mcp-amd64:" + str(version)
+    try:
+        result = subprocess.run(["docker", "manifest", "inspect", image],
+                                capture_output=True, text=True, timeout=40,
+                                check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise RuntimeError("Could not verify public WhatsApp image: " + str(exc)) from exc
+    if result.returncode == 0:
+        return False
+    detail = (result.stderr + result.stdout).lower()
+    if any(x in detail for x in ("manifest unknown", "no such manifest",
+                                 "not found", "404", "unauthorized", "denied")):
+        print("WhatsApp image missing/inaccessible; rebuilding last advertised version:", image)
+        return True
+    raise RuntimeError("GHCR image verification inconclusive; refusing publication: " +
+                       (result.stderr or "unknown error")[:260])
+
+
 def prepare():
     previous = json.loads(STATE.read_text()) if STATE.exists() else {}
     sha = git("rev-parse", "HEAD")
     plan = []
     for name, item in catalog().items():
         before = previous.get(name, {})
-        if item["compatibility"] == before.get("compatibility"):
+        same_content = item["compatibility"] == before.get("compatibility")
+        repair = (name == "whatsapp_mcp" and
+                  missing_whatsapp_image(before.get("version") or item["config"]["version"]))
+        if same_content and not repair:
             continue
         config = item["config"]
-        version = next_version(config["version"], before.get("version"))
+        # A missing published image is repaired in place at the *same* tag,
+        # rather than advertising another nonexistent version.
+        version = str(before["version"]) if repair and same_content and before.get("version") else next_version(config["version"], before.get("version"))
         image = "ghcr.io/justcop/" + item["id"].replace("_", "-") + "-{arch}"
         item.update(sha=sha, version=version, image=image)
         folder = ROOT / name
