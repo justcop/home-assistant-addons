@@ -129,7 +129,13 @@ jobs:
         run: |
           docker logout ghcr.io
           docker manifest inspect "$IMAGE" >/dev/null || {
-            echo 'The image has published but its GHCR package must be public before Supervisor can install it.' >&2
+            echo 'The GHCR image is missing or not publicly accessible.' >&2
+            exit 1
+          }
+          # Home Assistant needs to pull layers, not merely inspect a tag.
+          docker image rm "$IMAGE" >/dev/null 2>&1 || true
+          docker pull --platform "${{ matrix.platform }}" "$IMAGE" || {
+            echo 'Actual anonymous image pull failed; never advertise this version.' >&2
             exit 1
           }
   advertise:
@@ -164,7 +170,7 @@ jobs:
             echo "Checking external manifest for $image"
             ok=0
             for attempt in 1 2 3 4 5 6; do
-              if docker manifest inspect "$image" >/dev/null 2>&1; then
+              if docker manifest inspect "$image" >/dev/null 2>&1 && docker pull "$image" >/dev/null 2>&1; then
                 ok=1
                 break
               fi
