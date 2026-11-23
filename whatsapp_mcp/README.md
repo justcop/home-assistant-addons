@@ -26,11 +26,16 @@ runs daily at **07:17 UTC** and can also be triggered manually.
   **anonymously pulled** before advertising a new version. WhatsApp
   additionally performs a full amd64 pull and architecture check, protecting
   against the previous GHCR missing-manifest incident.
-- Home Assistant's WhatsApp **automatic image updates are disabled**.
-  The shared My Add-on Updater also refuses unattended **live-code**
-  deployments for `whatsapp_mcp`, even if its generic compatibility
-  classifier considers a change safe. All production installation is
-  deliberate after CI and publication checks.
+- Home Assistant's WhatsApp **automatic image updates are enabled**, and
+  My Add-on Updater automatically deploys compatible changes from `main`.
+  Neither mechanism fetches or deploys unmerged upstream candidate branches.
+  Upstream runtime, database, authentication and privacy changes remain on a
+  review-required pull request until approved and tested. The shared live-code
+  compatibility boundary prevents changes to image/build/schema-bearing paths
+  from being hot-deployed; those require a separately published image.
+  Because Home Assistant can install published images automatically, any
+  irreversible database migration must be gated *before publication*, with
+  a verified backup and explicit approval.
 - **My Add-ons** monitors the upstream GitHub workflow. A failed run,
   missing run, or a workflow silent for over 48 hours causes a deduplicated
   native Home Assistant persistent notification. Deployment/startup
