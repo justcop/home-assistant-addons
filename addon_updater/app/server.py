@@ -23,7 +23,10 @@ def create_app(updater, options, testing=False):
             abort(403)
         if not testing:
             if time.monotonic() >= cache["until"]:
-                users = supervisor("/auth/list")["users"]
+                try:
+                    users = supervisor("/auth/list")["users"]
+                except Exception:
+                    abort(503, "Home Assistant administrator verification is temporarily unavailable. Retry after startup.")
                 cache["names"] = {u["username"] for u in users if u.get("is_active") and
                                   (u.get("is_owner") or "system-admin" in u.get("group_ids", []))}
                 cache["until"] = time.monotonic() + 30
