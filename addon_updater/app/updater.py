@@ -20,6 +20,9 @@ from notifier import reconcile
 
 REPO = "justcop/home-assistant-addons"
 PREFIX = "64b28acc_"
+# The WhatsApp archive has privacy-critical upstream patches. A successful
+# image build or a commit on main is not permission to deploy it live.
+MANUAL_DEPLOY_APPS = frozenset({"whatsapp_mcp"})
 ROOT = Path(os.environ.get("ADDON_CODE_ROOT", "/media/storage/addon-code"))
 SESSION = requests.Session()
 
@@ -142,6 +145,7 @@ class Updater:
                        version=app["version"], latest=sha, checked=now(), state=app.get("state"),
                        version_latest=config["version"])
             seen.add(ident)
+            row["deployment_policy"] = "manual" if ident in MANUAL_DEPLOY_APPS else "automatic"
             if ident == "addon_updater":
                 row.update(mode="standard", reason="Updater uses standard image updates", error=None)
                 continue
@@ -321,7 +325,8 @@ class Updater:
                     self.deploy(ident, sha, files if sha is None else None)
                 elif action == "automatic":
                     for name, row in list(self.state["apps"].items()):
-                        if row["mode"] == "live" and not row.get("pinned") and name not in self.state["transactions"]:
+                        if (name not in MANUAL_DEPLOY_APPS and row["mode"] == "live"
+                                and not row.get("pinned") and name not in self.state["transactions"]):
                             try:
                                 self.deploy(name, files=files)
                             except Exception as exc:
