@@ -75,3 +75,7 @@
   .backfill-yellow .backfill-status{color:#855408}
   .backfill-red .backfill-status{color:#a02c33}
 }
+
+.backfill-recheck{margin-top:9px;padding:7px 11px;border:1px solid var(--stroke);border-radius:9px;background:transparent;color:var(--text);font:inherit;font-size:12px;font-weight:650}
+.backfill-recheck:hover,.backfill-recheck:focus-visible{border-color:var(--accent);color:var(--accent)}
+.backfill-recheck:disabled{opacity:.55;cursor:default}
