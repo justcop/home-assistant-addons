@@ -32,6 +32,11 @@
         <span id="connection-status"></span></footer>
     </aside>
     <main id="main" class="main">
+      <div id="backup-alert" class="backup-alert hidden" role="alert" aria-live="assertive">
+        <span aria-hidden="true">⚠</span>
+        <span id="backup-alert-text">WhatsApp cloud backup needs attention.</span>
+        <button id="backup-alert-open" type="button">View backup settings</button>
+      </div>
       <header class="conversation-header">
         <button id="show-chats" class="icon-button mobile-only" type="button" aria-label="Show conversations">☰</button>
         <div class="conversation-heading"><h2 id="conversation-name">Your private archive</h2><p id="conversation-description">Select a conversation or search all messages</p></div>
