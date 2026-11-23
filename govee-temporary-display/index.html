@@ -1,82 +1,251 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Govee Music Fireworks</title><style>
-:root{color-scheme:dark}body{font:16px system-ui,sans-serif;background:#0c1022;color:#f2f3ff;margin:0;padding:24px;max-width:800px}
-h1{font-size:1.55rem}p{color:#bdc6df;line-height:1.5}.controls{display:flex;flex-wrap:wrap;gap:12px;margin:16px 0}button{font:inherit;padding:12px 22px;border-radius:12px;border:1px solid #6673a3;background:#293b7d;color:white;cursor:pointer}button:disabled{opacity:.4}canvas{width:min(100%,728px);image-rendering:pixelated;border:1px solid #425075;border-radius:8px;background:#030713}label{display:block;margin:15px 0}input{vertical-align:middle}#status{font-weight:600;color:#b6ddff}
-</style></head><body>
-<h1>🎆 Music-responsive fireworks</h1>
-<p>Uses your browser microphone to detect beats and frequency bands. Only the rendered 52×32 RGB frames are sent to the Govee; audio stays in your browser. Keep this page open while playing.</p>
-<div class="controls"><button id="start">Start fireworks + microphone</button><button id="stop" disabled>Stop and go black</button></div>
-<label>Sensitivity <input id="sensitivity" type="range" min="50" max="250" value="130"> <output id="sensvalue">130%</output></label>
-<canvas id="screen" width="52" height="32"></canvas><p id="status">Stopped. Waiting for microphone permission.</p>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#101425">
+<title>Govee Pixel Studio</title>
+<style>
+:root{color-scheme:dark;--bg:#0d1120;--surface:#181e31;--surface2:#222943;--line:#39445f;--ink:#f3f5ff;--muted:#acb7d2;--accent:#8daaff;--danger:#ff899a}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 85% 0%,#242f51 0%,#101526 40%,#0d1120 78%);font:15px/1.48 system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--ink)}
+button,input,select{font:inherit}button{background:#30477f;color:#fff;border:1px solid #5974b2;border-radius:11px;padding:9px 15px;cursor:pointer;min-height:42px}button:hover:not(:disabled){background:#415e9e}button:disabled{opacity:.46;cursor:not-allowed}
+button.secondary{background:#283047;border-color:#515b77}button.ghost{background:transparent;border-color:var(--line)}button.danger{background:#4b2836;border-color:#865466}button.small{min-height:31px;padding:4px 10px;font-size:13px}
+input,select{background:#12192b;border:1px solid #566482;border-radius:9px;color:#fff;padding:10px;width:100%;min-height:42px}input:focus,select:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+input[type=range]{padding:0;accent-color:#9ab4ff;border:0;background:transparent;min-height:24px}
+label{display:block;color:#dce5ff;font-size:13px;font-weight:600;margin-bottom:6px}
+small,.muted{color:var(--muted)}h1{font-size:clamp(24px,4vw,34px);margin:0;font-weight:750;letter-spacing:-.035em}h2{font-size:19px;margin:0 0 8px;letter-spacing:-.02em}p{margin:7px 0 14px;color:var(--muted)}
+header{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:20px}main{max-width:1240px;margin:0 auto;padding:clamp(14px,3vw,28px)}
+.eyebrow{color:#a7bbff;font-size:12px;font-weight:750;letter-spacing:.15em;text-transform:uppercase}
+.card{background:rgba(25,31,49,.94);border:1px solid #39435e;border-radius:17px;padding:clamp(14px,2vw,22px);box-shadow:0 10px 35px #070b1538}
+.badges{display:flex;gap:7px;flex-wrap:wrap}.badge{border:1px solid #56647f;background:#242e49;border-radius:999px;padding:5px 11px;color:#d8e3ff;font-size:12px}
+.badge.ok{border-color:#34765f;color:#9ee8c1}.badge.warn{border-color:#8c6541;color:#ffcca1}
+.layout{display:grid;grid-template-columns:minmax(330px,.95fr) minmax(420px,1.05fr);gap:16px;align-items:start}
+.sectionhead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:15px;flex-wrap:wrap}
+#dropzone{position:relative;border:2px dashed #65769c;border-radius:13px;background:#141d32;min-height:90px;padding:17px;text-align:center;display:flex;justify-content:center;align-items:center;flex-direction:column;cursor:pointer}
+#dropzone.dragover{border-color:#c2d3ff;background:#263961}
+#dropzone input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
+.preview{background:#05060d;border:1px solid #38415c;border-radius:13px;padding:8px;margin:12px 0}
+canvas{width:100%;height:auto;aspect-ratio:52/32;image-rendering:pixelated;border-radius:7px;display:block;background:#080b15}
+.formrow{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px}
+.sliders{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.sliders output{float:right;color:var(--muted);font-size:12px}.field{margin:12px 0}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.actions button{flex:1 1 auto}
+#mappingList{display:flex;flex-wrap:wrap;gap:7px;margin:10px 0}
+.chip{display:inline-flex;gap:6px;align-items:center;border-radius:20px;background:#2b3550;color:#e9eeff;padding:5px 7px 5px 10px;max-width:100%;font-size:12px}
+.chip strong{font-weight:700;color:#b9ccff}.chip span{overflow-wrap:anywhere}.chip button{border:none;background:#4c5a78;padding:0 7px;min-height:25px;border-radius:20px}
+#gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:11px}
+.artcard{border:1px solid #414d68;background:#151d31;border-radius:13px;padding:9px;min-width:0}
+.artcard.active{border-color:#9cbbff;box-shadow:0 0 0 2px #7a9bda55}
+.artcard img{width:100%;aspect-ratio:52/32;object-fit:fill;image-rendering:pixelated;background:#020306;border-radius:6px;display:block}
+.artcard h3{font-size:13px;margin:8px 0 2px;line-height:1.3;overflow-wrap:anywhere}
+.artcard p{font-size:12px;margin:0 0 7px;overflow-wrap:anywhere;min-height:17px}
+.artcard button{width:100%;font-size:12px;min-height:34px;padding:5px 8px}
+.status{padding:10px 13px;border-radius:10px;background:#19243a;border:1px solid #3b567c;min-height:42px}
+.status.error{border-color:#945369;background:#39212e;color:#ffe0e6}
+.status.success{border-color:#386950;background:#173a30;color:#b6f5ce}
+#storageWarning{padding:12px;border:1px solid #9e604c;border-radius:12px;background:#382521;color:#ffe3ce;margin:0 0 15px}
+.hidden{display:none!important}.subtext{font-size:12px;margin:8px 0}
+hr{border:0;border-top:1px solid #37415c;margin:16px 0}
+@media(max-width:900px){.layout{grid-template-columns:1fr}.card.gallery{order:2}main{padding:12px}#gallery{grid-template-columns:repeat(auto-fill,minmax(135px,1fr))}}
+@media(max-width:430px){.sliders{grid-template-columns:1fr}.formrow{grid-template-columns:1fr}.badges{width:100%}button{padding:9px 11px}#gallery{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style>
+</head>
+<body><main>
+<header>
+ <div><div class="eyebrow">Govee H6631 · 52 × 32 LEDs</div><h1>Pixel Studio</h1><p>Crop and save artwork, then associate it with a game, song or anything else.</p></div>
+ <div class="badges"><span class="badge" id="storageBadge">Checking storage…</span><span class="badge" id="displayBadge">Checking display…</span></div>
+</header>
+<div id="storageWarning" class="hidden" role="alert"></div>
+<div class="layout">
+<section class="card" aria-label="Artwork editor">
+ <div class="sectionhead"><h2 id="editorTitle">Create artwork</h2><button class="secondary small" id="newButton">+ New image</button></div>
+ <div id="dropzone"><strong>Choose an image or drop it here</strong><small>PNG, JPG or WebP · cropping happens in your browser</small><input id="file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" aria-label="Choose artwork image"></div>
+ <div class="preview"><canvas id="preview" width="52" height="32" aria-label="Exact 52 by 32 pixel artwork preview"></canvas></div>
+ <small>Actual resolution: <strong>52 × 32 pixels</strong>. This enlarged preview shows the LED pixels, not a high-resolution mock-up.</small>
+ <div class="field"><label for="fit">Crop style</label><select id="fit"><option value="cover">Fill screen (crop edges)</option><option value="contain">Show whole image (black bars)</option></select></div>
+ <div class="sliders">
+  <div><label for="zoom">Zoom <output id="zoomValue">100%</output></label><input id="zoom" type="range" min="100" max="350" step="5" value="100"></div>
+  <div><label for="panX">Move horizontally <output id="panXValue">0</output></label><input id="panX" type="range" min="-100" max="100" step="5" value="0"></div>
+  <div><label for="panY">Move vertically <output id="panYValue">0</output></label><input id="panY" type="range" min="-100" max="100" step="5" value="0"></div>
+ </div>
+ <hr>
+ <div class="field"><label for="artName">Artwork name</label><input id="artName" maxlength="90" placeholder="e.g. Final Fantasy VII"></div>
+ <div class="field"><label>Automatic matching rules</label><small>Game titles are recognised automatically while the PS5 session is active. Song, artist and album rules are saved for other automations to call later.</small></div>
+ <div id="mappingList" aria-label="Saved matching rules"></div>
+ <div class="formrow">
+  <div><label for="matchKind">Type</label><select id="matchKind"><option value="game">Game</option><option value="song">Song</option><option value="artist">Artist</option><option value="album">Album</option><option value="other">Other</option></select></div>
+  <div><label for="matchText">Name / title</label><input id="matchText" maxlength="160" placeholder="Exact title to recognise"></div>
+ </div>
+ <button id="addRule" class="secondary small" style="margin-top:9px">+ Add matching rule</button>
+ <div class="actions"><button id="save">Save to storage drive</button><button id="show" class="secondary" disabled>Show for 30 seconds</button><button id="timerPreview" class="secondary" disabled>Preview with timer</button></div>
+ <div class="actions"><button id="delete" class="ghost danger hidden">Delete saved image</button></div>
+ <p class="subtext" id="selectedInfo">Choose an image or select an existing artwork below.</p>
+</section>
+<section class="card gallery" aria-label="Saved artwork gallery">
+ <div class="sectionhead"><div><h2>Your artwork</h2><small id="itemCount">Loading gallery…</small></div><button class="secondary small" id="refresh">Refresh</button></div>
+ <div id="gallery"></div>
+ <hr><div class="status" id="status" role="status" aria-live="polite">Opening gallery…</div>
+ <p class="subtext">Images and matching rules are saved on the separate <strong>storage</strong> drive. No artwork is written to the Govee’s permanent memory. Temporary previews automatically expire.</p>
+ <p class="subtext" id="liveStatus"></p>
+</section>
+</div>
+</main>
 <script>
-'use strict';
-const W=52,H=32,canvas=document.getElementById('screen'),ctx=canvas.getContext('2d',{willReadFrequently:true});
-const status=document.getElementById('status'),start=document.getElementById('start'),stop=document.getElementById('stop');
-const slider=document.getElementById('sensitivity'),sensvalue=document.getElementById('sensvalue');
-slider.oninput=()=>sensvalue.textContent=slider.value+'%';
-let stream,audio,analyser,data,particles=[],rockets=[],running=false,raf,last=0,lastPost=0,lastBeat=0,avg=0,beatCount=0,posts=0,failures=0;
-const palettes=[[255,73,112],[64,218,255],[255,193,60],[174,108,255],[76,255,151],[255,110,49]];
-function burst(x,y,energy,color){
-  const count=Math.round(10+energy*21);
-  for(let i=0;i<count;i++){let a=i*Math.PI*2/count+(Math.random()-.5)*.18,v=(.65+Math.random()*1.2)*(1+energy*.9);
-    particles.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,life:1,decay:.018+Math.random()*.02,c:color});}
+"use strict";
+const W=52,H=32;
+const $=id=>document.getElementById(id);
+const canvas=$("preview"),ctx=canvas.getContext("2d",{willReadFrequently:true});
+let items=[],readOnly=true,selectedId=null,source=null,fileChanged=false,mappings=[],imageURL=null,hasPreview=false;
+function notice(message,type=""){const el=$("status");el.textContent=message;el.className="status "+type;}
+function api(path,options={}){return fetch("api/"+path,{cache:"no-store",...options}).then(async r=>{const v=await r.json().catch(()=>({}));if(!r.ok)throw Error(v.error||"HTTP "+r.status);return v;});}
+function post(path,payload){return api(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});}
+function draw(){
+ ctx.fillStyle="#020207";ctx.fillRect(0,0,W,H);
+ const z=Number($("zoom").value)/100,px=Number($("panX").value)/100,py=Number($("panY").value)/100;
+ $("zoomValue").textContent=Math.round(z*100)+"%";$("panXValue").textContent=$("panX").value;$("panYValue").textContent=$("panY").value;
+ if(!source){ctx.fillStyle="#6d7596";ctx.font="5px monospace";ctx.fillText("52 x 32",17,17);hasPreview=false;return;}
+ const base=$("fit").value==="cover"?Math.max(W/source.width,H/source.height):Math.min(W/source.width,H/source.height);
+ const sw=source.width*base*z,sh=source.height*base*z;
+ const x=(W-sw)/2+Math.max(0,(sw-W)/2)*px;
+ const y=(H-sh)/2+Math.max(0,(sh-H)/2)*py;
+ ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality="high";
+ ctx.drawImage(source,x,y,sw,sh);
+ hasPreview=true;
 }
-function launch(energy,high){
- const x=5+Math.random()*42,ty=3+Math.random()*15;
- const c=palettes[(beatCount++ +Math.floor(high*palettes.length))%palettes.length];
- rockets.push({x,y:31,ty,v:1.2+energy*.6,c,energy});
+for(const name of ["zoom","panX","panY","fit"])$(name).addEventListener("input",()=>{draw();if(selectedId)fileChanged=true;});
+function makeImage(url){
+ return new Promise((resolve,reject)=>{
+  const img=new Image();img.onload=()=>resolve(img);img.onerror=()=>reject(Error("Could not load image"));
+  img.src=url;
+ });
 }
-function frame(t){
- if(!running)return;
- const dt=Math.min(2.5,Math.max(.5,(t-last)/16.67||1));last=t;
- analyser.getByteFrequencyData(data);
- const bass=data.slice(1,Math.floor(data.length*.12)).reduce((a,b)=>a+b,0)/(Math.floor(data.length*.12)-1)/255;
- const mid=data.slice(Math.floor(data.length*.12),Math.floor(data.length*.4)).reduce((a,b)=>a+b,0)/(Math.floor(data.length*.28))/255;
- const treble=data.slice(Math.floor(data.length*.4),Math.floor(data.length*.8)).reduce((a,b)=>a+b,0)/(Math.floor(data.length*.4))/255;
- const energy=(bass*.65+mid*.35)*Number(slider.value)/100;
- avg=avg*.96+energy*.04;
- if(energy>Math.max(.10,avg*1.38)&&t-lastBeat>230){launch(Math.min(1.6,energy*2),treble);lastBeat=t;}
- if(t-lastBeat>1800&&energy>.04){launch(.4,treble);lastBeat=t;}
- ctx.fillStyle='#030713';ctx.fillRect(0,0,W,H);
- for(let i=0;i<25;i++){let x=(i*19+3)%W,y=(i*13+5)%24;ctx.fillStyle='rgba(75,95,155,'+(.15+.12*Math.sin(t/900+i))+')';ctx.fillRect(x,y,1,1);}
- for(const r of rockets){r.y-=r.v*dt;ctx.fillStyle='rgb('+r.c.join(',')+')';ctx.fillRect(Math.round(r.x),Math.round(r.y),1,2);}
- const ready=rockets.filter(r=>r.y<=r.ty);rockets=rockets.filter(r=>r.y>r.ty);
- for(const r of ready)burst(r.x,r.ty,r.energy,r.c);
- for(const p of particles){p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=.035*dt;p.vx*=.994;p.life-=p.decay*dt;
-  let k=Math.max(0,p.life),c=p.c.map(v=>Math.round(v*k));ctx.fillStyle='rgb('+c.join(',')+')';ctx.fillRect(Math.round(p.x),Math.round(p.y),1,1);}
- particles=particles.filter(p=>p.life>0&&p.x>=0&&p.x<W&&p.y>=0&&p.y<H);
- if(t-lastPost>115){lastPost=t;sendFrame();}
- raf=requestAnimationFrame(frame);
+async function loadFile(file){
+ if(!file)return;
+ if(file.size>25*1024*1024)throw Error("File too large (25 MB maximum)");
+ if(!file.type.startsWith("image/"))throw Error("Select an image file");
+ const url=URL.createObjectURL(file);
+ try{source=await makeImage(url);}finally{URL.revokeObjectURL(url);}
+ fileChanged=true;
+ if(!selectedId && !$("artName").value.trim())$("artName").value=file.name.replace(/\.[^.]+$/,"").replace(/[_-]/g," ").slice(0,90);
+ resetCrop();draw();
+ notice("Image loaded. Adjust the crop, add a matching rule, then save.");
 }
-function encode(bytes){let s='';for(let i=0;i<bytes.length;i+=8192)s+=String.fromCharCode(...bytes.subarray(i,i+8192));return btoa(s);}
-let inFlight=false;
-async function sendFrame(){
- if(inFlight||!running)return;inFlight=true;
- try{
-  const rgba=ctx.getImageData(0,0,W,H).data,rgb=new Uint8Array(W*H*3);
-  for(let i=0,j=0;i<rgba.length;i+=4){rgb[j++]=rgba[i];rgb[j++]=rgba[i+1];rgb[j++]=rgba[i+2];}
-  const response=await fetch('api/show',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rgb_base64:encode(rgb),timeout:3}),cache:'no-store'});
-  if(!response.ok)throw Error('HTTP '+response.status);
-  posts++;if(posts%15===0)status.textContent='Live • '+posts+' frames sent • '+beatCount+' launches';
- }catch(e){failures++;status.textContent='Streaming error: '+e.message;}
- finally{inFlight=false;}
+function resetCrop(){
+ $("zoom").value=100;$("panX").value=0;$("panY").value=0;$("fit").value="cover";
 }
-start.onclick=async()=>{
- start.disabled=true;status.textContent='Requesting microphone…';
- try{
-  stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false},video:false});
-  audio=new (window.AudioContext||window.webkitAudioContext)();await audio.resume();
-  analyser=audio.createAnalyser();analyser.fftSize=1024;analyser.smoothingTimeConstant=.72;
-  const source=audio.createMediaStreamSource(stream);source.connect(analyser);data=new Uint8Array(analyser.frequencyBinCount);
-  running=true;stop.disabled=false;last=performance.now();status.textContent='Live • listening for beats';raf=requestAnimationFrame(frame);
- }catch(e){start.disabled=false;status.textContent='Microphone unavailable: '+e.message+' (HTTPS or localhost required).';}
+$("file").addEventListener("change",async e=>{try{await loadFile(e.target.files[0]);}catch(err){notice(err.message,"error");}});
+const drop=$("dropzone");
+for(const type of ["dragenter","dragover"])drop.addEventListener(type,e=>{e.preventDefault();drop.classList.add("dragover");});
+for(const type of ["dragleave","drop"])drop.addEventListener(type,e=>{e.preventDefault();drop.classList.remove("dragover");});
+drop.addEventListener("drop",async e=>{try{await loadFile(e.dataTransfer.files[0]);}catch(err){notice(err.message,"error");}});
+function renderRules(){
+ const zone=$("mappingList");zone.replaceChildren();
+ if(!mappings.length){const small=document.createElement("small");small.textContent="No matching rules yet. Manual display will still work.";zone.append(small);return;}
+ mappings.forEach((m,i)=>{
+  const wrap=document.createElement("span");wrap.className="chip";
+  const tag=document.createElement("strong");tag.textContent=m.kind;
+  const val=document.createElement("span");val.textContent=m.value;
+  const btn=document.createElement("button");btn.type="button";btn.textContent="×";btn.title="Remove matching rule";
+  btn.onclick=()=>{mappings.splice(i,1);renderRules();};
+  wrap.append(tag,val,btn);zone.append(wrap);
+ });
+}
+$("addRule").onclick=()=>{
+ const kind=$("matchKind").value,value=$("matchText").value.trim();
+ if(!value){notice("Enter a title to match.","error");return;}
+ if(mappings.length>=16){notice("Maximum 16 rules per artwork.","error");return;}
+ if(!mappings.some(m=>m.kind===kind && m.value.trim().toLowerCase()===value.toLowerCase()))mappings.push({kind,value});
+ $("matchText").value="";renderRules();
 };
-stop.onclick=async()=>{
- running=false;cancelAnimationFrame(raf);stop.disabled=true;start.disabled=false;
- stream?.getTracks().forEach(t=>t.stop());stream=null;await audio?.close();audio=null;
- particles=[];rockets=[];ctx.clearRect(0,0,W,H);status.textContent='Stopped • returning to Idle Black';
- try{await fetch('api/clear',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});}catch(e){status.textContent='Stopped; controller will expire in 3 seconds';}
+$("matchText").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();$("addRule").click();}});
+function updateActions(){
+ $("show").disabled=!selectedId;
+ $("timerPreview").disabled=!selectedId;
+ $("delete").classList.toggle("hidden",!selectedId||items.find(x=>x.id===selectedId)?.source==="bundled");
+ $("save").disabled=readOnly;
+ $("save").textContent=selectedId?"Save changes to storage":"Save new artwork";
+}
+function newArtwork(){
+ selectedId=null;source=null;fileChanged=false;hasPreview=false;mappings=[];
+ $("artName").value="";$("file").value="";$("editorTitle").textContent="Create artwork";
+ $("selectedInfo").textContent="Choose an image or drop one into the uploader.";
+ resetCrop();draw();renderRules();updateActions();renderGallery();
+}
+$("newButton").onclick=newArtwork;
+async function editItem(id){
+ const item=items.find(x=>x.id===id);if(!item)return;
+ selectedId=id;mappings=(item.mappings||[]).map(x=>({...x}));fileChanged=false;
+ $("artName").value=item.name;$("editorTitle").textContent="Edit artwork";
+ $("selectedInfo").textContent="Saved image: "+item.file+". Upload another image to replace it, or edit the name and matches.";
+ $("file").value="";resetCrop();
+ try{
+  const url="api/artwork/image/"+encodeURIComponent(id)+"?v="+Date.now();
+  source=await makeImage(url);draw();renderRules();updateActions();renderGallery();
+ }catch(err){notice(err.message,"error");}
+}
+function renderGallery(){
+ const root=$("gallery");root.replaceChildren();
+ items.forEach(item=>{
+  const card=document.createElement("div");card.className="artcard"+(selectedId===item.id?" active":"");
+  const img=document.createElement("img");img.loading="lazy";img.alt=item.name+" pixel preview";
+  img.src="api/artwork/image/"+encodeURIComponent(item.id)+"?v="+(item.updated_at||0);
+  const heading=document.createElement("h3");heading.textContent=item.name;
+  const desc=document.createElement("p");const rules=item.mappings||[];
+  desc.textContent=rules.length?rules.map(m=>m.kind+": "+m.value).join(" · "):"Manual artwork";
+  const edit=document.createElement("button");edit.className="secondary";edit.textContent="Select / edit";
+  edit.onclick=()=>editItem(item.id);
+  card.append(img,heading,desc,edit);root.append(card);
+ });
+ if(!items.length){const msg=document.createElement("p");msg.textContent="No saved artwork yet.";root.append(msg);}
+ $("itemCount").textContent=items.length+" saved image"+(items.length===1?"":"s");
+}
+async function loadGallery(){
+ try{
+  const result=await api("artwork/gallery");items=result.items||[];
+  readOnly=!!result.read_only||!result.storage?.ready;
+  const b=$("storageBadge");b.textContent=result.storage?.external_mount?"Storage drive mounted":"Storage drive unavailable";
+  b.className="badge "+(readOnly?"warn":"ok");
+  $("storageWarning").classList.toggle("hidden",!readOnly);
+  $("storageWarning").textContent=readOnly?("Saving disabled: "+(result.storage?.error||"External storage is not writable")+
+    " — the app will not fall back to Home Assistant's internal drive."):"";
+  if(selectedId && !items.some(x=>x.id===selectedId))newArtwork();
+  renderGallery();updateActions();
+  notice(readOnly?"Gallery available read-only until the storage drive is mounted.":"Gallery loaded from "+result.storage.path,readOnly?"error":"success");
+ }catch(err){readOnly=true;$("storageBadge").textContent="Storage error";notice(err.message,"error");updateActions();}
+}
+$("refresh").onclick=loadGallery;
+$("save").onclick=async()=>{
+ if(readOnly){notice("External storage is not writable.","error");return;}
+ const name=$("artName").value.trim();
+ if(!name){notice("Give the artwork a name.","error");return;}
+ if(!selectedId&&!hasPreview){notice("Choose an image first.","error");return;}
+ const payload={id:selectedId||null,name,mappings};
+ if(fileChanged||!selectedId)payload.image_png_base64=canvas.toDataURL("image/png").split(",")[1];
+ $("save").disabled=true;notice("Saving image and matching rules to storage…");
+ try{
+  const data=await post("artwork/save",payload);
+  selectedId=data.item.id;fileChanged=false;
+  await loadGallery();await editItem(selectedId);
+  notice("Saved to external storage: "+name,"success");
+ }catch(err){notice(err.message,"error");}
+ finally{updateActions();}
 };
-window.addEventListener('pagehide',()=>{if(running){navigator.sendBeacon?.('api/clear',new Blob(['{}'],{type:'application/json'}));}});
-</script></body></html>
+$("show").onclick=async()=>{if(!selectedId)return;try{const v=await post("artwork/show",{mode:selectedId,timeout:30});notice("Displaying "+selectedId+" for "+v.timeout+" seconds.","success");}catch(err){notice(err.message,"error");}};
+$("timerPreview").onclick=async()=>{if(!selectedId)return;try{await post("artwork/preview-countdown",{mode:selectedId,remaining:2100,timeout:12});notice("Showing artwork with a sample 35M countdown for 12 seconds.","success");}catch(err){notice(err.message,"error");}};
+$("delete").onclick=async()=>{
+ const item=items.find(x=>x.id===selectedId);if(!item||item.source==="bundled")return;
+ if(!confirm("Permanently delete '"+item.name+"' and its matching rules from the storage drive?"))return;
+ try{await post("artwork/delete",{id:selectedId});newArtwork();await loadGallery();notice("Deleted from storage.","success");}catch(err){notice(err.message,"error");}
+};
+async function refreshLive(){
+ try{
+  const [display,c]=await Promise.all([api("status"),api("countdown/status")]);
+  $("displayBadge").textContent=display.active?"Display active":"Display idle";
+  $("displayBadge").className="badge "+(display.last_error?"warn":"");
+  $("liveStatus").textContent="PS5 title: "+(c.game_title||"unknown")+" · Automatically selected: "+(c.selected_artwork_mode||"none")+
+   " · Countdown: "+(c.active?"running":"inactive");
+ }catch(e){$("displayBadge").textContent="Display unavailable";}
+}
+draw();renderRules();loadGallery();refreshLive();setInterval(refreshLive,12000);
+</script>
+</body></html>
