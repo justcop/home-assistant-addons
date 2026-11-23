@@ -163,28 +163,31 @@ jobs:
           import json
           rows=json.load(open('/tmp/delivery-context/addon-release-plan.json'))
           for row in rows:
-              print(row['image']+':'+row['version'])
+              print(row['image']+':'+row['version']+' '+row['platform'])
           PY
-          while IFS= read -r image; do
-            echo "Checking external manifest for $image"
+          while read -r image platform; do
+            echo "Checking anonymous GHCR pull for $image on $platform"
             ok=0
             for attempt in 1 2 3 4 5 6; do
-              if docker manifest inspect "$image" >/dev/null 2>&1 && docker pull "$image" >/dev/null 2>&1; then
-                ok=1
-                break
+              # A GitHub-hosted amd64 runner must explicitly pull the arm64
+              # variant; unqualified docker pull falsely rejects arm64-only
+              # images with 'no matching manifest for linux/amd64'.
+              if docker manifest inspect "$image" >/dev/null 2>&1 &&
+                 docker pull --platform "$platform" "$image" >/dev/null 2>&1; then
+                expected_arch="${platform##*/}"
+                pulled_arch="$(docker image inspect --format '{{.Architecture}}' "$image")"
+                if [ "$pulled_arch" = "$expected_arch" ]; then
+                  ok=1
+                  break
+                fi
               fi
               sleep 10
             done
             if [ "$ok" != 1 ]; then
-              echo "::error::Refusing to advertise missing or private image $image"
+              echo "::error::Refusing to advertise missing, private or wrong-architecture image $image ($platform)"
+              # Show the actual pull error for future diagnostics.
+              docker pull --platform "$platform" "$image" || true
               exit 1
-            fi
-            # Specifically exercise the same anonymous amd64 pull path that
-            # previously returned '404 manifest unknown' in Supervisor.
-            # A registry metadata check alone is not a complete install test.
-            if [[ "$image" == ghcr.io/justcop/whatsapp-mcp-amd64:* ]]; then
-              docker pull --platform linux/amd64 "$image"
-              test "$(docker image inspect --format '{{.Architecture}}' "$image")" = amd64
             fi
           done < /tmp/images-to-verify
       - name: Advertise versions only after every architecture succeeds
