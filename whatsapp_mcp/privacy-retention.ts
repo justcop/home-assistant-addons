@@ -13,7 +13,7 @@ import { unlinkSync } from "node:fs";
 import { join } from "node:path";
 import type { Db } from "../db/client.js";
 
-export type PrivacyPurgeReason = "delete_for_me" | "own_revoke";
+export type PrivacyPurgeReason = "delete_for_me" | "own_revoke" | "clear_chat";
 
 type StoredMedia = { media_sha: string | null };
 type RevokedMessage = { chat_id: string; id: string };
@@ -101,6 +101,36 @@ export function makePrivacyRetention(db: Db) {
     return existed;
   }
 
+  /**
+   * Clear only messages present at or before the last message timestamp from
+   * an explicit WhatsApp clear-chat action. Never infer a clear from missing
+   * messages in a partial history sync. The caller must validate account,
+   * sender, chat identity, and the action's preserve-starred setting.
+   *
+   * Individual purges have independent transactions and suppress replay.
+   * If a later purge fails, preceding purges remain durable; retry is safe.
+   */
+  function clearChatThrough(chatId: string, lastMessageTs: number): { purged: number; skipped: number } {
+    if (!chatId || !Number.isSafeInteger(lastMessageTs) ||
+        lastMessageTs < 1 || lastMessageTs > Math.floor(Date.now() / 1000) + 300) {
+      throw new RangeError("Invalid confirmed clear-chat boundary");
+    }
+    // Hard cap stops a malformed event wiping unexpectedly large archives.
+    const limit = 20000;
+    const old = db.prepare(
+      "SELECT id FROM messages WHERE chat_id=? AND ts<=? ORDER BY ts, rowid LIMIT ?",
+    ).all(chatId, lastMessageTs, limit + 1) as { id: string }[];
+    if (old.length > limit) throw new RangeError("Clear-chat batch exceeds safety limit");
+    let purged = 0;
+    for (const row of old) {
+      if (purge(chatId, row.id, "clear_chat")) purged++;
+    }
+    const skipped = (db.prepare(
+      "SELECT COUNT(*) AS n FROM messages WHERE chat_id=? AND ts>?",
+    ).get(chatId,lastMessageTs) as Count).n;
+    return { purged, skipped };
+  }
+
   /** Safe startup migration: only *known* user-authored revocations. */
   function purgeExistingOwnRevokes(): number {
     const old = db.prepare(
@@ -110,5 +140,5 @@ export function makePrivacyRetention(db: Db) {
     return old.length;
   }
 
-  return { isSuppressed, purge, purgeExistingOwnRevokes };
+  return { isSuppressed, purge, clearChatThrough, purgeExistingOwnRevokes };
 }
