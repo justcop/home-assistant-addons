@@ -66,9 +66,9 @@
     "image": "ghcr.io/justcop/vinyl-guardian-{arch}"
   },
   "whatsapp_mcp": {
-    "sha": "a2ab6c6c89aa0af849f488bc3357d8d344afd871",
-    "compatibility": "73b06193128df4d41cd8afd2bd292760352262f12c3ff8119de60a33c8eb6770",
-    "version": "0.3.29",
+    "sha": "10bce45faf98a3e0d4085c786540f7f8c1f5a636",
+    "compatibility": "a0090ac22c48710ac9e9e5cf0fa2862061ed6332724c0906a57e6647d114219c",
+    "version": "0.3.30",
     "image": "ghcr.io/justcop/whatsapp-mcp-{arch}"
   },
   "work_audit": {
