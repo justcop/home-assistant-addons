@@ -83,6 +83,28 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(200, {"public_key": public_key,
                              "username": opts.get("ssh_user", "root"),
                              "host": HOST})
+        elif self.path == "/api/artwork/storage-probe":
+            # Read-only storage discovery. Reject an ordinary directory as a
+            # storage drive; never report success against the internal disk.
+            entries=[]
+            for parent in ("/media", "/mnt", "/share"):
+                p=Path(parent)
+                if not p.is_dir():
+                    continue
+                try:
+                    subdirs=[d for d in p.iterdir() if d.is_dir() and not d.is_symlink()]
+                except OSError:
+                    subdirs=[]
+                for d in subdirs[:48]:
+                    try:
+                        st=d.stat()
+                        entries.append({"path":str(d),"mount":d.is_mount(),
+                                        "dev":st.st_dev,"parent_dev":p.stat().st_dev})
+                    except OSError:
+                        continue
+            self.reply(200, {"entries":entries,
+                             "media_exists":Path("/media").is_dir(),
+                             "mnt_storage_exists":Path("/mnt/storage").is_dir()})
         elif self.path == "/api/artwork/modes":
             with lock:
                 cfg=countdown.config
