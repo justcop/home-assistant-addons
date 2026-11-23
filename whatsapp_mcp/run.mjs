@@ -140,14 +140,15 @@ async function waitForServer(port, child) {
 }
 
 async function main() {
-  fs.mkdirSync(path.join(ROOT, 'whatsapp'), { recursive: true });
   const opts = loadOptions();
   const storage = configureWhatsAppStorage(opts.storage_path);
   const apiToken = loadToken('api-token');
   const mcpToken = loadToken('mcp-token');
   // The app starts as root on Supervisor; the WhatsApp database and listeners
   // run as the unprivileged Node user after initial data directory setup.
-  for (const dir of [ROOT, path.join(ROOT, 'whatsapp'), path.join(ROOT, '.whatsapp-mcp-secrets')]) {
+  // The external archive must not have a recreated /data/whatsapp rollback
+  // copy. Only chown it when the user explicitly selected internal storage.
+  for (const dir of [ROOT, ...(storage.external ? [] : [storage.dataDir]), path.join(ROOT, '.whatsapp-mcp-secrets')]) {
     fs.chownSync(dir, 1000, 1000);
   }
   if (process.getuid?.() === 0) { process.setgid(1000); process.setuid(1000); }
