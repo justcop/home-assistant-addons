@@ -115,7 +115,7 @@ test('backup exclusions cover internal message data but do not exclude app crede
 
 test('launcher does not recreate or chown a retired internal WhatsApp directory', () => {
   const run = fs.readFileSync(new URL('../run.mjs', import.meta.url), 'utf8');
-  assert.doesNotMatch(run, /mkdirSync\\(path\\.join\\(ROOT, 'whatsapp'\\)/);
-  assert.doesNotMatch(run, /for \\(const dir of \\[ROOT, path\\.join\\(ROOT, 'whatsapp'\\)/);
-  assert.match(run, /storage\\.external \\? \\[\\] : \\[storage\\.dataDir\\]/);
+  assert.equal(run.includes("fs.mkdirSync(path.join(ROOT, 'whatsapp')"), false);
+  assert.equal(run.includes("for (const dir of [ROOT, path.join(ROOT, 'whatsapp')"), false);
+  assert.equal(run.includes("storage.external ? [] : [storage.dataDir]"), true);
 });
