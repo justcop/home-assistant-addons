@@ -46,11 +46,17 @@ jobs:
           docker run --rm --network none --entrypoint node whatsapp-mcp-addon:ci -e '
           const fs = require("node:fs");
           const assert = require("node:assert/strict");
-          const check = (file,marker) => assert.ok(fs.readFileSync(file,"utf8").includes(marker),file+" lacks "+marker);
-          check("/opt/whatsapp-api/dist/whatsapp/ingest.js","privacyRetention");
+          const {globSync} = fs;
+          function check(pattern, marker) {
+            const matches = [...globSync(pattern)].filter(file => {
+              try { return fs.readFileSync(file, "utf8").includes(marker); } catch { return false; }
+            });
+            assert.ok(matches.length, "No compiled " + marker + " in " + pattern);
+          }
+          check("/opt/whatsapp-api/**/ingest.js","privacyRetention");
           check("/opt/whatsapp-api/node_modules/baileys/lib/Utils/chat-utils.js","__archiveClearChat");
           check("/opt/whatsapp-api/node_modules/baileys/lib/Socket/messages-recv.js","privacy: excluded outgoing Meta AI stanza");
-          check("/opt/whatsapp-mcp/dist/tools/reads.js","whatsapp_review");
+          check("/opt/whatsapp-mcp/**/reads.js","whatsapp_review_conversations");
           console.log("Compiled API, MCP and Baileys privacy guards are present");
           '
 
