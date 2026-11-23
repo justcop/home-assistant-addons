@@ -59,7 +59,9 @@ export function createArchiveServer({ apiToken, port = 8100, storagePath = '/dat
   if (!apiToken) throw new Error('Missing internal WhatsApp API token');
   return http.createServer(async (req, res) => {
     if (!allowPeer(req.socket.remoteAddress)) return send(res, 403, 'Ingress only');
-    const url = new URL(req.url, 'http://archive.invalid');
+    let url;
+    try { url = new URL(req.url, 'http://archive.invalid'); }
+    catch { return send(res, 400, 'Invalid request URL'); }
     const isBackup = url.pathname.startsWith('/api/backup/');
     if (req.method !== 'GET' && req.method !== 'HEAD' && !(req.method === 'POST' && isBackup))
       return send(res, 405, 'Read-only archive');
