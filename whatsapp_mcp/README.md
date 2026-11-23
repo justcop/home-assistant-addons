@@ -310,3 +310,34 @@ The precise internal Docker-network hostname is specific to the installed app's 
 ## Source and verification
 
 `node --test whatsapp_mcp/tests/access.test.mjs` tests the JWT verification. The app-specific CI also builds the container against the pinned upstream checkout. A successful image build does **not** prove WhatsApp pairing, ChatGPT OAuth discovery or message retrieval; those require live testing after installing and linking the device.
+
+## Guarded upstream maintenance and image-only rollback
+
+The workflow .github/workflows/whatsapp-upstream.yml checks
+spare-cycles/whatsapp-mcp daily at 07:17 UTC. All candidates use immutable
+40-character upstream commit SHAs. Missing, incomplete, divergent or truncated
+upstream compare results are classified HIGH risk, as are changes to executable
+runtime code, Baileys, lockfiles, schemas, privacy, authentication and protocol.
+Only documentation and tests-only upstream diffs are LOW risk.
+
+A new upstream revision creates a candidate PR with exact diff, risk label and
+explicitly dispatched container build and privacy regression tests. HIGH risk
+PRs always require human approval, even if tests pass. LOW risk docs-only
+candidates may merge after all tests pass. Neither path installs anything into
+Home Assistant automatically. The GitHub repository must allow Actions to
+create pull requests, otherwise the job fails visibly.
+
+The image delivery workflow checks every GHCR tag anonymously before
+advertising a new version to Home Assistant. A failed build or manifest check
+prevents advertisement. After installing an update manually, check WhatsApp
+connection, read-only MCP tools, STORAGE database path and backup health.
+
+For source-only rollback, manually dispatch
+.github/workflows/whatsapp-image-rollback.yml with a full SHA of a verified
+previous repository commit. It opens a manual review PR restoring executable
+application source only. It never modifies the message database, STORAGE
+volume, keys or backups. Publish a NEW tested image version to revert code.
+Never restore old message databases automatically: that could resurrect
+deleted messages. Confirm a schema downgrade is safe before deploying an
+older application build.
+
