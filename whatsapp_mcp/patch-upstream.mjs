@@ -41,3 +41,65 @@ if (!readTools.endsWith('\n}\n') || insertionPoint < 0)
 const extraTools = fs.readFileSync('/src/review-mcp-register.ts', 'utf8');
 fs.writeFileSync(readToolsFile, readTools.slice(0,insertionPoint) + '\n' + extraTools + readTools.slice(insertionPoint));
 console.log('Pinned MCP read tool registrations extended for bounded local review.');
+
+/**
+ * Apply the per-message privacy contract to the *pinned* upstream API.
+ * The upstream's messages.delete handler currently creates tombstones.
+ * Baileys uses messages.delete for delete-for-me app-state actions; these
+ * must instead erase the message, while revokes are sender-aware.
+ *
+ * Strict string anchors make an upstream bump fail its Docker build instead
+ * of silently dropping deletion protection.
+ */
+const ingestFile = '/src/packages/api/src/whatsapp/ingest.ts';
+let ingest = fs.readFileSync(ingestFile, 'utf8');
+function patchIngest(before, after) {
+  const at = ingest.indexOf(before);
+  if (at < 0 || ingest.indexOf(before, at + 1) !== -1) {
+    throw new Error('Privacy-retention patch anchor missing or ambiguous');
+  }
+  ingest = ingest.slice(0, at) + after + ingest.slice(at + before.length);
+}
+const importAnchor = 'import type { Logger } from "pino";';
+patchIngest(importAnchor,
+  importAnchor + '\\nimport { makePrivacyRetention } from "./privacy-retention.js";');
+const dependencyAnchor = '  const { db, chats, contacts, messages, reactions, logger, selfId } = deps;';
+patchIngest(dependencyAnchor, dependencyAnchor +
+  '\\n  const privacyRetention = makePrivacyRetention(db);' +
+  '\\n  const removedOwnRevokes = privacyRetention.purgeExistingOwnRevokes();' +
+  '\\n  if (removedOwnRevokes) logger.info({ count: removedOwnRevokes }, "privacy: removed own revoked messages");');
+patchIngest(
+  '      const chatId = canonical(remoteJid);\\n      const isGroup = isGroupJid(chatId);\\n      chats.ensure(chatId, isGroup);',
+  '      const chatId = canonical(remoteJid);\\n' +
+  '      // Replayed sync history must never restore content explicitly erased locally.\\n' +
+  '      if (privacyRetention.isSuppressed(chatId, messageId)) return;\\n' +
+  '      const isGroup = isGroupJid(chatId);\\n      chats.ensure(chatId, isGroup);'
+);
+patchIngest(
+  '    if (update.messageStubType === WAMessageStubType.REVOKE) {\\n' +
+  '      messages.markDeleted(chatId, id, nowSec());\\n      return;\\n    }',
+  '    if (update.messageStubType === WAMessageStubType.REVOKE) {\\n' +
+  '      const stored = messages.get(chatId, id);\\n' +
+  '      if (stored?.fromMe === true || (stored === undefined && key.fromMe === true)) {\\n' +
+  '        privacyRetention.purge(chatId, id, "own_revoke");\\n' +
+  '      } else {\\n' +
+  '        // Other people\'s delete-for-everyone actions retain a tombstone.\\n' +
+  '        messages.markDeleted(chatId, id, nowSec());\\n' +
+  '      }\\n      return;\\n    }'
+);
+patchIngest(
+  '    const ts = nowSec();\\n' +
+  '    for (const key of payload.keys) {\\n' +
+  '      const target = targetOf(key);\\n' +
+  '      if (target !== undefined) messages.markDeleted(target.chatId, target.id, ts);\\n' +
+  '    }',
+  '    // Baileys emits message-key deletions from the local app-state\\n' +
+  '    // deleteMessageForMeAction. Unlike revokes, these erase data.\\n' +
+  '    for (const key of payload.keys) {\\n' +
+  '      const target = targetOf(key);\\n' +
+  '      if (target !== undefined) privacyRetention.purge(target.chatId, target.id, "delete_for_me");\\n' +
+  '    }'
+);
+fs.writeFileSync(ingestFile, ingest);
+fs.copyFileSync('/src/privacy-retention.ts', '/src/packages/api/src/whatsapp/privacy-retention.ts');
+console.log('Pinned upstream patched with sender-aware revocations and Delete-for-me purges.');
