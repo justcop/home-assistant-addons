@@ -101,11 +101,12 @@ function immutableName(date = new Date()) {
 }
 export class WhatsAppCloudBackup {
   constructor({ dataDir, stateDir = '/data/.whatsapp-cloud-backup',
-    clientId = '', clientSecret = '', time = '05:30', request = fetch, clock = () => new Date() }) {
+    clientId = '', clientSecret = '', time = '05:30', request = fetch, clock = () => new Date(), alerts = null }) {
     this.dataDir = dataDir;
     this.stateDir = stateDir;
     this.request = request;
     this.clock = clock;
+    this.alerts = alerts;
     fs.mkdirSync(stateDir, { recursive: true, mode: 0o700 });
     this.stateFile = path.join(stateDir, 'status.json');
     this.tokenFile = path.join(stateDir, 'google-token.json');
@@ -132,6 +133,19 @@ export class WhatsAppCloudBackup {
     }
   }
   _save() { savePrivate(this.stateFile, this.state); }
+  _alertFailure(error) {
+    if (!this.alerts) return;
+    void this.alerts.failure(error).catch(e => {
+      console.error('WhatsApp cloud backup notification failed:', e.message);
+    });
+  }
+  _alertRecovered() {
+    if (!this.alerts) return;
+    void this.alerts.recovered().catch(e => {
+      console.error('WhatsApp cloud backup notification dismissal failed:', e.message);
+    });
+  }
+
   configureGoogleClient(clientId, clientSecret) {
     const id = String(clientId || '').trim();
     // Never return the saved client secret to the browser. An empty secret
@@ -413,6 +427,7 @@ export class WhatsAppCloudBackup {
       // Never log message content, tokens, identifiers, backup keys or file paths.
       this.state.lastError = String(error?.message || 'Cloud backup failed').slice(0, 230);
       this._save();
+      this._alertFailure(this.state.lastError);
       console.error('WhatsApp cloud backup failed:', this.state.lastError);
     }).finally(() => { this.running = false; });
     return { started: true };
@@ -445,6 +460,7 @@ export class WhatsAppCloudBackup {
       this.state.lastSuccess = this.clock().toISOString();
       this.state.lastSuccessLocalDate = ukDateAndTime(this.clock()).date;
       this._save();
+      this._alertRecovered();
       console.log('WhatsApp encrypted Google Drive backup verified; one cloud copy retained.');
     } finally {
       fs.rmSync(staging, { recursive: true, force: true });
@@ -464,9 +480,11 @@ export class WhatsAppCloudBackup {
       this.state.lastSuccess = this.clock().toISOString();
       this.state.lastSuccessLocalDate = ukDateAndTime(this.clock()).date;
       this._save();
+      this._alertRecovered();
     } catch (error) {
       this.state.lastError = String(error?.message || 'Cloud backup cleanup failed').slice(0, 230);
       this._save();
+      this._alertFailure(this.state.lastError);
     } finally { this.running = false; }
   }
   async encryptedDownload() {
@@ -493,10 +511,14 @@ export class WhatsAppCloudBackup {
     catch (error) {
       this.state.lastError = String(error.message).slice(0, 230);
       this._save();
+      this._alertFailure(this.state.lastError);
     }
   }
   start() {
     if (this.timer) return;
+    // Re-post a pre-existing failure after restart so HA notifications are
+    // restored even if Home Assistant was restarted or a user dismissed it.
+    if (this.state.lastError) this._alertFailure(this.state.lastError);
     this.timer = setInterval(() => { void this.tick().catch(() => {}); }, 60000);
     void this.tick().catch(() => {});
   }
