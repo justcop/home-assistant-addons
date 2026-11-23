@@ -92,9 +92,24 @@ jobs:
           if [ -z "$RUN_ID" ]; then
             echo "::error::Could not find candidate integration tests"; exit 1
           fi
-          gh run watch "$RUN_ID" --exit-status
+          gh label create whatsapp-upstream-action-needed --color B60205 --description "WhatsApp update needs review or repair" --force
+          flag_review() {
+            title="WhatsApp upstream update needs review: $PIN"
+            if ! gh issue list --state open --label whatsapp-upstream-action-needed --json title --jq '.[].title' | grep -Fxq "$title"; then
+              gh issue create --title "$title" --label whatsapp-upstream-action-needed \
+                --body "Upstream candidate branch: $BRANCH. Candidate commit: $PIN. Risk: $RISK. Privacy, message deletion and database changes must be reviewed. No Home Assistant production update was performed."
+            fi
+          }
+          if ! gh run watch "$RUN_ID" --exit-status; then
+            flag_review
+            echo "::error::Real upstream integration and privacy checks failed"
+            exit 1
+          fi
           if [ "$RISK" = low ]; then
             gh pr merge "$BRANCH" --squash --delete-branch
+            # A GITHUB_TOKEN merge does not trigger normal push workflows.
+            gh workflow run addon-delivery.yml --ref main
           else
+            flag_review
             echo "High-risk upstream change: tests passed, manual review required."
           fi
