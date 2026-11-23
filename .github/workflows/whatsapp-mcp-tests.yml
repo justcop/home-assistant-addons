@@ -18,6 +18,9 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
       - name: Node security regression tests
         run: node --test whatsapp_mcp/tests/*.test.mjs
       - name: Syntax check browser UI and launcher
