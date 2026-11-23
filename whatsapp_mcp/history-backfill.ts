@@ -11,7 +11,7 @@ export type BackfillDeps = { conn: WhatsAppConnection; chats: ChatsRepo;
 type Phase = "queued" | "requesting" | "retry" | "stalled" | "no_anchor" | "likely_complete";
 type ChatState = { id: string; isGroup?: boolean; phase: Phase; requests: number; importedEstimate: number;
   failures: number; earliest: number | null; lastAttempt?: string;
-  completionBasis?: "short_page" };
+  completionBasis?: "short_page" | "empty_followup"; awaitingEmptyConfirmation?: boolean };
 type State = { schema: 2; startedAt: string; updatedAt: string; day: string;
   requestsToday: number; requests: number; importedEstimate: number; active: boolean;
   chats: Record<string, ChatState> };
@@ -33,7 +33,17 @@ function load(file: string): State {
     const s = JSON.parse(fs.readFileSync(file,"utf8")) as State;
     if (s.schema !== 2 || !s.chats || typeof s.chats !== "object") throw Error("Invalid checkpoint");
     s.active=false;
-    for (const c of Object.values(s.chats)) if (c.phase === "requesting") c.phase="retry";
+    for (const c of Object.values(s.chats)) {
+      if (c.phase === "requesting") c.phase="retry";
+      // Previously a single short response caused premature completion.
+      // Re-open only those legacy classifications, preserving all counters
+      // and the existing oldest-message checkpoint.
+      if (c.phase === "likely_complete" && c.completionBasis === "short_page") {
+        c.phase="queued";
+        c.awaitingEmptyConfirmation=true;
+        delete c.completionBasis;
+      }
+    }
     return s;
   } catch(e) {
     if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
@@ -129,18 +139,30 @@ export function startResumableHistoryBackfill({conn,chats,messages,dataDir,logge
           const estimate=Math.min(BATCH,returned||BATCH);
           c.importedEstimate+=estimate;s.importedEstimate+=estimate;
         }
-        if(!failed && correlated && returned>0 && returned<BATCH){
-          // A short *correlated* page is evidence of reaching the start, but
-          // not a definitive WhatsApp end-of-history marker. Stop automatic
-          // requests and label it as probable completion for review.
+        // A short page is not a completion signal. It can be a partial
+        // response, and another request using the new oldest anchor may
+        // still recover more messages. Only a correlated *explicitly empty*
+        // follow-up after a short page can suggest completion.
+        const confirmedEmpty = !failed && correlated && returned === 0 &&
+          c.awaitingEmptyConfirmation === true && !advanced;
+        if(confirmedEmpty){
           c.phase="likely_complete";
-          c.completionBasis="short_page";
+          c.completionBasis="empty_followup";
+          c.awaitingEmptyConfirmation=false;
           c.failures=0;
         } else if(advanced){
           c.phase="queued";c.failures=0;
+          c.awaitingEmptyConfirmation=!failed && correlated && returned>0 && returned<BATCH;
+        } else if(!failed && correlated && returned>0 && returned<BATCH){
+          // Keep a short non-advancing page eligible for another request.
+          // After repeated non-progress we stop at "stalled", never
+          // misrepresenting a non-empty page as end of history.
+          c.awaitingEmptyConfirmation=true;
+          c.failures++;
+          c.phase=c.failures>=2?"stalled":"retry";
         } else {
-          // Missing response, or a full page with no earlier anchor:
-          // neither proves that WhatsApp has exhausted the conversation.
+          // Silence is not an empty response. Uncorrelated late batches
+          // are likewise not sufficient evidence of completion.
           c.failures++;c.phase=c.failures>=2?"stalled":"retry";
         }
         if(c.requests>=PER_CHAT && c.phase==="queued") c.phase="stalled";
