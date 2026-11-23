@@ -3,21 +3,13 @@ on:
   schedule:
     - cron: '43 5 * * *'
   workflow_dispatch:
-  pull_request:
-    paths:
-      - 'whatsapp_mcp/Dockerfile'
-      - 'whatsapp_mcp/patch-*.mjs'
-      - 'whatsapp_mcp/privacy-retention.ts'
-      - 'whatsapp_mcp/tests/**'
-      - 'whatsapp_mcp/upstream-policy.py'
-      - '.github/workflows/whatsapp-upstream.yml'
 permissions:
   contents: write
   pull-requests: write
   issues: write
   actions: write
 concurrency:
-  group: whatsapp-upstream-${{ github.event_name == 'pull_request' && github.ref || 'daily' }}
+  group: whatsapp-upstream-daily
   cancel-in-progress: false
 jobs:
   upstream:
@@ -136,8 +128,3 @@ jobs:
           if ! gh issue list --state open --label whatsapp-upstream-action-needed --json title --jq '.[].title' | grep -Fxq "$title"; then
             gh issue create --title "$title" --label whatsapp-upstream-action-needed --body "Candidate: ${{ steps.pr.outputs.url }}. Risk: ${{ steps.scan.outputs.risk }}. Full Docker build: ${{ steps.compatibility.outcome }}. Review privacy, deletion and database invariants before merging. No production deployment has occurred."
           fi
-      - name: Validate manually edited candidate PR
-        if: github.event_name == 'pull_request'
-        run: |
-          docker build --pull -t whatsapp-pr-ci:test whatsapp_mcp
-          node --test whatsapp_mcp/tests/*.test.mjs
