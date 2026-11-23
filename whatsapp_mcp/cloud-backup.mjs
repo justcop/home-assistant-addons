@@ -104,16 +104,18 @@ export class WhatsAppCloudBackup {
     clientId = '', clientSecret = '', time = '05:30', request = fetch, clock = () => new Date() }) {
     this.dataDir = dataDir;
     this.stateDir = stateDir;
-    this.clientId = String(clientId).trim();
-    this.clientSecret = String(clientSecret).trim();
-    this.backupTime = validateBackupTime(time);
     this.request = request;
     this.clock = clock;
     fs.mkdirSync(stateDir, { recursive: true, mode: 0o700 });
     this.stateFile = path.join(stateDir, 'status.json');
     this.tokenFile = path.join(stateDir, 'google-token.json');
+    this.clientFile = path.join(stateDir, 'google-client.json');
     this.keyFile = path.join(stateDir, 'recovery-key');
     this.state = readJson(this.stateFile, { enabled: false, recoveryConfirmed: false });
+    this.backupTime = validateBackupTime(this.state.backupTime || time);
+    const client = readJson(this.clientFile, {});
+    this.clientId = client.clientId || String(clientId).trim();
+    this.clientSecret = client.clientSecret || String(clientSecret).trim();
     this.tokens = readJson(this.tokenFile, {});
     this.pendingAuth = null;
     this.access = null;
@@ -122,6 +124,39 @@ export class WhatsAppCloudBackup {
     this.attemptToday = null;
   }
   _save() { savePrivate(this.stateFile, this.state); }
+  configureGoogleClient(clientId, clientSecret) {
+    const id = String(clientId || '').trim();
+    const secret = String(clientSecret || '').trim();
+    if (!/^[0-9]+-[a-z0-9-]+\.apps\.googleusercontent\.com$/.test(id) ||
+        !secret || secret.length > 300)
+      throw new Error('Enter the client ID and secret for a Google TVs and Limited Input Devices OAuth client');
+    // A different OAuth client must never silently use the old client's token.
+    const changed = id !== this.clientId || secret !== this.clientSecret;
+    savePrivate(this.clientFile, { clientId: id, clientSecret: secret });
+    this.clientId = id;
+    this.clientSecret = secret;
+    if (changed) {
+      this.tokens = {};
+      this.access = null;
+      this.pendingAuth = null;
+      if (fs.existsSync(this.tokenFile)) fs.unlinkSync(this.tokenFile);
+      this.state.enabled = false;
+      this.state.folderId = null;
+      this.state.latestFileId = null;
+      this.state.lastFileName = null;
+      this.state.lastSuccess = null;
+      this.state.lastSuccessLocalDate = null;
+      this.state.retentionPending = false;
+      this._save();
+    }
+    return this.status();
+  }
+  setBackupTime(time) {
+    this.backupTime = validateBackupTime(time);
+    this.state.backupTime = this.backupTime;
+    this._save();
+    return this.status();
+  }
   status() {
     const now = ukDateAndTime(this.clock());
     return {
