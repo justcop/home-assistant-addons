@@ -10,6 +10,7 @@ startup: application
 boot: auto
 init: false
 stage: experimental
+backup: cold
 ingress: true
 ingress_port: 8099
 panel_icon: mdi:album
@@ -21,6 +22,8 @@ ports_description:
 map:
   - type: share
     read_only: false
+  - type: media
+    read_only: false
   - type: local_apps
     read_only: true
 options:
@@ -28,8 +31,8 @@ options:
   cloudflare_audience: ""
   cloudflare_owner_email: ""
   listening_analytics_origin: ""
-  data_directory: /share/audioshelf
-  cache_directory: /share/audioshelf-cache
+  data_directory: /data/audioshelf-collection
+  cache_directory: /media/audioshelf-cache
   spotify_client_id: ""
   spotify_redirect_uri: ""
   spotify_market: GB
