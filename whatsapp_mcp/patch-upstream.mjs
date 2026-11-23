@@ -156,11 +156,9 @@ function patchConnection(before, after) {
   }
   connection = connection.slice(0, at) + after + connection.slice(at + before.length);
 }
-patchConnection(
-  'browser: Browsers.macOS("Chrome"), // also the ban-risk mitigation from the spec',
-  'browser: (auth.state.creds.registered || auth.state.creds.account)\n' +
-  '          ? Browsers.macOS("Desktop") : Browsers.macOS("Chrome"),'
-);
+// Preserve the known-good Chrome browser identity for existing sessions.
+// The Desktop profile repeatedly terminated the live WhatsApp connection.
+// Enabling full-history negotiation separately is safe to test without re-pairing.
 patchConnection(
   'syncFullHistory: false,',
   'syncFullHistory: true,'
