@@ -57,6 +57,16 @@ class GameArtworkTests(unittest.TestCase):
         self.assertEqual(resolve_game_artwork("Grand Theft Auto VI", "idle"), "ps5_default")
         self.assertEqual(resolve_game_artwork("Grand Theft Auto VI", "none"), "ps5_default")
 
+    def test_missing_external_artwork_falls_back_without_disabling_countdown(self):
+        from unittest.mock import patch
+        from ha_countdown import selected_artwork_mode
+        from artwork_store import get_png
+        # A persisted fixed ID remains valid after the disk disconnects.
+        persisted=dict(CONFIG, artwork_mode="art_1234567890abcdef")
+        with patch("ha_countdown.is_artwork_mode",return_value=False):
+            config=validate(persisted,allow_missing_mode=True)
+            self.assertEqual(selected_artwork_mode(config,"anything","playing"),"ps5_default")
+
     def test_fixed_mode_overrides_game_selection(self):
         cfg = validate(dict(CONFIG, artwork_mode="gta_vi"))
         self.assertEqual(selected_artwork_mode(cfg, "Astro Bot", "playing"), "gta_vi")
