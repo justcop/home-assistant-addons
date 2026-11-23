@@ -239,6 +239,23 @@ async function searchMessages(reset=true) {
 }
 
 let cloudStatus = null, recoveryKeyOnScreen = null, cloudAuthPolling = false;
+function renderBackupAlert(status) {
+  const failed = !!status?.lastError;
+  const retention = !!status?.retentionPending;
+  const banner = $('backup-alert');
+  banner.classList.toggle('hidden', !failed && !retention);
+  $('backup-alert-text').textContent = retention
+    ? 'WhatsApp cloud backup: previous cloud copy cleanup has not completed. ' +
+      (status.lastError || 'More than one cloud copy may remain.')
+    : failed ? 'WhatsApp cloud backup failed: ' + status.lastError : '';
+}
+async function refreshBackupAlert() {
+  try { renderBackupAlert(await get('api/backup/status')); }
+  catch { /* transient UI connectivity is not itself a cloud backup failure */ }
+}
+$('backup-alert-open').addEventListener('click', showBackup);
+setInterval(() => { void refreshBackupAlert(); }, 60000);
+void refreshBackupAlert();
 async function cloudPost(action, payload = {}) {
   const res = await fetch('api/backup/' + action, {
     method: 'POST', cache: 'no-store',
@@ -260,6 +277,7 @@ async function refreshCloudBackup() {
   try {
     cloudStatus = await get('api/backup/status');
     const s = cloudStatus;
+    renderBackupAlert(s);
     const pieces = [
       s.connected ? 'Google Drive connected' : s.clientConfigured ? 'Google Drive needs authorisation' : 'Google OAuth client not configured',
       s.recoveryConfirmed ? 'Recovery key saved' : 'Recovery key not yet confirmed',
