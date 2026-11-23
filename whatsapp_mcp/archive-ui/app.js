@@ -428,7 +428,7 @@ async function showBackfill() {
 async function updateBackfill() {
   if (state.view !== 'backfill') return;
   try {
-    const result = await get('api/archive/backfill');
+    const result = await get('api/archive/backfill', { view: $('backfill-filter').value });
     if (result.state === 'not_started') {
       $('backfill-summary').textContent = 'No history recovery has started yet.';
       $('backfill-chats').replaceChildren();
@@ -496,6 +496,7 @@ async function updateBackfill() {
   }
 }
 $('show-backfill').addEventListener('click',showBackfill);
+$('backfill-filter').addEventListener('change',updateBackfill);
 setInterval(updateBackfill, 15_000);
 
 $('tab-direct').addEventListener('click', () => setChatType('direct'));
