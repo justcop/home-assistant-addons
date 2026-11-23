@@ -28,6 +28,7 @@
       <div id="chat-list" class="chat-list" role="list" aria-live="polite"><p class="placeholder">Loading conversations…</p></div>
       <footer class="sidebar-footer">
         <span id="storage-status">Checking storage…</span>
+        <button id="show-backfill" type="button" class="settings-link" title="History recovery status">↺ History sync</button>
         <button id="show-backup" type="button" class="settings-link" title="Cloud backup settings and recovery" aria-label="Cloud backup settings and recovery">⚙ Settings</button>
         <span id="connection-status"></span></footer>
     </aside>
@@ -51,6 +52,18 @@
         <button id="older" class="older hidden" type="button">Load older messages</button>
         <div id="messages" class="messages" aria-live="polite"></div>
         <p id="message-status" class="message-status"></p>
+      </div>
+      <div id="backfill-view" class="backup-view hidden">
+        <div class="search-intro">
+          <h3>Recovering older messages</h3>
+          <p>WhatsApp is queried gradually for older messages. Existing conversations and read states are preserved. The process resumes after restarts, and is limited to 60 requests per UTC day.</p>
+        </div>
+        <p id="backfill-summary" class="backup-status" role="status">Loading history recovery progress…</p>
+        <section class="backup-card">
+          <h3>Conversation progress</h3>
+          <p>Imported counts are estimates and can include duplicates. A stalled conversation needs separate investigation; it does not mean WhatsApp has no further history.</p>
+          <div id="backfill-chats" class="backfill-list"><p class="placeholder">Loading…</p></div>
+        </section>
       </div>
       <div id="backup-view" class="backup-view hidden">
         <div class="search-intro"><h3>Encrypted cloud backup</h3>
