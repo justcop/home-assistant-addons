@@ -19,11 +19,14 @@ function normalizeLid(jid) {
   return /^\d+$/.test(raw) ? raw+'@lid' : null;
 }
 
-export async function separateSelfLid(dataDir, phoneNumber) {
+export async function separateSelfLid(dataDir, phoneNumber, decoder = null) {
   if (!/^[1-9][0-9]{7,14}$/.test(phoneNumber??'')) return { moved:0,reason:'no_valid_phone' };
   const file=join(dataDir,'whatsapp.db');
   if(!existsSync(file)) return { moved:0,reason:'no_database' };
-  const {proto}=await import('/opt/whatsapp-api/node_modules/baileys/lib/index.js');
+  if(!decoder) {
+    const {proto}=await import('/opt/whatsapp-api/node_modules/baileys/lib/index.js');
+    decoder=(bytes)=>proto.WebMessageInfo.decode(bytes);
+  }
   const self=phoneNumber+'@s.whatsapp.net';
   const db=new DatabaseSync(file);
   try {
@@ -35,7 +38,7 @@ export async function separateSelfLid(dataDir, phoneNumber) {
     const rows=db.prepare('SELECT id, raw FROM messages WHERE chat_id=? AND raw IS NOT NULL').all(self);
     for (const row of rows) {
       try {
-        const msg=proto.WebMessageInfo.decode(new Uint8Array(row.raw));
+        const msg=decoder(new Uint8Array(row.raw));
         if(normalizeLid(msg.key?.remoteJid)===lid) selected.push(row.id);
       } catch {
         // Unreadable provenance is not licence to move/delete the message.
