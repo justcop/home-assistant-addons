@@ -8,6 +8,7 @@ import { createArchiveServer } from './archive-server.mjs';
 import { ArchiveData } from './archive-data.mjs';
 import { pruneMetaAI } from './prune-meta-ai.mjs';
 import { diagnoseSelfRouting } from './diagnose-self-routing.mjs';
+import { separateSelfLid } from './self-lid-separation.mjs';
 import { pruneProtocolNoise } from './protocol-retention.mjs';
 import { configureWhatsAppStorage } from './storage.mjs';
 
@@ -159,6 +160,9 @@ async function main() {
   // Read-only original envelope attribution audit before the WhatsApp writer starts.
   try { await diagnoseSelfRouting(storage.dataDir, opts.phone_number); }
   catch (error) { console.error('Self-routing diagnostic unavailable:', error.message); }
+  // Preserve original own-LID provenance as a separate conversation. No bytes deleted.
+  const selfLidSeparation=await separateSelfLid(storage.dataDir, opts.phone_number);
+  console.log('Self-LID provenance separation: '+JSON.stringify(selfLidSeparation));
   // Prune only this verified Meta AI JID before the WhatsApp writer starts.
   const pruned = pruneMetaAI(storage.dataDir);
   if (pruned) console.log('Removed ' + pruned + ' Meta AI messages from the local archive.');
