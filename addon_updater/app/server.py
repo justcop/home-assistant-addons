@@ -52,7 +52,7 @@ def create_app(updater, options, testing=False):
     @app.post("/api/action")
     def action():
         body = request.get_json()
-        if not isinstance(body, dict) or body.get("action") not in {"check", "deploy", "recover"}:
+        if not isinstance(body, dict) or body.get("action") not in {"check", "deploy", "recover", "resume"}:
             abort(400)
         ident, sha = body.get("id"), body.get("sha") or None
         if body["action"] != "check" and ident not in updater.state["apps"]:

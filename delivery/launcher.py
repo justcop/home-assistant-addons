@@ -60,11 +60,13 @@ def validate_release(folder, wanted, baked):
     return candidate
 
 
-def install_code(folder, candidate, baked):
+def install_code(folder, candidate, baked, known=()):
     destination = Path(baked["destination"])
     strip = baked.get("strip", "")
-    names = set(baked["runtime"]) | set(candidate["runtime"])
+    names = set(baked["runtime"]) | set(candidate["runtime"]) | set(known)
     for name in sorted(names):
+        if not runtime_path(name, baked["spec"]):
+            raise ValueError("Invalid recorded runtime path")
         if strip and not name.startswith(strip):
             raise ValueError("Release path outside application layout")
         relative = name[len(strip):] if strip else name
@@ -102,10 +104,19 @@ def main():
                 active = baked
             else:
                 candidate = validate_release(folder, pin["sha"], baked)
-                install_code(folder, candidate, baked)
+                installed_path = DATA / "delivery-files.json"
+                recorded = read_json(installed_path) if installed_path.exists() else {}
+                known = recorded.get("paths", []) if recorded.get("image_sha") == baked["sha"] else []
+                names = sorted(set(known) | set(baked["runtime"]) | set(candidate["runtime"]))
+                # Record additions before copying so interrupted activation and
+                # earlier-commit redeployment can remove every obsolete file.
+                atomic_json(installed_path, {"image_sha": baked["sha"], "paths": names})
+                install_code(folder, candidate, baked, known)
                 active = candidate
-        elif last_path.exists() and read_json(last_path).get("sha") != baked["sha"]:
-            raise ValueError("Previously deployed code is unavailable; refusing a silent downgrade")
+        elif last_path.exists():
+            last_sha = read_json(last_path).get("sha")
+            if last_sha != baked["sha"] and last_sha not in baked.get("ancestors", []):
+                raise ValueError("Previously deployed code is unavailable; refusing a silent downgrade")
         state["sha"] = active["sha"]
         state["runtime_hash"] = hashlib.sha256(json.dumps(active["runtime"], sort_keys=True).encode()).hexdigest()
         atomic_json(last_path, {"sha": active["sha"], "version": baked["version"]})

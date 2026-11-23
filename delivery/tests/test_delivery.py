@@ -139,6 +139,20 @@ def test_runtime_installs_only_code_and_preserves_data(tmp_path, monkeypatch):
     assert database.read_bytes() == b"irreplaceable-state"
 
 
+def test_earlier_commit_removes_new_files_from_previous_or_interrupted_update(tmp_path, monkeypatch):
+    client, value, files, stat = staged(tmp_path)
+    monkeypatch.setattr(updater.os, "stat", stat)
+    folder = client.stage(value, files)
+    dest = tmp_path / "runtime"
+    (dest / "app").mkdir(parents=True)
+    obsolete = dest / "app/introduced_later.py"
+    obsolete.write_text("obsolete=True")
+    launcher.install_code(folder, value, {**value, "destination":str(dest), "strip":""},
+                          known=["app/introduced_later.py"])
+    assert not obsolete.exists()
+    assert (dest / "app/server.py").exists()
+
+
 def test_failed_restart_retains_durable_recovery_transaction(tmp_path, monkeypatch):
     client, value, files, stat = staged(tmp_path)
     monkeypatch.setattr(updater.os, "stat", stat)

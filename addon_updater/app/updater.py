@@ -230,6 +230,7 @@ class Updater:
 
     def deploy(self, ident, sha=None, files=None):
         row = self.state["apps"][ident]
+        explicit = sha is not None
         if ident in self.state["transactions"]:
             raise ValueError("Interrupted deployment needs recovery before another update")
         sha = sha or self.state["latest"]
@@ -242,6 +243,9 @@ class Updater:
         if running.get("error"):
             raise ValueError("Resolve the application's reported error before deploying")
         if running["sha"] == sha:
+            if explicit:
+                row["pinned"] = True
+                self.save()
             return
         self.stage(value, files)
         pin = ROOT / ident / "desired.json"
@@ -259,7 +263,7 @@ class Updater:
             self.save()
             raise
         self.state["transactions"].pop(ident)
-        row.update(deployed=sha, updated=now(), error=None, mode="current", reason="Compatible code deployed")
+        row.update(deployed=sha, updated=now(), error=None, mode="current", pinned=explicit, reason="Compatible code deployed")
         self.save()
         self.prune(ident, sha)
 
@@ -280,7 +284,7 @@ class Updater:
         atomic(ROOT / ident / "desired.json", {"sha": previous_sha, "image_sha": running["image_sha"]})
         self.restart_and_verify(row["slug"], previous_sha, value["spec"])
         self.state["transactions"].pop(ident)
-        row.update(deployed=previous_sha, mode="current", error=None, updated=now())
+        row.update(deployed=previous_sha, mode="current", pinned=True, error=None, updated=now())
         self.save()
 
     def prune(self, ident, keep):
@@ -300,11 +304,15 @@ class Updater:
                 self.recover(ident)
             else:
                 files = self.check()
+                if action == "resume":
+                    self.state["apps"][ident]["pinned"] = False
+                    self.save()
+                    self.deploy(ident, files=files)
                 if action == "deploy":
                     self.deploy(ident, sha, files if sha is None else None)
                 elif action == "automatic":
                     for name, row in list(self.state["apps"].items()):
-                        if row["mode"] == "live" and name not in self.state["transactions"]:
+                        if row["mode"] == "live" and not row.get("pinned") and name not in self.state["transactions"]:
                             try:
                                 self.deploy(name, files=files)
                             except Exception as exc:
