@@ -250,8 +250,10 @@ async function cloudPost(action, payload = {}) {
   return data;
 }
 function cloudFeedback(message, error = false) {
-  $('backup-feedback').textContent = message;
-  $('backup-feedback').classList.toggle('error', error);
+  const p = $('backup-feedback');
+  p.textContent = message;
+  p.classList.toggle('error', error);
+  p.classList.toggle('visible', !!message);
 }
 async function refreshCloudBackup() {
   if (state.view !== 'backup') return;
@@ -270,6 +272,24 @@ async function refreshCloudBackup() {
     if (s.lastError) pieces.push('ERROR: ' + s.lastError);
     $('backup-state').textContent = pieces.join('\n');
     $('backup-state').classList.toggle('error', !!s.lastError);
+    // The OAuth client ID is an identifier (not a password), so keep it
+    // visible. Never return or populate the saved secret.
+    const clientIdField = $('backup-client-id');
+    if (s.clientId && !clientIdField.value.trim() && document.activeElement !== clientIdField)
+      clientIdField.value = s.clientId;
+    const secretField = $('backup-client-secret');
+    secretField.required = !s.clientSecretStored;
+    secretField.placeholder = s.clientSecretStored
+      ? 'Saved securely — leave blank to keep current secret'
+      : 'Enter Google client secret';
+    $('backup-client-status').textContent = s.clientConfigured
+      ? '✓ Google client ID and secret saved. The secret box stays empty for security.'
+      : 'No Google client has been saved yet.';
+    const connectError = s.lastAuthError || '';
+    const connectNotice = $('backup-connect-feedback');
+    if (connectError && !connectNotice.textContent)
+      connectNotice.textContent = connectError;
+    connectNotice.classList.toggle('error', !!connectError);
     $('backup-time').value = s.time || '05:30';
     $('backup-authorize').disabled = !s.clientConfigured;
     const ready = s.connected && s.recoveryConfirmed && !s.running;
@@ -295,25 +315,39 @@ function showBackup() {
   void refreshCloudBackup();
 }
 async function cloudAction(action, payload = {}, message = 'Updated.') {
-  cloudFeedback('Working…');
+  cloudFeedback(action === 'authorize' ? 'Contacting Google for a device authorisation code…' : 'Saving…');
+  if (action === 'authorize' || action === 'configure') {
+    $('backup-connect-feedback').textContent = '';
+    $('backup-connect-feedback').classList.remove('error');
+  }
   try {
     const result = await cloudPost(action, payload);
     cloudFeedback(message);
+    if (action === 'authorize') {
+      $('backup-connect-feedback').textContent = 'Google authorisation started. Enter the code displayed below.';
+      $('backup-connect-feedback').classList.remove('error');
+    }
     await refreshCloudBackup();
     return result;
   } catch (error) {
     cloudFeedback(error.message, true);
+    if (action === 'authorize' || action === 'configure') {
+      $('backup-connect-feedback').textContent = error.message;
+      $('backup-connect-feedback').classList.add('error');
+    }
     return null;
   }
 }
 $('show-backup').addEventListener('click', showBackup);
 $('backup-client-form').addEventListener('submit', async event => {
   event.preventDefault();
-  await cloudAction('configure', {
+  const saved = await cloudAction('configure', {
     clientId: $('backup-client-id').value.trim(),
     clientSecret: $('backup-client-secret').value.trim()
-  }, 'Google client saved locally. Now select Connect Google Drive.');
-  $('backup-client-secret').value = '';
+  }, 'Google OAuth client saved. Select Connect Google Drive to authorise it.');
+  // A failed save leaves the typed secret intact so it can be corrected.
+  // After a successful save, clear only the password input, not the ID.
+  if (saved) $('backup-client-secret').value = '';
 });
 $('backup-authorize').addEventListener('click', () =>
   cloudAction('authorize', {}, 'Open the Google link and enter the code below.'));
