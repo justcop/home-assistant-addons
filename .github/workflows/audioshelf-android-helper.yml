@@ -61,7 +61,7 @@ jobs:
         working-directory: audioshelf/android-helper
         run: python prepare-release.py .
       - name: Upload installable APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: audioshelf-spotify-helper-0.2.24
           path: |
