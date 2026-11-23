@@ -444,15 +444,24 @@ async function updateBackfill() {
     const list = $('backfill-chats');
     list.replaceChildren();
     for (const chat of result.recent || []) {
-      const item = el('div','backfill-item');
+      // Red means no progress is possible without further investigation.
+      // Yellow means in progress or awaiting a retry. Green is provisional:
+      // WhatsApp hasn't certified that the conversation is fully recovered.
+      const severity = chat.phase === 'likely_complete' ? 'green' :
+        (chat.phase === 'stalled' || chat.phase === 'no_anchor') ? 'red' : 'yellow';
+      const item = el('div','backfill-item backfill-' + severity);
       const heading = el('strong','',chat.name);
       const phaseLabel = chat.phase === 'likely_complete' ? 'Probably complete (empty follow-up)' :
-        chat.phase === 'retry' ? 'Awaiting another attempt' : chat.phase;
-      const detail = el('p','',phaseLabel + ' · ' + chat.requests + ' requests' +
+        chat.phase === 'retry' ? 'Awaiting another attempt' :
+        chat.phase === 'no_anchor' ? 'No usable starting message' :
+        chat.phase === 'stalled' ? 'Stalled — needs attention' :
+        chat.phase === 'requesting' ? 'Fetching older messages' : 'Queued';
+      const status = el('span','backfill-status',phaseLabel);
+      const detail = el('p','',chat.requests + ' requests' +
         ' · approx. ' + chat.importedEstimate + ' delivered messages' +
         (chat.oldestTimestamp ? ' · oldest ' +
           stamp(chat.oldestTimestamp, {day:'numeric',month:'short',year:'numeric'}) : ''));
-      item.append(heading,detail);
+      item.append(heading,status,detail);
       list.append(item);
     }
     if (!list.childElementCount) list.append(el('p','placeholder','No conversations processed yet.'));
