@@ -51,10 +51,10 @@ export async function diagnoseSelfRouting(dataDir, phoneNumber) {
           remote:classify(k.remoteJid),
           remoteLid:keyLid(k.remoteJid),
           remoteSyntax:{
-            agentSuffix:/_\\d+(?=@lid$)/.test(String(k.remoteJid??'')),
-            deviceSuffix:/:\\d+(?=@lid$)/.test(String(k.remoteJid??'')),
-            bareLid:/^\\d+@lid$/.test(String(k.remoteJid??'')),
-            phoneAgentSuffix:/_\\d+(?=@s\\.whatsapp\\.net$)/.test(String(k.remoteJid??''))
+            agentSuffix:/_\d+(?=@lid$)/.test(String(k.remoteJid??'')),
+            deviceSuffix:/:\d+(?=@lid$)/.test(String(k.remoteJid??'')),
+            bareLid:/^\d+@lid$/.test(String(k.remoteJid??'')),
+            phoneAgentSuffix:/_\d+(?=@s\.whatsapp\.net$)/.test(String(k.remoteJid??''))
           },
           participant:classify(k.participant),
           keyFlags:allKeys.filter(x=>!['id','remoteJid','participant','fromMe'].includes(x)),
