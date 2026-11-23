@@ -1,4 +1,4 @@
-# Govee Temporary Display
+# Govee Pixel Studio
 
 Reusable, volatile image/animation transport for Govee H6631 pixeld (52×32, RGB, UDP 7777). **No specific visual effects are built into the add-on.**
 
@@ -11,7 +11,7 @@ The controller has an authenticated Home Assistant Ingress API:
 
 The add-on streams frames at 12 Hz while active and sends **nothing** when idle, leaving pixeld to return to its selected Idle Black animation after about three seconds.
 
-Temporary animations are generated outside the app and kept in RAM only for playback. Built-in artwork modes are separately versioned with the app in GitHub. They are not saved to Govee firmware, and user-defined uploads are not persisted. The built-in browser visualiser is optional and independent of the transport API. Don't expose the service's port to the internet.
+Temporary animations are generated outside the app and kept in RAM only for playback. Uploaded artwork and its matching rules **are now persisted** on the separate /media/storage drive. The Govee device itself does not retain images. Open the add-on's Home Assistant Ingress web UI for the new Pixel Studio gallery, uploader and editor. Keep the service private; do not expose its port to the internet.
 
 ## Reactive proof of concept
 
@@ -53,12 +53,15 @@ Configure once via `POST /api/countdown/configure`:
 
 ## Persistent artwork modes and game detection
 
-The registry lives in `artwork_modes.py`. The actual pixel data is stored in
-**ordinary PNG files** under `artwork/`, included in the app at build time.
-`artwork_loader.py` validates and caches their native 52×32 RGB data; only the
-currently displayed frame is streamed to the Govee. To add a new game, commit
-a 52×32 PNG in this folder and add its filename and exact title aliases to
-`artwork_modes.py`. Images are not permanently installed on the Govee.
+The built-in artwork is still tracked in GitHub under `artwork/`. On startup,
+`artwork_store.py` copies the three existing assets into the mounted drive at
+`/media/storage/govee-pixel-artwork/images/` and persists their names, game
+matches and any user uploads in `gallery.json` beside them. Nothing is written
+to /data, /share or the internal /media/STORAGE placeholder as a fallback.
+If the separate `/media/storage` mount disappears, image *saving* is disabled.
+Built-in artwork remains readable and the game's countdown continues to work.
+`artwork_modes.py` resolves game titles from the gallery; users can add or edit
+new artwork without any code changes or Docker rebuild.
 
 | ID | Purpose |
 | --- | --- |
@@ -93,3 +96,56 @@ Both images are PNG files directly previewable in GitHub. These replace the
 previous Base85/64-colour encoded Python image data. The app uses Pillow only
 for loading the installed images; no network fetches or image conversion
 occur on every countdown update.
+
+## Artwork manager (Web UI)
+
+Open **Settings → Apps → Govee Pixel Studio → Open web UI**. The former
+fireworks/microphone browser demonstration has been replaced with a responsive
+gallery and editor. It provides:
+
+- Upload a PNG/JPG/WebP; browser-side crop to a 52×32 frame, fit/fill,
+  zoom and X/Y position controls; pixel-exact preview.
+- Give the artwork a name and multiple exact-match rules (game, song,
+  artist, album or other). Saved images and match rules appear in the gallery
+  and can be edited or deleted. The three bundled images are protected from
+  deletion but their descriptions/rules are editable.
+- Preview stored artwork on the device for 30 seconds, or preview a sample
+  35-minute countdown overlay for 12 seconds. Both expire automatically.
+- Show live PS5 detection status and storage-drive health. Saves are
+  **blocked** rather than falling back to internal disk storage when the
+  external mount is absent.
+
+### Storage layout
+
+The actual external volume is mounted in this HA instance at
+`/media/storage` (**lowercase**, separate device). The similarly named
+`/media/STORAGE` is just a directory on Home Assistant's internal disk
+and is never used. The add-on maps `media:rw` and checks that
+`/media/storage` is a genuine mount on a different device.
+
+```
+/media/storage/govee-pixel-artwork/
+    gallery.json
+    images/
+        gta_vi.png
+        ffvii_revelation.png
+        ps5_default.png
+        art_<unique-id>.png
+```
+
+The web UI stores only the pixelated 52×32 PNG, not the original large
+upload. To re-crop an image later, upload its original again while editing.
+
+### API additions
+
+- `GET /api/artwork/gallery` returns all saved artwork, metadata and storage readiness.
+- `GET /api/artwork/storage` reports external-mount status and free space.
+- `GET /api/artwork/image/<id>` returns the exact 52×32 PNG.
+- `POST /api/artwork/save` with `{"name":"FFVII","image_png_base64":"...","mappings":[{"kind":"game","value":"Final Fantasy VII"}]}` stores a validated PNG and its associations. Include `id` to update an existing item, and omit `image_png_base64` when editing metadata only.
+- `POST /api/artwork/delete` with `{"id":"art_..."}` deletes an uploaded image.
+- `POST /api/artwork/show` with `{"mode":"art_...","timeout":30}` shows the raw art temporarily.
+- `POST /api/artwork/preview-countdown` with `{"mode":"art_...","remaining":2100,"timeout":12}` displays a sample overlay.
+- `POST /api/artwork/resolve` with `{"kind":"song","value":"One-Winged Angel","show":true,"timeout":30}` selects a matched saved artwork via external automations. The game-title matcher is already wired into the PS5 countdown, while song/artist/album matches are available to future automations but do **not** yet automatically monitor the music players.
+
+All endpoints run behind the existing authenticated Home Assistant Ingress.
+The Govee display and gaming session rules themselves are unchanged.
