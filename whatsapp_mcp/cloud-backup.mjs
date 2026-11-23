@@ -138,6 +138,10 @@ export class WhatsAppCloudBackup {
     if (!/^[0-9]+-[a-z0-9-]+\.apps\.googleusercontent\.com$/.test(id) ||
         !secret || secret.length > 300)
       throw new Error('Enter the client ID and secret for a Google TVs and Limited Input Devices OAuth client');
+    // A new OAuth client can be unable to see/delete files owned by the old
+    // Drive client due to drive.file scoping: never silently orphan a copy.
+    if (this.state.latestFileId && this.clientId && id !== this.clientId)
+      throw new Error('Changing OAuth client could orphan the prior encrypted Drive backup. Delete it in Google Drive first or reconnect using the existing client.');
     // A different OAuth client must never silently use the old client's token.
     const changed = id !== this.clientId || secret !== this.clientSecret;
     savePrivate(this.clientFile, { clientId: id, clientSecret: secret });
