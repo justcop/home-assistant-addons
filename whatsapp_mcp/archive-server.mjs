@@ -106,7 +106,7 @@ export function createArchiveServer({ apiToken, port = 8100, storagePath = '/dat
           value: true, enumerable: true, configurable: true, writable: true
         });
         const temp = overrideFile + '.' + process.pid + '.tmp';
-        fs.writeFileSync(temp, JSON.stringify(overrides) + '\\n', { mode: 0o600 });
+        fs.writeFileSync(temp, JSON.stringify(overrides) + '\n', { mode: 0o600 });
         fs.renameSync(temp, overrideFile);
         return send(res, 200, JSON.stringify({ accepted: true, state: 'recheck_requested' }), 'application/json');
       }
