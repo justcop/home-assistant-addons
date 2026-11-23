@@ -1,0 +1,33 @@
+name: WhatsApp upstream PR compatibility checks
+on:
+  pull_request:
+    paths:
+      - 'whatsapp_mcp/Dockerfile'
+      - 'whatsapp_mcp/patch-*.mjs'
+      - 'whatsapp_mcp/privacy-retention.ts'
+      - 'whatsapp_mcp/tests/**'
+      - 'whatsapp_mcp/policy_tests/**'
+      - 'whatsapp_mcp/upstream-policy.py'
+      - '.github/workflows/whatsapp-upstream*.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compatibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Check risk classifier and privacy tests
+        run: |
+          python -m unittest discover -s whatsapp_mcp/policy_tests -p 'test_*.py' -v
+          node --test whatsapp_mcp/tests/*.test.mjs
+      - name: Compile actual pinned WhatsApp MCP and Baileys patches
+        run: |
+          docker build --pull -t whatsapp-compat:test whatsapp_mcp
