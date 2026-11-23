@@ -159,4 +159,22 @@ test('Google client reset disables backup and invalidates the old OAuth token', 
   assert.equal(status.enabled, false);
   assert.equal(service.clientSecret, 'secret');
   assert.equal(service.status().connected, false);
+  assert.equal(service.status().clientId, '123-test.apps.googleusercontent.com');
+  assert.equal(service.status().clientSecretStored, true);
+  // Secret is not returned but can be left blank when re-saving the same ID.
+  assert.equal(service.configureGoogleClient('123-test.apps.googleusercontent.com', '').clientConfigured, true);
+  assert.equal(service.clientSecret, 'secret');
+  assert.throws(() => service.configureGoogleClient('456-test.apps.googleusercontent.com', ''), /must also supply the new secret/);
+});
+
+test('invalid Google device client failure is explicit and persists in status', async t => {
+  const root = fixture(t);
+  const service = new WhatsAppCloudBackup({
+    dataDir: root, stateDir: path.join(root, 'private'),
+    clientId: '123-test.apps.googleusercontent.com', clientSecret: 'secret',
+    request: async () => new Response(JSON.stringify({ error: 'invalid_client' }), { status: 401 })
+  });
+  await assert.rejects(service.beginAuthorisation(), /TVs and Limited Input devices/);
+  assert.match(service.status().lastAuthError, /invalid_client/);
+  assert.equal(service.status().connected, false);
 });
