@@ -11,6 +11,7 @@ import { restoreSelfLid } from './restore-self-lid.mjs';
 import { pruneProtocolNoise } from './protocol-retention.mjs';
 import { configureWhatsAppStorage } from './storage.mjs';
 import { WhatsAppCloudBackup } from './cloud-backup.mjs';
+import { HomeAssistantBackupAlerts } from './home-assistant-alerts.mjs';
 
 const ROOT = '/data';
 const API_PORT = 8097;
@@ -200,7 +201,8 @@ async function main() {
     dataDir: storage.dataDir, stateDir: backupStateDir,
     clientId: opts.backup_google_client_id,
     clientSecret: opts.backup_google_client_secret,
-    time: opts.backup_time_uk || '05:30'
+    time: opts.backup_time_uk || '05:30',
+    alerts: new HomeAssistantBackupAlerts()
   });
   archive = createArchiveServer({ apiToken, port: ARCHIVE_PORT,
     storagePath: storage.dataDir, dataStore: archiveData, cloudBackup });
