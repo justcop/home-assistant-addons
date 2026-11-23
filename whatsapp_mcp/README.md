@@ -219,7 +219,10 @@ the current live state only if you deliberately want a rollback; otherwise
 you may inadvertently restore deliberately deleted messages from an older
 snapshot. Copy the recovered SQLite database to the expected external
 volume using a trusted local file-management tool, with matching owner and
-0600 permissions. Re-pair if needed. Do not restore an encrypted backup
+0600 permissions. With the WhatsApp writer stopped, remove any old
+`whatsapp.db-wal` and `whatsapp.db-shm` files before restarting: they belong
+to the previous live SQLite database and must never be applied to the
+recovered database. Re-pair if needed. Do not restore an encrypted backup
 from an unknown sender or place its recovery key in GitHub.
 
 ## Move WhatsApp data to your existing STORAGE drive
