@@ -36,7 +36,7 @@ function view(name) {
   $('messages-view').classList.toggle('hidden', name !== 'messages');
   $('search-view').classList.toggle('hidden', name !== 'search');
   $('backup-view').classList.toggle('hidden', name !== 'backup');
-  document.querySelectorAll('.read-only-pill').forEach(p => p.classList.toggle('hidden', name === 'backup'));
+  $('read-only-pill').classList.toggle('hidden', name === 'backup');
 }
 function setHeading(title, description) {
   $('conversation-name').textContent = title;
