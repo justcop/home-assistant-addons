@@ -56,7 +56,7 @@
       <div id="backfill-view" class="backup-view hidden">
         <div class="search-intro">
           <h3>Recovering older messages</h3>
-          <p>WhatsApp is queried gradually for older messages. Existing conversations and read states are preserved. The process resumes after restarts, and is limited to 60 requests per UTC day.</p>
+          <p>WhatsApp is queried gradually for older messages. Existing conversations and read states are preserved. The process resumes after restarts, and is paced one request at a time, with a 2,000-request/day operational safety ceiling (not a WhatsApp limit).</p>
         </div>
         <p id="backfill-summary" class="backup-status" role="status">Loading history recovery progress…</p>
         <section class="backup-card">

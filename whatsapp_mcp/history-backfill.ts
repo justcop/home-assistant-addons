@@ -15,7 +15,10 @@ type State = { schema: 2; startedAt: string; updatedAt: string; day: string;
   requestsToday: number; requests: number; importedEstimate: number; active: boolean;
   chats: Record<string, ChatState> };
 const FILE = ".history-backfill-v2.json";
-const PER_DAY = 60, PER_CHAT = 400, GAP_MS = 45_000, WINDOW_MS = 35_000, BATCH = 50;
+// Operational circuit-breaker, NOT a documented WhatsApp or Baileys quota.
+// One in-flight request at a time; on failures the existing per-chat stall
+// mechanism avoids retry storms. Most throughput is bounded by the reply wait.
+const PER_DAY = 2000, PER_CHAT = 400, GAP_MS = 3_000, WINDOW_MS = 25_000, BATCH = 50;
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 const today = () => new Date().toISOString().slice(0,10);
 function save(file: string, s: State): void {
