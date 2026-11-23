@@ -5,8 +5,10 @@ import time
 import tempfile
 
 # --- Path Setup ---
-# Calibration profiles and detector state live alongside the configured recordings.
-# Keep the default /share directory for existing installations until changed.
+# Small calibration profiles, reports and audio-source state stay in /share for backups.
+# Large calibration WAVs, experiments and datasets follow recording_directory.
+SHARE_DIR = "/share/vinyl_guardian"
+AUTO_CALIB_FILE = os.path.join(SHARE_DIR, "auto_calibration.json")
 
 # --- Load Configuration ---
 try:
@@ -23,8 +25,7 @@ for diagnostic in storage_diagnostics(recording_path):
     print(f"📁 {diagnostic}", flush=True)
 try:
     RECORDING_DIR = prepare_recording_directory(recording_path)
-    SHARE_DIR = RECORDING_DIR
-    AUTO_CALIB_FILE = os.path.join(SHARE_DIR, "auto_calibration.json")
+    os.makedirs(SHARE_DIR, exist_ok=True)
 except (ValueError, OSError) as exc:
     print(f"🚨 Recording storage unavailable: {exc}", flush=True)
     sys.exit(1)
