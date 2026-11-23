@@ -1,5 +1,5 @@
 name: Govee Temporary Display
-version: "0.5.9"
+version: "0.5.10"
 slug: govee_temporary_display
 description: Stream temporary 52x32 images over UDP with timeout and heartbeat
 arch:
@@ -12,6 +12,7 @@ host_network: false
 homeassistant_api: true
 map:
   - share:ro
+  - media:rw
 ingress: true
 ingress_port: 8098
 panel_icon: mdi:image-outline
