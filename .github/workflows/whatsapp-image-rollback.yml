@@ -28,15 +28,19 @@ jobs:
             echo "::error::Invalid commit SHA"; exit 1
           fi
           git cat-file -e "$GOOD^{commit}"
+          if ! git merge-base --is-ancestor "$GOOD" HEAD; then
+            echo "::error::Rollback source must be an ancestor of main; do not use arbitrary code"
+            exit 1
+          fi
           BRANCH="recovery/whatsapp-image-${GOOD:0:12}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH"
           mapfile -t good_files < <(git ls-tree -r --name-only "$GOOD" whatsapp_mcp/ |
-            grep -vE '^whatsapp_mcp/(config.yaml|README.md|tests/|\\.delivery/|\\.)' || true)
+            grep -vE '^whatsapp_mcp/(config.yaml|README.md|upstream_guard.py|tests/|\\.delivery/|\\.)' || true)
           for file in "${good_files[@]}"; do git restore --source "$GOOD" -- "$file"; done
           mapfile -t now_files < <(git ls-files whatsapp_mcp/ |
-            grep -vE '^whatsapp_mcp/(config.yaml|README.md|tests/|\\.delivery/|\\.)' || true)
+            grep -vE '^whatsapp_mcp/(config.yaml|README.md|upstream_guard.py|tests/|\\.delivery/|\\.)' || true)
           for file in "${now_files[@]}"; do
             if ! git cat-file -e "$GOOD:$file" 2>/dev/null; then git rm -f -- "$file"; fi
           done
