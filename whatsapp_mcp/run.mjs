@@ -182,7 +182,7 @@ async function main() {
     WHATSAPP_API_TOKEN: apiToken,
     WHATSAPP_PHONE_NUMBER: opts.phone_number,
     WHATSAPP_MCP_READONLY: 'true',
-    // Resumable backfill: max 60 requests/day, 50 older messages/request.
+    // Resumable backfill: up to 2,000 requests/day (our safety ceiling), 50 messages/request.
     WHATSAPP_HISTORY_BACKFILL: '1',
     LOG_LEVEL: 'info'
   });
