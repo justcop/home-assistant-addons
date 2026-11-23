@@ -1,9 +1,11 @@
 name: My Add-on Updater
-version: "0.1.0"
+version: 0.1.1
 slug: addon_updater
 description: Shared GitHub code updates and standard image release status for my applications.
 url: https://github.com/justcop/home-assistant-addons
-arch: [amd64, aarch64]
+arch:
+- amd64
+- aarch64
 startup: application
 boot: auto
 init: false
@@ -16,11 +18,12 @@ hassio_api: true
 hassio_role: admin
 backup: cold
 map:
-  - type: media
-    read_only: false
+- type: media
+  read_only: false
 options:
   automatic_updates: true
   check_interval: 180
 schema:
   automatic_updates: bool
   check_interval: int(120,86400)
+image: ghcr.io/justcop/addon-updater-{arch}

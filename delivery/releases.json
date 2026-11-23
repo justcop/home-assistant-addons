@@ -1,0 +1,80 @@
+{
+  "addon_updater": {
+    "sha": "426f7adb3eda64b10f91660360cc852efaaebd17",
+    "compatibility": "542cce2a74926db12430e75f966073b1b247a268922520f6e96e82edd5ec9164",
+    "version": "0.1.1",
+    "image": "ghcr.io/justcop/addon-updater-{arch}"
+  },
+  "audioshelf": {
+    "sha": "426f7adb3eda64b10f91660360cc852efaaebd17",
+    "compatibility": "f8a8d70f3ee7167f6324d00240946eb70fe002be0e61b2444beb8a30de627b0b",
+    "version": "0.6.50",
+    "image": "ghcr.io/justcop/audioshelf-{arch}"
+  },
+  "github_actions_cleanup": {
+    "sha": "426f7adb3eda64b10f91660360cc852efaaebd17",
+    "compatibility": "b6f4b1c65edb815ecd33991df696abc2e4321d4f6d22bde5e35203516ad02684",
+    "version": "1.0.1",
+    "image": "ghcr.io/justcop/github-actions-cleanup-{arch}"
+  },
+  "govee-temporary-display": {
+    "sha": "426f7adb3eda64b10f91660360cc852efaaebd17",
+    "compatibility": "7accc5df7467fb67344b3a5315c165146e77ae2415a00e23299268c23a88d276",
+    "version": "0.6.2",
+    "image": "ghcr.io/justcop/govee-temporary-display-{arch}"
+  },
+  "lastfm_analytics": {
+    "sha": "426f7adb3eda64b10f91660360cc852efaaebd17",
+    "compatibility": "363a6b577d38d93fa76657c78d34cccf79a74dab240ed5c2c40422ea65f1eb7d",
+    "version": "0.2.40",
+    "image": "ghcr.io/justcop/lastfm-analytics-{arch}"
+  },
+  "money_locations": {
+    "sha": "426f7adb3eda64b10f91660360cc852efaaebd17",
+    "compatibility": "a4319a97c34c42c25865abc25d4b3c847270f9be95efffe55f3736a51959f216",
+    "version": "0.5.3",
+    "image": "ghcr.io/justcop/money-locations-{arch}"
+  },
+  "music_video_companion": {
+    "sha": "426f7adb3eda64b10f91660360cc852efaaebd17",
+    "compatibility": "673f647839fdbc2b07d2781e74bec574be66c18e38c19d3ac121ebf71a9d8158",
+    "version": "0.5.1",
+    "image": "ghcr.io/justcop/music-video-companion-{arch}"
+  },
+  "ocr_tool": {
+    "sha": "426f7adb3eda64b10f91660360cc852efaaebd17",
+    "compatibility": "88f54a1941a116e7eb096b69b51da538df2b21873bb29fe2f0b14ebb7d37be41",
+    "version": "1.1.1",
+    "image": "ghcr.io/justcop/ocr-tool-{arch}"
+  },
+  "python": {
+    "sha": "426f7adb3eda64b10f91660360cc852efaaebd17",
+    "compatibility": "ef84a5ab2fff858d4daca6dc78d902027230c8d86653238680262e7efed33c04",
+    "version": "1.0.4",
+    "image": "ghcr.io/justcop/python-venv-ssh-{arch}"
+  },
+  "vikunja_chatgpt_bridge": {
+    "sha": "426f7adb3eda64b10f91660360cc852efaaebd17",
+    "compatibility": "e91c300519b9ccd78d48667093ffbccef26709dd8aeb9e6507c36376b36237ab",
+    "version": "0.2.6",
+    "image": "ghcr.io/justcop/vikunja-chatgpt-bridge-{arch}"
+  },
+  "vinyl_guardian": {
+    "sha": "426f7adb3eda64b10f91660360cc852efaaebd17",
+    "compatibility": "950b278eeef107e51e141d0d81efb1d92ce9f9ee1ecb714f5ccc902015a49b10",
+    "version": "5.10.26",
+    "image": "ghcr.io/justcop/vinyl-guardian-{arch}"
+  },
+  "whatsapp_mcp": {
+    "sha": "426f7adb3eda64b10f91660360cc852efaaebd17",
+    "compatibility": "fb39aca9b36b85645e687f58e4eec0acdf637adc517c468724d16a784c9dcb4f",
+    "version": "0.3.17",
+    "image": "ghcr.io/justcop/whatsapp-mcp-{arch}"
+  },
+  "work_audit": {
+    "sha": "426f7adb3eda64b10f91660360cc852efaaebd17",
+    "compatibility": "c743a9aee87a32fd1150812f8653c11e85b0e0c6eb7cc3f38a69d45be66d3ada",
+    "version": "0.1.1",
+    "image": "ghcr.io/justcop/work-audit-{arch}"
+  }
+}

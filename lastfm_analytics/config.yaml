@@ -1,5 +1,5 @@
 name: Listening Analytics
-version: 0.2.39
+version: 0.2.40
 slug: lastfm_analytics
 description: A clear, local view of your Last.fm listening, with reversible song and
   album grouping.
@@ -61,3 +61,4 @@ schema:
 map:
 - type: media
   read_only: true
+image: ghcr.io/justcop/lastfm-analytics-{arch}

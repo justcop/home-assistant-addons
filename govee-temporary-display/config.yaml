@@ -1,5 +1,5 @@
 name: Govee Pixel Studio
-version: 0.6.1
+version: 0.6.2
 slug: govee_temporary_display
 description: Manage pixel artwork on external storage and stream temporary 52x32 displays
 arch:
@@ -28,3 +28,4 @@ schema:
   max_timeout: int(1,86400)
   ssh_user: str
   ssh_key_file: str
+image: ghcr.io/justcop/govee-temporary-display-{arch}

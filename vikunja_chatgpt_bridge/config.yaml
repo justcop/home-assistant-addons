@@ -1,5 +1,5 @@
 name: Vikunja Native MCP OAuth Bridge
-version: 0.2.5
+version: 0.2.6
 slug: vikunja_chatgpt_bridge
 description: OAuth bridge for Vikunja's built-in MCP server
 init: false
@@ -27,3 +27,4 @@ schema:
 map:
 - type: media
   read_only: true
+image: ghcr.io/justcop/vikunja-chatgpt-bridge-{arch}

@@ -1,5 +1,5 @@
 name: Money Locations
-version: 0.5.2
+version: 0.5.3
 slug: money_locations
 description: Net financial assets, inferred savings and investment returns from flexible
   snapshots.
@@ -40,3 +40,4 @@ schema:
   cloudflare_owner_email: str?
   lifestage_email: str?
   lifestage_password: password?
+image: ghcr.io/justcop/money-locations-{arch}

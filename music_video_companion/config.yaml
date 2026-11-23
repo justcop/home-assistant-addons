@@ -1,5 +1,5 @@
 name: Music Video Companion
-version: 0.5.0
+version: 0.5.1
 slug: music_video_companion
 description: Discover approved official music videos for playing tracks and cast them
   to a TV.
@@ -34,3 +34,4 @@ schema:
 map:
 - type: media
   read_only: true
+image: ghcr.io/justcop/music-video-companion-{arch}

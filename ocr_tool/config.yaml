@@ -1,5 +1,5 @@
 name: OCR Tool
-version: 1.1.0
+version: 1.1.1
 slug: ocr_tool
 description: Local OCR for screenshots and PDFs, accessible through Home Assistant.
 url: https://www.home-assistant.io/
@@ -21,3 +21,4 @@ map:
   read_only: true
 options: {}
 schema: {}
+image: ghcr.io/justcop/ocr-tool-{arch}

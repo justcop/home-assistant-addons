@@ -1,6 +1,6 @@
 name: Work Audit
 description: Combine EMIS Helper activity and phone entities into a daily work timeline.
-version: 0.1.0
+version: 0.1.1
 slug: work_audit
 url: https://github.com/justcop/home-assistant-addons/tree/main/work_audit
 arch:
@@ -84,3 +84,4 @@ schema:
 map:
 - type: media
   read_only: true
+image: ghcr.io/justcop/work-audit-{arch}
