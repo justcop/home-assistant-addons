@@ -37,7 +37,7 @@ FONT={
 ":":["0","1","0","1","0"]," ":["000"]*5,
 }
 
-def validate(cfg):
+def validate(cfg, allow_missing_mode=False):
     if not isinstance(cfg,dict): raise ValueError("configuration must be an object")
     for name in ("state_entity","deadline_entity","power_entity"):
         value=cfg.get(name)
@@ -57,7 +57,7 @@ def validate(cfg):
     if mode is None:
         # Migrate existing GTA countdown bindings to automatic game selection.
         mode="auto" if marker.upper()=="VI" else "classic"
-    if mode not in ("auto", "classic") and not is_artwork_mode(mode):
+    if mode not in ("auto", "classic") and not (allow_missing_mode or is_artwork_mode(mode)):
         raise ValueError("unknown artwork_mode")
     game_entity=cfg.get("game_entity", "sensor.justcop_now_playing")
     activity_entity=cfg.get("activity_entity", "sensor.ps5_044_activity")
@@ -90,6 +90,9 @@ def selected_artwork_mode(cfg,game_title=None,activity="none"):
     mode=cfg.get("artwork_mode", "auto" if cfg.get("mark")=="VI" else "classic")
     if mode=="auto":
         return resolve_game_artwork(game_title,activity)
+    if mode!="classic" and not is_artwork_mode(mode):
+        # A missing external drive must never disable an authorised timer.
+        return "ps5_default"
     return mode
 
 
@@ -113,8 +116,11 @@ def render(cfg,remaining,game_title=None,activity="none"):
     mark=cfg["mark"]
     artwork_mode=selected_artwork_mode(cfg,game_title,activity)
     if artwork_mode!="classic":
-        # Persistent, selectable artwork mode. The timer is a separate overlay.
-        out[:] = get_artwork_rgb(artwork_mode)
+        # A corrupt/unmounted user image cannot stop the gaming countdown.
+        try:
+            out[:] = get_artwork_rgb(artwork_mode)
+        except (OSError, ValueError):
+            out[:] = get_artwork_rgb("ps5_default")
     else:
         # Legacy generic title/mark layout, preserved for other bindings.
         for y in range(H):
@@ -183,7 +189,7 @@ class CountdownBinding:
         self.config=None
         self.status={"configured":False,"active":False,"error":None,"seconds_remaining":0}
         if FILE.is_file():
-            try:self.config=validate(json.loads(FILE.read_text()))
+            try:self.config=validate(json.loads(FILE.read_text()),allow_missing_mode=True)
             except (OSError,ValueError):pass
         self.status["configured"]=self.config is not None
         self.status["binding"]=self.config
