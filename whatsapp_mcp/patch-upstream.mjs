@@ -142,3 +142,28 @@ fs.copyFileSync('/src/privacy-retention.ts', '/src/packages/api/src/whatsapp/pri
 console.log('Pinned upstream patched with sender-aware revocations and Delete-for-me purges.');
 
 
+
+// Extended history experiment: use the upstream-approved Chrome client label
+// for initial pairing (Desktop is rejected by pairing-code IQ on this pinned
+// Baileys version), but advertise Desktop on already-authenticated sessions.
+// Never delete/re-create auth keys or mutate the existing SQLite archive.
+const connectionFile = '/src/packages/api/src/whatsapp/connection.ts';
+let connection = fs.readFileSync(connectionFile, 'utf8');
+function patchConnection(before, after) {
+  const at = connection.indexOf(before);
+  if (at < 0 || connection.indexOf(before, at + 1) !== -1) {
+    throw new Error('Extended history patch anchor missing or ambiguous');
+  }
+  connection = connection.slice(0, at) + after + connection.slice(at + before.length);
+}
+patchConnection(
+  'browser: Browsers.macOS("Chrome"), // also the ban-risk mitigation from the spec',
+  'browser: (auth.state.creds.registered || auth.state.creds.account)\n' +
+  '          ? Browsers.macOS("Desktop") : Browsers.macOS("Chrome"),'
+);
+patchConnection(
+  'syncFullHistory: false,',
+  'syncFullHistory: true,'
+);
+fs.writeFileSync(connectionFile, connection);
+console.log('Extended history requested for authenticated sessions; initial pairing remains Chrome.');
