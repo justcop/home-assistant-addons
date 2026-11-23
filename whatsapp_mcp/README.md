@@ -51,6 +51,89 @@ From version 0.2.0, the app provides a read-only archive viewer through Home Ass
 - Home Assistant login and admin-only app panel protect the viewer. All browsing routes are GET-only; none can send, edit, delete or mark messages read.
 - The viewer reads via the existing upstream read-only REST API, so it does **not** open a second live SQLite writer. The archive shows WhatsApp history actually synchronised to this linked device; it does not guarantee older history which WhatsApp did not provide.
 
+## Privacy-aware per-message deletions (0.3.2)
+
+The pinned Baileys upstream previously treated every `messages.delete` event as a
+message revoke. The wrapper now patches this distinction **without** opening a
+WhatsApp write endpoint:
+
+- **Delete for me (any author):** when Baileys emits a per-message
+  `messages.delete` event, the archive permanently removes its current SQLite
+  row, the FTS search entry, reactions, quote references, and any future
+  `message_revisions` entries for that message. A small SHA-256 digest of the
+  chat/message identifier (no message content) prevents a later WhatsApp history
+  replay from re-inserting the removed message.
+- **Delete for everyone (your message):** hard-purge instead of keeping your own
+  revoked content. On startup, the app also cleans up previously marked
+  `from_me=1` revocations.
+- **Delete for everyone (someone else's message):** preserve the existing
+  deleted-message marker for the future version-history viewer.
+- Content-addressed attachment files are removed **only if no other stored
+  message uses them**. Existing backup snapshots and possible quoted copies of
+  the content embedded inside *other* raw WhatsApp messages are not automatically
+  rewritten. SQLite uses `secure_delete`, but WAL and independently held
+  historical backups must be managed separately.
+
+**Limits:** The pinned Baileys release has a handler for
+`deleteMessageForMeAction` in app-state sync, but the phone does not always
+deliver those events reliably to unofficial linked clients. A successful test of
+this feature therefore requires deleting a non-sensitive test message *on the
+phone* and verifying that it disappears from the archive after sync. If the
+event is never received, no code on the archive can infer which unseen messages
+were intentionally deleted. **Do not compare the archive against a partial
+WhatsApp history sync and delete every missing entry**: that would cause
+irreversible data loss during incomplete history coverage or reconnection.
+
+### Clear-chat detection: limited self-chat test
+
+Baileys understands WhatsApp's `clearChatAction` app-state operation but its
+published event stream does not expose it. The Docker build therefore patches
+the **deployed, pinned Baileys runtime** to emit metadata through an internal
+`chats.update` event; the WhatsApp API consumes this without sending anything
+to WhatsApp.
+
+For the **first live test only**, automatic whole-chat clearing is restricted to
+your own **Messages to Yourself** conversation. Clear-chat actions in every
+other conversation are observed in aggregate diagnostics but **do not delete**
+data from the archive. This guard is deliberate until phone-originated events
+have been verified against the running linked client.
+
+A self-chat clear is performed only when all conditions hold:
+
+1. An actual incremental app-state `clearChatAction` is delivered (not an
+   inferred absence, chat deletion, or initial history replay).
+2. WhatsApp explicitly indicates that **starred messages are also deleted**,
+   rather than preserving them. If WhatsApp requests that starred messages
+   be kept, the archive ignores the whole clear for now rather than guessing
+   which historical messages were starred.
+3. The action includes a valid last-message timestamp. Only this chat's
+   messages at or before that boundary are purged; newer messages survive.
+4. The batch contains at most 20,000 local message rows. Purged identifiers
+   are recorded as non-content digests so an old history replay cannot
+   restore them.
+
+The app logs only generic event outcomes and aggregate counts, **not**
+message text, IDs, contact names, or chat IDs.
+
+**Live test procedure:** Open the Messages to Yourself thread and verify
+one or more expendable messages are visible in the private archive.
+On your phone select **Clear chat**, explicitly select deletion of starred
+messages if that option appears, then inspect the archive and HA app logs.
+Send a new message after clearing and verify it survives. If the old messages
+remain, check whether the log reported an ignored action or no action was
+received at all; do not interpret this as a successful purge. A test in this
+self-chat does not prove that WhatsApp sends the same events in all chats.
+
+**Delete chat** is a separate WhatsApp action (`chats.delete`) and is not
+purged by this feature; an empty or deleted chat must not be confused with
+`clearChatAction`.
+
+The privacy purge only affects live data after this version is installed. It
+cannot remove content already copied into earlier Home Assistant/cloud backups.
+This is a functional retention mechanism, not a secure-erase guarantee across
+all storage layers. It retains the existing Ingress and Cloudflare access
+controls, and offers no remote-message-delete function.
+
 ## Context-efficient MCP conversation reviews (0.3.0)
 
 Two additional **read-only** tools are available to ChatGPT from this Home Assistant package:
