@@ -198,5 +198,17 @@ ingest = ingest.replace(readSyncAnchor,
   '        const zeroUpdates = cs.filter(c => c.unreadCount === 0).length;\n' +
   '        if (zeroUpdates > 0) logger.info({ count: zeroUpdates }, "unread-sync: read-zero updates received");\n' +
   '        runChunked(cs, "chats", applyChat);');
+// ON_DEMAND history carries an old chat snapshot. It must not overwrite
+// the current local unread count with historical state.
+patchIngest(
+  '    runChunked(h.chats, "chats", applyChat);',
+  '    runChunked(h.chats, "chats", c => {\n' +
+  '      if (h.syncType === proto.HistorySync.HistorySyncType.ON_DEMAND) {\n' +
+  '        const metadata: Partial<Chat> = { ...c };\n' +
+  '        delete metadata.unreadCount;\n' +
+  '        applyChat(metadata);\n' +
+  '      } else applyChat(c);\n' +
+  '    });'
+);
 fs.writeFileSync(ingestFile, ingest);
-console.log('Privacy-safe read-state diagnostics included.');
+console.log('Privacy-safe read-state diagnostics and on-demand unread protection included.');
