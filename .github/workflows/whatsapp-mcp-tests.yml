@@ -21,6 +21,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Upstream classification policy tests
+        run: python -m unittest discover -s whatsapp_mcp/tests -p 'test_upstream_guard.py' -v
       - name: Node security regression tests
         run: node --test whatsapp_mcp/tests/*.test.mjs
       - name: Syntax check browser UI and launcher
@@ -39,3 +41,22 @@ jobs:
           file whatsapp_mcp/logo.png | grep -q 'PNG image data, 500 x 200'
       - name: Build pinned upstream WhatsApp API and MCP app
         run: docker build -t whatsapp-mcp-addon:ci whatsapp_mcp
+      - name: Verify compiled upstream privacy patches in final image
+        run: |
+          docker run --rm --network none --entrypoint node whatsapp-mcp-addon:ci -e '
+          const fs = require("node:fs");
+          const assert = require("node:assert/strict");
+          const {globSync} = fs;
+          function check(pattern, marker) {
+            const matches = [...globSync(pattern)].filter(file => {
+              try { return fs.readFileSync(file, "utf8").includes(marker); } catch { return false; }
+            });
+            assert.ok(matches.length, "No compiled " + marker + " in " + pattern);
+          }
+          check("/opt/whatsapp-api/**/ingest.js","privacyRetention");
+          check("/opt/whatsapp-api/node_modules/baileys/lib/Utils/chat-utils.js","__archiveClearChat");
+          check("/opt/whatsapp-api/node_modules/baileys/lib/Socket/messages-recv.js","privacy: excluded outgoing Meta AI stanza");
+          check("/opt/whatsapp-mcp/**/reads.js","whatsapp_review_conversations");
+          console.log("Compiled API, MCP and Baileys privacy guards are present");
+          '
+

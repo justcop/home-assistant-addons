@@ -1,0 +1,100 @@
+name: Check WhatsApp upstream (guarded)
+on:
+  schedule:
+    - cron: '17 7 * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write
+concurrency:
+  group: whatsapp-upstream-candidate
+  cancel-in-progress: false
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Validate risk classifier
+        run: python -m unittest discover -s whatsapp_mcp/tests -p 'test_upstream_guard.py' -v
+      - name: Find latest upstream and prepare candidate pin
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python whatsapp_mcp/upstream_guard.py --apply
+      - name: Create candidate PR and run complete integration tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$(jq -r .changed /tmp/whatsapp-upstream-plan.json)" != true ]; then
+            echo "No new upstream commit"; exit 0
+          fi
+          PIN="$(jq -r .latest /tmp/whatsapp-upstream-plan.json)"
+          RISK="$(jq -r .risk /tmp/whatsapp-upstream-plan.json)"
+          BRANCH="bot/whatsapp-upstream-${PIN:0:12}"
+          existing="$(gh pr list --state open --json headRefName --jq '[.[]|select(.headRefName|startswith("bot/whatsapp-upstream-"))]|length')"
+          if [ "$existing" -gt 0 ]; then
+            echo "Upstream candidate already open; leaving it for review"; exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git checkout -b "$BRANCH"
+          git add whatsapp_mcp/Dockerfile
+          git commit -m "chore(whatsapp): pinned upstream ${PIN:0:12} [$RISK risk]"
+          git push origin "$BRANCH"
+          gh label create "whatsapp-upstream-high-risk" --color D93F0B --description "WhatsApp upstream needs privacy/compatibility review" --force
+          gh label create "whatsapp-upstream-low-risk" --color 1D76DB --description "Docs/tests-only diff eligible for gated automatic approval" --force
+          python - <<'PY'
+          import json
+          p=json.load(open('/tmp/whatsapp-upstream-plan.json'))
+          lines=[
+            '## Upstream update candidate',
+            'Pinned SHA: '+p['current'],
+            'Candidate SHA: '+p['latest'],
+            'Risk classification: **'+p['risk'].upper()+'**',
+            'Upstream diff: '+p['upstream_compare'],
+            '',
+            'This is a proposal. No Home Assistant production installation is triggered.',
+            'Build and privacy tests must pass against this exact SHA.',
+            'High-risk runtime/storage/deletion/Baileys/authentication changes require manual review.',
+            '',
+            'Changed upstream paths:',
+            *['- '+s for s in p['files'][:200]],
+          ]
+          open('/tmp/whatsapp-pr.md','w').write('\n'.join(lines)+'\n')
+          PY
+          if ! gh pr create --base main --head "$BRANCH" --title \
+              "chore(whatsapp): upstream ${PIN:0:12} [$RISK risk]" \
+              --body-file /tmp/whatsapp-pr.md --label "whatsapp-upstream-${RISK}-risk"; then
+            echo "::error::Enable GitHub Actions PR creation in repository settings."
+            exit 1
+          fi
+          # GITHUB_TOKEN-created PRs do not fire pull_request workflows.
+          # Explicit workflow_dispatch is permitted and executes full tests.
+          gh workflow run whatsapp-mcp-tests.yml --ref "$BRANCH"
+          sleep 8
+          RUN_ID=""
+          for attempt in {1..15}; do
+            RUN_ID="$(gh run list --workflow whatsapp-mcp-tests.yml --branch "$BRANCH" \
+              --event workflow_dispatch --json databaseId --jq '.[0].databaseId // empty')"
+            if [ -n "$RUN_ID" ]; then break; fi
+            sleep 4
+          done
+          if [ -z "$RUN_ID" ]; then
+            echo "::error::Could not find candidate integration tests"; exit 1
+          fi
+          gh run watch "$RUN_ID" --exit-status
+          if [ "$RISK" = low ]; then
+            gh pr merge "$BRANCH" --squash --delete-branch
+          else
+            echo "High-risk upstream change: tests passed, manual review required."
+          fi
