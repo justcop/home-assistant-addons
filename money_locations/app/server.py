@@ -472,31 +472,57 @@ def create_server(path, host='0.0.0.0', port=8099, local=False, password='', dir
 
 
 def persistent_path(data_dir, shared_dir=None):
-    """Migrate once using SQLite's backup API; never overwrite shared data.
+    """Keep the authoritative ledger inside Supervisor's backed-up app /data.
 
-    Failure is fatal rather than silently opening a fresh, empty database.
-    The legacy database remains untouched for recovery.
+    Migrate the old /share database using SQLite's online backup API, preserving
+    its WAL state. Never replace an existing private database or remove the
+    legacy copy. Any invalid legacy data stops startup without creating an
+    empty, apparently successful replacement.
     """
-    legacy = Path(data_dir) / 'money.sqlite'
-    if shared_dir is None:
-        return legacy
-    folder = Path(shared_dir)
-    folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+    data_dir = Path(data_dir)
+    if shared_dir is None:  # Local test/development mode retains its original path.
+        return data_dir / 'money.sqlite'
+    folder = data_dir / 'money-locations'
     target = folder / 'money.sqlite'
-    if not target.exists() and legacy.exists():
-        temp = folder / 'migration.sqlite'
-        try:
-            with closing(sqlite3.connect(f'file:{legacy}?mode=ro', uri=True)) as source, closing(sqlite3.connect(temp)) as dest:
-                source.backup(dest)
-                dest.commit()
-                if dest.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
-                    raise RuntimeError('Existing database failed its integrity check.')
-                row = dest.execute('SELECT body FROM state WHERE id=1').fetchone()
-                validate_state(json.loads(row[0]))
-            os.chmod(temp, 0o600)
-            temp.replace(target)
-        finally:
-            temp.unlink(missing_ok=True)
+    if target.exists():
+        return target
+    shared = Path(shared_dir)
+    legacy = shared / 'money.sqlite'
+    if not legacy.exists():
+        legacy = data_dir / 'money.sqlite'  # Very early app installations.
+    folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if not legacy.exists():
+        return target  # Genuine new installation.
+
+    temp = folder / '.migration-money.sqlite'
+    if temp.exists():
+        raise RuntimeError('Unfinished Money Locations migration needs inspection.')
+    try:
+        with closing(sqlite3.connect(f'file:{legacy}?mode=ro', uri=True)) as source, closing(sqlite3.connect(temp)) as dest:
+            source.backup(dest)
+            dest.commit()
+            if dest.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
+                raise RuntimeError('Existing Money Locations database failed integrity check.')
+            row = dest.execute('SELECT body FROM state WHERE id=1').fetchone()
+            if row is None:
+                raise RuntimeError('Existing Money Locations database has no saved state.')
+            validate_state(json.loads(row[0]))
+        os.chmod(temp, 0o600)
+        session_source = legacy.parent / 'lifestage-session.json'
+        session_dest = folder / 'lifestage-session.json'
+        if session_source.is_file() and not session_dest.exists():
+            session_temp = folder / '.migration-lifestage-session.json'
+            if session_temp.exists():
+                raise RuntimeError('Unfinished LifeStage session migration needs inspection.')
+            try:
+                session_temp.write_bytes(session_source.read_bytes())
+                os.chmod(session_temp, 0o600)
+                session_temp.replace(session_dest)
+            finally:
+                session_temp.unlink(missing_ok=True)
+        temp.replace(target)
+    finally:
+        temp.unlink(missing_ok=True)
     return target
 
 
