@@ -48,7 +48,7 @@ function hasFiles(p) {
 // Before removing a stale internal rollback copy, verify that the selected
 // external database is readable and internally consistent. A lower message
 // count is NOT a failure: legitimate user deletions must stay deleted.
-function verifyExternalArchive(target, requiresExistingArchive) {
+export function verifyExternalArchive(target, requiresExistingArchive) {
   const dbFile = path.join(target, 'whatsapp.db');
   if (!fs.existsSync(dbFile)) {
     if (requiresExistingArchive)
