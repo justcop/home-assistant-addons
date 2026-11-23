@@ -79,3 +79,6 @@
 .backfill-recheck{margin-top:9px;padding:7px 11px;border:1px solid var(--stroke);border-radius:9px;background:transparent;color:var(--text);font:inherit;font-size:12px;font-weight:650}
 .backfill-recheck:hover,.backfill-recheck:focus-visible{border-color:var(--accent);color:var(--accent)}
 .backfill-recheck:disabled{opacity:.55;cursor:default}
+
+.backfill-filter-label{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:5px 0 12px;color:var(--muted);font-size:12px}
+.backfill-filter-label select{background:var(--panel2);color:var(--text);border:1px solid var(--stroke);border-radius:9px;padding:6px 8px;font:inherit}
