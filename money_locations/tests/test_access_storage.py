@@ -16,30 +16,43 @@ from server import Store, Handler, create_server, persistent_path
 
 
 class DurableStorage(unittest.TestCase):
-    def test_migration_restart_reinstall_and_existing_shared_precedence(self):
+    def test_shared_data_migrates_into_private_addon_storage_once(self):
         with tempfile.TemporaryDirectory() as root:
             data = Path(root)/'data'
             share = Path(root)/'share'
-            legacy = Store(data/'money.sqlite')
+            legacy = Store(share/'money.sqlite')
             legacy.mutate(0, 'income_source', lambda s: s['income_sources'].append('Migration fixture'))
+            (share/'lifestage-session.json').write_text('{"token":"fixture"}')
             target = persistent_path(data, share)
+            self.assertEqual(target, data/'money-locations'/'money.sqlite')
             self.assertEqual(Store(target).read(), legacy.read())
             self.assertEqual(Store(target).backups(), legacy.backups())
-            self.assertTrue((data/'money.sqlite').exists())
-            Store(target).mutate(1, 'income_source', lambda s: s['income_sources'].append('New shared entry'))
+            self.assertTrue((share/'money.sqlite').exists())  # recovery copy
+            self.assertEqual((data/'money-locations/lifestage-session.json').read_text(), '{"token":"fixture"}')
+            Store(target).mutate(1, 'income_source', lambda s: s['income_sources'].append('New private entry'))
             self.assertEqual(Store(persistent_path(data, share)).read()[0], 2)
-            shutil.rmtree(data)  # Supervisor uninstall removes the private volume.
-            data.mkdir()
-            self.assertIn('New shared entry', Store(persistent_path(data, share)).read()[1]['income_sources'])
+            shutil.rmtree(share)
+            self.assertEqual(Store(persistent_path(data, share)).read()[0], 2)
+
+    def test_existing_private_database_is_never_replaced_by_legacy(self):
+        with tempfile.TemporaryDirectory() as root:
+            data = Path(root)/'data'
+            share = Path(root)/'share'
+            old = Store(share/'money.sqlite')
+            old.mutate(0, 'income_source', lambda s: s['income_sources'].append('Old shared entry'))
+            current = Store(data/'money-locations'/'money.sqlite')
+            current.mutate(0, 'income_source', lambda s: s['income_sources'].append('Current private entry'))
+            self.assertEqual(Store(persistent_path(data, share)).read(), current.read())
 
     def test_corrupt_migration_stops_without_empty_target(self):
         with tempfile.TemporaryDirectory() as root:
             data=Path(root)/'data'
-            data.mkdir()
-            (data/'money.sqlite').write_text('broken database')
+            share=Path(root)/'share'
+            share.mkdir()
+            (share/'money.sqlite').write_text('broken database')
             with self.assertRaises(sqlite3.DatabaseError):
-                persistent_path(data, Path(root)/'share')
-            self.assertFalse((Path(root)/'share/money.sqlite').exists())
+                persistent_path(data, share)
+            self.assertFalse((data/'money-locations/money.sqlite').exists())
 
 
 class Login(unittest.TestCase):
