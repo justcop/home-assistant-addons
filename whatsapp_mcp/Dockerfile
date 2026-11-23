@@ -17,6 +17,9 @@ RUN corepack enable && pnpm install --frozen-lockfile \
     && pnpm deploy --filter whatsapp-mcp --prod --legacy /opt/out/mcp \
     && node /src/patch-baileys-clear-chat.mjs \
     && node /src/patch-baileys-meta-ai.mjs
+# Verify the exact deployed Baileys modules are present; never package an
+# image with silently missing privacy instrumentation.
+RUN node -e "const fs=require('node:fs'); for(const f of ['/opt/out/api/node_modules/baileys/lib/Socket/messages-recv.js','/opt/out/api/node_modules/baileys/lib/Utils/chat-utils.js']) if(!fs.existsSync(f))throw Error('Missing patched Baileys module: '+f)"
 
 FROM node:24-bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg poppler-utils ca-certificates python3 \
