@@ -6,6 +6,7 @@ export class HomeAssistantBackupAlerts {
     this.token = token;
     this.request = request;
     this.lastError = null;
+    this.pending = Promise.resolve();
   }
   async _service(name, data) {
     if (!this.token) throw new Error('Home Assistant notification token unavailable');
@@ -17,20 +18,30 @@ export class HomeAssistantBackupAlerts {
     });
     if (!res.ok) throw new Error('Home Assistant notification API returned HTTP ' + res.status);
   }
-  async failure(message) {
+  failure(message) {
     const safeMessage = String(message || 'Unknown backup error').slice(0, 230);
-    if (safeMessage === this.lastError) return;
-    await this._service('create', {
-      notification_id: id,
-      title: 'WhatsApp cloud backup failed',
-      message: 'The encrypted WhatsApp cloud backup needs attention. The live archive is unaffected.\n\nReason: ' +
-        safeMessage + '\n\nOpen WhatsApp Archive → Settings → Cloud backup & recovery.'
+    // Queue operations so an immediate recovery cannot race an in-flight
+    // failure notification and leave an obsolete notification on screen.
+    const operation = this.pending.catch(() => {}).then(async () => {
+      if (safeMessage === this.lastError) return;
+      await this._service('create', {
+        notification_id: id,
+        title: 'WhatsApp cloud backup failed',
+        message: 'The encrypted WhatsApp cloud backup needs attention. The live archive is unaffected.\n\nReason: ' +
+          safeMessage + '\n\nOpen WhatsApp Archive → Settings → Cloud backup & recovery.'
+      });
+      this.lastError = safeMessage;
     });
-    this.lastError = safeMessage;
+    this.pending = operation;
+    return operation;
   }
-  async recovered() {
-    if (this.lastError === null) return;
-    await this._service('dismiss', { notification_id: id });
-    this.lastError = null;
+  recovered() {
+    const operation = this.pending.catch(() => {}).then(async () => {
+      if (this.lastError === null) return;
+      await this._service('dismiss', { notification_id: id });
+      this.lastError = null;
+    });
+    this.pending = operation;
+    return operation;
   }
 }
