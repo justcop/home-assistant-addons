@@ -35,6 +35,8 @@ function view(name) {
   $('empty-state').classList.toggle('hidden', name !== 'empty');
   $('messages-view').classList.toggle('hidden', name !== 'messages');
   $('search-view').classList.toggle('hidden', name !== 'search');
+  $('backup-view').classList.toggle('hidden', name !== 'backup');
+  $('read-only-pill').classList.toggle('hidden', name === 'backup');
 }
 function setHeading(title, description) {
   $('conversation-name').textContent = title;
@@ -235,6 +237,135 @@ async function searchMessages(reset=true) {
     if(gen===state.searchGeneration) $('search-summary').textContent=err.message;
   }
 }
+
+let cloudStatus = null, recoveryKeyOnScreen = null, cloudAuthPolling = false;
+async function cloudPost(action, payload = {}) {
+  const res = await fetch('api/backup/' + action, {
+    method: 'POST', cache: 'no-store',
+    headers: { 'Content-Type': 'application/json', 'X-WhatsApp-Backup-Action': '1' },
+    body: JSON.stringify(payload)
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Cloud backup action failed (' + res.status + ')');
+  return data;
+}
+function cloudFeedback(message, error = false) {
+  $('backup-feedback').textContent = message;
+  $('backup-feedback').classList.toggle('error', error);
+}
+async function refreshCloudBackup() {
+  if (state.view !== 'backup') return;
+  try {
+    cloudStatus = await get('api/backup/status');
+    const s = cloudStatus;
+    const pieces = [
+      s.connected ? 'Google Drive connected' : s.clientConfigured ? 'Google Drive needs authorisation' : 'Google OAuth client not configured',
+      s.recoveryConfirmed ? 'Recovery key saved' : 'Recovery key not yet confirmed',
+      s.enabled ? 'Daily backup enabled' : 'Daily backup disabled'
+    ];
+    if (s.lastSuccess) pieces.push('Last successful backup: ' + new Date(s.lastSuccess).toLocaleString());
+    if (s.lastFileName) pieces.push('Cloud file: ' + s.lastFileName);
+    if (s.running) pieces.push('Backup is running…');
+    if (s.retentionPending) pieces.push('Cloud cleanup pending — more than one copy may remain temporarily');
+    if (s.lastError) pieces.push('ERROR: ' + s.lastError);
+    $('backup-state').textContent = pieces.join('\n');
+    $('backup-state').classList.toggle('error', !!s.lastError);
+    $('backup-time').value = s.time || '05:30';
+    $('backup-authorize').disabled = !s.clientConfigured;
+    const ready = s.connected && s.recoveryConfirmed && !s.running;
+    $('backup-enable').disabled = !ready && !s.enabled;
+    $('backup-enable').textContent = s.enabled ? 'Disable daily backup' : 'Enable daily backup';
+    $('backup-run').disabled = !ready;
+    $('backup-download').classList.toggle('hidden', !s.lastFileName);
+    const auth = s.pendingAuthorisation;
+    $('backup-code-panel').classList.toggle('hidden', !auth);
+    if (auth) {
+      $('backup-user-code').textContent = auth.userCode || '';
+      $('backup-verify-link').href = /^https:\/\/(www\.)?google\.com\//.test(auth.verificationUrl || '')
+        ? auth.verificationUrl : 'https://www.google.com/device';
+      $('backup-poll-state').textContent = 'Waiting for Google authorisation…';
+    }
+  } catch (error) { cloudFeedback(error.message, true); }
+}
+function showBackup() {
+  view('backup');
+  setHeading('Cloud backup & recovery', 'Encrypted · separate from Home Assistant backups');
+  $('shell').classList.add('chat-open');
+  cloudFeedback('');
+  void refreshCloudBackup();
+}
+async function cloudAction(action, payload = {}, message = 'Updated.') {
+  cloudFeedback('Working…');
+  try {
+    const result = await cloudPost(action, payload);
+    cloudFeedback(message);
+    await refreshCloudBackup();
+    return result;
+  } catch (error) {
+    cloudFeedback(error.message, true);
+    return null;
+  }
+}
+$('show-backup').addEventListener('click', showBackup);
+$('backup-client-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  await cloudAction('configure', {
+    clientId: $('backup-client-id').value.trim(),
+    clientSecret: $('backup-client-secret').value.trim()
+  }, 'Google client saved locally. Now select Connect Google Drive.');
+  $('backup-client-secret').value = '';
+});
+$('backup-authorize').addEventListener('click', () =>
+  cloudAction('authorize', {}, 'Open the Google link and enter the code below.'));
+$('backup-generate-key').addEventListener('click', async () => {
+  const result = await cloudAction('recovery-key', {}, 'Copy this key into a password manager outside Home Assistant.');
+  if (result?.key) {
+    recoveryKeyOnScreen = result.key;
+    $('backup-key-value').textContent = result.key;
+    $('backup-key-panel').classList.remove('hidden');
+    $('backup-key-saved').checked = false;
+    $('backup-confirm-key').disabled = true;
+  }
+});
+$('backup-copy-key').addEventListener('click', () => {
+  if (!recoveryKeyOnScreen) return;
+  navigator.clipboard.writeText(recoveryKeyOnScreen)
+    .then(() => cloudFeedback('Recovery key copied. Save it outside Home Assistant.'))
+    .catch(() => cloudFeedback('Copy failed; select and copy the key manually.', true));
+});
+$('backup-key-saved').addEventListener('change', () => {
+  $('backup-confirm-key').disabled = !$('backup-key-saved').checked;
+});
+$('backup-confirm-key').addEventListener('click', async () => {
+  if (!$('backup-key-saved').checked || !recoveryKeyOnScreen) return;
+  const result = await cloudAction('confirm-key', {}, 'Recovery key confirmed.');
+  if (result) {
+    $('backup-key-panel').classList.add('hidden');
+    $('backup-key-value').textContent = '';
+    recoveryKeyOnScreen = null;
+  }
+});
+$('backup-save-time').addEventListener('click', () =>
+  cloudAction('time', {time: $('backup-time').value}, 'Daily UK time saved.'));
+$('backup-enable').addEventListener('click', () =>
+  cloudAction('enable', {enabled: !cloudStatus?.enabled},
+    cloudStatus?.enabled ? 'Daily backups disabled.' : 'Daily backups enabled.'));
+$('backup-run').addEventListener('click', () =>
+  cloudAction('run', {}, 'Backup started. Status will update automatically.'));
+setInterval(async () => {
+  if (state.view !== 'backup') return;
+  if (cloudStatus?.pendingAuthorisation && !cloudAuthPolling) {
+    cloudAuthPolling = true;
+    try {
+      const data = await cloudPost('poll');
+      if (data.state === 'connected') cloudFeedback('Google Drive connected.');
+    } catch (err) {
+      cloudFeedback(err.message, true);
+    } finally { cloudAuthPolling = false; }
+  }
+  await refreshCloudBackup();
+}, 7000);
+
 $('tab-direct').addEventListener('click', () => setChatType('direct'));
 $('tab-groups').addEventListener('click', () => setChatType('groups'));
 $('chat-filter').addEventListener('input',()=>{

@@ -77,6 +77,8 @@ test('Direct and Groups tabs filter browsing, but searching remains global', asy
     console,
     setTimeout,
     clearTimeout,
+    setInterval: () => 0,
+    clearInterval: () => {},
     fetch: async url => {
       requests.push(String(url));
       return { ok: true, json: async () => url.startsWith('api/storage')
