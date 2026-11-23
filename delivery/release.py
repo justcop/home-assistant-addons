@@ -65,16 +65,40 @@ def next_version(current, previous):
     return f"{major}.{minor}.{patch + 1}"
 
 
+def missing_whatsapp_image(version):
+    """Rebuild the last-advertised WhatsApp tag if GHCR lost public access."""
+    if not version:
+        return False
+    image = "ghcr.io/justcop/whatsapp-mcp-amd64:" + str(version)
+    try:
+        check = subprocess.run(["docker", "manifest", "inspect", image],
+                               capture_output=True, text=True, timeout=40)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise RuntimeError("Cannot verify WhatsApp GHCR manifest") from error
+    if check.returncode == 0:
+        return False
+    output = (check.stderr + check.stdout).lower()
+    if any(word in output for word in ("manifest unknown", "no such manifest",
+                                      "not found", "404", "unauthorized", "denied")):
+        print("Repairing missing WhatsApp GHCR image:", image)
+        return True
+    raise RuntimeError("Ambiguous GHCR manifest check; refusing to release: " +
+                       check.stderr[:180])
+
+
 def prepare():
     previous = json.loads(STATE.read_text()) if STATE.exists() else {}
     sha = git("rev-parse", "HEAD")
     plan = []
     for name, item in catalog().items():
         before = previous.get(name, {})
-        if item["compatibility"] == before.get("compatibility"):
+        unchanged = item["compatibility"] == before.get("compatibility")
+        repair = (name == "whatsapp_mcp" and unchanged and
+                  missing_whatsapp_image(before.get("version") or item["config"]["version"]))
+        if unchanged and not repair:
             continue
         config = item["config"]
-        version = next_version(config["version"], before.get("version"))
+        version = str(before["version"]) if repair and before.get("version") else next_version(config["version"], before.get("version"))
         image = "ghcr.io/justcop/" + item["id"].replace("_", "-") + "-{arch}"
         item.update(sha=sha, version=version, image=image)
         folder = ROOT / name
