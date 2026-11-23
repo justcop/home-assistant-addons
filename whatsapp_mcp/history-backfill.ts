@@ -8,9 +8,10 @@ import type { ChatsRepo } from "./db/chats.js";
 import type { MessagesRepo } from "./db/messages.js";
 export type BackfillDeps = { conn: WhatsAppConnection; chats: ChatsRepo;
   messages: MessagesRepo; dataDir: string; logger: Logger };
-type Phase = "queued" | "requesting" | "retry" | "stalled" | "no_anchor";
+type Phase = "queued" | "requesting" | "retry" | "stalled" | "no_anchor" | "likely_complete";
 type ChatState = { id: string; phase: Phase; requests: number; importedEstimate: number;
-  failures: number; earliest: number | null; lastAttempt?: string };
+  failures: number; earliest: number | null; lastAttempt?: string;
+  completionBasis?: "short_page" };
 type State = { schema: 2; startedAt: string; updatedAt: string; day: string;
   requestsToday: number; requests: number; importedEstimate: number; active: boolean;
   chats: Record<string, ChatState> };
@@ -87,34 +88,52 @@ export function startResumableHistoryBackfill({conn,chats,messages,dataDir,logge
         c.earliest=old.ts;c.phase="requesting";c.requests++;
         c.lastAttempt=new Date().toISOString();s.requests++;s.requestsToday++;
         save(file,s); // before network request; no repeated storm after crash
-        let returned=0, failed=false;
+        let returned=0, failed=false, correlated=false;
         try {
           const socket=conn.requireSocket();
+          // fetchMessageHistory returns a request session ID. Correlate the
+          // resulting ON_DEMAND chunks by that ID so a delayed reply to a
+          // different request cannot make this thread look complete.
+          const batches=new Map<string,number>();
           const onHistory=(batch:{syncType?:proto.HistorySync.HistorySyncType|null;
-            messages:readonly unknown[]})=>{
-            if(batch.syncType===proto.HistorySync.HistorySyncType.ON_DEMAND)
-              returned+=batch.messages.length;
+            peerDataRequestSessionId?:string|null; messages:readonly unknown[]})=>{
+            if(batch.syncType!==proto.HistorySync.HistorySyncType.ON_DEMAND ||
+              !batch.peerDataRequestSessionId) return;
+            const id=batch.peerDataRequestSessionId;
+            batches.set(id,(batches.get(id)||0)+batch.messages.length);
           };
           socket.ev.on("messaging-history.set",onHistory);
           try {
-            await socket.fetchMessageHistory(BATCH,old.key,old.ts*1000);
+            const sessionId=await socket.fetchMessageHistory(BATCH,old.key,old.ts*1000);
             await sleep(WINDOW_MS);
+            correlated=batches.has(sessionId);
+            returned=batches.get(sessionId)||0;
           } finally {socket.ev.off("messaging-history.set",onHistory);}
         } catch {failed=true;}
         const newer=anchor(c.id),advanced=!!newer&&newer.ts<old.ts;
         if(advanced&&newer){
           c.earliest=newer.ts;
-          // Estimate: provider batches may contain duplicate rows, and
-          // an earlier anchor doesn't guarantee every record is unique.
+          // Estimated protocol records, not guaranteed unique DB inserts.
           const estimate=Math.min(BATCH,returned||BATCH);
           c.importedEstimate+=estimate;s.importedEstimate+=estimate;
-          c.failures=0;c.phase="queued";
+        }
+        if(!failed && correlated && returned>0 && returned<BATCH){
+          // A short *correlated* page is evidence of reaching the start, but
+          // not a definitive WhatsApp end-of-history marker. Stop automatic
+          // requests and label it as probable completion for review.
+          c.phase="likely_complete";
+          c.completionBasis="short_page";
+          c.failures=0;
+        } else if(advanced){
+          c.phase="queued";c.failures=0;
         } else {
+          // Missing response, or a full page with no earlier anchor:
+          // neither proves that WhatsApp has exhausted the conversation.
           c.failures++;c.phase=c.failures>=2?"stalled":"retry";
         }
-        if(c.requests>=PER_CHAT)c.phase="stalled";
+        if(c.requests>=PER_CHAT && c.phase==="queued") c.phase="stalled";
         save(file,s);
-        logger.info({advanced,responseMessages:returned,failed,
+        logger.info({advanced,responseMessages:returned,correlated,failed,
           outcome:c.phase,attempts:c.requests,requestsToday:s.requestsToday},
           "history-backfill: request checkpointed");
         if(connected&&!halted) await sleep(GAP_MS);

@@ -151,7 +151,7 @@ export function createArchiveServer({ apiToken, port = 8100, storagePath = '/dat
           const metadata = dataStore?.chatNameStmt?.get(entry.id);
           const name = dataStore?.displayName?.(entry.id, metadata?.name, !!metadata?.isGroup);
           return { name: String(name || (metadata?.isGroup ? 'Group' : 'Conversation')),
-            phase: entry.phase, requests: entry.requests,
+            phase: entry.phase, completionBasis: entry.completionBasis || null, requests: entry.requests,
             importedEstimate: entry.importedEstimate,
             oldestTimestamp: entry.earliest, lastAttempt: entry.lastAttempt || null };
         });
