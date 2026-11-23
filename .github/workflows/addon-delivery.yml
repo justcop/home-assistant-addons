@@ -187,7 +187,13 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add '*/config.yaml' delivery/releases.json
-          git commit -m 'chore: advertise verified add-on images'
-          git fetch origin main
-          git rebase origin/main
-          git push origin HEAD:main
+          # Rebuilding an already-advertised missing image has no metadata
+          # change to commit. Successful repair must not be reported as failure.
+          if git diff --cached --quiet; then
+            echo 'Previously advertised image repaired and verified; no metadata update needed.'
+          else
+            git commit -m 'chore: advertise verified add-on images'
+            git fetch origin main
+            git rebase origin/main
+            git push origin HEAD:main
+          fi
