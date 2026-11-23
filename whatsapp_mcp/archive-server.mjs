@@ -191,9 +191,13 @@ export function createArchiveServer({ apiToken, port = 8100, storagePath = '/dat
         const all = Object.values(state.chats);
         const counts = {};
         for (const entry of all) counts[entry.phase] = (counts[entry.phase] || 0) + 1;
-        const recent = all.filter(entry => entry.requests > 0)
+        const view = url.searchParams.get('view') === 'probably_complete'
+          ? 'probably_complete' : 'recent';
+        const recent = all.filter(entry => view === 'probably_complete'
+          ? entry.phase === 'likely_complete' && overrides[entry.id] !== true && entry.manualRecheck !== true
+          : entry.requests > 0)
           .sort((a,b) => String(b.lastAttempt || '').localeCompare(String(a.lastAttempt || '')))
-          .slice(0, 60);
+          .slice(0, view === 'probably_complete' ? 1000 : 60);
         const chats = recent.map(entry => {
           const metadata = dataStore?.chatNameStmt?.get(entry.id);
           const name = dataStore?.displayName?.(entry.id, metadata?.name, !!metadata?.isGroup);
@@ -208,7 +212,7 @@ export function createArchiveServer({ apiToken, port = 8100, storagePath = '/dat
         return send(res, 200, JSON.stringify({
           state: state.active ? 'running' : 'paused',
           updatedAt: state.updatedAt, startedAt: state.startedAt,
-          conversations: all.length, phases: counts,
+          conversations: all.length, phases: counts, view,
           requests: state.requests, requestsToday: state.requestsToday,
           dailyLimit: 2000, importedEstimate: state.importedEstimate, recent: chats
         }), 'application/json');
