@@ -103,7 +103,7 @@ class Updater:
         self.lock = threading.Lock()
         self.busy = False
         self.cache = None
-        self.upstream_last_check = 0
+        self.upstream_last_check = None
 
     def save(self):
         atomic(self.state_path, self.state)
@@ -124,7 +124,8 @@ class Updater:
         upstream commit from this monitor. Cache for an hour to avoid GitHub
         unauthenticated API rate limits.
         """
-        if time.monotonic() - self.upstream_last_check < 3600:
+        if (self.upstream_last_check is not None and
+                time.monotonic() - self.upstream_last_check < 3600):
             return
         self.upstream_last_check = time.monotonic()
         record = self.state.setdefault("upstream_monitor", {})
