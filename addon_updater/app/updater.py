@@ -117,8 +117,8 @@ class Updater:
         result.raise_for_status()
         return result.json(), info
 
-    def monitor_whatsapp_upstream(self):
-        """Check the daily upstream gate's own health, without affecting HA data.
+    def monitor_whatsapp_upstream(self, source_files=None):
+        """Check the upstream revision and gate's health without touching HA data.
 
         Errors are surfaced via HA persistent notifications; never deploy an
         upstream commit from this monitor. Cache for an hour to avoid GitHub
@@ -154,6 +154,22 @@ class Updater:
                                    str(latest.get("conclusion", "unknown")))
             else:
                 record["error"] = None
+            if source_files and "whatsapp_mcp/Dockerfile" in source_files:
+                match = re.search(rb"(?m)^ARG UPSTREAM_COMMIT=([0-9a-f]{40})$",
+                                  source_files["whatsapp_mcp/Dockerfile"])
+                if not match:
+                    raise ValueError("WhatsApp upstream commit pin is invalid")
+                pinned = match.group(1).decode("ascii")
+                upstream = SESSION.get(
+                    "https://api.github.com/repos/spare-cycles/whatsapp-mcp/commits/main",
+                    timeout=20, headers={"Accept": "application/vnd.github+json",
+                                         "User-Agent": "home-assistant-whatsapp-upstream-monitor"})
+                upstream.raise_for_status()
+                latest_sha = str(upstream.json().get("sha", ""))
+                if not re.fullmatch(r"[0-9a-f]{40}", latest_sha):
+                    raise ValueError("Cannot identify upstream revision")
+                record.update(pinned=pinned, latest=latest_sha,
+                              upgrade_available=(pinned != latest_sha))
         except Exception as error:
             record["error"] = ("Cannot verify WhatsApp upstream checks: " +
                                str(error)[:120])
@@ -213,7 +229,7 @@ class Updater:
             except Exception as exc:
                 row.update(mode="unavailable", reason=str(exc))
         self.state["apps"] = {k:v for k,v in self.state["apps"].items() if k in seen}
-        self.monitor_whatsapp_upstream()
+        self.monitor_whatsapp_upstream(files)
         self.state.update(checked=now(), latest=sha, error=None)
         self.save()
         return files
