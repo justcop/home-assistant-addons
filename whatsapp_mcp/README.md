@@ -146,6 +146,25 @@ These tools use the existing verified database path, run in the MCP container un
 
 **Important:** The detection is heuristic. A pending reply may have been handled in person; a promise may already have been fulfilled elsewhere. An incomplete WhatsApp sync, media attachments and unavailable voice-note transcripts can conceal relevant actions. Treat flagged conversations as leads, read the context and verify before declaring anything overdue. The 50,000-message per-request scan cap is reported explicitly if reached.
 
+## Backup issue alerts (0.3.18)
+
+The archive keeps normal cloud backup settings in **Settings** at the bottom
+of its conversation sidebar. When a backup fails or old cloud copies cannot
+be cleaned up, an always-visible red warning appears above the conversation
+pane, with a direct link to backup settings. The warning disappears once the
+next backup completes and one-copy retention is verified.
+
+The add-on also publishes a Home Assistant **persistent notification** named
+`whatsapp_cloud_backup_failure` with a short error summary. Repeated failures
+update the same notification instead of generating duplicates. It dismisses
+the notification after successful backup or successful retention cleanup.
+A previously unresolved failure is reported again on add-on restart.
+Notifications use Home Assistant Core's native API via Supervisor
+(`homeassistant_api: true`); the WhatsApp message APIs remain read-only,
+and no message content or OAuth credentials are sent in notifications.
+This does not automatically send a phone push notification; users can
+configure their own notification automation if desired.
+
 ## Independent, encrypted Google Drive backup (0.3.15)
 
 **Purpose:** Back up the **live SQLite message database** daily, completely independently

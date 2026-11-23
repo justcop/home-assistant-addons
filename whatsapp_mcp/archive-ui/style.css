@@ -44,3 +44,13 @@
 @media(prefers-color-scheme:light){
   .backup-feedback.visible.error,.backup-connect-feedback.error{color:#8c281d;background:#fff0ed;border-color:#ce8e86}
 }
+
+.settings-link{background:transparent;border:0;color:var(--muted);font:inherit;font-size:12px;text-decoration:underline;text-underline-offset:3px;padding:4px 6px;cursor:pointer;white-space:nowrap}
+.settings-link:hover,.settings-link:focus-visible{color:var(--accent)}
+.backup-alert{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:12px 18px;background:#552928;border-bottom:2px solid #ed9e8b;color:#fff4ef;flex-shrink:0;font-size:13px;font-weight:650;overflow-wrap:anywhere}
+.backup-alert.hidden{display:none}
+.backup-alert #backup-alert-text{flex:1;min-width:180px}
+.backup-alert button{border:1px solid #f6baae;border-radius:8px;background:#703b35;color:#fff;padding:8px 11px;cursor:pointer;font:inherit}
+.backup-alert button:hover{background:#874e47}
+@media(prefers-color-scheme:light){.backup-alert{background:#ffe6e0;color:#7c251b;border-color:#d76d5c}.backup-alert button{background:#fff2ed;color:#7c251b;border-color:#c77e72}}
+@media(max-width:700px){.backup-alert{padding:9px 12px;font-size:12px}.backup-alert button{padding:6px 9px}}
