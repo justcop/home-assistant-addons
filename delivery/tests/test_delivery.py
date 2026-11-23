@@ -185,6 +185,17 @@ def test_admin_ui_requires_ingress_and_csrf(tmp_path):
     assert b"meta name=\"csrf\"" in web.get("/",environ_base=env).data
 
 
+def test_core_restart_fails_closed_with_actionable_retry_message(tmp_path, monkeypatch):
+    import server
+    client = updater.Updater(tmp_path / "state.json")
+    monkeypatch.setattr(server, "supervisor", Mock(side_effect=ConnectionError("Core restarting")))
+    web = server.create_app(client, {}, testing=False).test_client()
+    response = web.get("/", environ_base={"REMOTE_ADDR": "172.30.32.2"},
+                       headers={"X-Remote-User-Name": "fixture-admin"})
+    assert response.status_code == 503
+    assert b"administrator verification is temporarily unavailable" in response.data
+
+
 def test_all_repository_live_layouts_have_existing_entry_points():
     apps = release.catalog()
     assert {"ocr_tool", "audioshelf", "lastfm_analytics", "money_locations", "addon_updater"} <= apps.keys()
