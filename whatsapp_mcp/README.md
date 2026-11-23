@@ -327,10 +327,20 @@ candidates may merge after all tests pass. Neither path installs anything into
 Home Assistant automatically. The GitHub repository must allow Actions to
 create pull requests, otherwise the job fails visibly.
 
-The image delivery workflow checks every GHCR tag anonymously before
-advertising a new version to Home Assistant. A failed build or manifest check
-prevents advertisement. After installing an update manually, check WhatsApp
-connection, read-only MCP tools, STORAGE database path and backup health.
+The image delivery workflow verifies every GHCR tag can actually be
+downloaded anonymously, including its image layers, **before** advertising
+the version to Home Assistant. If the last-advertised WhatsApp tag disappears,
+a subsequent delivery run rebuilds that exact version instead of advertising
+another missing tag. An ambiguous registry error fails closed.
+
+The installed add-on also checks the two public GitHub Actions workflows and
+open HIGH-risk upstream candidate PRs/maintenance issues. It raises one Home
+Assistant persistent notification for an outstanding problem and dismisses it
+after successful checks and closure of the outstanding PRs/issues. It never
+installs upstream changes or exposes WhatsApp messages to GitHub.
+
+After installing an update manually, check WhatsApp connection, read-only MCP
+tools, STORAGE database path and backup health.
 
 For source-only rollback, manually dispatch
 .github/workflows/whatsapp-image-rollback.yml with a full SHA of a verified
