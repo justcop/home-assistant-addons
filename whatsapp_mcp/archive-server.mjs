@@ -127,6 +127,42 @@ export function createArchiveServer({ apiToken, port = 8100, storagePath = '/dat
       if (url.pathname === '/api/storage') {
         return send(res, 200, JSON.stringify({ location: (storagePath.startsWith('/share/') || storagePath.startsWith('/media/')) ? 'STORAGE drive' : 'Home Assistant app storage' }), 'application/json');
       }
+      // Private read-only progress: the checkpoint contains internal chat IDs,
+      // but this ingress response exposes only display names and aggregates.
+      if (url.pathname === '/api/archive/backfill') {
+        if (req.method !== 'GET') return send(res, 405, 'Method not allowed');
+        const file = path.join(storagePath, '.history-backfill-v2.json');
+        let state;
+        try { state = JSON.parse(fs.readFileSync(file, 'utf8')); }
+        catch (err) {
+          if (err.code === 'ENOENT')
+            return send(res, 200, JSON.stringify({state:'not_started'}), 'application/json');
+          return send(res, 503, 'History progress unavailable');
+        }
+        if (state.schema !== 2 || !state.chats || typeof state.chats !== 'object')
+          return send(res, 503, 'History progress invalid');
+        const all = Object.values(state.chats);
+        const counts = {};
+        for (const entry of all) counts[entry.phase] = (counts[entry.phase] || 0) + 1;
+        const recent = all.filter(entry => entry.requests > 0)
+          .sort((a,b) => String(b.lastAttempt || '').localeCompare(String(a.lastAttempt || '')))
+          .slice(0, 60);
+        const chats = recent.map(entry => {
+          const metadata = dataStore?.chatNameStmt?.get(entry.id);
+          const name = dataStore?.displayName?.(entry.id, metadata?.name, !!metadata?.isGroup);
+          return { name: String(name || (metadata?.isGroup ? 'Group' : 'Conversation')),
+            phase: entry.phase, requests: entry.requests,
+            importedEstimate: entry.importedEstimate,
+            oldestTimestamp: entry.earliest, lastAttempt: entry.lastAttempt || null };
+        });
+        return send(res, 200, JSON.stringify({
+          state: state.active ? 'running' : 'paused',
+          updatedAt: state.updatedAt, startedAt: state.startedAt,
+          conversations: all.length, phases: counts,
+          requests: state.requests, requestsToday: state.requestsToday,
+          dailyLimit: 60, importedEstimate: state.importedEstimate, recent: chats
+        }), 'application/json');
+      }
       if (url.pathname === '/api/archive/date-range') {
         if (!dataStore) return send(res, 503, 'Archive statistics unavailable');
         if (req.method === 'HEAD') return send(res, 405, 'Method not allowed');
