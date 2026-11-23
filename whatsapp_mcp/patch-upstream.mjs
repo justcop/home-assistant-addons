@@ -178,7 +178,7 @@ if (mainSource.split(historyImportAnchor).length !== 2 || mainSource.split(histo
 mainSource = mainSource.replace(historyImportAnchor,
   historyImportAnchor + '\nimport { startHistoryBackfillTrial } from "./history-backfill.js";');
 mainSource = mainSource.replace(historyStartAnchor,
-  historyStartAnchor + '\n  if (process.env.WHATSAPP_HISTORY_BACKFILL_TRIAL === "1") {\n' +
+  historyStartAnchor + '\n  if (process.env[\"WHATSAPP_HISTORY_BACKFILL_TRIAL\"] === "1") {\n' +
   '    startHistoryBackfillTrial({ conn, chats, messages, dataDir: config.dataDir, logger });\n' +
   '  }\n');
 fs.writeFileSync(mainPath, mainSource);
