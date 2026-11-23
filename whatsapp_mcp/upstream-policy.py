@@ -15,9 +15,9 @@ import urllib.request
 UPSTREAM = "spare-cycles/whatsapp-mcp"
 DOCKERFILE = Path(__file__).resolve().parent / "Dockerfile"
 PIN = re.compile(r"(?m)^ARG UPSTREAM_COMMIT=([0-9a-f]{40})$")
-DOCS = re.compile(r"(^|/)(README|CHANGELOG|CONTRIBUTING|LICENSE|NOTICE)(\\.[^/]+)?$|\\.md$", re.I)
+DOCS = re.compile(r"(^|/)(README|CHANGELOG|CONTRIBUTING|LICENSE|NOTICE)(\.[^/]+)?$|\.md$", re.I)
 COMPAT_CRITICAL = re.compile(
-    r"(^|/)(pnpm-lock\\.yaml|package\\.json|Dockerfile|.*sqlite.*|.*migration.*|.*schema.*|"
+    r"(^|/)(pnpm-lock\.yaml|package\.json|Dockerfile|.*sqlite.*|.*migration.*|.*schema.*|"
     r".*ingest.*|.*message.*|.*privacy.*|.*auth.*|.*security.*|.*baileys.*)$", re.I
 )
 
