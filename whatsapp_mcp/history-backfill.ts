@@ -9,7 +9,7 @@ import type { MessagesRepo } from "./db/messages.js";
 export type BackfillDeps = { conn: WhatsAppConnection; chats: ChatsRepo;
   messages: MessagesRepo; dataDir: string; logger: Logger };
 type Phase = "queued" | "requesting" | "retry" | "stalled" | "no_anchor" | "likely_complete";
-type ChatState = { id: string; phase: Phase; requests: number; importedEstimate: number;
+type ChatState = { id: string; isGroup?: boolean; phase: Phase; requests: number; importedEstimate: number;
   failures: number; earliest: number | null; lastAttempt?: string;
   completionBasis?: "short_page" };
 type State = { schema: 2; startedAt: string; updatedAt: string; day: string;
@@ -58,9 +58,15 @@ export function startResumableHistoryBackfill({conn,chats,messages,dataDir,logge
   function discover(s:State):void {
     for(let offset=0;offset<20_000;offset+=200) {
       const page=chats.list({},200,offset);
-      for(const c of page) if(!s.chats[c.id]) s.chats[c.id]={
-        id:c.id,phase:"queued",requests:0,importedEstimate:0,failures:0,earliest:null
-      };
+      for(const c of page) {
+        if(!s.chats[c.id]) s.chats[c.id]={
+          id:c.id,isGroup:c.isGroup,phase:"queued",requests:0,
+          importedEstimate:0,failures:0,earliest:null
+        };
+        // Refresh the type for existing checkpoints, too: a previously
+        // discovered chat must not be mistaken for a direct conversation.
+        else s.chats[c.id].isGroup=c.isGroup;
+      }
       if(page.length<200) break;
     }
   }
@@ -80,7 +86,12 @@ export function startResumableHistoryBackfill({conn,chats,messages,dataDir,logge
         const eligible=Object.values(s.chats).filter(c=>
           (c.phase==="queued"||c.phase==="retry")&&c.requests<PER_CHAT);
         if(!eligible.length) break;
-        eligible.sort((a,b)=>a.requests-b.requests||
+        // Within each tier keep the existing fair, least-requested-first
+        // ordering. Direct chats take precedence over groups, without
+        // discarding earlier progress or preventing groups from eventually
+        // running once no eligible direct conversations remain.
+        eligible.sort((a,b)=>Number(a.isGroup===true)-Number(b.isGroup===true)||
+          a.requests-b.requests||
           (a.lastAttempt||"").localeCompare(b.lastAttempt||""));
         const c=eligible[0];if(!c) break;
         const old=anchor(c.id);
