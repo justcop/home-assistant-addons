@@ -82,6 +82,10 @@ export function createArchiveServer({ apiToken, port = 8100, storagePath = '/dat
             return send(res, 400, 'Invalid backup request body');
           let result;
           switch (url.pathname) {
+            case '/api/backup/configure':
+              result = cloudBackup.configureGoogleClient(params.clientId, params.clientSecret); break;
+            case '/api/backup/time':
+              result = cloudBackup.setBackupTime(params.time); break;
             case '/api/backup/authorize': result = await cloudBackup.beginAuthorisation(); break;
             case '/api/backup/poll': result = await cloudBackup.pollAuthorisation(); break;
             case '/api/backup/recovery-key': result = cloudBackup.recoveryKey(); break;
