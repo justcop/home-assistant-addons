@@ -1,0 +1,19 @@
+# GitHub-managed add-on delivery
+
+`contract.py` is shared by CI, the central updater and the image launcher. Every unknown build input is an image boundary. Only explicitly declared application paths can be deployed as code. Startup wrappers, dependencies, configuration, permissions and protected/schema-bearing modules require a new image. New migration/schema tokens also force an image. A database migration requires a separately reviewed migration and a usable persistent-data recovery point; reverting code never undoes it.
+
+The Classify and publish add-on updates workflow automatically increments the patch version of affected images. An explicitly chosen higher major/minor version is honoured. It builds each declared architecture and advertises the version only after all images pass publication. Immutable source-specific GHCR names prevent racing retries from replacing a published image. GitHub Actions' publishing concurrency is not cancelled.
+
+My Add-on Updater discovers installed applications from this repository, checks GitHub every three minutes and stages **only runtime files**, not complete Git clones, under `/media/storage/addon-code`. It requires the external filesystem to be mounted, validates file checksums and Python syntax, atomically switches a small pointer, restarts the target and checks both its launcher identity and application HTTP readiness. Existing browser tabs should reload after frontend changes. Frontend and Python changes currently use the same short process restart; neither requires an image build or version increment.
+
+The image's launcher enforces the same compatibility boundary independently. It never reads a command from an update payload: commands and runtime destinations are baked into the image. Its internal port 18799 is a read-only status API, not a deployment endpoint. It contains only version/commit/compatibility state, never credentials. The management interface is Home Assistant ingress-only, requires an identified administrator and checks CSRF on mutations.
+
+A failed or interrupted update retains a durable transaction under the updater's `/data`. It blocks further automatic updates for that application and exposes **Recover previous compatible code**. Recovery stages that exact commit and restarts through Supervisor. It does not restore any database. The interface also accepts any complete compatible GitHub SHA. Incompatible revisions are refused. A newer standard image supersedes an ancestral code pin; an image older than a newer pin cannot silently downgrade it.
+
+An unchanged runtime fingerprint does not restart applications when unrelated repository files change. Images, deployed commits and the latest repository SHA are displayed separately. Standard image updates remain in Home Assistant's app page. The updater refreshes the store when published image metadata changes.
+
+Only the active runtime release is retained after successful verification. Media/external storage is outside normal app `/data` backups; keep that media folder excluded when backing up regenerable code. Settings and private databases stay in the existing backed-up `/data` locations. User content, caches, ports and Cloudflare/MQTT configuration are preserved during migration.
+
+The old Add-on Development Manager is stopped during migration, then retired only after its replacement is verified. Existing local installations are retained until their replacements have been checked. Supervisor repository prefixes change the full slug, so their private data and options must be explicitly copied; changing repository metadata in Supervisor's internal files is not supported.
+
+The legacy Python SSH utility previously advertised ARMv6 (`armhf`) although its current pinned upstream Python image does not publish ARMv6. Its configuration now accurately lists the four architectures that upstream supports; no installed application used this obsolete claim.

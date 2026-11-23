@@ -1,0 +1,23 @@
+name: OCR Tool
+version: 1.1.0
+slug: ocr_tool
+description: Local OCR for screenshots and PDFs, accessible through Home Assistant.
+url: https://www.home-assistant.io/
+arch:
+- amd64
+- aarch64
+startup: application
+boot: auto
+init: false
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:text-box-search-outline
+panel_title: OCR
+panel_admin: false
+map:
+- type: share
+  read_only: true
+- type: media
+  read_only: true
+options: {}
+schema: {}

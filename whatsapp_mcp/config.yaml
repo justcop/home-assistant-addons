@@ -1,43 +1,42 @@
 name: WhatsApp MCP (Read Only)
-version: "0.3.16"
+version: 0.3.16
 slug: whatsapp_mcp
-description: Private, read-only WhatsApp search over MCP with Cloudflare Access JWT verification.
+description: Private, read-only WhatsApp search over MCP with Cloudflare Access JWT
+  verification.
 url: https://github.com/justcop/home-assistant-addons/tree/main/whatsapp_mcp
 arch:
-  - amd64
+- amd64
 startup: application
 boot: manual
 init: false
 stage: experimental
-# Exclude legacy or fallback /data/whatsapp content from any app-level backup.
-# The active archive on /media/storage is deliberately outside /data.
 backup_exclude:
-  - whatsapp
-  - whatsapp/**
-  - .whatsapp-cloud-backup
-  - .whatsapp-cloud-backup/**
+- whatsapp
+- whatsapp/**
+- .whatsapp-cloud-backup
+- .whatsapp-cloud-backup/**
 panel_icon: mdi:message-text-lock
 panel_title: WhatsApp Archive
 panel_admin: true
 ingress: true
 ingress_port: 8100
 map:
-  - type: share
-    read_only: false
-    path: /share
-  - type: media
-    read_only: false
-    path: /media
+- type: share
+  read_only: false
+  path: /share
+- type: media
+  read_only: false
+  path: /media
 ports:
   8099/tcp: null
 ports_description:
-  8099/tcp: "MCP gateway (Cloudflare Access JWT required). Do not publish directly."
+  8099/tcp: MCP gateway (Cloudflare Access JWT required). Do not publish directly.
 options:
-  phone_number: ""
-  access_team_domain: ""
-  access_audience: ""
-  allowed_email: ""
-  storage_path: ""
+  phone_number: ''
+  access_team_domain: ''
+  access_audience: ''
+  allowed_email: ''
+  storage_path: ''
 schema:
   phone_number: str?
   access_team_domain: str?

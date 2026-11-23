@@ -1,0 +1,169 @@
+{
+  "audioshelf": {
+    "roots": [
+      "app"
+    ],
+    "cwd": ".",
+    "command": [
+      "/opt/venv/bin/python",
+      "-m",
+      "app"
+    ],
+    "health_port": 8099,
+    "health_path": "/health",
+    "protected": [
+      "app/storage.py",
+      "app/accounts.py",
+      "app/server.py"
+    ]
+  },
+  "lastfm_analytics": {
+    "roots": [
+      "analytics"
+    ],
+    "cwd": ".",
+    "command": [
+      "/opt/venv/bin/python",
+      "-m",
+      "analytics"
+    ],
+    "health_port": 8099,
+    "health_path": "/health",
+    "protected": [
+      "analytics/db.py",
+      "analytics/attendance.py",
+      "analytics/gigs.py"
+    ]
+  },
+  "money_locations": {
+    "roots": [
+      "app"
+    ],
+    "cwd": "app",
+    "command": [
+      "/opt/venv/bin/python",
+      "server.py"
+    ],
+    "health_port": 8099,
+    "health_path": "/health",
+    "protected": [
+      "app/server.py"
+    ]
+  },
+  "music_video_companion": {
+    "roots": [
+      "app"
+    ],
+    "cwd": "app",
+    "command": [
+      "python3",
+      "server.py"
+    ],
+    "health_port": 8099,
+    "health_path": "/health",
+    "protected": []
+  },
+  "work_audit": {
+    "roots": [
+      "app.py",
+      "engine.py",
+      "collectors.py",
+      "templates"
+    ],
+    "cwd": ".",
+    "command": [
+      "python3",
+      "app.py"
+    ],
+    "health_port": 8099,
+    "health_path": "/",
+    "protected": [
+      "engine.py"
+    ]
+  },
+  "vinyl_guardian": {
+    "roots": [
+      "*.py"
+    ],
+    "cwd": ".",
+    "command": [
+      "/usr/src/app/run.sh"
+    ],
+    "health_port": 8099,
+    "health_path": "/",
+    "protected": [
+      "storage.py"
+    ],
+    "overlay": "/usr/src/app"
+  },
+  "govee-temporary-display": {
+    "roots": [
+      "*.py",
+      "index.html",
+      "artwork"
+    ],
+    "cwd": ".",
+    "command": [
+      "python3",
+      "-u",
+      "run.py"
+    ],
+    "health_port": 8098,
+    "health_path": "/api/status",
+    "protected": [],
+    "overlay": "/"
+  },
+  "vikunja_chatgpt_bridge": {
+    "roots": [
+      "server.cjs"
+    ],
+    "cwd": ".",
+    "command": [
+      "node",
+      "server.cjs"
+    ],
+    "health_port": 3000,
+    "health_path": "/",
+    "protected": [
+      "server.cjs"
+    ]
+  },
+  "whatsapp_mcp": {
+    "roots": [
+      "archive-ui",
+      "archive-server.mjs",
+      "archive-data.mjs",
+      "review-data.mjs"
+    ],
+    "cwd": ".",
+    "command": [
+      "node",
+      "/opt/whatsapp-addon/run.mjs"
+    ],
+    "health_port": 8099,
+    "health_path": "/",
+    "protected": [
+      "archive-data.mjs",
+      "review-data.mjs"
+    ],
+    "overlay": "/opt/whatsapp-addon"
+  },
+  "ocr_tool": {
+    "roots": [
+      "app.py"
+    ],
+    "cwd": ".",
+    "command": [
+      "uvicorn",
+      "app:app",
+      "--host",
+      "0.0.0.0",
+      "--port",
+      "8099",
+      "--no-server-header"
+    ],
+    "health_port": 8099,
+    "health_path": "/",
+    "protected": []
+  }
+}

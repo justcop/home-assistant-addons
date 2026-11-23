@@ -22,13 +22,14 @@ These add-ons are primarily used by one person in their own Home Assistant insta
 - Keep version bumping and add-on publishing limited to the add-ons that actually changed. Never cancel an in-progress publishing job automatically.
 - Before finishing, report what was changed, what was actually verified, any failures, and whether the change is only in a PR or has reached main.
 
-## Fast Home Assistant development deployments
+## GitHub-managed delivery
 
-- The Add-on Development Manager follows `main` and deploys changed add-on source independently of GitHub Actions. GitHub Actions are checks, not a gate for local deployment.
-- For routine development changes to app Python, JavaScript, CSS or assets, **do not bump `config.yaml`'s version or edit Supervisor build metadata solely to mark the commit**. The Development Manager's Git SHA and history are the authoritative development version and rollback target.
-- A changed app definition, declared version, root build metadata, translations or AppArmor policy forces a slower global Supervisor store refresh. Bump versions and generated release metadata for actual releases, not cosmetic previews.
-- When diagnosing perceived deployment lag, check the manager's deployed commit and phases first; distinguish its polling, store refresh, local Docker build and app restart from independent CI jobs.
-- Code-only changes still require a container rebuild in the current manager; do not claim they are hot-reloaded until an app-specific, verified asset or process-reload mechanism exists.
+- `delivery/contract.py` is the shared fail-closed classifier used by images, CI and My Add-on Updater. `delivery/apps.json` describes verified runtime layouts. Do not bypass image compatibility checks.
+- Code-only changes do not need a config version bump. The shared publisher increments versions automatically when build inputs, startup, permissions or persistence boundaries change. Do not manually edit `delivery/releases.json`.
+- Every supported architecture must publish successfully before the new version is advertised to Supervisor. Images have source-specific names, so an interrupted or racing publication cannot overwrite an advertised image.
+- Application Python, templates and static files may use compatible code deployments. The central updater stages checksummed runtime files on `/media/storage/addon-code`, atomically selects a revision and restarts the application. It does not rebuild an image or change installed options.
+- Changes to protected/schema-bearing modules require an image and appropriate explicit migration safeguards. A code revert must never be treated as a database rollback.
+- Use the My Add-ons interface to check status, deploy a compatible commit or recover an interrupted transaction. The legacy Development Manager is retired; do not recreate local source-based installations.
 
 ## GitHub Actions defaults
 
