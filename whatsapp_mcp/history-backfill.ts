@@ -59,13 +59,14 @@ export function startResumableHistoryBackfill({conn,chats,messages,dataDir,logge
     for(let offset=0;offset<20_000;offset+=200) {
       const page=chats.list({},200,offset);
       for(const c of page) {
-        if(!s.chats[c.id]) s.chats[c.id]={
+        const existing=s.chats[c.id];
+        if(!existing) s.chats[c.id]={
           id:c.id,isGroup:c.isGroup,phase:"queued",requests:0,
           importedEstimate:0,failures:0,earliest:null
         };
         // Refresh the type for existing checkpoints, too: a previously
         // discovered chat must not be mistaken for a direct conversation.
-        else s.chats[c.id].isGroup=c.isGroup;
+        else existing.isGroup=c.isGroup;
       }
       if(page.length<200) break;
     }
