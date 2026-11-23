@@ -26,6 +26,16 @@ export async function diagnoseSelfRouting(dataDir, phoneNumber) {
       if (jid.endsWith('@s.whatsapp.net')) return 'other_phone';
       return 'other_type';
     };
+    const knownSelfLids=db.prepare('SELECT lid FROM contacts WHERE id=? OR phone_number=?').all(self,phoneNumber)
+      .map(c=>String(c.lid??'').replace(/@lid$/,'').replace(/:\\d+$/,'').replace(/_\\d+$/,''))
+      .filter(Boolean);
+    const observedLids=new Map();
+    const keyLid=(jid)=> {
+      if (!jid || !String(jid).endsWith('@lid')) return null;
+      const v=String(jid).replace(/@lid$/,'').replace(/:\\d+$/,'').replace(/_\\d+$/,'');
+      if(!observedLids.has(v)) observedLids.set(v,'lid_'+(observedLids.size+1));
+      return { distinctLabel:observedLids.get(v), matchesSelfContactLid:knownSelfLids.includes(v) };
+    };
     const diagnostics=[];
     for(const row of rows){
       try {
@@ -39,6 +49,7 @@ export async function diagnoseSelfRouting(dataDir, phoneNumber) {
         diagnostics.push({
           ts:Number(row.ts),
           remote:classify(k.remoteJid),
+          remoteLid:keyLid(k.remoteJid),
           participant:classify(k.participant),
           keyFlags:allKeys.filter(x=>!['id','remoteJid','participant','fromMe'].includes(x)),
           fromMe:k.fromMe===true,
