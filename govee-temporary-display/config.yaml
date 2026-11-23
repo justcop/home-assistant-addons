@@ -1,7 +1,7 @@
-name: Govee Temporary Display
-version: "0.5.10"
+name: Govee Pixel Studio
+version: "0.6.0"
 slug: govee_temporary_display
-description: Stream temporary 52x32 images over UDP with timeout and heartbeat
+description: Manage pixel artwork on external storage and stream temporary 52x32 displays
 arch:
   - amd64
   - aarch64
@@ -15,7 +15,7 @@ map:
   - media:rw
 ingress: true
 ingress_port: 8098
-panel_icon: mdi:image-outline
+panel_icon: mdi:image-multiple-outline
 options:
   host: 192.168.1.47
   default_timeout: 30
