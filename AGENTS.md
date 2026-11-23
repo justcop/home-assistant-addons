@@ -26,7 +26,7 @@ These add-ons are primarily used by one person in their own Home Assistant insta
 
 - `delivery/contract.py` is the shared fail-closed classifier used by images, CI and My Add-on Updater. `delivery/apps.json` describes verified runtime layouts. Do not bypass image compatibility checks.
 - Code-only changes do not need a config version bump. The shared publisher increments versions automatically when build inputs, startup, permissions or persistence boundaries change. Do not manually edit `delivery/releases.json`.
-- Every supported architecture must publish successfully before the new version is advertised to Supervisor. Images have source-specific names, so an interrupted or racing publication cannot overwrite an advertised image.
+- Every supported architecture must publish successfully before the new version is advertised to Supervisor. The publisher serializes release jobs and reads the committed version state before selecting the next version.
 - Application Python, templates and static files may use compatible code deployments. The central updater stages checksummed runtime files on `/media/storage/addon-code`, atomically selects a revision and restarts the application. It does not rebuild an image or change installed options.
 - Changes to protected/schema-bearing modules require an image and appropriate explicit migration safeguards. A code revert must never be treated as a database rollback.
 - Use the My Add-ons interface to check status, deploy a compatible commit or recover an interrupted transaction. The legacy Development Manager is retired; do not recreate local source-based installations.

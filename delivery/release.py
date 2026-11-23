@@ -75,11 +75,7 @@ def prepare():
             continue
         config = item["config"]
         version = next_version(config["version"], before.get("version"))
-        # The source SHA makes unpublished racing builds immutable too.
         image = "ghcr.io/justcop/" + item["id"].replace("_", "-") + "-{arch}"
-        # A commit-specific image repository path prevents unpublished build
-        # retries from overwriting an advertised version tag.
-        image = image + "-" + sha[:12]
         item.update(sha=sha, version=version, image=image)
         folder = ROOT / name
         if item["live"] or name == "addon_updater":

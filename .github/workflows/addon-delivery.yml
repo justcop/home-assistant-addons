@@ -90,6 +90,9 @@ jobs:
           file: ./${{ matrix.addon }}/.delivery.Dockerfile
           platforms: ${{ matrix.platform }}
           push: true
+          labels: |
+            org.opencontainers.image.source=https://github.com/justcop/home-assistant-addons
+            org.opencontainers.image.revision=${{ needs.classify.outputs.source }}
           tags: ${{ matrix.image }}:${{ matrix.version }}
           build-args: |
             BUILD_ARCH=${{ matrix.arch }}
@@ -106,6 +109,15 @@ jobs:
             github_actions_cleanup|python) exit 0;;
           esac
           docker run --rm --network none --entrypoint python3 "$IMAGE" -c 'import json,pathlib; p=pathlib.Path("/opt/delivery/manifest.json"); print(json.loads(p.read_text())["sha"]) if p.exists() else print("standard updater image")'
+      - name: Verify anonymous Home Assistant pull access
+        env:
+          IMAGE: ${{ matrix.image }}:${{ matrix.version }}
+        run: |
+          docker logout ghcr.io
+          docker manifest inspect "$IMAGE" >/dev/null || {
+            echo 'The image has published but its GHCR package must be public before Supervisor can install it.' >&2
+            exit 1
+          }
   advertise:
     needs: [classify, build]
     runs-on: ubuntu-latest
