@@ -17,7 +17,7 @@ function fixture(t) {
     PRAGMA journal_mode=WAL;
     CREATE TABLE messages (
       chat_id TEXT NOT NULL, id TEXT NOT NULL, from_me INTEGER NOT NULL,
-      deleted_ts INTEGER, quoted_id TEXT, text TEXT, media_sha TEXT,
+      deleted_ts INTEGER, quoted_id TEXT, text TEXT, media_sha TEXT, ts INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY(chat_id,id)
     );
     CREATE TABLE reactions(chat_id TEXT NOT NULL,message_id TEXT NOT NULL,sender_id TEXT);
@@ -100,4 +100,34 @@ test("Only unreferenced cached media bytes are removed",t=>{
   assert.equal(fs.existsSync(target),true);
   retention.purge("c","b","delete_for_me");
   assert.equal(fs.existsSync(target),false);
+});
+
+test("clear-chat boundary purges prior self-chat history, not subsequent messages or other chats",t=>{
+  const {db,put,retention}=fixture(t);
+  put.run("self","early",1,null,null,"old",null);
+  put.run("self","boundary",1,null,null,"at boundary",null);
+  put.run("self","newer",1,null,null,"sent after clear",null);
+  put.run("someone else","unrelated",0,null,null,"unrelated",null);
+  db.prepare("UPDATE messages SET ts=? WHERE id=?").run(1700000000,"early");
+  db.prepare("UPDATE messages SET ts=? WHERE id=?").run(1700000100,"boundary");
+  db.prepare("UPDATE messages SET ts=? WHERE id=?").run(1700000200,"newer");
+  const result=retention.clearChatThrough("self",1700000100);
+  assert.deepEqual(result,{purged:2,skipped:1});
+  assert.deepEqual(db.prepare("SELECT chat_id,id FROM messages ORDER BY id").all(),[
+    {chat_id:"self",id:"newer"},{chat_id:"someone else",id:"unrelated"}
+  ]);
+  assert.equal(retention.isSuppressed("self","boundary"),true);
+  assert.equal(retention.isSuppressed("self","newer"),false);
+  assert.deepEqual(retention.clearChatThrough("self",1700000100),{purged:0,skipped:1});
+  assert.equal(db.prepare("SELECT count(*) AS n FROM messages_fts WHERE messages_fts MATCH 'boundary'").get().n,0);
+});
+
+test("invalid or future clear-chat boundaries are rejected before deleting anything",t=>{
+  const {db,put,retention}=fixture(t);
+  put.run("self","message",1,null,null,"important",null);
+  db.prepare("UPDATE messages SET ts=? WHERE id=?").run(1700000100,"message");
+  for(const ts of [0,-1,Infinity,NaN,Date.now(),Math.floor(Date.now()/1000)+10000]){
+    assert.throws(()=>retention.clearChatThrough("self",ts),RangeError);
+  }
+  assert.equal(count(db,"messages"),1);
 });
