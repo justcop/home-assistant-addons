@@ -74,11 +74,11 @@ Inactive accounts remain in history. A previously non-zero account must still be
 
 ## Backups and recovery
 
-The authoritative database is stored in `/share/money_locations/money.sqlite`. This dedicated shared folder survives add-on updates and uninstall/reinstall, including changing from a local development installation to a repository installation on the same Home Assistant host. The folder is private to the household; other add-ons with access to `/share` can also access it.
+The authoritative database is stored in the app's private `/data/money-locations/money.sqlite`. Home Assistant backups that select the Money Locations app now include its database, revision checkpoints and LifeStage session. You need not include the entire `share` folder just to protect this app.
 
-Version 0.2.0 automatically copies an existing `/data/money.sqlite` into this folder on first startup, preserving its revisions and recovery checkpoints. The old copy is left untouched for recovery. An existing shared database is never overwritten. Migration errors stop startup instead of silently starting with empty data. The startup log shows the database path.
+When upgrading from `/share/money_locations/money.sqlite`, the app uses SQLite's online backup API to copy the database into private storage, incorporates committed WAL data, checks integrity and preserves the old database. The LifeStage session file is moved by a separate safe copy. Neither legacy file is deleted. An existing private database is never overwritten and an invalid legacy database stops migration rather than starting with empty financial data.
 
-**Include the Home Assistant `share` folder in your backups**, or export JSON regularly. An add-on-only backup of `/data` no longer contains the current database. A full backup with `share` does. Restoring an older add-on-only backup does not overwrite a newer shared database; use the app’s JSON restore to deliberately replace it.
+Private `/data` persists across normal updates and is protected by add-on backups, but uninstalling an app or changing its slug can remove its private data. Preserve a restorable Home Assistant backup before those operations. The older shared files may be retained as a recovery copy until a new backup has been verified.
 
 In version 0.1.0, ordinary updates and restarts preserved `/data`, but uninstalling removed it. A change of add-on repository/slug also creates a different `/data` directory. If history has already disappeared, check the old installation’s recovery copies or restore its Home Assistant backup and export JSON; otherwise reimport the original history JSON. This release cannot recover a database already deleted without a backup.
 
