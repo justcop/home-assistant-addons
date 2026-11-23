@@ -112,3 +112,10 @@ test('backup exclusions cover internal message data but do not exclude app crede
   assert.match(yaml, /backup_exclude:\s*\n\s*- whatsapp\s*\n\s*- whatsapp\/\*\*/);
   assert.doesNotMatch(yaml, /backup_exclude:[^]*- \.whatsapp-mcp-secrets/);
 });
+
+test('launcher does not recreate or chown a retired internal WhatsApp directory', () => {
+  const run = fs.readFileSync(new URL('../run.mjs', import.meta.url), 'utf8');
+  assert.equal(run.includes("fs.mkdirSync(path.join(ROOT, 'whatsapp')"), false);
+  assert.equal(run.includes("for (const dir of [ROOT, path.join(ROOT, 'whatsapp')"), false);
+  assert.equal(run.includes("storage.external ? [] : [storage.dataDir]"), true);
+});
