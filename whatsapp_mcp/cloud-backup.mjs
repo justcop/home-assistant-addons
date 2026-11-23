@@ -122,6 +122,14 @@ export class WhatsAppCloudBackup {
     this.running = false;
     this.timer = null;
     this.attemptToday = null;
+    // A forced restart during backup could leave a plaintext SQLite snapshot
+    // in the external staging directory. Clear only our private named staging
+    // directories before starting the scheduler; never recover old messages.
+    for (const entry of fs.readdirSync(this.dataDir, { withFileTypes: true })) {
+      if (entry.isDirectory() && entry.name.startsWith('.cloud-snapshot-')) {
+        fs.rmSync(path.join(this.dataDir, entry.name), { recursive: true, force: true });
+      }
+    }
   }
   _save() { savePrivate(this.stateFile, this.state); }
   configureGoogleClient(clientId, clientSecret) {
