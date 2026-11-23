@@ -60,6 +60,12 @@ function patchIngest(before, after) {
   }
   ingest = ingest.slice(0, at) + after + ingest.slice(at + before.length);
 }
+// Normalize original LID keys when checking already-erased message IDs:
+// historical Meta AI prompts must not reappear under the restored phone chat.
+patchIngest(
+  'canonicalId, isGroupJid, isStatusBroadcastJid, lidFromJid, phoneFromJid, userJid',
+  'canonicalId, normalizeJid, isGroupJid, isStatusBroadcastJid, lidFromJid, phoneFromJid, userJid'
+);
 const importAnchor = 'import type { Logger } from "pino";';
 patchIngest(importAnchor,
   importAnchor + '\nimport { makePrivacyRetention } from "./privacy-retention.js";');
@@ -72,7 +78,8 @@ patchIngest(
   '      const chatId = canonical(remoteJid);\n      const isGroup = isGroupJid(chatId);\n      chats.ensure(chatId, isGroup);',
   '      const chatId = canonical(remoteJid);\n' +
   '      // Replayed sync history must never restore content explicitly erased locally.\n' +
-  '      if (privacyRetention.isSuppressed(chatId, messageId)) return;\n' +
+  '      if (privacyRetention.isSuppressed(chatId, messageId) ||\n' +
+  '          privacyRetention.isSuppressed(normalizeJid(remoteJid), messageId)) return;\n' +
   '      const isGroup = isGroupJid(chatId);\n      chats.ensure(chatId, isGroup);'
 );
 patchIngest(
@@ -130,89 +137,8 @@ patchIngest(
   '      }\n' +
   ''
 );
-// The account's own LID is not interchangeable with the Messages to
-// Yourself phone JID for archive purposes. Meta AI prompts can arrive
-// using this same unsuffixed LID, so preserve that provenance as its own
-// unclassified conversation instead of asserting they were self-messages.
-patchIngest(
-  'canonicalId, isGroupJid, isStatusBroadcastJid, lidFromJid, phoneFromJid, userJid',
-  'canonicalId, normalizeJid, isGroupJid, isStatusBroadcastJid, lidFromJid, phoneFromJid, userJid'
-);
-patchIngest(
-  '  function canonical(jid: string): string {\n    return canonicalId(jid, lookup);\n  }',
-  '  function canonical(jid: string): string {\n    return canonicalId(jid, lookup);\n  }\n' +
-  '  // Keep the self LID separate when it resolves to our own phone account.\n' +
-  '  function canonicalChat(jid: string): string {\n' +
-  '    const raw = normalizeJid(jid);\n' +
-  '    if (raw.endsWith("@lid") && self() !== undefined && canonical(raw) === self()) return raw;\n' +
-  '    return canonical(jid);\n' +
-  '  }'
-);
-patchIngest('return { chatId: canonical(remoteJid), id };','return { chatId: canonicalChat(remoteJid), id };');
-patchIngest(
-  '      const chatId = canonical(remoteJid);\n      // Replayed sync history',
-  '      const chatId = canonicalChat(remoteJid);\n      // Replayed sync history'
-);
-patchIngest(
-  '      const chatId = canonical(rawId);\n      if (chatId === \'13135550002@s.whatsapp.net\')',
-  '      const chatId = canonicalChat(rawId);\n      if (chatId === \'13135550002@s.whatsapp.net\')'
-);
-patchIngest(
-  '    contacts.linkIdentity(lid, pn);',
-  '    // Identity merging would fold the self LID back into Messages to Yourself,\n' +
-  '    // losing the original destination ambiguity. All other LID mappings work as before.\n' +
-  '    if (self() !== undefined && canonical(pn) === self()) return;\n' +
-  '    contacts.linkIdentity(lid, pn);'
-);
-// Prevent WhatsApp chat metadata from renaming our unclassified own-LID
-// container back to the account's name after a reconnect.
-patchIngest(
-  '      if (name != null && name !== "") patch.name = name;',
-  '      if (name != null && name !== "") patch.name = name;\n' +
-  '      if (chatId.endsWith("@lid") && self() !== undefined && canonical(chatId) === self())\n' +
-  '        patch.name = "Unclassified own-LID messages";'
-);
 fs.writeFileSync(ingestFile, ingest);
 fs.copyFileSync('/src/privacy-retention.ts', '/src/packages/api/src/whatsapp/privacy-retention.ts');
 console.log('Pinned upstream patched with sender-aware revocations and Delete-for-me purges.');
 
 
-/**
- * Read-path counterpart of own-LID provenance preservation.
- * The normal read API folds every LID into a phone JID; a chat explicitly
- * quarantined under its raw LID must be read using its own key instead.
- * The exception is keyed by a stored *chat name*, not user input alone,
- * so all other mapped LIDs retain the upstream behaviour.
- */
-function patchFile(filePath, patches) {
-  let original=fs.readFileSync(filePath,'utf8');
-  for(const [before,after] of patches) {
-    const p=original.indexOf(before);
-    if(p<0 || original.indexOf(before,p+1)>=0) throw new Error('Read-path patch anchor missing or ambiguous in '+filePath);
-    original=original.slice(0,p)+after+original.slice(p+before.length);
-  }
-  fs.writeFileSync(filePath,original);
-}
-const label='Unclassified own-LID messages';
-patchFile('/src/packages/api/src/rest/handlers/reads.ts',[
-  ['import { canonicalId } from "../../whatsapp/jid.js";','import { canonicalId, normalizeJid } from "../../whatsapp/jid.js";'],
-  ['  jid === undefined ? undefined : canonicalId(jid, deps.contacts);',
-   '  jid === undefined ? undefined : (deps.chats.get(normalizeJid(jid))?.name === "'+label+'"\n' +
-   '    ? normalizeJid(jid) : canonicalId(jid, deps.contacts));']
-]);
-patchFile('/src/packages/api/src/rest/handlers/subject.ts',[
-  ['import { canonicalId } from "../../whatsapp/jid.js";','import { canonicalId, normalizeJid } from "../../whatsapp/jid.js";'],
-  ['  const chatId = canonicalId(chat, deps.contacts);',
-   '  const normalized = normalizeJid(chat);\n' +
-   '  const chatId = deps.chats.get(normalized)?.name === "'+label+'"\n' +
-   '    ? normalized : canonicalId(chat, deps.contacts);']
-]);
-patchFile('/src/packages/api/src/main.ts',[
-  ['import { canonicalId } from "./whatsapp/jid.js";','import { canonicalId, normalizeJid } from "./whatsapp/jid.js";'],
-  ['return Promise.resolve(messages.getRaw(canonicalId(remoteJid, { pnForLid: contacts.pnForLid }), id));',
-   'const normalized = normalizeJid(remoteJid);\n' +
-   '    const target = chats.get(normalized)?.name === "'+label+'"\n' +
-   '      ? normalized : canonicalId(remoteJid, { pnForLid: contacts.pnForLid });\n' +
-   '    return Promise.resolve(messages.getRaw(target, id));']
-]);
-console.log('Pinned API read paths preserve explicitly quarantined own-LID chat.');
