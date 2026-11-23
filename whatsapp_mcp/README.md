@@ -84,6 +84,50 @@ were intentionally deleted. **Do not compare the archive against a partial
 WhatsApp history sync and delete every missing entry**: that would cause
 irreversible data loss during incomplete history coverage or reconnection.
 
+### Clear-chat detection: limited self-chat test
+
+Baileys understands WhatsApp's `clearChatAction` app-state operation but its
+published event stream does not expose it. The Docker build therefore patches
+the **deployed, pinned Baileys runtime** to emit metadata through an internal
+`chats.update` event; the WhatsApp API consumes this without sending anything
+to WhatsApp.
+
+For the **first live test only**, automatic whole-chat clearing is restricted to
+your own **Messages to Yourself** conversation. Clear-chat actions in every
+other conversation are observed in aggregate diagnostics but **do not delete**
+data from the archive. This guard is deliberate until phone-originated events
+have been verified against the running linked client.
+
+A self-chat clear is performed only when all conditions hold:
+
+1. An actual incremental app-state `clearChatAction` is delivered (not an
+   inferred absence, chat deletion, or initial history replay).
+2. WhatsApp explicitly indicates that **starred messages are also deleted**,
+   rather than preserving them. If WhatsApp requests that starred messages
+   be kept, the archive ignores the whole clear for now rather than guessing
+   which historical messages were starred.
+3. The action includes a valid last-message timestamp. Only this chat's
+   messages at or before that boundary are purged; newer messages survive.
+4. The batch contains at most 20,000 local message rows. Purged identifiers
+   are recorded as non-content digests so an old history replay cannot
+   restore them.
+
+The app logs only generic event outcomes and aggregate counts, **not**
+message text, IDs, contact names, or chat IDs.
+
+**Live test procedure:** Open the Messages to Yourself thread and verify
+one or more expendable messages are visible in the private archive.
+On your phone select **Clear chat**, explicitly select deletion of starred
+messages if that option appears, then inspect the archive and HA app logs.
+Send a new message after clearing and verify it survives. If the old messages
+remain, check whether the log reported an ignored action or no action was
+received at all; do not interpret this as a successful purge. A test in this
+self-chat does not prove that WhatsApp sends the same events in all chats.
+
+**Delete chat** is a separate WhatsApp action (`chats.delete`) and is not
+purged by this feature; an empty or deleted chat must not be confused with
+`clearChatAction`.
+
 The privacy purge only affects live data after this version is installed. It
 cannot remove content already copied into earlier Home Assistant/cloud backups.
 This is a functional retention mechanism, not a secure-erase guarantee across
