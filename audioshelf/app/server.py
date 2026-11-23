@@ -6,6 +6,9 @@ import os
 import secrets
 import time
 import requests
+import shutil
+import sqlite3
+from contextlib import closing
 from datetime import timedelta
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -55,6 +58,58 @@ def load_options():
     return options
 
 
+
+def migrate_collection_from_share(source, target):
+    """One-time, non-destructive move of personal collections into backed-up /data.
+
+    The old shared tree remains intact as a recovery copy. Database files are
+    copied using SQLite's backup API, which also incorporates committed WAL
+    transactions. Never follow symlinks or select an empty replacement when a
+    legacy collection exists but cannot be migrated correctly.
+    """
+    source, target = Path(source), Path(target)
+    if target.exists():
+        if (target / 'audioshelf.db').is_file():
+            with closing(sqlite3.connect(f'file:{target / "audioshelf.db"}?mode=ro', uri=True)) as db:
+                if db.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
+                    raise RuntimeError('Private AudioShelf collection failed integrity check.')
+            return
+        raise RuntimeError('Private AudioShelf collection folder already exists without its database.')
+    if not source.is_dir():
+        return  # New installation without a legacy collection.
+    if not (source / 'audioshelf.db').is_file():
+        raise RuntimeError('Existing AudioShelf shared directory has no owner collection database.')
+    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    staging = target.parent / ('.' + target.name + '-migration')
+    if staging.exists():
+        raise RuntimeError('Unfinished AudioShelf migration needs inspection before retrying.')
+    staging.mkdir(mode=0o700)
+    try:
+        for entry in source.rglob('*'):
+            if entry.is_symlink():
+                raise RuntimeError('AudioShelf collection contains a symlink; refusing unsafe migration.')
+            dest = staging / entry.relative_to(source)
+            if entry.is_dir():
+                dest.mkdir(parents=True, exist_ok=True, mode=0o700)
+                continue
+            dest.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            if entry.name.endswith(('.db-wal', '.db-shm')):
+                continue  # The SQLite online backup includes committed WAL contents.
+            if entry.suffix == '.db':
+                with closing(sqlite3.connect(f'file:{entry}?mode=ro', uri=True)) as origin, closing(sqlite3.connect(dest)) as copy:
+                    origin.backup(copy)
+                    copy.commit()
+                    if copy.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
+                        raise RuntimeError('AudioShelf database copy failed integrity check.')
+                os.chmod(dest, 0o600)
+            else:
+                shutil.copy2(entry, dest)
+        staging.replace(target)
+    except Exception:
+        # Preserve staging on failure for inspection; never touch the source.
+        raise
+
+
 def create_app(options=None):
     options = options if options is not None else load_options()
     cache_directory = options.get('cache_directory') or os.environ.get('AUDIOSHELF_CACHE_DIRECTORY')
@@ -64,6 +119,8 @@ def create_app(options=None):
     cache = Path(cache_directory).resolve()
     if cache == collection or collection in cache.parents or cache in collection.parents:
         raise RuntimeError('Keep cache_directory separate from data_directory, without either containing the other.')
+    if collection == Path('/data/audioshelf-collection'):
+        migrate_collection_from_share('/share/audioshelf', collection)
     store = Store(collection,cache)
     private_dir = Path(options.get('private_directory') or os.environ.get('AUDIOSHELF_PRIVATE_DIRECTORY','/data/audioshelf-private'))
     private_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
