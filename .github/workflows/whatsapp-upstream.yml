@@ -3,6 +3,10 @@ on:
   schedule:
     - cron: '17 7 * * *'
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/whatsapp-upstream.yml'
 permissions:
   contents: write
   pull-requests: write
@@ -95,6 +99,9 @@ jobs:
           gh run watch "$RUN_ID" --exit-status
           if [ "$RISK" = low ]; then
             gh pr merge "$BRANCH" --squash --delete-branch
+            # GITHUB_TOKEN merges do not emit push-triggered workflows.
+            # Explicit dispatch publishes a tested image but never deploys HA.
+            gh workflow run addon-delivery.yml --ref main
           else
             echo "High-risk upstream change: tests passed, manual review required."
           fi
