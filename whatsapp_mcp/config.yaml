@@ -1,5 +1,5 @@
 name: WhatsApp MCP (Read Only)
-version: "0.3.14"
+version: "0.3.15"
 slug: whatsapp_mcp
 description: Private, read-only WhatsApp search over MCP with Cloudflare Access JWT verification.
 url: https://github.com/justcop/home-assistant-addons/tree/main/whatsapp_mcp
@@ -14,6 +14,8 @@ stage: experimental
 backup_exclude:
   - whatsapp
   - whatsapp/**
+  - .whatsapp-cloud-backup
+  - .whatsapp-cloud-backup/**
 panel_icon: mdi:message-text-lock
 panel_title: WhatsApp Archive
 panel_admin: true
