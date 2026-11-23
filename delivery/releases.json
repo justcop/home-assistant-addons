@@ -1,8 +1,8 @@
 {
   "addon_updater": {
-    "sha": "d5aa0a3c3af50853b96a77a2e8bc5b94982142c9",
-    "compatibility": "efd929690207a31f5219f3da594d612d541ca6aa1e17a329b90716f5c239e9c3",
-    "version": "0.1.3",
+    "sha": "d16f615ce29246faa55805bdeb8873cbaac2d3fa",
+    "compatibility": "7e22613682e7c42e37e27dcf35ee7f5f32862bbc9528c3e36e4d582d92260b9c",
+    "version": "0.1.4",
     "image": "ghcr.io/justcop/addon-updater-{arch}"
   },
   "audioshelf": {
