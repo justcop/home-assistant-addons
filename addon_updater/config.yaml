@@ -1,5 +1,5 @@
 name: My Add-on Updater
-version: 0.1.1
+version: 0.1.2
 slug: addon_updater
 description: Shared GitHub code updates and standard image release status for my applications.
 url: https://github.com/justcop/home-assistant-addons
