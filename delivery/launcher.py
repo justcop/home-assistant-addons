@@ -14,6 +14,7 @@ from contract import safe_path, runtime_path, SCHEMA_WORDS, digest
 
 ROOT = Path("/opt/delivery")
 STORE = Path(os.environ.get("ADDON_CODE_ROOT", "/media/storage/addon-code"))
+DATA = Path("/data")
 
 
 def read_json(path):
@@ -88,7 +89,7 @@ def main():
     state = {"id": baked["id"], "image_sha": baked["sha"], "version": baked["version"],
              "compatibility": baked["compatibility"], "sha": baked["sha"], "error": None,
              "started": time.time(), "running": False}
-    last_path = Path("/data/delivery.json")
+    last_path = DATA / "delivery.json"
     try:
         pin_path = STORE / baked["id"] / "desired.json"
         pin = read_json(pin_path) if pin_path.exists() else None

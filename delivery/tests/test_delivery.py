@@ -178,3 +178,68 @@ def test_all_repository_live_layouts_have_existing_entry_points():
         if item["live"]:
             assert item["runtime"], name
             assert name in release.LAYOUT, name
+
+
+def test_top_level_wildcard_cannot_write_into_persistent_directories():
+    spec = {"roots": ["*.py", "artwork"]}
+    assert runtime_path("run.py", spec)
+    assert not runtime_path("data/options.py", spec)
+    assert not runtime_path("media/other.py", spec)
+
+
+@pytest.mark.parametrize("kind", ["protected", "schema", "dependency", "boundary"])
+def test_launcher_independently_rejects_forged_contract(tmp_path, monkeypatch, kind):
+    client, value, files, stat = staged(tmp_path)
+    monkeypatch.setattr(updater.os, "stat", stat)
+    folder = client.stage(value, files)
+    forged = json.loads(json.dumps(value))
+    if kind == "protected":
+        name, content = "app/db.py", b"def save(): return 'changed'"
+    elif kind == "schema":
+        name, content = "app/new.py", b"sql='ALTER TABLE users ADD password text'"
+    elif kind == "dependency":
+        name, content = "app/requirements.txt", b"secret-dependency"
+    else:
+        forged["boundary"]["Dockerfile"] = "forged"
+        name, content = None, None
+    if name:
+        path = folder / "files" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+        forged["runtime"][name] = digest(content)
+    (folder / "manifest.json").write_text(json.dumps(forged))
+    with pytest.raises(ValueError):
+        launcher.validate_release(folder, value["sha"], value)
+
+
+@pytest.mark.parametrize("scenario,expected", [
+    ("newer-image", "b"*40), ("older-image", "a"*40), ("explicit-rollback", "a"*40)])
+def test_image_updates_and_compatible_rollback_keep_correct_code(tmp_path, monkeypatch, scenario, expected):
+    client, value, files, stat = staged(tmp_path)
+    monkeypatch.setattr(updater.os, "stat", stat)
+    client.stage(value, files)
+    data, root, dest = tmp_path / "data", tmp_path / "baked", tmp_path / "application"
+    root.mkdir()
+    dest.mkdir()
+    baked = {**value, "sha":"b"*40, "version":"1.2.4", "destination":str(dest), "strip":""}
+    baked["ancestors"] = ["a"*40] if scenario != "older-image" else []
+    (root / "manifest.json").write_text(json.dumps(baked))
+    pin = {"sha":"a"*40, "image_sha":("b"*40 if scenario=="explicit-rollback" else "c"*40)}
+    updater.atomic(updater.ROOT / "demo/desired.json", pin)
+    monkeypatch.setattr(launcher, "ROOT", root)
+    monkeypatch.setattr(launcher, "DATA", data)
+    monkeypatch.setattr(launcher, "STORE", updater.ROOT)
+    monkeypatch.setattr(launcher, "ThreadingHTTPServer", Mock())
+    monkeypatch.setattr(launcher.threading, "Thread", Mock())
+    monkeypatch.setattr(launcher.signal, "signal", Mock())
+    child = Mock()
+    child.wait.return_value = 0
+    monkeypatch.setattr(launcher.subprocess, "Popen", Mock(return_value=child))
+    previous_umask = launcher.os.umask(0o077)
+    try:
+        with pytest.raises(SystemExit):
+            launcher.main()
+    finally:
+        launcher.os.umask(previous_umask)
+    assert json.loads((data / "delivery.json").read_text())["sha"] == expected
+    assert child.wait.called

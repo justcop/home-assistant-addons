@@ -15,7 +15,10 @@
       "app/storage.py",
       "app/accounts.py",
       "app/server.py"
-    ]
+    ],
+    "destination": "/app",
+    "strip": "",
+    "with_contenv": true
   },
   "lastfm_analytics": {
     "roots": [
@@ -33,7 +36,10 @@
       "analytics/db.py",
       "analytics/attendance.py",
       "analytics/gigs.py"
-    ]
+    ],
+    "destination": "/app",
+    "strip": "",
+    "with_contenv": true
   },
   "money_locations": {
     "roots": [
@@ -48,7 +54,10 @@
     "health_path": "/health",
     "protected": [
       "app/server.py"
-    ]
+    ],
+    "destination": "/app",
+    "strip": "app/",
+    "with_contenv": true
   },
   "music_video_companion": {
     "roots": [
@@ -61,7 +70,10 @@
     ],
     "health_port": 8099,
     "health_path": "/health",
-    "protected": []
+    "protected": [],
+    "destination": "/app",
+    "strip": "app/",
+    "with_contenv": true
   },
   "work_audit": {
     "roots": [
@@ -79,7 +91,10 @@
     "health_path": "/",
     "protected": [
       "engine.py"
-    ]
+    ],
+    "destination": "/app",
+    "strip": "",
+    "with_contenv": false
   },
   "vinyl_guardian": {
     "roots": [
@@ -94,7 +109,10 @@
     "protected": [
       "storage.py"
     ],
-    "overlay": "/usr/src/app"
+    "overlay": "/usr/src/app",
+    "destination": "/usr/src/app",
+    "strip": "",
+    "with_contenv": true
   },
   "govee-temporary-display": {
     "roots": [
@@ -111,7 +129,10 @@
     "health_port": 8098,
     "health_path": "/api/status",
     "protected": [],
-    "overlay": "/"
+    "overlay": "/",
+    "destination": "/",
+    "strip": "",
+    "with_contenv": true
   },
   "vikunja_chatgpt_bridge": {
     "roots": [
@@ -126,7 +147,10 @@
     "health_path": "/",
     "protected": [
       "server.cjs"
-    ]
+    ],
+    "destination": "/app",
+    "strip": "",
+    "with_contenv": false
   },
   "whatsapp_mcp": {
     "roots": [
@@ -146,7 +170,10 @@
       "archive-data.mjs",
       "review-data.mjs"
     ],
-    "overlay": "/opt/whatsapp-addon"
+    "overlay": "/opt/whatsapp-addon",
+    "destination": "/opt/whatsapp-addon",
+    "strip": "",
+    "with_contenv": false
   },
   "ocr_tool": {
     "roots": [
@@ -164,6 +191,9 @@
     ],
     "health_port": 8099,
     "health_path": "/",
-    "protected": []
+    "protected": [],
+    "destination": "/app",
+    "strip": "",
+    "with_contenv": true
   }
 }

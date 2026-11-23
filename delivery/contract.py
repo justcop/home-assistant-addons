@@ -26,7 +26,7 @@ def runtime_path(path, spec):
     # Dependencies, executable startup wrappers and app declarations are never live.
     if p.name.startswith(("requirements", "package", "Dockerfile")) or p.suffix in {".sh", ".yaml", ".yml", ".toml", ".lock"}:
         return False
-    return any(fnmatch.fnmatchcase(path, root) if "*" in root else
+    return any((fnmatch.fnmatchcase(path, root) and ("/" in root or "/" not in path)) if "*" in root else
                path == root or path.startswith(root + "/") for root in spec["roots"])
 
 

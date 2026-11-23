@@ -83,7 +83,7 @@ def prepare():
             bundle.mkdir(exist_ok=True)
             shutil.copyfile(ROOT / "delivery/contract.py", bundle / "contract.py")
         if item["live"]:
-            destination, strip = LAYOUT[name]
+            destination, strip = item["spec"]["destination"], item["spec"]["strip"]
             item.update(destination=destination, strip=strip, ancestors=git("rev-list", "HEAD").splitlines())
             bundle = folder / ".delivery"
             bundle.mkdir(exist_ok=True)
@@ -97,7 +97,7 @@ def prepare():
         else:
             build_from = {}
         command = ["python3", "/opt/delivery/launcher.py"]
-        if name not in {"work_audit", "vikunja_chatgpt_bridge", "whatsapp_mcp"}:
+        if item["spec"].get("with_contenv"):
             command.insert(0, "/command/with-contenv")
         (folder / ".delivery.Dockerfile").write_text(dockerfile + (
             "\nCOPY .delivery /opt/delivery\nCMD " + json.dumps(command) + "\n" if item["live"] else "\n"))
