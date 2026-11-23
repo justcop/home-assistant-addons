@@ -3,7 +3,7 @@ configuration:
     name: Recording storage folder
     description: Absolute folder for WAVs, datasets and experiment recordings. Use a mounted external
       drive under /media, for example /media/recordings/vinyl_guardian. The parent folder must already
-      exist and be writable. Existing recordings and profiles are not moved automatically. Calibration profiles, detector state and WAV files share the configured recording folder.
+      exist and be writable. Existing recordings are not moved automatically. WAVs, datasets and experiments use the configured recording folder; small calibration profiles and detector state remain under /share/vinyl_guardian for backups.
   lastfm_username:
     name: Last.fm username
     description: Account to scrobble identified music to.
