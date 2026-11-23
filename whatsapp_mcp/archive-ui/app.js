@@ -81,10 +81,20 @@ function renderChats() {
     list.append(more);
   }
 }
+function mediaLabel(m) {
+  // A captioned image/video/document is still an attachment even when the
+  // upstream archive has no cached media metadata (m.media === null).
+  const kind = String(m.kind || '').toLowerCase();
+  const labels = { image: 'Image', video: 'Video', audio: 'Audio',
+    document: 'Document', sticker: 'Sticker' };
+  return labels[kind] || (m.media ? 'Attachment' : null);
+}
 function messageBody(m) {
   if (m.deleted) return 'Message deleted';
-  if (m.text) return m.text;
-  if (m.transcript) return m.transcript;
+  const text = m.text || m.transcript || '';
+  const attachment = mediaLabel(m);
+  if (attachment) return text ? text + '\n[' + attachment + ']' : '[' + attachment + ']';
+  if (text) return text;
   if (m.kind && m.kind !== 'text') return '[' + m.kind + ']';
   return '(No text)';
 }
@@ -168,7 +178,11 @@ function searchHitNode(hit) {
   title.append(el('span','hit-chat',chatName(chat)),el('span','hit-time',stamp(hit.ts)));
   btn.append(title);
   if (hit.sender?.name) btn.append(el('div','hit-sender',hit.fromMe ? 'You' : hit.sender.name));
-  btn.append(el('div','hit-body',hit.snippet || messageBody(hit)));
+  const preview = hit.snippet || hit.text || hit.transcript || '';
+  const attachment = mediaLabel(hit);
+  btn.append(el('div','hit-body',hit.deleted ? 'Message deleted' :
+    attachment ? (preview ? preview + '\n[' + attachment + ']' : '[' + attachment + ']') :
+    (preview || messageBody(hit))));
   btn.addEventListener('click',()=>openChat(chat,hit.ts));
   return btn;
 }
