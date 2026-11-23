@@ -446,7 +446,9 @@ async function updateBackfill() {
     for (const chat of result.recent || []) {
       const item = el('div','backfill-item');
       const heading = el('strong','',chat.name);
-      const detail = el('p','',chat.phase + ' · ' + chat.requests + ' requests' +
+      const phaseLabel = chat.phase === 'likely_complete' ? 'Probably complete (short reply)' :
+        chat.phase === 'retry' ? 'Awaiting another attempt' : chat.phase;
+      const detail = el('p','',phaseLabel + ' · ' + chat.requests + ' requests' +
         ' · approx. ' + chat.importedEstimate + ' delivered messages' +
         (chat.oldestTimestamp ? ' · oldest ' +
           stamp(chat.oldestTimestamp, {day:'numeric',month:'short',year:'numeric'}) : ''));
