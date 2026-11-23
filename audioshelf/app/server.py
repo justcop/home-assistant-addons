@@ -54,7 +54,7 @@ def load_options():
         value = os.environ.get('AUDIOSHELF_'+key.upper())
         if value is not None:
             options[key] = value
-    options.setdefault('data_directory','/share/audioshelf')
+    options.setdefault('data_directory','/data/audioshelf-collection')
     return options
 
 
@@ -114,8 +114,8 @@ def create_app(options=None):
     options = options if options is not None else load_options()
     cache_directory = options.get('cache_directory') or os.environ.get('AUDIOSHELF_CACHE_DIRECTORY')
     if not cache_directory:
-        cache_directory = str(Path(options['private_directory']).parent/'cache') if options.get('private_directory') else '/share/audioshelf-cache'
-    collection = Path(options.get('data_directory','/share/audioshelf')).resolve()
+        cache_directory = str(Path(options['private_directory']).parent/'cache') if options.get('private_directory') else '/media/audioshelf-cache'
+    collection = Path(options.get('data_directory','/data/audioshelf-collection')).resolve()
     cache = Path(cache_directory).resolve()
     if cache == collection or collection in cache.parents or cache in collection.parents:
         raise RuntimeError('Keep cache_directory separate from data_directory, without either containing the other.')
