@@ -1,5 +1,5 @@
 """Repository-scoped coordinator. It never edits installed options or data."""
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import hashlib
 import io
 import json
@@ -103,6 +103,7 @@ class Updater:
         self.lock = threading.Lock()
         self.busy = False
         self.cache = None
+        self.upstream_last_check = 0
 
     def save(self):
         atomic(self.state_path, self.state)
@@ -115,6 +116,46 @@ class Updater:
         result = SESSION.get(f"http://{address}:18799/status", timeout=4)
         result.raise_for_status()
         return result.json(), info
+
+    def monitor_whatsapp_upstream(self):
+        """Check the daily upstream gate's own health, without affecting HA data.
+
+        Errors are surfaced via HA persistent notifications; never deploy an
+        upstream commit from this monitor. Cache for an hour to avoid GitHub
+        unauthenticated API rate limits.
+        """
+        if time.monotonic() - self.upstream_last_check < 3600:
+            return
+        self.upstream_last_check = time.monotonic()
+        record = self.state.setdefault("upstream_monitor", {})
+        record["checked"] = now()
+        try:
+            url = (f"https://api.github.com/repos/{REPO}/actions/workflows/"
+                   "whatsapp-upstream.yml/runs?per_page=5")
+            response = SESSION.get(url, timeout=20, headers={
+                "Accept": "application/vnd.github+json",
+                "User-Agent": "home-assistant-whatsapp-upstream-monitor"})
+            response.raise_for_status()
+            runs = response.json().get("workflow_runs", [])
+            if not runs:
+                raise ValueError("No WhatsApp upstream workflow runs have been recorded")
+            latest = runs[0]
+            created = datetime.fromisoformat(latest["created_at"].replace("Z", "+00:00"))
+            age = datetime.now(timezone.utc) - created
+            record.update(last_run=latest.get("html_url"),
+                          last_run_at=latest.get("created_at"),
+                          last_conclusion=latest.get("conclusion"))
+            if age > timedelta(hours=48):
+                record["error"] = "Daily upstream monitoring has not run for over 48 hours"
+            elif (latest.get("status") == "completed"
+                  and latest.get("conclusion") != "success"):
+                record["error"] = ("WhatsApp upstream monitoring failed: " +
+                                   str(latest.get("conclusion", "unknown")))
+            else:
+                record["error"] = None
+        except Exception as error:
+            record["error"] = ("Cannot verify WhatsApp upstream checks: " +
+                               str(error)[:120])
 
     def check(self):
         response = SESSION.get(f"https://api.github.com/repos/{REPO}/commits/main", timeout=20)
@@ -171,6 +212,7 @@ class Updater:
             except Exception as exc:
                 row.update(mode="unavailable", reason=str(exc))
         self.state["apps"] = {k:v for k,v in self.state["apps"].items() if k in seen}
+        self.monitor_whatsapp_upstream()
         self.state.update(checked=now(), latest=sha, error=None)
         self.save()
         return files
