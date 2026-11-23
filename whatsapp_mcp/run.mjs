@@ -7,7 +7,7 @@ import path from 'node:path';
 import { createArchiveServer } from './archive-server.mjs';
 import { ArchiveData } from './archive-data.mjs';
 import { pruneMetaAI } from './prune-meta-ai.mjs';
-import { separateSelfLid } from './self-lid-separation.mjs';
+import { restoreSelfLid } from './restore-self-lid.mjs';
 import { pruneProtocolNoise } from './protocol-retention.mjs';
 import { configureWhatsAppStorage } from './storage.mjs';
 
@@ -156,9 +156,9 @@ async function main() {
   const writeProbe = path.join(storage.dataDir, '.permission-test-' + process.pid);
   fs.writeFileSync(writeProbe, 'ok', { flag: 'wx', mode: 0o600 });
   fs.unlinkSync(writeProbe);
-  // Preserve original own-LID provenance as a separate conversation. No bytes deleted.
-  const selfLidSeparation=await separateSelfLid(storage.dataDir, opts.phone_number);
-  console.log('Self-LID provenance separation: '+JSON.stringify(selfLidSeparation));
+  // One-time, non-destructive reversal of the redundant self-LID quarantine.
+  const selfLidRestore = await restoreSelfLid(storage.dataDir, opts.phone_number);
+  console.log('Self-LID chat restore: '+JSON.stringify(selfLidRestore));
   // Prune only this verified Meta AI JID before the WhatsApp writer starts.
   // The verified legacy quarantine cleanup ran once in 0.3.9.
   // Do not purge ambiguous own-LID messages on future restarts.
