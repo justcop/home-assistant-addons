@@ -19,6 +19,7 @@
         <label for="chat-filter">Conversations</label>
         <input id="chat-filter" type="search" placeholder="Find a conversation…" autocomplete="off">
         <button id="all-search" type="button" class="search-action">⌕ &nbsp; Search all messages</button>
+        <button id="show-backup" type="button" class="search-action">☁ &nbsp; Cloud backup &amp; recovery</button>
       </div>
       <div class="chat-tabs" role="tablist" aria-label="Conversation type">
         <button id="tab-direct" class="chat-tab active" type="button" role="tab" aria-controls="chat-list" aria-selected="true">Direct</button>
@@ -43,6 +44,54 @@
         <button id="older" class="older hidden" type="button">Load older messages</button>
         <div id="messages" class="messages" aria-live="polite"></div>
         <p id="message-status" class="message-status"></p>
+      </div>
+      <div id="backup-view" class="backup-view hidden">
+        <div class="search-intro"><h3>Encrypted cloud backup</h3>
+          <p>Independent of Home Assistant backups. One verified Google Drive copy is retained, with the previous copy deleted only after a successful replacement.</p>
+        </div>
+        <p id="backup-state" class="backup-status" role="status">Checking backup configuration…</p>
+        <section class="backup-card">
+          <h3>1. Connect Google Drive</h3>
+          <p>Create a Google OAuth client of type <strong>TVs and Limited Input devices</strong> in your Google Cloud project, enable the Google Drive API, and paste its client ID and secret below. The app requests only <code>drive.file</code> access for files it creates, separate from your general HA backup add-on.</p>
+          <p><a href="https://console.cloud.google.com/auth/clients" target="_blank" rel="noopener noreferrer">Google OAuth clients</a></p>
+          <form id="backup-client-form" class="backup-form" autocomplete="off">
+            <label>OAuth client ID<input id="backup-client-id" type="text" spellcheck="false" autocomplete="off" placeholder="…apps.googleusercontent.com" required></label>
+            <label>OAuth client secret<input id="backup-client-secret" type="password" autocomplete="new-password" required></label>
+            <button type="submit">Save Google client</button>
+          </form>
+          <button id="backup-authorize" class="backup-button" type="button">Connect Google Drive</button>
+          <div id="backup-code-panel" class="backup-code-panel hidden">
+            <p>Open <a id="backup-verify-link" href="https://www.google.com/device" target="_blank" rel="noopener noreferrer">Google device authorisation</a>, enter this code, and allow the limited Google Drive access:</p>
+            <strong id="backup-user-code" class="backup-user-code"></strong>
+            <p id="backup-poll-state">Waiting for Google authorisation…</p>
+          </div>
+        </section>
+        <section class="backup-card">
+          <h3>2. Save your recovery key</h3>
+          <p>Your backups use AES-256-GCM encryption. Copy the recovery key to a password manager outside Home Assistant. Without it, a cloud backup cannot be restored if the server is lost.</p>
+          <button id="backup-generate-key" class="backup-button" type="button">Show / generate recovery key</button>
+          <div id="backup-key-panel" class="hidden">
+            <code id="backup-key-value" class="backup-key-value"></code>
+            <button id="backup-copy-key" class="backup-button" type="button">Copy key</button>
+            <label class="backup-confirm"><input id="backup-key-saved" type="checkbox"> I have saved this key securely outside Home Assistant</label>
+            <button id="backup-confirm-key" class="backup-button" type="button" disabled>Confirm key is saved</button>
+          </div>
+        </section>
+        <section class="backup-card">
+          <h3>3. Schedule &amp; run</h3>
+          <p>Backs up the current SQLite database without interrupting WhatsApp. Default: 05:30 UK time daily. The new encrypted backup is uploaded and checksum-verified before the older cloud copy is removed.</p>
+          <label class="backup-time-label">Daily time (UK)
+            <input id="backup-time" type="time" value="05:30">
+          </label>
+          <button id="backup-save-time" class="backup-button" type="button">Save time</button>
+          <div class="backup-actions">
+            <button id="backup-enable" class="backup-button" type="button">Enable daily backup</button>
+            <button id="backup-run" class="backup-button" type="button">Run backup now</button>
+            <a id="backup-download" class="backup-download hidden" href="api/backup/download" download>Download latest encrypted backup</a>
+          </div>
+          <p class="backup-warning">There may briefly be two copies while a new backup uploads. Old cloud-provider trash, version history or internal snapshots may persist outside this app's control. Local media/attachments and WhatsApp login credentials are not in this database-only backup.</p>
+        </section>
+        <p id="backup-feedback" role="status" aria-live="polite"></p>
       </div>
       <div id="search-view" class="search-view hidden">
         <div class="search-intro"><h3>Search your messages</h3><p>Searches message text and any transcripts that have been indexed.</p></div>
