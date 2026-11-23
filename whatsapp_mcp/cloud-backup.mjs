@@ -134,10 +134,13 @@ export class WhatsAppCloudBackup {
   _save() { savePrivate(this.stateFile, this.state); }
   configureGoogleClient(clientId, clientSecret) {
     const id = String(clientId || '').trim();
-    const secret = String(clientSecret || '').trim();
+    // Never return the saved client secret to the browser. An empty secret
+    // means "keep saved" ONLY when the client ID itself is unchanged.
+    const suppliedSecret = String(clientSecret || '').trim();
+    const secret = suppliedSecret || (id === this.clientId ? this.clientSecret : '');
     if (!/^[0-9]+-[a-z0-9-]+\.apps\.googleusercontent\.com$/.test(id) ||
         !secret || secret.length > 300)
-      throw new Error('Enter the client ID and secret for a Google TVs and Limited Input Devices OAuth client');
+      throw new Error('Enter a valid Google OAuth client ID and its secret. To change client IDs you must also supply the new secret.');
     // A new OAuth client can be unable to see/delete files owned by the old
     // Drive client due to drive.file scoping: never silently orphan a copy.
     if (this.state.latestFileId && this.clientId && id !== this.clientId)
@@ -161,6 +164,8 @@ export class WhatsAppCloudBackup {
       this.state.retentionPending = false;
       this._save();
     }
+    this.state.lastAuthError = null;
+    this._save();
     return this.status();
   }
   setBackupTime(time) {
@@ -173,6 +178,10 @@ export class WhatsAppCloudBackup {
     const now = ukDateAndTime(this.clock());
     return {
       clientConfigured: !!(this.clientId && this.clientSecret),
+      // Client IDs are public identifiers, not secrets; showing the saved ID
+      // makes it possible to verify the exact Google Console entry.
+      clientId: this.clientId || null,
+      clientSecretStored: !!this.clientSecret,
       connected: !!this.tokens.refresh_token,
       recoveryKeyCreated: fs.existsSync(this.keyFile),
       recoveryConfirmed: !!this.state.recoveryConfirmed,
@@ -183,6 +192,7 @@ export class WhatsAppCloudBackup {
       lastSuccess: this.state.lastSuccess || null,
       lastFileName: this.state.lastFileName || null,
       lastError: this.state.lastError || null,
+      lastAuthError: this.state.lastAuthError || null,
       retentionPending: !!this.state.retentionPending,
       pendingAuthorisation: this.pendingAuth ? {
         verificationUrl: this.pendingAuth.verification_url,
@@ -226,7 +236,16 @@ export class WhatsAppCloudBackup {
     const { res, body } = await this._oauthRequest('/device/code', {
       client_id: this.clientId, scope: SCOPE
     });
-    if (!res.ok || !body.device_code || !body.user_code) throw safeProviderError('Google device authorisation', res, body);
+    if (!res.ok || !body.device_code || !body.user_code) {
+      const error = res.status === 401 && body.error === 'invalid_client'
+        ? new Error('Google rejected this OAuth client (invalid_client). In Google Cloud Console, verify that the saved client ID exists and its application type is "TVs and Limited Input devices", not "Web application" or "Desktop". If necessary create a new TV client and save its matching ID and secret.')
+        : safeProviderError('Google device authorisation', res, body);
+      this.state.lastAuthError = error.message;
+      this._save();
+      throw error;
+    }
+    this.state.lastAuthError = null;
+    this._save();
     const interval = Math.max(5, Number(body.interval) || 5);
     this.pendingAuth = {
       device_code: body.device_code, user_code: body.user_code,

@@ -49,6 +49,7 @@
         <div class="search-intro"><h3>Encrypted cloud backup</h3>
           <p>Independent of Home Assistant backups. One verified Google Drive copy is retained, with the previous copy deleted only after a successful replacement.</p>
         </div>
+        <p id="backup-feedback" class="backup-feedback" role="alert" aria-live="polite"></p>
         <p id="backup-state" class="backup-status" role="status">Checking backup configuration…</p>
         <section class="backup-card">
           <h3>1. Connect Google Drive</h3>
@@ -56,10 +57,13 @@
           <p><a href="https://console.cloud.google.com/auth/clients" target="_blank" rel="noopener noreferrer">Google OAuth clients</a></p>
           <form id="backup-client-form" class="backup-form" autocomplete="off">
             <label>OAuth client ID<input id="backup-client-id" type="text" spellcheck="false" autocomplete="off" placeholder="…apps.googleusercontent.com" required></label>
-            <label>OAuth client secret<input id="backup-client-secret" type="password" autocomplete="new-password" required></label>
+            <label>OAuth client secret<input id="backup-client-secret" type="password" autocomplete="new-password" placeholder="Enter the Google client secret" required></label>
+            <p class="backup-field-note">For security, the saved client secret will never be displayed again. Once saved, this field stays empty; leave it empty to keep the existing secret.</p>
             <button type="submit">Save Google client</button>
           </form>
+          <p id="backup-client-status" class="backup-client-status" role="status">Checking saved Google credentials…</p>
           <button id="backup-authorize" class="backup-button" type="button">Connect Google Drive</button>
+          <p id="backup-connect-feedback" class="backup-connect-feedback" role="alert"></p>
           <div id="backup-code-panel" class="backup-code-panel hidden">
             <p>Open <a id="backup-verify-link" href="https://www.google.com/device" target="_blank" rel="noopener noreferrer">Google device authorisation</a>, enter this code, and allow the limited Google Drive access:</p>
             <strong id="backup-user-code" class="backup-user-code"></strong>
@@ -91,7 +95,7 @@
           </div>
           <p class="backup-warning">There may briefly be two copies while a new backup uploads. Old cloud-provider trash, version history or internal snapshots may persist outside this app's control. Local media/attachments and WhatsApp login credentials are not in this database-only backup.</p>
         </section>
-        <p id="backup-feedback" role="status" aria-live="polite"></p>
+
       </div>
       <div id="search-view" class="search-view hidden">
         <div class="search-intro"><h3>Search your messages</h3><p>Searches message text and any transcripts that have been indexed.</p></div>
