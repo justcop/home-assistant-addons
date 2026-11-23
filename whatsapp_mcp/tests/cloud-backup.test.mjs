@@ -25,7 +25,7 @@ test('AES-256-GCM roundtrip detects incorrect keys and modified ciphertext', asy
   await decryptSnapshot(encrypted, recovered, key);
   checkSqlite(recovered);
   assert.equal(fs.readFileSync(recovered).equals(fs.readFileSync(snapshot)), true);
-  assert.rejects(decryptSnapshot(encrypted, path.join(root, 'wrong.db'), crypto.randomBytes(32)), /authentication failed/);
+  await assert.rejects(decryptSnapshot(encrypted, path.join(root, 'wrong.db'), crypto.randomBytes(32)), /authentication failed/);
   const corrupted = fs.readFileSync(encrypted);
   corrupted[25] ^= 2;
   fs.writeFileSync(encrypted, corrupted);
