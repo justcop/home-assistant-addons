@@ -331,10 +331,20 @@ export class WhatsAppCloudBackup {
     if (!start.ok) throw safeProviderError('Google Drive upload initiation', start, await jsonBody(start));
     const location = start.headers.get('location');
     if (!location || !location.startsWith('https://www.googleapis.com/')) throw new Error('Invalid Google Drive resumable upload URL');
-    const uploaded = await this.request(location, {
-      method: 'PUT', headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': String(size) },
-      body: fs.createReadStream(encrypted), duplex: 'half', signal: AbortSignal.timeout(30 * 60 * 1000)
-    });
+    // The provider may reject an upload without reading the request body.
+    // Destroy the stream on any response before removing the temporary file;
+    // otherwise a late open can emit ENOENT after the staging folder is gone.
+    const uploadBody = fs.createReadStream(encrypted);
+    let streamError = null;
+    uploadBody.on('error', error => { streamError = error; });
+    let uploaded;
+    try {
+      uploaded = await this.request(location, {
+        method: 'PUT', headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': String(size) },
+        body: uploadBody, duplex: 'half', signal: AbortSignal.timeout(30 * 60 * 1000)
+      });
+    } finally { uploadBody.destroy(); }
+    if (streamError) throw new Error('Could not read encrypted upload file');
     if (!uploaded.ok) throw safeProviderError('Google Drive encrypted upload', uploaded, await jsonBody(uploaded));
     const meta = await jsonBody(uploaded);
     if (!meta.id) throw new Error('Google Drive upload returned no file identifier');
