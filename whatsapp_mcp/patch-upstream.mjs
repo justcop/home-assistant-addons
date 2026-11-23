@@ -104,8 +104,8 @@ patchIngest(
 // internal chats.update record. During the first deployment only the user's
 // own Messages to Yourself thread is eligible for destructive clearing.
 patchIngest(
-  '      const chatId = canonical(rawId);\n      if (chatId === "13135550002@s.whatsapp.net") return;\n',
-  '      const chatId = canonical(rawId);\n      if (chatId === "13135550002@s.whatsapp.net") return;\n' +
+  '      const chatId = canonical(rawId);\n      if (chatId === \'13135550002@s.whatsapp.net\') return;\n',
+  '      const chatId = canonical(rawId);\n      if (chatId === \'13135550002@s.whatsapp.net\') return;\n' +
   '      const archiveClear = (c as Partial<Chat> & { __archiveClearChat?: {' +
   ' lastMessageTimestamp?: string | null; preserveStarred?: boolean; initial?: boolean' +
   ' } }).__archiveClearChat;\n' +
