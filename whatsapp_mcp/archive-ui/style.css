@@ -45,6 +45,8 @@
   .backup-feedback.visible.error,.backup-connect-feedback.error{color:#8c281d;background:#fff0ed;border-color:#ce8e86}
 }
 
+.sidebar-footer-actions{display:flex;justify-content:space-between;align-items:center;gap:8px;min-width:0;width:100%}
+.sidebar-footer-actions .settings-link{flex:0 1 auto;min-width:0}
 .settings-link{background:transparent;border:0;color:var(--muted);font:inherit;font-size:12px;text-decoration:underline;text-underline-offset:3px;padding:4px 6px;cursor:pointer;white-space:nowrap}
 .settings-link:hover,.settings-link:focus-visible{color:var(--accent)}
 .backup-alert{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:12px 18px;background:#552928;border-bottom:2px solid #ed9e8b;color:#fff4ef;flex-shrink:0;font-size:13px;font-weight:650;overflow-wrap:anywhere}
