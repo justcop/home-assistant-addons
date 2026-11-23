@@ -82,6 +82,7 @@ export class ArchiveData {
     return this.contacts.get(id) || (id?.endsWith('@lid')?this.lidContacts.get(id.split('@')[0]):null);
   }
   displayName(id, currentName = null, isGroup = false) {
+    if(currentName === 'Unclassified own-LID messages') return currentName;
     if(isGroup) return isHumanName(currentName)?currentName:'Unnamed group';
     const contact=this.contactFor(id);
     const phone=normalisePhone(numberFromJid(id)||contact?.phone_number||numberFromJid(contact?.id));

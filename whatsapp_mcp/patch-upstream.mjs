@@ -130,6 +130,40 @@ patchIngest(
   '      }\n' +
   ''
 );
+// The account's own LID is not interchangeable with the Messages to
+// Yourself phone JID for archive purposes. Meta AI prompts can arrive
+// using this same unsuffixed LID, so preserve that provenance as its own
+// unclassified conversation instead of asserting they were self-messages.
+patchIngest(
+  'canonicalId, isGroupJid, isStatusBroadcastJid, lidFromJid, phoneFromJid, userJid',
+  'canonicalId, normalizeJid, isGroupJid, isStatusBroadcastJid, lidFromJid, phoneFromJid, userJid'
+);
+patchIngest(
+  '  function canonical(jid: string): string {\n    return canonicalId(jid, lookup);\n  }',
+  '  function canonical(jid: string): string {\n    return canonicalId(jid, lookup);\n  }\n' +
+  '  // Keep the self LID separate when it resolves to our own phone account.\n' +
+  '  function canonicalChat(jid: string): string {\n' +
+  '    const raw = normalizeJid(jid);\n' +
+  '    if (raw.endsWith("@lid") && self() !== undefined && canonical(raw) === self()) return raw;\n' +
+  '    return canonical(jid);\n' +
+  '  }'
+);
+patchIngest('return { chatId: canonical(remoteJid), id };','return { chatId: canonicalChat(remoteJid), id };');
+patchIngest(
+  '      const chatId = canonical(remoteJid);\n      // Replayed sync history',
+  '      const chatId = canonicalChat(remoteJid);\n      // Replayed sync history'
+);
+patchIngest(
+  '      const chatId = canonical(rawId);\n      if (chatId === \'13135550002@s.whatsapp.net\')',
+  '      const chatId = canonicalChat(rawId);\n      if (chatId === \'13135550002@s.whatsapp.net\')'
+);
+patchIngest(
+  '    contacts.linkIdentity(lid, pn);',
+  '    // Identity merging would fold the self LID back into Messages to Yourself,\n' +
+  '    // losing the original destination ambiguity. All other LID mappings work as before.\n' +
+  '    if (self() !== undefined && canonical(pn) === self()) return;\n' +
+  '    contacts.linkIdentity(lid, pn);'
+);
 fs.writeFileSync(ingestFile, ingest);
 fs.copyFileSync('/src/privacy-retention.ts', '/src/packages/api/src/whatsapp/privacy-retention.ts');
 console.log('Pinned upstream patched with sender-aware revocations and Delete-for-me purges.');
