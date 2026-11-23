@@ -6,4 +6,4 @@ ENV PATH=/opt/venv/bin:$PATH PYTHONUNBUFFERED=1
 WORKDIR /app
 COPY app /app
 COPY .delivery/contract.py /app/contract.py
-CMD ["python3", "server.py"]
+CMD ["/command/with-contenv", "/opt/venv/bin/python", "server.py"]
