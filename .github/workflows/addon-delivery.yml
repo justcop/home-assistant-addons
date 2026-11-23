@@ -128,10 +128,50 @@ jobs:
           IMAGE: ${{ matrix.image }}:${{ matrix.version }}
         run: |
           docker logout ghcr.io
+          # Manifest existence alone can pass even when an OCI child layer or
+          # package permissions prevent an actual anonymous Docker pull.
           docker manifest inspect "$IMAGE" >/dev/null || {
-            echo 'The image has published but its GHCR package must be public before Supervisor can install it.' >&2
+            echo 'The image tag is missing or GHCR has not made it public.' >&2
             exit 1
           }
+          docker image rm "$IMAGE" >/dev/null 2>&1 || true
+          docker pull --platform "${{ matrix.platform }}" "$IMAGE" || {
+            echo 'Anonymous Docker pull failed; NEVER advertise this image.' >&2
+            exit 1
+          }
+          docker inspect "$IMAGE" --format '{{.Id}}' | grep -Eq '^sha256:[0-9a-f]{64}
+  advertise:
+    needs: [classify, build]
+    # Skipped builds must never lead to an advertising run.
+    if: needs.classify.outputs.changed == 'true' && needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.classify.outputs.source }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: delivery-context
+          path: /tmp/delivery-context
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - run: pip install PyYAML==6.0.2
+      - name: Advertise versions only after every architecture succeeds
+        run: |
+          cp /tmp/delivery-context/addon-release-*.json /tmp/
+          python delivery/release.py publish
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add '*/config.yaml' delivery/releases.json
+          git commit -m 'chore: advertise verified add-on images'
+          git fetch origin main
+          git rebase origin/main
+          git push origin HEAD:main
+
   advertise:
     needs: [classify, build]
     runs-on: ubuntu-latest
