@@ -1,6 +1,6 @@
 'use strict';
 const $ = id => document.getElementById(id);
-const state = { chats: [], chatCursor: null, chatQuery: '', activeChat: null,
+const state = { chats: [], chatCursor: null, chatQuery: '', chatType: 'direct', chatGeneration: 0, activeChat: null,
   messages: [], messageCursor: null, messageBefore: null, messageGeneration: 0,
   searchCursor: null, searchTerm: '', searchGeneration: 0, view: 'empty' };
 const chatById = new Map();
@@ -40,27 +40,50 @@ function setHeading(title, description) {
   $('conversation-name').textContent = title;
   $('conversation-description').textContent = description;
 }
+function setChatType(type) {
+  if (type !== 'direct' && type !== 'groups') return;
+  state.chatType = type;
+  for (const choice of ['direct', 'groups']) {
+    const selected = choice === type;
+    $('tab-' + choice).classList.toggle('active', selected);
+    $('tab-' + choice).setAttribute('aria-selected', String(selected));
+  }
+  loadChats(true);
+}
 async function loadChats(reset = false) {
   const query = $('chat-filter').value.trim();
-  if (reset) { state.chatCursor = null; state.chats = []; state.chatQuery = query; }
+  // Browsing is strictly per tab; searching names can span both types.
+  const groupFilter = query ? null : state.chatType === 'groups';
+  if (reset) {
+    state.chatCursor = null;
+    state.chats = [];
+    state.chatQuery = query;
+    state.chatGeneration++;
+  }
+  const generation = state.chatGeneration;
   const expected = state.chatQuery;
+  const cursor = state.chatCursor;
   const list = $('chat-list');
   if (reset) list.replaceChildren(el('p','placeholder','Loading conversations…'));
   try {
-    const page = await get('api/chats', { query: expected, limit: 80, cursor: state.chatCursor });
-    if (expected !== state.chatQuery) return;
-    state.chats.push(...page.items);
+    const page = await get('api/chats', {
+      query: expected, isGroup: groupFilter, limit: 80, cursor
+    });
+    if (generation !== state.chatGeneration || expected !== state.chatQuery) return;
+    const known = new Set(state.chats.map(c => c.id));
+    state.chats.push(...page.items.filter(c => !known.has(c.id)));
     for (const c of page.items) chatById.set(c.id, c);
     state.chatCursor = page.nextCursor;
     renderChats();
   } catch (err) {
-    list.replaceChildren(el('p','placeholder',err.message));
+    if (generation === state.chatGeneration)
+      list.replaceChildren(el('p','placeholder',err.message));
   }
 }
 function renderChats() {
   const list = $('chat-list');
   list.replaceChildren();
-  if (!state.chats.length) list.append(el('p','placeholder','No conversations found.'));
+  if (!state.chats.length) list.append(el('p','placeholder', 'No ' + (state.chatQuery ? 'matching' : state.chatType === 'groups' ? 'group' : 'direct') + ' conversations found.'));
   for (const chat of state.chats) {
     const btn = el('button', 'chat-row' + (state.activeChat?.id === chat.id ? ' active' : ''));
     btn.type = 'button';
@@ -134,6 +157,13 @@ function renderMessages({ preserveTop = false } = {}) {
   });
 }
 async function openChat(chat, nearTs = null) {
+  // A global search result may open a chat from the other tab.
+  // Make the sidebar show the selected conversation's own category.
+  const type = chat.isGroup ? 'groups' : 'direct';
+  if (type !== state.chatType || $('chat-filter').value.trim()) {
+    $('chat-filter').value = '';
+    setChatType(type);
+  }
   state.activeChat = chat;
   state.messages = [];
   state.messageCursor = null;
@@ -205,6 +235,8 @@ async function searchMessages(reset=true) {
     if(gen===state.searchGeneration) $('search-summary').textContent=err.message;
   }
 }
+$('tab-direct').addEventListener('click', () => setChatType('direct'));
+$('tab-groups').addEventListener('click', () => setChatType('groups'));
 $('chat-filter').addEventListener('input',()=>{
   clearTimeout(window.__chatSearch);
   window.__chatSearch=setTimeout(()=>loadChats(true),260);
