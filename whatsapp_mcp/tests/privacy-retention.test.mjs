@@ -113,7 +113,7 @@ test("clear-chat boundary purges prior self-chat history, not subsequent message
   db.prepare("UPDATE messages SET ts=? WHERE id=?").run(1700000200,"newer");
   const result=retention.clearChatThrough("self",1700000100);
   assert.deepEqual(result,{purged:2,skipped:1});
-  assert.deepEqual(db.prepare("SELECT chat_id,id FROM messages ORDER BY id").all(),[
+  assert.deepEqual(db.prepare("SELECT chat_id,id FROM messages ORDER BY id").all().map(x=>({chat_id:x.chat_id,id:x.id})),[
     {chat_id:"self",id:"newer"},{chat_id:"someone else",id:"unrelated"}
   ]);
   assert.equal(retention.isSuppressed("self","boundary"),true);
