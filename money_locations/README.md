@@ -16,7 +16,7 @@ A local financial tracker for Home Assistant. Record dated account balances and 
 - Historical category-level contributions, without inventing individual account returns.
 - Optional Moneyhub / WPS LifeStage login with 2FA, daily or manual data pulls, account mapping and transaction search.
 - Review imported balances in a new draft without changing historical snapshots.
-- SQLite persistence in `/share/money_locations`, recovery copies, complete JSON export/restore and CSV balance export.
+- SQLite persistence in the add-on's backed-up `/data/money-locations` directory, recovery copies, complete JSON export/restore and CSV balance export.
 - Home Assistant Ingress and optional Google sign-in through Cloudflare Access for the standalone web interface (or an optional standalone password). Only the configured Google account can view financial data. LifeStage connects using your website login; no paid API account is required.
 
 ## Install
@@ -50,4 +50,4 @@ MONEY_LOCAL=1 MONEY_DATA=/tmp/money-locations python money_locations/app/server.
 
 Local development listens only on `127.0.0.1:8099`. In Home Assistant the Ingress service is on port 8099; optional direct access uses a separate password-protected port 8100 and is disabled by default. Tests use synthetic financial examples.
 
-Include the Home Assistant `share` folder in backups. See [DOCS.md](DOCS.md) for migration and recovery details.
+Include Money Locations in Home Assistant backups; its private `/data` now holds the authoritative database and LifeStage session. The old `/share/money_locations` copy remains untouched following migration. See [DOCS.md](DOCS.md) for recovery details.
