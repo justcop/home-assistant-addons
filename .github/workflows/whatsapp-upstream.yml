@@ -1,0 +1,143 @@
+name: WhatsApp upstream daily compatibility gate
+on:
+  schedule:
+    - cron: '43 5 * * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'whatsapp_mcp/Dockerfile'
+      - 'whatsapp_mcp/patch-*.mjs'
+      - 'whatsapp_mcp/privacy-retention.ts'
+      - 'whatsapp_mcp/tests/**'
+      - 'whatsapp_mcp/upstream-policy.py'
+      - '.github/workflows/whatsapp-upstream.yml'
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write
+concurrency:
+  group: whatsapp-upstream-${{ github.event_name == 'pull_request' && github.ref || 'daily' }}
+  cancel-in-progress: false
+jobs:
+  upstream:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Check risk classifier and repository regression suite
+        run: |
+          python -m unittest discover -s whatsapp_mcp/policy_tests -p 'test_*.py' -v
+          node --test whatsapp_mcp/tests/*.test.mjs
+      - name: Inspect upstream immutable revision
+        if: github.event_name != 'pull_request'
+        id: scan
+        run: |
+          python whatsapp_mcp/upstream-policy.py scan > /tmp/whatsapp-upstream.json
+          python - <<'PY'
+          import json,os
+          r=json.load(open('/tmp/whatsapp-upstream.json'))
+          with open(os.environ['GITHUB_OUTPUT'],'a') as o:
+              for key in ('changed','risk','latest','old'):
+                  value=r[key]
+                  print(f'{key}={str(value).lower() if isinstance(value,bool) else value}',file=o)
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as o:
+              print('## WhatsApp upstream status',file=o)
+              print('Pinned: '+r['old'],file=o)
+              print('Latest: '+r['latest'],file=o)
+              print('Risk: '+r['risk']+' - '+r['reason'],file=o)
+              print('Commits behind: '+str(r['commits']),file=o)
+          PY
+      - name: Prepare immutable candidate branch
+        if: github.event_name != 'pull_request' && steps.scan.outputs.changed == 'true'
+        id: candidate
+        run: |
+          sha='${{ steps.scan.outputs.latest }}'
+          short="$(printf %s "$sha" | cut -c1-12)"
+          branch="automation/whatsapp-upstream-$short"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
+            echo 'Candidate already tracked; not creating a duplicate' >> "$GITHUB_STEP_SUMMARY"
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git switch -c "$branch"
+          python whatsapp_mcp/upstream-policy.py pin "$sha"
+          git add whatsapp_mcp/Dockerfile
+          git commit -m "chore(whatsapp): evaluate upstream $short"
+          echo 'exists=false' >> "$GITHUB_OUTPUT"
+      - name: Test real upstream candidate against privacy patches
+        if: github.event_name != 'pull_request' && steps.scan.outputs.changed == 'true' && steps.candidate.outputs.exists == 'false'
+        id: compatibility
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker build --pull -t whatsapp-upstream-ci:check whatsapp_mcp
+          node --test whatsapp_mcp/tests/*.test.mjs
+          docker image inspect whatsapp-upstream-ci:check --format '{{.Id}}'
+      - name: Open candidate PR with risk classification
+        if: github.event_name != 'pull_request' && steps.scan.outputs.changed == 'true' && steps.candidate.outputs.exists == 'false'
+        id: pr
+        run: |
+          set -euo pipefail
+          branch='${{ steps.candidate.outputs.branch }}'
+          risk='${{ steps.scan.outputs.risk }}'
+          passed='${{ steps.compatibility.outcome }}'
+          git push -u origin "$branch"
+          if [ "$risk" = low ]; then
+            label=whatsapp-upstream-low-risk
+            gh label create "$label" --color "238636" --description "Docs-only upstream and passing tests" --force
+          else
+            label=whatsapp-upstream-review-required
+            gh label create "$label" --color "d73a4a" --description "Review upstream protocol, data or privacy changes" --force
+          fi
+          python - <<'PY'
+          import json
+          r=json.load(open('/tmp/whatsapp-upstream.json'))
+          with open('/tmp/whatsapp-pr-body.md','w') as out:
+              out.write('## Automated upstream candidate - not deployed\n\n')
+              out.write('Compare: '+r.get('compare_url','')+'\n\n')
+              out.write('Risk: '+r['risk']+' - '+r['reason']+'\n\n')
+              out.write('Previous SHA: '+r['old']+'\n\n')
+              out.write('Candidate SHA: '+r['latest']+'\n\n')
+              out.write('Changed upstream paths:\n')
+              for name in r['changed_files'][:100]:
+                  out.write('- '+name.replace('\n',' ')+'\n')
+              out.write('\nNo production or live SQLite database changes are made by this candidate.\n')
+          PY
+          printf '\nDocker build and tests: %s\n' "$passed" >> /tmp/whatsapp-pr-body.md
+          url="$(gh pr create --base main --head "$branch" --title "chore(whatsapp): review upstream ${{ steps.scan.outputs.latest }}" --body-file /tmp/whatsapp-pr-body.md --label "$label")"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Candidate: $url (risk $risk, tests $passed)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Automatically approve documentation-only updates after successful tests
+        if: github.event_name != 'pull_request' && steps.scan.outputs.risk == 'low' && steps.compatibility.outcome == 'success' && steps.pr.outputs.url != ''
+        run: |
+          gh pr merge '${{ steps.pr.outputs.url }}' --squash --delete-branch
+          # GITHUB_TOKEN merges do not trigger push workflows. Dispatch release.
+          gh workflow run addon-delivery.yml --ref main
+      - name: Flag risky or incompatible upstream changes
+        if: github.event_name != 'pull_request' && steps.scan.outputs.changed == 'true' && steps.candidate.outputs.exists == 'false' && (steps.scan.outputs.risk != 'low' || steps.compatibility.outcome != 'success')
+        run: |
+          gh label create whatsapp-upstream-action-needed --color "b60205" --description "Human action or failed compatibility CI" --force
+          title="WhatsApp upstream candidate requires review: ${{ steps.scan.outputs.latest }}"
+          if ! gh issue list --state open --label whatsapp-upstream-action-needed --json title --jq '.[].title' | grep -Fxq "$title"; then
+            gh issue create --title "$title" --label whatsapp-upstream-action-needed --body "Candidate: ${{ steps.pr.outputs.url }}. Risk: ${{ steps.scan.outputs.risk }}. Full Docker build: ${{ steps.compatibility.outcome }}. Review privacy, deletion and database invariants before merging. No production deployment has occurred."
+          fi
+      - name: Validate manually edited candidate PR
+        if: github.event_name == 'pull_request'
+        run: |
+          docker build --pull -t whatsapp-pr-ci:test whatsapp_mcp
+          node --test whatsapp_mcp/tests/*.test.mjs
