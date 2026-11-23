@@ -93,7 +93,7 @@ function messageBody(m) {
   if (m.deleted) return 'Message deleted';
   const text = m.text || m.transcript || '';
   const attachment = mediaLabel(m);
-  if (attachment) return text ? text + '\\n[' + attachment + ']' : '[' + attachment + ']';
+  if (attachment) return text ? text + '\n[' + attachment + ']' : '[' + attachment + ']';
   if (text) return text;
   if (m.kind && m.kind !== 'text') return '[' + m.kind + ']';
   return '(No text)';
@@ -181,7 +181,7 @@ function searchHitNode(hit) {
   const preview = hit.snippet || hit.text || hit.transcript || '';
   const attachment = mediaLabel(hit);
   btn.append(el('div','hit-body',hit.deleted ? 'Message deleted' :
-    attachment ? (preview ? preview + '\\n[' + attachment + ']' : '[' + attachment + ']') :
+    attachment ? (preview ? preview + '\n[' + attachment + ']' : '[' + attachment + ']') :
     (preview || messageBody(hit))));
   btn.addEventListener('click',()=>openChat(chat,hit.ts));
   return btn;
