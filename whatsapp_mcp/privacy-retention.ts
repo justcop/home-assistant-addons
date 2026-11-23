@@ -85,8 +85,8 @@ export function makePrivacyRetention(db: Db) {
     const sha = media?.media_sha;
     if (sha && HASH.test(sha) &&
         (sharedMedia.get(sha) as Count).n === 0) {
-      const mediaDir = process.env.WHATSAPP_MEDIA_DIR ||
-        join(process.env.WHATSAPP_DATA_DIR || "/data/whatsapp", "media");
+      const mediaDir = process.env['WHATSAPP_MEDIA_DIR'] ||
+        join(process.env['WHATSAPP_DATA_DIR'] || "/data/whatsapp", "media");
       try {
         unlinkSync(join(mediaDir, sha));
       } catch (err) {
