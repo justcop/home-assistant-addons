@@ -144,7 +144,7 @@
       "server.cjs"
     ],
     "health_port": 3000,
-    "health_path": "/",
+    "health_path": "/health",
     "protected": [
       "server.cjs"
     ],

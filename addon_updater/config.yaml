@@ -15,6 +15,7 @@ panel_title: My Add-ons
 panel_icon: mdi:update
 panel_admin: true
 hassio_api: true
+homeassistant_api: true
 hassio_role: admin
 backup: cold
 map:
