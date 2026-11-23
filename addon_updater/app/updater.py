@@ -1,5 +1,5 @@
 """Repository-scoped coordinator. It never edits installed options or data."""
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import hashlib
 import io
 import json
@@ -20,6 +20,9 @@ from notifier import reconcile
 
 REPO = "justcop/home-assistant-addons"
 PREFIX = "64b28acc_"
+# The WhatsApp archive has privacy-critical upstream patches. A successful
+# image build or a commit on main is not permission to deploy it live.
+MANUAL_DEPLOY_APPS = frozenset({"whatsapp_mcp"})
 ROOT = Path(os.environ.get("ADDON_CODE_ROOT", "/media/storage/addon-code"))
 SESSION = requests.Session()
 
@@ -100,6 +103,7 @@ class Updater:
         self.lock = threading.Lock()
         self.busy = False
         self.cache = None
+        self.upstream_last_check = None
 
     def save(self):
         atomic(self.state_path, self.state)
@@ -112,6 +116,63 @@ class Updater:
         result = SESSION.get(f"http://{address}:18799/status", timeout=4)
         result.raise_for_status()
         return result.json(), info
+
+    def monitor_whatsapp_upstream(self, source_files=None):
+        """Check the upstream revision and gate's health without touching HA data.
+
+        Errors are surfaced via HA persistent notifications; never deploy an
+        upstream commit from this monitor. Cache for an hour to avoid GitHub
+        unauthenticated API rate limits.
+        """
+        if (self.upstream_last_check is not None and
+                time.monotonic() - self.upstream_last_check < 3600):
+            return
+        self.upstream_last_check = time.monotonic()
+        record = self.state.setdefault("upstream_monitor", {})
+        record["checked"] = now()
+        try:
+            url = (f"https://api.github.com/repos/{REPO}/actions/workflows/"
+                   "whatsapp-upstream.yml/runs?per_page=5")
+            response = SESSION.get(url, timeout=20, headers={
+                "Accept": "application/vnd.github+json",
+                "User-Agent": "home-assistant-whatsapp-upstream-monitor"})
+            response.raise_for_status()
+            runs = response.json().get("workflow_runs", [])
+            if not runs:
+                raise ValueError("No WhatsApp upstream workflow runs have been recorded")
+            latest = runs[0]
+            created = datetime.fromisoformat(latest["created_at"].replace("Z", "+00:00"))
+            age = datetime.now(timezone.utc) - created
+            record.update(last_run=latest.get("html_url"),
+                          last_run_at=latest.get("created_at"),
+                          last_conclusion=latest.get("conclusion"))
+            if age > timedelta(hours=48):
+                record["error"] = "Daily upstream monitoring has not run for over 48 hours"
+            elif (latest.get("status") == "completed"
+                  and latest.get("conclusion") != "success"):
+                record["error"] = ("WhatsApp upstream monitoring failed: " +
+                                   str(latest.get("conclusion", "unknown")))
+            else:
+                record["error"] = None
+            if source_files and "whatsapp_mcp/Dockerfile" in source_files:
+                match = re.search(rb"(?m)^ARG UPSTREAM_COMMIT=([0-9a-f]{40})$",
+                                  source_files["whatsapp_mcp/Dockerfile"])
+                if not match:
+                    raise ValueError("WhatsApp upstream commit pin is invalid")
+                pinned = match.group(1).decode("ascii")
+                upstream = SESSION.get(
+                    "https://api.github.com/repos/spare-cycles/whatsapp-mcp/commits/main",
+                    timeout=20, headers={"Accept": "application/vnd.github+json",
+                                         "User-Agent": "home-assistant-whatsapp-upstream-monitor"})
+                upstream.raise_for_status()
+                latest_sha = str(upstream.json().get("sha", ""))
+                if not re.fullmatch(r"[0-9a-f]{40}", latest_sha):
+                    raise ValueError("Cannot identify upstream revision")
+                record.update(pinned=pinned, latest=latest_sha,
+                              upgrade_available=(pinned != latest_sha))
+        except Exception as error:
+            record["error"] = ("Cannot verify WhatsApp upstream checks: " +
+                               str(error)[:120])
 
     def check(self):
         response = SESSION.get(f"https://api.github.com/repos/{REPO}/commits/main", timeout=20)
@@ -142,6 +203,7 @@ class Updater:
                        version=app["version"], latest=sha, checked=now(), state=app.get("state"),
                        version_latest=config["version"])
             seen.add(ident)
+            row["deployment_policy"] = "manual" if ident in MANUAL_DEPLOY_APPS else "automatic"
             if ident == "addon_updater":
                 row.update(mode="standard", reason="Updater uses standard image updates", error=None)
                 continue
@@ -167,6 +229,7 @@ class Updater:
             except Exception as exc:
                 row.update(mode="unavailable", reason=str(exc))
         self.state["apps"] = {k:v for k,v in self.state["apps"].items() if k in seen}
+        self.monitor_whatsapp_upstream(files)
         self.state.update(checked=now(), latest=sha, error=None)
         self.save()
         return files
@@ -321,7 +384,8 @@ class Updater:
                     self.deploy(ident, sha, files if sha is None else None)
                 elif action == "automatic":
                     for name, row in list(self.state["apps"].items()):
-                        if row["mode"] == "live" and not row.get("pinned") and name not in self.state["transactions"]:
+                        if (name not in MANUAL_DEPLOY_APPS and row["mode"] == "live"
+                                and not row.get("pinned") and name not in self.state["transactions"]):
                             try:
                                 self.deploy(name, files=files)
                             except Exception as exc:

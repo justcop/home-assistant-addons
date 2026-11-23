@@ -2,6 +2,53 @@
 
 Private WhatsApp search using [spare-cycles/whatsapp-mcp](https://github.com/spare-cycles/whatsapp-mcp), pinned to commit `5f19883b0d8e2f672d486aa6307f3e945b49532e`. The upstream API and MCP programs run in one app container. **This uses the unofficial Baileys WhatsApp client and may put the WhatsApp account at risk of restriction.** It is not an officially supported integration.
 
+## Upstream maintenance and safe deployment
+
+The upstream source is pinned to a **full Git commit SHA**, never a floating
+branch. The scheduled GitHub Action
+[Check WhatsApp upstream (guarded)](../.github/workflows/whatsapp-upstream.yml)
+runs daily at **07:17 UTC** and can also be triggered manually.
+
+- It compares the pinned SHA against `spare-cycles/whatsapp-mcp/main`.
+  Documentation/tests-only changes are classified low-risk; all application
+  code, Baileys, storage/schema, authentication, build files, dependencies
+  and unknown/incomplete comparisons are **high-risk**.
+- Each changed upstream candidate gets its own pull request and an explicit
+  WhatsApp test workflow run. A docs/tests-only candidate can be merged by
+  the GitHub Action **only after the full image build and tests pass**.
+  High-risk candidates stay open for human review; merging is not automatic.
+- The candidate tests use synthetic data, not live WhatsApp messages.
+  They test deletion/replay/privacy semantics, read-only HTTP behaviour,
+  SQLite integrity, cloud recovery, patch anchors and the actual compiled
+  upstream API/Baileys/MCP modules. If any patch stops matching upstream,
+  the Docker build fails.
+- GitHub's image publisher must verify that the image exists and can be
+  **anonymously pulled** before advertising a new version. WhatsApp
+  additionally performs a full amd64 pull and architecture check, protecting
+  against the previous GHCR missing-manifest incident.
+- Home Assistant's WhatsApp **automatic image updates are disabled**.
+  The shared My Add-on Updater also refuses unattended **live-code**
+  deployments for `whatsapp_mcp`, even if its generic compatibility
+  classifier considers a change safe. All production installation is
+  deliberate after CI and publication checks.
+- **My Add-ons** monitors the upstream GitHub workflow. A failed run,
+  missing run, or a workflow silent for over 48 hours causes a deduplicated
+  native Home Assistant persistent notification. Deployment/startup
+  failures are independently reported through the same notifier.
+- For rollback, use GitHub Actions →
+  **Propose WhatsApp image-only rollback** with an earlier verified repo
+  commit. It opens a **manual-review PR** restoring executable image source,
+  leaving HA options, credentials, backups and the live STORAGE database
+  untouched. After tests and approval, publish a **new immutable image** and
+  install it manually. Never restore an older SQLite database automatically:
+  that can resurrect deleted messages.
+
+Passing CI cannot prove future WhatsApp protocol compatibility indefinitely.
+Monitor connection, backup, archive and deletion behaviour after installing
+any reviewed update. If a new image appears incompatible with the existing
+SQLite schema, *do not roll it back automatically* without checking schema
+compatibility first.
+
 ## Security boundaries
 
 - `WHATSAPP_MCP_READONLY=true` is applied to the **WhatsApp API**, not just the MCP tool listing. Upstream removes the write tools from MCP capabilities.

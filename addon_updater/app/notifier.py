@@ -26,6 +26,12 @@ def reconcile(state, send=deliver):
     if state.get("error"):
         desired["repository"] = ("Repository update check failed. Automatic code updates may be delayed. "
                                  "Check repository/network access in My Add-ons. " + link, False)
+    upstream = state.get("upstream_monitor", {})
+    if upstream.get("error"):
+        desired["whatsapp_upstream"] = (
+            "WhatsApp upstream monitoring needs attention. " +
+            str(upstream["error"])[:180] +
+            ". New WhatsApp upstream revisions will not be automatically installed. " + link, False)
     for ident, row in state.get("apps", {}).items():
         if ident in state.get("transactions", {}):
             desired[ident] = (row.get("name", ident) + ": a code update failed or was interrupted. "
