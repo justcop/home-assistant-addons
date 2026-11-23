@@ -7,6 +7,7 @@ import path from 'node:path';
 import { createArchiveServer } from './archive-server.mjs';
 import { ArchiveData } from './archive-data.mjs';
 import { pruneMetaAI } from './prune-meta-ai.mjs';
+import { pruneQuarantinedAi } from './prune-quarantined-ai.mjs';
 import { separateSelfLid } from './self-lid-separation.mjs';
 import { pruneProtocolNoise } from './protocol-retention.mjs';
 import { configureWhatsAppStorage } from './storage.mjs';
@@ -160,6 +161,8 @@ async function main() {
   const selfLidSeparation=await separateSelfLid(storage.dataDir, opts.phone_number);
   console.log('Self-LID provenance separation: '+JSON.stringify(selfLidSeparation));
   // Prune only this verified Meta AI JID before the WhatsApp writer starts.
+  const removedLegacyAi = pruneQuarantinedAi(storage.dataDir, opts.phone_number);
+  console.log('Legacy quarantined AI cleanup: '+JSON.stringify(removedLegacyAi));
   const pruned = pruneMetaAI(storage.dataDir);
   if (pruned) console.log('Removed ' + pruned + ' Meta AI messages from the local archive.');
   const protocol = await pruneProtocolNoise(storage.dataDir);
