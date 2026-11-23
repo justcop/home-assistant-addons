@@ -10,7 +10,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from reactive import ReactiveController, ensure_ssh_key
 from ha_countdown import CountdownBinding, render as render_countdown, selected_artwork_mode
-from artwork_modes import get_artwork_rgb, list_artwork_modes
+from artwork_modes import get_artwork_rgb, list_artwork_modes, is_artwork_mode
+import artwork_store
 
 WIDTH, HEIGHT, FRAME_BYTES = 52, 32, 4992
 MAX_FRAMES = 2400
@@ -83,28 +84,23 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(200, {"public_key": public_key,
                              "username": opts.get("ssh_user", "root"),
                              "host": HOST})
-        elif self.path == "/api/artwork/storage-probe":
-            # Read-only storage discovery. Reject an ordinary directory as a
-            # storage drive; never report success against the internal disk.
-            entries=[]
-            for parent in ("/media", "/mnt", "/share"):
-                p=Path(parent)
-                if not p.is_dir():
-                    continue
-                try:
-                    subdirs=[d for d in p.iterdir() if d.is_dir() and not d.is_symlink()]
-                except OSError:
-                    subdirs=[]
-                for d in subdirs[:48]:
-                    try:
-                        st=d.stat()
-                        entries.append({"path":str(d),"mount":d.is_mount(),
-                                        "dev":st.st_dev,"parent_dev":p.stat().st_dev})
-                    except OSError:
-                        continue
-            self.reply(200, {"entries":entries,
-                             "media_exists":Path("/media").is_dir(),
-                             "mnt_storage_exists":Path("/mnt/storage").is_dir()})
+        elif self.path == "/api/artwork/storage":
+            self.reply(200, artwork_store.gallery()["storage"])
+        elif self.path == "/api/artwork/gallery":
+            self.reply(200, artwork_store.gallery())
+        elif self.path.startswith("/api/artwork/image/"):
+            try:
+                mode=self.path.split("?")[0].rsplit("/",1)[-1]
+                png=artwork_store.get_png(mode)
+                self.send_response(200)
+                self.send_header("Content-Type","image/png")
+                self.send_header("Cache-Control","no-store")
+                self.send_header("X-Content-Type-Options","nosniff")
+                self.send_header("Content-Length",str(len(png)))
+                self.end_headers()
+                self.wfile.write(png)
+            except (ValueError,OSError) as exc:
+                self.reply(404,{"error":str(exc)})
         elif self.path == "/api/artwork/modes":
             with lock:
                 cfg=countdown.config
@@ -143,6 +139,45 @@ class Handler(BaseHTTPRequestHandler):
                     reactive.stop()
                     clear()
                 return self.reply(200, {"ok": True, "active": False})
+            if self.path == "/api/artwork/save":
+                item=artwork_store.save(body)
+                return self.reply(200,{"ok":True,"item":item})
+            if self.path == "/api/artwork/delete":
+                artwork_store.delete(body.get("id"))
+                return self.reply(200,{"ok":True})
+            if self.path == "/api/artwork/resolve":
+                kind=body.get("kind")
+                value=body.get("value")
+                mode=artwork_store.resolve(kind,value)
+                if bool(body.get("show",False)) and mode:
+                    timeout=int(body.get("timeout",DEFAULT_TIMEOUT))
+                    if not 1<=timeout<=MAX_TIMEOUT:
+                        raise ValueError("timeout out of range")
+                    frame=get_artwork_rgb(mode)
+                    with lock:
+                        reactive.stop()
+                        state.update(frames=(frame,),fps=12.,loop=True,
+                                     start=time.monotonic(),
+                                     expires=time.monotonic()+timeout,owner="manual")
+                return self.reply(200,{"ok":True,"mode":mode,"matched":mode is not None})
+            if self.path == "/api/artwork/preview-countdown":
+                mode=body.get("mode")
+                if not is_artwork_mode(mode):
+                    raise ValueError("unknown artwork mode")
+                remaining=int(body.get("remaining",2100))
+                timeout=int(body.get("timeout",10))
+                if not 0<=remaining<=359999 or not 1<=timeout<=30:
+                    raise ValueError("invalid countdown preview")
+                with lock:
+                    if countdown.config is None:
+                        return self.reply(409,{"error":"countdown is not configured"})
+                    preview_cfg=dict(countdown.config,artwork_mode=mode)
+                    frame=render_countdown(preview_cfg,remaining)
+                    reactive.stop()
+                    state.update(frames=(frame,),fps=12.,loop=True,
+                                 start=time.monotonic(),
+                                 expires=time.monotonic()+timeout,owner="manual")
+                return self.reply(200,{"ok":True,"mode":mode,"timeout":timeout})
             if self.path == "/api/artwork/show":
                 mode=body.get("mode")
                 timeout=int(body.get("timeout", DEFAULT_TIMEOUT))
@@ -234,6 +269,8 @@ class Handler(BaseHTTPRequestHandler):
                              start=time.monotonic(), expires=time.monotonic()+timeout)
             return self.reply(200, {"ok": True, "frames": len(frames), "fps": fps, "loop": looping,
                                     "timeout": timeout})
+        except OSError as exc:
+            return self.reply(503, {"error": str(exc)[:350]})
         except (KeyError, ValueError, TypeError, binascii.Error, json.JSONDecodeError, zlib.error) as exc:
             return self.reply(400, {"error": str(exc)})
 
