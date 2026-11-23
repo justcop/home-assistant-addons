@@ -57,6 +57,12 @@ export class ArchiveData {
       FROM chats c
     `);
     this.chatNameStmt = this.db.prepare('SELECT name, is_group AS isGroup FROM chats WHERE id = ?');
+    // Exact count of user-visible messages in this *local archive*, distinct
+    // from the backfill worker's estimated number of delivered messages.
+    this.chatMessageCountStmt = this.db.prepare(`
+      SELECT COUNT(*) AS total FROM messages m
+      WHERE m.chat_id = ? AND ${VISIBLE_MESSAGE}
+    `);
     this.messagesStmt = this.db.prepare(`
       SELECT m.id, m.chat_id AS chat, m.sender_id AS senderId, m.ts,
              m.from_me AS fromMe, m.kind, m.text, m.transcript,
