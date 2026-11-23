@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from PIL import Image
 
-from app.server import create_app
+from app.server import create_app, migrate_collection_from_share
 from app.security import totp
 from conftest import ALBUM, ARTIST, RELEASE, post
 
@@ -400,3 +400,40 @@ def test_playback_authorization_does_not_wait_on_account_management_lock(users,m
             assert sent.wait(1), 'Background authorization was blocked by account administration'
     finally:
         ctx.handoff.cancel_all()
+
+
+def test_migrate_collection_keeps_owner_users_and_uploaded_artwork(tmp_path):
+    from app.storage import Store
+    source=tmp_path/'share'/'audioshelf'
+    target=tmp_path/'data'/'audioshelf-collection'
+    owner=Store(source)
+    owner.set_setting('theme', 'saved-owner')
+    user=Store(source/'users'/'account-one')
+    user.set_setting('theme', 'saved-user')
+    cover=source/'custom-artwork'/'manual-cover.png'
+    cover.parent.mkdir(exist_ok=True)
+    cover.write_bytes(b'original-image-data')
+    migrate_collection_from_share(source,target)
+    assert Store(target).setting('theme')=='saved-owner'
+    assert Store(target/'users'/'account-one').setting('theme')=='saved-user'
+    assert (target/'custom-artwork'/'manual-cover.png').read_bytes()==b'original-image-data'
+    assert (source/'audioshelf.db').exists()
+    Store(target).set_setting('theme','new-private')
+    migrate_collection_from_share(source,target)
+    assert Store(target).setting('theme')=='new-private'
+
+
+def test_migrate_collection_refuses_invalid_sqlite_and_incomplete_target(tmp_path):
+    import sqlite3
+    import pytest
+    source=tmp_path/'share'/'audioshelf'
+    target=tmp_path/'data'/'audioshelf-collection'
+    source.mkdir(parents=True)
+    (source/'audioshelf.db').write_text('corrupt source')
+    with pytest.raises(sqlite3.DatabaseError):
+        migrate_collection_from_share(source,target)
+    assert not target.exists()
+    (source/'audioshelf.db').unlink()
+    target.mkdir(parents=True)
+    with pytest.raises(RuntimeError,match='without its database'):
+        migrate_collection_from_share(source,target)
