@@ -62,42 +62,42 @@ function patchIngest(before, after) {
 }
 const importAnchor = 'import type { Logger } from "pino";';
 patchIngest(importAnchor,
-  importAnchor + '\\nimport { makePrivacyRetention } from "./privacy-retention.js";');
+  importAnchor + '\nimport { makePrivacyRetention } from "./privacy-retention.js";');
 const dependencyAnchor = '  const { db, chats, contacts, messages, reactions, logger, selfId } = deps;';
 patchIngest(dependencyAnchor, dependencyAnchor +
-  '\\n  const privacyRetention = makePrivacyRetention(db);' +
-  '\\n  const removedOwnRevokes = privacyRetention.purgeExistingOwnRevokes();' +
-  '\\n  if (removedOwnRevokes) logger.info({ count: removedOwnRevokes }, "privacy: removed own revoked messages");');
+  '\n  const privacyRetention = makePrivacyRetention(db);' +
+  '\n  const removedOwnRevokes = privacyRetention.purgeExistingOwnRevokes();' +
+  '\n  if (removedOwnRevokes) logger.info({ count: removedOwnRevokes }, "privacy: removed own revoked messages");');
 patchIngest(
-  '      const chatId = canonical(remoteJid);\\n      const isGroup = isGroupJid(chatId);\\n      chats.ensure(chatId, isGroup);',
-  '      const chatId = canonical(remoteJid);\\n' +
-  '      // Replayed sync history must never restore content explicitly erased locally.\\n' +
-  '      if (privacyRetention.isSuppressed(chatId, messageId)) return;\\n' +
-  '      const isGroup = isGroupJid(chatId);\\n      chats.ensure(chatId, isGroup);'
+  '      const chatId = canonical(remoteJid);\n      const isGroup = isGroupJid(chatId);\n      chats.ensure(chatId, isGroup);',
+  '      const chatId = canonical(remoteJid);\n' +
+  '      // Replayed sync history must never restore content explicitly erased locally.\n' +
+  '      if (privacyRetention.isSuppressed(chatId, messageId)) return;\n' +
+  '      const isGroup = isGroupJid(chatId);\n      chats.ensure(chatId, isGroup);'
 );
 patchIngest(
-  '    if (update.messageStubType === WAMessageStubType.REVOKE) {\\n' +
-  '      messages.markDeleted(chatId, id, nowSec());\\n      return;\\n    }',
-  '    if (update.messageStubType === WAMessageStubType.REVOKE) {\\n' +
-  '      const stored = messages.get(chatId, id);\\n' +
-  '      if (stored?.fromMe === true || (stored === undefined && key.fromMe === true)) {\\n' +
-  '        privacyRetention.purge(chatId, id, "own_revoke");\\n' +
-  '      } else {\\n' +
-  '        // Other people\'s delete-for-everyone actions retain a tombstone.\\n' +
-  '        messages.markDeleted(chatId, id, nowSec());\\n' +
-  '      }\\n      return;\\n    }'
+  '    if (update.messageStubType === WAMessageStubType.REVOKE) {\n' +
+  '      messages.markDeleted(chatId, id, nowSec());\n      return;\n    }',
+  '    if (update.messageStubType === WAMessageStubType.REVOKE) {\n' +
+  '      const stored = messages.get(chatId, id);\n' +
+  '      if (stored?.fromMe === true || (stored === undefined && key.fromMe === true)) {\n' +
+  '        privacyRetention.purge(chatId, id, "own_revoke");\n' +
+  '      } else {\n' +
+  '        // Other people\'s delete-for-everyone actions retain a tombstone.\n' +
+  '        messages.markDeleted(chatId, id, nowSec());\n' +
+  '      }\n      return;\n    }'
 );
 patchIngest(
-  '    const ts = nowSec();\\n' +
-  '    for (const key of payload.keys) {\\n' +
-  '      const target = targetOf(key);\\n' +
-  '      if (target !== undefined) messages.markDeleted(target.chatId, target.id, ts);\\n' +
+  '    const ts = nowSec();\n' +
+  '    for (const key of payload.keys) {\n' +
+  '      const target = targetOf(key);\n' +
+  '      if (target !== undefined) messages.markDeleted(target.chatId, target.id, ts);\n' +
   '    }',
-  '    // Baileys emits message-key deletions from the local app-state\\n' +
-  '    // deleteMessageForMeAction. Unlike revokes, these erase data.\\n' +
-  '    for (const key of payload.keys) {\\n' +
-  '      const target = targetOf(key);\\n' +
-  '      if (target !== undefined) privacyRetention.purge(target.chatId, target.id, "delete_for_me");\\n' +
+  '    // Baileys emits message-key deletions from the local app-state\n' +
+  '    // deleteMessageForMeAction. Unlike revokes, these erase data.\n' +
+  '    for (const key of payload.keys) {\n' +
+  '      const target = targetOf(key);\n' +
+  '      if (target !== undefined) privacyRetention.purge(target.chatId, target.id, "delete_for_me");\n' +
   '    }'
 );
 fs.writeFileSync(ingestFile, ingest);
