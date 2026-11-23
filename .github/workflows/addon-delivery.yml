@@ -174,6 +174,13 @@ jobs:
               echo "::error::Refusing to advertise missing or private image $image"
               exit 1
             fi
+            # Specifically exercise the same anonymous amd64 pull path that
+            # previously returned '404 manifest unknown' in Supervisor.
+            # A registry metadata check alone is not a complete install test.
+            if [[ "$image" == ghcr.io/justcop/whatsapp-mcp-amd64:* ]]; then
+              docker pull --platform linux/amd64 "$image"
+              test "$(docker image inspect --format '{{.Architecture}}' "$image")" = amd64
+            fi
           done < /tmp/images-to-verify
       - name: Advertise versions only after every architecture succeeds
         run: |
