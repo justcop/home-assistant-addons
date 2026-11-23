@@ -79,8 +79,15 @@ test('Direct and Groups tabs filter browsing, but searching remains global', asy
     clearTimeout,
     setInterval: () => 0,
     clearInterval: () => {},
-    fetch: async url => {
+    fetch: async (url, opts = {}) => {
       requests.push(String(url));
+      if (url === 'api/backup/status') return { ok: true, json: async () => ({
+        clientConfigured: true, clientId: '123-example.apps.googleusercontent.com',
+        clientSecretStored: true, connected: false, recoveryConfirmed: false,
+        enabled: false, time: '05:30', lastAuthError: null
+      }) };
+      if (url === 'api/backup/authorize' && opts.method === 'POST')
+        return { ok: false, status: 400, json: async () => ({error: 'Google rejected this OAuth client (invalid_client)'}) };
       return { ok: true, json: async () => url.startsWith('api/storage')
         ? { location: 'STORAGE drive' }
         : { items: [], nextCursor: null } };
@@ -107,6 +114,19 @@ test('Direct and Groups tabs filter browsing, but searching remains global', asy
   getEl('tab-direct').click();
   await flush();
   assert.match(chats().at(-1), /isGroup=false/);
+  // Regression: saved client details were previously invisible, while Google
+  // errors were displayed only at the bottom of a long scrolling panel.
+  getEl('show-backup').click();
+  await flush();
+  assert.equal(getEl('backup-client-id').value, '123-example.apps.googleusercontent.com');
+  assert.equal(getEl('backup-client-secret').value, '');
+  assert.equal(getEl('backup-client-secret').required, false);
+  assert.match(getEl('backup-client-status').textContent, /Google client ID and secret saved/);
+  getEl('backup-authorize').click();
+  await flush();
+  await flush();
+  assert.match(getEl('backup-connect-feedback').textContent, /invalid_client/);
+  assert.match(getEl('backup-feedback').textContent, /invalid_client/);
 });
 
 test('backup exclusions cover internal message data but do not exclude app credentials', () => {
