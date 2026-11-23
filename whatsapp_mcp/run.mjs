@@ -10,6 +10,7 @@ import { pruneMetaAI } from './prune-meta-ai.mjs';
 import { restoreSelfLid } from './restore-self-lid.mjs';
 import { pruneProtocolNoise } from './protocol-retention.mjs';
 import { configureWhatsAppStorage } from './storage.mjs';
+import { WhatsAppCloudBackup } from './cloud-backup.mjs';
 
 const ROOT = '/data';
 const API_PORT = 8097;
@@ -61,7 +62,7 @@ export function verifyAccessJwt(token, settings, jwks, now = Date.now()) {
 
 function loadOptions() {
   const raw = JSON.parse(fs.readFileSync(path.join(ROOT, 'options.json'), 'utf8'));
-  const options = Object.fromEntries(['phone_number', 'access_team_domain', 'access_audience', 'allowed_email', 'storage_path']
+  const options = Object.fromEntries(['phone_number', 'access_team_domain', 'access_audience', 'allowed_email', 'storage_path', 'backup_google_client_id', 'backup_google_client_secret', 'backup_time_uk']
     .map(key => [key, String(raw[key] ?? '').trim()]));
   options.access_team_domain = options.access_team_domain.replace(/^https?:\/\//i, '').replace(/\/$/, '').toLowerCase();
   options.allowed_email = options.allowed_email.toLowerCase();
@@ -109,13 +110,14 @@ function startChild(label, executable, env) {
   return child;
 }
 
-let api, mcp, gateway, archive, archiveData;
+let api, mcp, gateway, archive, archiveData, cloudBackup;
 let stopping = false;
 function shutdown() {
   if (stopping) return;
   stopping = true;
   if (gateway) gateway.close();
   if (archive) archive.close();
+  if (cloudBackup) cloudBackup.close();
   if (archiveData) archiveData.close();
   if (mcp) mcp.kill('SIGTERM');
   if (api) api.kill('SIGTERM');
@@ -144,11 +146,14 @@ async function main() {
   const storage = configureWhatsAppStorage(opts.storage_path);
   const apiToken = loadToken('api-token');
   const mcpToken = loadToken('mcp-token');
+  const backupStateDir = path.join(ROOT, '.whatsapp-cloud-backup');
+  fs.mkdirSync(backupStateDir, { recursive: true, mode: 0o700 });
+  fs.chmodSync(backupStateDir, 0o700);
   // The app starts as root on Supervisor; the WhatsApp database and listeners
   // run as the unprivileged Node user after initial data directory setup.
   // The external archive must not have a recreated /data/whatsapp rollback
   // copy. Only chown it when the user explicitly selected internal storage.
-  for (const dir of [ROOT, ...(storage.external ? [] : [storage.dataDir]), path.join(ROOT, '.whatsapp-mcp-secrets')]) {
+  for (const dir of [ROOT, ...(storage.external ? [] : [storage.dataDir]), path.join(ROOT, '.whatsapp-mcp-secrets'), backupStateDir]) {
     fs.chownSync(dir, 1000, 1000);
   }
   if (process.getuid?.() === 0) { process.setgid(1000); process.setuid(1000); }
@@ -191,8 +196,15 @@ async function main() {
   // Only Supervisor's ingress proxy can connect to this separate listener.
   // The public Cloudflare /mcp gateway remains entirely separate.
   archiveData = new ArchiveData(storage.dataDir);
+  cloudBackup = new WhatsAppCloudBackup({
+    dataDir: storage.dataDir, stateDir: backupStateDir,
+    clientId: opts.backup_google_client_id,
+    clientSecret: opts.backup_google_client_secret,
+    time: opts.backup_time_uk || '05:30'
+  });
   archive = createArchiveServer({ apiToken, port: ARCHIVE_PORT,
-    storagePath: storage.dataDir, dataStore: archiveData });
+    storagePath: storage.dataDir, dataStore: archiveData, cloudBackup });
+  cloudBackup.start();
   archive.listen(ARCHIVE_PORT, '0.0.0.0', () => {
     console.log('Private WhatsApp Archive UI ready through Home Assistant Ingress (port ' + ARCHIVE_PORT + ').');
     console.log('WhatsApp data location: ' + (storage.external ? 'verified external shared-storage volume' : 'internal app storage') + '.');
