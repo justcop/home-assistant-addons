@@ -63,9 +63,53 @@ export function createArchiveServer({ apiToken, port = 8100, storagePath = '/dat
     try { url = new URL(req.url, 'http://archive.invalid'); }
     catch { return send(res, 400, 'Invalid request URL'); }
     const isBackup = url.pathname.startsWith('/api/backup/');
-    if (req.method !== 'GET' && req.method !== 'HEAD' && !(req.method === 'POST' && isBackup))
+    const isBackfillAction = url.pathname === '/api/archive/backfill/recheck';
+    if (req.method !== 'GET' && req.method !== 'HEAD' && !(req.method === 'POST' && (isBackup || isBackfillAction)))
       return send(res, 405, 'Read-only archive');
     try {
+      if (isBackfillAction) {
+        if (req.method !== 'POST') return send(res, 405, 'Method not allowed');
+        // Admin-only ingress with a custom JSON header; no public API or
+        // cross-origin form can invoke this. Only the backfill checkpoint is
+        // affected; WhatsApp messages, read receipts and auth are untouched.
+        if (req.headers['x-whatsapp-backfill-action'] !== '1' ||
+            !String(req.headers['content-type'] || '').startsWith('application/json'))
+          return send(res, 403, 'Invalid history recovery request');
+        let body = '';
+        for await (const chunk of req) {
+          body += chunk.toString('utf8');
+          if (body.length > 512) return send(res, 413, 'Request too large');
+        }
+        let params;
+        try { params = JSON.parse(body); }
+        catch { return send(res, 400, 'Invalid JSON'); }
+        if (!params || typeof params !== 'object' || Array.isArray(params) ||
+            typeof params.chatId !== 'string' || params.chatId.length > 300 ||
+            params.chatId.length === 0 || params.action !== 'recheck')
+          return send(res, 400, 'Invalid request');
+        const checkpointPath = path.join(storagePath, '.history-backfill-v2.json');
+        let state;
+        try { state = JSON.parse(fs.readFileSync(checkpointPath, 'utf8')); }
+        catch { return send(res, 503, 'History recovery unavailable'); }
+        if (state.schema !== 2 || !state.chats || !Object.hasOwn(state.chats, params.chatId))
+          return send(res, 404, 'Conversation not found');
+        const entry = state.chats[params.chatId];
+        if (entry.phase !== 'likely_complete' && !entry.manualRecheck)
+          return send(res, 409, 'Only probably complete conversations can be reopened');
+        const overrideFile = path.join(storagePath, '.history-backfill-overrides-v1.json');
+        let overrides = {};
+        try { overrides = JSON.parse(fs.readFileSync(overrideFile, 'utf8')); }
+        catch (err) { if (err.code !== 'ENOENT') return send(res, 503, 'Manual review state unavailable'); }
+        if (!overrides || typeof overrides !== 'object' || Array.isArray(overrides))
+          return send(res, 503, 'Invalid manual review state');
+        Object.defineProperty(overrides, params.chatId, {
+          value: true, enumerable: true, configurable: true, writable: true
+        });
+        const temp = overrideFile + '.' + process.pid + '.tmp';
+        fs.writeFileSync(temp, JSON.stringify(overrides) + '\n', { mode: 0o600 });
+        fs.renameSync(temp, overrideFile);
+        return send(res, 200, JSON.stringify({ accepted: true, state: 'recheck_requested' }), 'application/json');
+      }
       if (isBackup) {
         if (!cloudBackup) return send(res, 503, 'Cloud backup is unavailable');
         if (req.method === 'POST') {
@@ -141,24 +185,34 @@ export function createArchiveServer({ apiToken, port = 8100, storagePath = '/dat
         }
         if (state.schema !== 2 || !state.chats || typeof state.chats !== 'object')
           return send(res, 503, 'History progress invalid');
+        let overrides = {};
+        try { overrides = JSON.parse(fs.readFileSync(path.join(storagePath, '.history-backfill-overrides-v1.json'), 'utf8')); }
+        catch (err) { if (err.code !== 'ENOENT') return send(res, 503, 'Manual review state unavailable'); }
         const all = Object.values(state.chats);
         const counts = {};
         for (const entry of all) counts[entry.phase] = (counts[entry.phase] || 0) + 1;
-        const recent = all.filter(entry => entry.requests > 0)
+        const view = url.searchParams.get('view') === 'probably_complete'
+          ? 'probably_complete' : 'recent';
+        const recent = all.filter(entry => view === 'probably_complete'
+          ? entry.phase === 'likely_complete' && overrides[entry.id] !== true && entry.manualRecheck !== true
+          : entry.requests > 0)
           .sort((a,b) => String(b.lastAttempt || '').localeCompare(String(a.lastAttempt || '')))
-          .slice(0, 60);
+          .slice(0, view === 'probably_complete' ? 1000 : 60);
         const chats = recent.map(entry => {
           const metadata = dataStore?.chatNameStmt?.get(entry.id);
           const name = dataStore?.displayName?.(entry.id, metadata?.name, !!metadata?.isGroup);
-          return { name: String(name || (metadata?.isGroup ? 'Group' : 'Conversation')),
-            phase: entry.phase, completionBasis: entry.completionBasis || null, requests: entry.requests,
-            importedEstimate: entry.importedEstimate,
+          const manualRecheck = entry.manualRecheck === true || overrides[entry.id] === true;
+          const phase = manualRecheck && entry.phase === 'likely_complete' ? 'recheck_requested' : entry.phase;
+          const count = dataStore?.chatMessageCountStmt?.get(entry.id)?.total ?? null;
+          return { id: entry.id, name: String(name || (metadata?.isGroup ? 'Group' : 'Conversation')),
+            phase, manualRecheck, completionBasis: entry.completionBasis || null, requests: entry.requests,
+            archivedMessages: count, importedEstimate: entry.importedEstimate,
             oldestTimestamp: entry.earliest, lastAttempt: entry.lastAttempt || null };
         });
         return send(res, 200, JSON.stringify({
           state: state.active ? 'running' : 'paused',
           updatedAt: state.updatedAt, startedAt: state.startedAt,
-          conversations: all.length, phases: counts,
+          conversations: all.length, phases: counts, view,
           requests: state.requests, requestsToday: state.requestsToday,
           dailyLimit: 2000, importedEstimate: state.importedEstimate, recent: chats
         }), 'application/json');

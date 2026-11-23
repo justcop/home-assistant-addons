@@ -428,7 +428,7 @@ async function showBackfill() {
 async function updateBackfill() {
   if (state.view !== 'backfill') return;
   try {
-    const result = await get('api/archive/backfill');
+    const result = await get('api/archive/backfill', { view: $('backfill-filter').value });
     if (result.state === 'not_started') {
       $('backfill-summary').textContent = 'No history recovery has started yet.';
       $('backfill-chats').replaceChildren();
@@ -455,13 +455,39 @@ async function updateBackfill() {
         chat.phase === 'retry' ? 'Awaiting another attempt' :
         chat.phase === 'no_anchor' ? 'No usable starting message' :
         chat.phase === 'stalled' ? 'Stalled — needs attention' :
+        chat.phase === 'recheck_requested' ? 'Recheck requested' :
         chat.phase === 'requesting' ? 'Fetching older messages' : 'Queued';
       const status = el('span','backfill-status',phaseLabel);
-      const detail = el('p','',chat.requests + ' requests' +
-        ' · approx. ' + chat.importedEstimate + ' delivered messages' +
+      const total = chat.archivedMessages == null ? 'Count unavailable' :
+        Number(chat.archivedMessages).toLocaleString() + ' messages archived';
+      const detail = el('p','',total + ' · ' + chat.requests + ' history requests' +
+        ' · approx. ' + chat.importedEstimate + ' messages received during backfill' +
         (chat.oldestTimestamp ? ' · oldest ' +
           stamp(chat.oldestTimestamp, {day:'numeric',month:'short',year:'numeric'}) : ''));
       item.append(heading,status,detail);
+      if (chat.phase === 'likely_complete' && !chat.manualRecheck) {
+        const button = el('button','backfill-recheck','Not complete — keep searching');
+        button.type = 'button';
+        button.addEventListener('click',async () => {
+          button.disabled = true;
+          button.textContent = 'Requesting recheck…';
+          try {
+            const response = await fetch('api/archive/backfill/recheck',{
+              method:'POST',cache:'no-store',
+              headers:{'Content-Type':'application/json','X-WhatsApp-Backfill-Action':'1'},
+              body:JSON.stringify({action:'recheck',chatId:chat.id})
+            });
+            if (!response.ok) throw new Error('Unable to request further history (' + response.status + ')');
+            button.textContent = 'Recheck queued';
+            await updateBackfill();
+          } catch(error) {
+            button.textContent = 'Retry recheck';
+            button.disabled = false;
+            $('backfill-summary').textContent = error.message;
+          }
+        });
+        item.append(button);
+      }
       list.append(item);
     }
     if (!list.childElementCount) list.append(el('p','placeholder','No conversations processed yet.'));
@@ -470,6 +496,7 @@ async function updateBackfill() {
   }
 }
 $('show-backfill').addEventListener('click',showBackfill);
+$('backfill-filter').addEventListener('change',updateBackfill);
 setInterval(updateBackfill, 15_000);
 
 $('tab-direct').addEventListener('click', () => setChatType('direct'));

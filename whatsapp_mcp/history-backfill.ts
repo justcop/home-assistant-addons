@@ -11,11 +11,13 @@ export type BackfillDeps = { conn: WhatsAppConnection; chats: ChatsRepo;
 type Phase = "queued" | "requesting" | "retry" | "stalled" | "no_anchor" | "likely_complete";
 type ChatState = { id: string; isGroup?: boolean; phase: Phase; requests: number; importedEstimate: number;
   failures: number; earliest: number | null; lastAttempt?: string;
-  completionBasis?: "short_page" | "empty_followup"; awaitingEmptyConfirmation?: boolean };
+  completionBasis?: "short_page" | "empty_followup"; awaitingEmptyConfirmation?: boolean;
+  manualRecheck?: boolean };
 type State = { schema: 2; startedAt: string; updatedAt: string; day: string;
   requestsToday: number; requests: number; importedEstimate: number; active: boolean;
   chats: Record<string, ChatState> };
 const FILE = ".history-backfill-v2.json";
+const OVERRIDES = ".history-backfill-overrides-v1.json";
 // Operational circuit-breaker, NOT a documented WhatsApp or Baileys quota.
 // One in-flight request at a time; on failures the existing per-chat stall
 // mechanism avoids retry storms. Most throughput is bounded by the reply wait.
@@ -53,7 +55,37 @@ function load(file: string): State {
 }
 export function startResumableHistoryBackfill({conn,chats,messages,dataDir,logger}: BackfillDeps): void {
   const file=path.join(dataDir, FILE);
+  const overrideFile=path.join(dataDir, OVERRIDES);
   let running=false, connected=false, halted=false;
+  function applyManualRechecks(s:State):void {
+    // A separate override file avoids racing with the worker's frequent
+    // atomic checkpoint writes. Only the ingress admin controller writes it.
+    let overrides: Record<string,boolean>;
+    try {
+      const parsed:unknown=JSON.parse(fs.readFileSync(overrideFile,"utf8"));
+      if(!parsed || typeof parsed!=="object" || Array.isArray(parsed)) throw Error("invalid override file");
+      overrides=parsed as Record<string,boolean>;
+    } catch(e) {
+      if((e as NodeJS.ErrnoException).code==="ENOENT") return;
+      // Fail closed: never interpret an unreadable override as permission
+      // to relabel a conversation complete.
+      logger.error("history-backfill: manual overrides unreadable; worker paused");
+      throw e;
+    }
+    for(const [id,selected] of Object.entries(overrides)) {
+      if(selected!==true) continue;
+      const item=s.chats[id];
+      if(!item) continue;
+      if(!item.manualRecheck){
+        item.manualRecheck=true;
+        item.awaitingEmptyConfirmation=false;
+        delete item.completionBasis;
+        if(item.phase==="likely_complete") {
+          item.phase="queued";item.failures=0;
+        }
+      }
+    }
+  }
   function anchor(chatId:string): {key:NonNullable<proto.IWebMessageInfo["key"]>;ts:number}|undefined {
     for(const row of messages.list({chatId,asc:true},12,0)) {
       if(row.ts<=0) continue;
@@ -83,12 +115,13 @@ export function startResumableHistoryBackfill({conn,chats,messages,dataDir,logge
   }
   async function worker():Promise<void> {
     let s:State;
-    try {s=load(file);discover(s);s.active=true;save(file,s);}
+    try {s=load(file);discover(s);applyManualRechecks(s);s.active=true;save(file,s);}
     catch {logger.error("history-backfill: checkpoint unavailable; cannot run");return;}
     logger.info({conversations:Object.keys(s.chats).length,requestsPerDay:PER_DAY},
       "history-backfill: resumable worker started");
     try {
       while(connected && !halted) {
+        applyManualRechecks(s);
         if(today()!==s.day) {s.day=today();s.requestsToday=0;discover(s);save(file,s);}
         if(s.requestsToday>=PER_DAY) {
           const midnight=Date.parse(today()+"T00:00:00Z")+86_400_000;
@@ -96,7 +129,13 @@ export function startResumableHistoryBackfill({conn,chats,messages,dataDir,logge
         }
         const eligible=Object.values(s.chats).filter(c=>
           (c.phase==="queued"||c.phase==="retry")&&c.requests<PER_CHAT);
-        if(!eligible.length) break;
+        if(!eligible.length) {
+          // Manual rechecks may arrive after all chats are finished.
+          // Stay idle and re-read the override file rather than requiring
+          // an add-on restart to resume the queue.
+          await sleep(15_000);
+          continue;
+        }
         // Within each tier keep the existing fair, least-requested-first
         // ordering. Direct chats take precedence over groups, without
         // discarding earlier progress or preventing groups from eventually
@@ -143,7 +182,7 @@ export function startResumableHistoryBackfill({conn,chats,messages,dataDir,logge
         // response, and another request using the new oldest anchor may
         // still recover more messages. Only a correlated *explicitly empty*
         // follow-up after a short page can suggest completion.
-        const confirmedEmpty = !failed && correlated && returned === 0 &&
+        const confirmedEmpty = !c.manualRecheck && !failed && correlated && returned === 0 &&
           c.awaitingEmptyConfirmation === true && !advanced;
         if(confirmedEmpty){
           c.phase="likely_complete";
