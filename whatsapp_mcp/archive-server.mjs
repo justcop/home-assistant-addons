@@ -52,15 +52,63 @@ function send(res, status, data, type = 'text/plain; charset=utf-8') {
   res.end(data);
 }
 
-// All viewer endpoints are GET-only. The WhatsApp API's write operations are
-// NEVER exposed to the viewer, even if the upstream read-only mode regresses.
-export function createArchiveServer({ apiToken, port = 8100, storagePath = '/data/whatsapp', dataStore = null, allowPeer = isIngressPeer }) {
+// WhatsApp content endpoints stay GET-only. A small, separate configuration
+// controller is POST-only, protected by HA admin Ingress and a custom header;
+// no path can send, edit or delete a WhatsApp message.
+export function createArchiveServer({ apiToken, port = 8100, storagePath = '/data/whatsapp', dataStore = null, cloudBackup = null, allowPeer = isIngressPeer }) {
   if (!apiToken) throw new Error('Missing internal WhatsApp API token');
   return http.createServer(async (req, res) => {
     if (!allowPeer(req.socket.remoteAddress)) return send(res, 403, 'Ingress only');
-    if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'Read-only archive');
+    const url = new URL(req.url, 'http://archive.invalid');
+    const isBackup = url.pathname.startsWith('/api/backup/');
+    if (req.method !== 'GET' && req.method !== 'HEAD' && !(req.method === 'POST' && isBackup))
+      return send(res, 405, 'Read-only archive');
     try {
-      const url = new URL(req.url, 'http://archive.invalid');
+      if (isBackup) {
+        if (!cloudBackup) return send(res, 503, 'Cloud backup is unavailable');
+        if (req.method === 'POST') {
+          // A cross-origin HTML form cannot send this custom JSON header; no
+          // permissive CORS/preflight route exists. Ingress itself checks HA admin.
+          if (req.headers['x-whatsapp-backup-action'] !== '1' ||
+              !String(req.headers['content-type'] || '').startsWith('application/json'))
+            return send(res, 403, 'Invalid backup request');
+          let body = '';
+          for await (const chunk of req) {
+            body += chunk.toString('utf8');
+            if (body.length > 1024) return send(res, 413, 'Request too large');
+          }
+          const params = body ? JSON.parse(body) : {};
+          if (!params || typeof params !== 'object' || Array.isArray(params))
+            return send(res, 400, 'Invalid backup request body');
+          let result;
+          switch (url.pathname) {
+            case '/api/backup/authorize': result = await cloudBackup.beginAuthorisation(); break;
+            case '/api/backup/poll': result = await cloudBackup.pollAuthorisation(); break;
+            case '/api/backup/recovery-key': result = cloudBackup.recoveryKey(); break;
+            case '/api/backup/confirm-key': result = cloudBackup.confirmRecoveryKey(); break;
+            case '/api/backup/enable':
+              if (typeof params.enabled !== 'boolean') return send(res, 400, 'Expected enabled boolean');
+              result = cloudBackup.setEnabled(params.enabled); break;
+            case '/api/backup/run': result = cloudBackup.runNow(); break;
+            default: return send(res, 404, 'Not found');
+          }
+          return send(res, 200, JSON.stringify(result), 'application/json; charset=utf-8');
+        }
+        if (req.method !== 'GET') return send(res, 405, 'Method not allowed');
+        if (url.pathname === '/api/backup/status')
+          return send(res, 200, JSON.stringify(cloudBackup.status()), 'application/json; charset=utf-8');
+        if (url.pathname === '/api/backup/download') {
+          const { response, filename } = await cloudBackup.encryptedDownload();
+          res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Cache-Control': 'no-store',
+            'Content-Disposition': 'attachment; filename="' + filename.replace(/[^a-zA-Z0-9_.-]/g, '') + '"',
+            'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': csp,
+            'Referrer-Policy': 'no-referrer' });
+          if (response.body) Readable.fromWeb(response.body).pipe(res);
+          else res.end();
+          return;
+        }
+        return send(res, 404, 'Not found');
+      }
       const asset = assets[url.pathname];
       if (asset) {
         const [filename, mime] = asset;
@@ -132,6 +180,12 @@ export function createArchiveServer({ apiToken, port = 8100, storagePath = '/dat
       if (response.body) Readable.fromWeb(response.body).pipe(res);
       else res.end();
     } catch (err) {
+      // No message data, OAuth tokens, encryption keys or file identifiers
+      // are included in backup error responses or routine access logs.
+      if (isBackup) {
+        if (!res.headersSent) return send(res, 400, JSON.stringify({ error: String(err.message || 'Backup action failed').slice(0, 230) }), 'application/json; charset=utf-8');
+        return res.destroy();
+      }
       console.error('Archive viewer error:', err.message);
       if (!res.headersSent) send(res, 502, 'Archive temporarily unavailable');
       else res.destroy();
