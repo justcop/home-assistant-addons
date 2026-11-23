@@ -100,6 +100,36 @@ patchIngest(
   '      if (target !== undefined) privacyRetention.purge(target.chatId, target.id, "delete_for_me");\n' +
   '    }'
 );
+// A clearChatAction is converted by our Baileys runtime patch into an
+// internal chats.update record. During the first deployment only the user's
+// own Messages to Yourself thread is eligible for destructive clearing.
+patchIngest(
+  '      const chatId = canonical(rawId);\\n      const isGroup = isGroupJid(chatId);',
+  '      const chatId = canonical(rawId);\\n' +
+  '      const archiveClear = (c as Partial<Chat> & { __archiveClearChat?: {' +
+  ' lastMessageTimestamp?: string | null; preserveStarred?: boolean; initial?: boolean' +
+  ' } }).__archiveClearChat;\\n' +
+  '      if (archiveClear) {\\n' +
+  '        if (archiveClear.initial) {\\n' +
+  '          logger.info({ outcome: "initial_sync_ignored" }, "privacy: clear-chat action observed");\\n' +
+  '        } else if (!self() || chatId !== self()) {\\n' +
+  '          logger.info({ outcome: "outside_self_test_scope" }, "privacy: clear-chat action observed");\\n' +
+  '        } else if (archiveClear.preserveStarred !== false) {\\n' +
+  '          logger.info({ outcome: "starred_preserved_unsupported" }, "privacy: clear-chat action observed");\\n' +
+  '        } else {\\n' +
+  '          const rawCutoff = Number(archiveClear.lastMessageTimestamp);\\n' +
+  '          const cutoff = Number.isSafeInteger(rawCutoff) && rawCutoff > 0\\n' +
+  '            ? Math.floor(rawCutoff >= 1e11 ? rawCutoff / 1000 : rawCutoff) : null;\\n' +
+  '          if (cutoff === null) {\\n' +
+  '            logger.warn({ outcome: "no_valid_boundary" }, "privacy: clear-chat ignored");\\n' +
+  '          } else {\\n' +
+  '            const result = privacyRetention.clearChatThrough(chatId, cutoff);\\n' +
+  '            logger.info({ outcome: "purged", ...result }, "privacy: self-chat clear applied");\\n' +
+  '          }\\n' +
+  '        }\\n' +
+  '      }\\n' +
+  '      const isGroup = isGroupJid(chatId);'
+);
 fs.writeFileSync(ingestFile, ingest);
 fs.copyFileSync('/src/privacy-retention.ts', '/src/packages/api/src/whatsapp/privacy-retention.ts');
 console.log('Pinned upstream patched with sender-aware revocations and Delete-for-me purges.');
