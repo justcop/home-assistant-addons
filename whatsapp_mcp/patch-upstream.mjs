@@ -164,6 +164,55 @@ patchIngest(
   '    if (self() !== undefined && canonical(pn) === self()) return;\n' +
   '    contacts.linkIdentity(lid, pn);'
 );
+// Prevent WhatsApp chat metadata from renaming our unclassified own-LID
+// container back to the account's name after a reconnect.
+patchIngest(
+  '      if (name != null && name !== "") patch.name = name;',
+  '      if (name != null && name !== "") patch.name = name;\n' +
+  '      if (chatId.endsWith("@lid") && self() !== undefined && canonical(chatId) === self())\n' +
+  '        patch.name = "Unclassified own-LID messages";'
+);
 fs.writeFileSync(ingestFile, ingest);
 fs.copyFileSync('/src/privacy-retention.ts', '/src/packages/api/src/whatsapp/privacy-retention.ts');
 console.log('Pinned upstream patched with sender-aware revocations and Delete-for-me purges.');
+
+
+/**
+ * Read-path counterpart of own-LID provenance preservation.
+ * The normal read API folds every LID into a phone JID; a chat explicitly
+ * quarantined under its raw LID must be read using its own key instead.
+ * The exception is keyed by a stored *chat name*, not user input alone,
+ * so all other mapped LIDs retain the upstream behaviour.
+ */
+function patchFile(filePath, patches) {
+  let original=fs.readFileSync(filePath,'utf8');
+  for(const [before,after] of patches) {
+    const p=original.indexOf(before);
+    if(p<0 || original.indexOf(before,p+1)>=0) throw new Error('Read-path patch anchor missing or ambiguous in '+filePath);
+    original=original.slice(0,p)+after+original.slice(p+before.length);
+  }
+  fs.writeFileSync(filePath,original);
+}
+const label='Unclassified own-LID messages';
+patchFile('/src/packages/api/src/rest/handlers/reads.ts',[
+  ['import { canonicalId } from "../../whatsapp/jid.js";','import { canonicalId, normalizeJid } from "../../whatsapp/jid.js";'],
+  ['  jid === undefined ? undefined : canonicalId(jid, deps.contacts);',
+   '  jid === undefined ? undefined : (deps.chats.get(normalizeJid(jid))?.name === "'+label+'"\n' +
+   '    ? normalizeJid(jid) : canonicalId(jid, deps.contacts));']
+]);
+patchFile('/src/packages/api/src/rest/handlers/subject.ts',[
+  ['import { canonicalId } from "../../whatsapp/jid.js";','import { canonicalId, normalizeJid } from "../../whatsapp/jid.js";'],
+  ['  const chatId = canonicalId(chat, deps.contacts);',
+   '  const normalized = normalizeJid(chat);\n' +
+   '  const chatId = deps.chats.get(normalized)?.name === "'+label+'"\n' +
+   '    ? normalized : canonicalId(chat, deps.contacts);']
+]);
+patchFile('/src/packages/api/src/main.ts',[
+  ['import { canonicalId } from "./whatsapp/jid.js";','import { canonicalId, normalizeJid } from "./whatsapp/jid.js";'],
+  ['return Promise.resolve(messages.getRaw(canonicalId(remoteJid, { pnForLid: contacts.pnForLid }), id));',
+   'const normalized = normalizeJid(remoteJid);\n' +
+   '    const target = chats.get(normalized)?.name === "'+label+'"\n' +
+   '      ? normalized : canonicalId(remoteJid, { pnForLid: contacts.pnForLid });\n' +
+   '    return Promise.resolve(messages.getRaw(target, id));']
+]);
+console.log('Pinned API read paths preserve explicitly quarantined own-LID chat.');
