@@ -7,7 +7,6 @@ import path from 'node:path';
 import { createArchiveServer } from './archive-server.mjs';
 import { ArchiveData } from './archive-data.mjs';
 import { pruneMetaAI } from './prune-meta-ai.mjs';
-import { diagnoseSelfRouting } from './diagnose-self-routing.mjs';
 import { separateSelfLid } from './self-lid-separation.mjs';
 import { pruneProtocolNoise } from './protocol-retention.mjs';
 import { configureWhatsAppStorage } from './storage.mjs';
@@ -157,9 +156,6 @@ async function main() {
   const writeProbe = path.join(storage.dataDir, '.permission-test-' + process.pid);
   fs.writeFileSync(writeProbe, 'ok', { flag: 'wx', mode: 0o600 });
   fs.unlinkSync(writeProbe);
-  // Read-only original envelope attribution audit before the WhatsApp writer starts.
-  try { await diagnoseSelfRouting(storage.dataDir, opts.phone_number); }
-  catch (error) { console.error('Self-routing diagnostic unavailable:', error.message); }
   // Preserve original own-LID provenance as a separate conversation. No bytes deleted.
   const selfLidSeparation=await separateSelfLid(storage.dataDir, opts.phone_number);
   console.log('Self-LID provenance separation: '+JSON.stringify(selfLidSeparation));
