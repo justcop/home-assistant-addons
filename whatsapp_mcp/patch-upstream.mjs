@@ -166,7 +166,7 @@ patchConnection(
 fs.writeFileSync(connectionFile, connection);
 console.log('Extended history requested for authenticated sessions; initial pairing remains Chrome.');
 
-// Bounded, one-shot on-demand history trial. Keep it out of the public REST
+// Persistent, rate-limited on-demand history. Keep it out of the public REST
 // and MCP surfaces, and fail the image build if upstream bootstrap shifts.
 const mainPath = '/src/packages/api/src/main.ts';
 let mainSource = fs.readFileSync(mainPath, 'utf8');
@@ -176,14 +176,14 @@ if (mainSource.split(historyImportAnchor).length !== 2 || mainSource.split(histo
   throw new Error('History backfill bootstrap anchors changed');
 }
 mainSource = mainSource.replace(historyImportAnchor,
-  historyImportAnchor + '\nimport { startHistoryBackfillTrial } from "./history-backfill.js";');
+  historyImportAnchor + '\nimport { startResumableHistoryBackfill } from "./history-backfill.js";');
 mainSource = mainSource.replace(historyStartAnchor,
-  historyStartAnchor + '\n  if (process.env[\"WHATSAPP_HISTORY_BACKFILL_TRIAL\"] === "1") {\n' +
-  '    startHistoryBackfillTrial({ conn, chats, messages, dataDir: config.dataDir, logger });\n' +
+  historyStartAnchor + '\n  if (process.env[\"WHATSAPP_HISTORY_BACKFILL\"] === "1") {\n' +
+  '    startResumableHistoryBackfill({ conn, chats, messages, dataDir: config.dataDir, logger });\n' +
   '  }\n');
 fs.writeFileSync(mainPath, mainSource);
 fs.copyFileSync('/src/history-backfill.ts', '/src/packages/api/src/history-backfill.ts');
-console.log('One-shot history trial included; requires explicit opt-in environment flag.');
+console.log('Resumable history worker included; requires explicit opt-in environment flag.');
 
 // Privacy-safe read-state diagnostics: count only server read-zero updates,
 // without logging message data, group/contact IDs or chat names. These do not
@@ -198,5 +198,17 @@ ingest = ingest.replace(readSyncAnchor,
   '        const zeroUpdates = cs.filter(c => c.unreadCount === 0).length;\n' +
   '        if (zeroUpdates > 0) logger.info({ count: zeroUpdates }, "unread-sync: read-zero updates received");\n' +
   '        runChunked(cs, "chats", applyChat);');
+// ON_DEMAND history carries an old chat snapshot. It must not overwrite
+// the current local unread count with historical state.
+patchIngest(
+  '    runChunked(h.chats, "chats", applyChat);',
+  '    runChunked(h.chats, "chats", c => {\n' +
+  '      if (h.syncType === proto.HistorySync.HistorySyncType.ON_DEMAND) {\n' +
+  '        const metadata: Partial<Chat> = { ...c };\n' +
+  '        delete metadata.unreadCount;\n' +
+  '        applyChat(metadata);\n' +
+  '      } else applyChat(c);\n' +
+  '    });'
+);
 fs.writeFileSync(ingestFile, ingest);
-console.log('Privacy-safe read-state diagnostics included.');
+console.log('Privacy-safe read-state diagnostics and on-demand unread protection included.');
