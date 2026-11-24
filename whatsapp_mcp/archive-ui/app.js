@@ -510,6 +510,87 @@ $('message-search-form').addEventListener('submit',e=>{e.preventDefault();search
 $('more-results').addEventListener('click',()=>searchMessages(false));
 $('older').addEventListener('click',()=>loadMessages(true));
 $('show-chats').addEventListener('click',()=>$('shell').classList.remove('chat-open'));
+// Private Home Assistant ingress-only pairing. Never expose codes through the
+// public Cloudflare gateway or persist them in browser storage.
+let pairingStatus = null;
+async function pairingAction(route, payload) {
+  const response = await fetch('api/pairing/' + route, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-WhatsApp-Pairing-Action': '1' },
+    body: JSON.stringify(payload)
+  });
+  let data = {};
+  try { data = await response.json(); } catch { /* fail with a generic status */ }
+  if (!response.ok) throw new Error(data.error || 'Pairing action failed (' + response.status + ')');
+  return data;
+}
+async function refreshPairing() {
+  try {
+    const status = await get('api/pairing/status');
+    pairingStatus = status;
+    $('connection-status').textContent = 'WhatsApp: ' + (
+      status.connected ? 'Connected' : status.connection === 'pairing' ? 'Awaiting pairing'
+        : status.connection === 'logged_out' ? 'Needs re-pairing'
+        : status.connection === 'disconnected' ? 'Reconnecting…' : status.connection);
+    $('settings-pairing-status').textContent = status.connected
+      ? 'Connected — your message archive is synchronising.'
+      : status.needsPairing ? 'This add-on needs to be linked to WhatsApp.'
+        : 'WhatsApp connection: ' + status.connection;
+    // When connected, the prominent pairing panel disappears automatically,
+    // while a deliberate re-pair button remains available in Settings.
+    $('pairing-banner').classList.toggle('hidden', !status.needsPairing);
+    $('pairing-code-panel').classList.toggle('hidden', !status.needsPairing || !status.code);
+    $('pairing-phone-form').classList.toggle('hidden', !status.needsPairing || !!status.code);
+    if (status.code) {
+      $('pairing-code').textContent = status.code;
+      $('pairing-description').textContent = 'Enter the pairing code below on your phone. This page will hide the code once linked.';
+    } else {
+      $('pairing-code').textContent = '';
+      $('pairing-description').textContent = status.phoneConfigured
+        ? 'Your phone number is saved. A new code should appear shortly. If not, request one again below.'
+        : 'Enter your number below to request a fresh WhatsApp pairing code.';
+    }
+  } catch {
+    $('connection-status').textContent = 'WhatsApp connection status unavailable';
+    $('settings-pairing-status').textContent = 'Could not read WhatsApp connection status.';
+    // Do not display a stale pairing code after connectivity is lost.
+    $('pairing-code').textContent = '';
+    $('pairing-code-panel').classList.add('hidden');
+  }
+}
+$('pairing-phone-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const feedback = $('pairing-feedback');
+  feedback.textContent = 'Requesting pairing code…';
+  try {
+    await pairingAction('phone', { phone: $('pairing-phone').value.trim() });
+    $('pairing-phone').value = '';
+    feedback.textContent = 'Phone number saved. The pairing code should appear here shortly.';
+    await refreshPairing();
+  } catch (err) { feedback.textContent = err.message; }
+});
+$('pairing-copy').addEventListener('click', () => {
+  const code = $('pairing-code').textContent.trim();
+  if (code) navigator.clipboard?.writeText(code).catch(() => {
+    $('pairing-feedback').textContent = 'Copy unavailable. Enter the code manually.';
+  });
+});
+$('pairing-repair').addEventListener('click', async () => {
+  const confirmation = window.prompt(
+    'This resets the WhatsApp linked credentials for THIS add-on, but keeps the existing archive. ' +
+    'Your other linked devices are not changed. Type REPAIR THIS DEVICE to continue:');
+  if (confirmation !== 'REPAIR THIS DEVICE') return;
+  $('settings-pairing-feedback').textContent = 'Re-pair requested…';
+  try {
+    await pairingAction('repair', { confirm: confirmation });
+    $('settings-pairing-feedback').textContent =
+      'Credentials will reset shortly. Return to the main page to enter your number and new pairing code.';
+    await refreshPairing();
+  } catch (err) { $('settings-pairing-feedback').textContent = err.message; }
+});
+setInterval(refreshPairing, 5000);
+void refreshPairing();
+
 get('api/storage').then(data=>$('storage-status').textContent='Storage: '+data.location).catch(()=>$('storage-status').textContent='Storage status unavailable');
 loadChats(true);
 
