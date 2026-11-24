@@ -200,6 +200,7 @@ function updateActions(){
 }
 function newArtwork(){
  if(busy)return;
+ uploadForGame=null;
  stopAnimation();selectedId=null;source=null;fileChanged=false;hasPreview=false;mappings=[];
  $("artName").value="";$("file").value="";$("editorTitle").textContent="Create artwork";
  $("selectedInfo").textContent="Choose an image or drop one into the uploader.";
@@ -208,6 +209,7 @@ function newArtwork(){
 $("newButton").onclick=newArtwork;
 async function editItem(id){
  if(busy)return;
+ uploadForGame=null;
  const item=items.find(x=>x.id===id);if(!item)return;
  stopAnimation();source=null;draw();updateActions();selectedId=id;mappings=(item.mappings||[]).map(x=>({...x}));fileChanged=false;
  $("artName").value=item.name;$("editorTitle").textContent="Edit artwork";
@@ -260,7 +262,10 @@ $("save").onclick=async()=>{
  if(fileChanged||!selectedId){if(animated)Object.assign(payload,await animationPayload());else payload.image_png_base64=canvas.toDataURL("image/png").split(",")[1];}
   const data=await post("artwork/save",payload);
   selectedId=data.item.id;fileChanged=false;
-  busy=false;await loadGallery();await editItem(selectedId);
+  const targetGame=uploadForGame;uploadForGame=null;
+  busy=false;await loadGallery();
+  if(targetGame){const game=gameRows.find(x=>x.title===targetGame);if(game){const draft=gameDrafts.get(targetGame)||{ids:[...game.artwork_ids],minutes:game.rotation_minutes};if(!draft.ids.includes(selectedId))draft.ids.push(selectedId);await post("games/update",{title:targetGame,artwork_ids:draft.ids,rotation_minutes:draft.minutes});gameDrafts.delete(targetGame);await loadGames();}}
+  await editItem(selectedId);
   notice("Saved to external storage: "+name,"success");
  }catch(err){notice(err.message,"error");}
  finally{busy=false;updateActions();}
@@ -293,7 +298,7 @@ async function refreshLive(){
    " · Countdown: "+(c.active?"running":"inactive");
  }catch(e){$("displayBadge").textContent="Display unavailable";}
 }
-let gameRows=[],gameDrafts=new Map(),gameOpen=new Set(),gameLoading=false;
+let gameRows=[],gameDrafts=new Map(),gameOpen=new Set(),gameLoading=false,uploadForGame=null;
 function gameButton(label,fn){const el=document.createElement("button");el.type="button";el.className="secondary small";el.textContent=label;el.onclick=fn;return el;}
 function gameMessage(message,error=false){$("gameStatus").textContent=message;$("gameStatus").className=error?"status error":"muted";}
 function renderGames(){
@@ -301,7 +306,7 @@ function renderGames(){
  for(const game of gameRows){
   const title=game.title;
   const draft=gameDrafts.get(title)||{ids:[...game.artwork_ids],minutes:game.rotation_minutes};
-  const change=()=>{gameDrafts.set(title,draft);renderGames();};
+  const change=()=>{gameOpen.add(title);gameDrafts.set(title,draft);renderGames();};
   const details=document.createElement("details");details.className="game-row";details.open=gameOpen.has(title);
   details.ontoggle=()=>{if(details.open)gameOpen.add(title);else gameOpen.delete(title);};
   const summary=document.createElement("summary");summary.textContent=title+" · "+draft.ids.length+" background"+(draft.ids.length===1?"":"s");details.append(summary);
@@ -326,7 +331,7 @@ function renderGames(){
   duration.oninput=()=>{draft.minutes=Number(duration.value);gameDrafts.set(title,draft);};durationWrap.append(durationLabel,duration);settings.append(durationWrap);details.append(settings);
   const actions=document.createElement("div");actions.className="actions";
   actions.append(gameButton("Save rotation",async()=>{try{const v=await post("games/update",{title,artwork_ids:draft.ids,rotation_minutes:draft.minutes});gameDrafts.delete(title);await loadGames();gameMessage("Saved rotation for "+v.game.title);}catch(e){gameMessage(e.message,true);}}));
-  actions.append(gameButton("Upload new artwork",()=>{if(busy)return;newArtwork();$("matchKind").value="game";$("matchText").value=title;$("addRule").click();$("dropzone").scrollIntoView({behavior:"smooth"});$("file").click();}));
+  actions.append(gameButton("Upload new artwork",()=>{if(busy)return;newArtwork();uploadForGame=title;$("selectedInfo").textContent="New artwork for "+title+" — save it to add it to this game’s rotation.";$("dropzone").scrollIntoView({behavior:"smooth"});$("file").click();}));
   details.append(actions);root.append(details);
  }
  if(!gameRows.length){const p=document.createElement("p");p.textContent="No games detected yet. Start a PS5 game to add it automatically.";root.append(p);}
