@@ -1,5 +1,8 @@
-# A separate Home Assistant app with a separate add-on slug and /data volume.
-# Pin the already-tested production image; fail closed when its layout changes.
+# Separate Home Assistant trial slug and /data; production image remains pinned.
 FROM ghcr.io/justcop/whatsapp-mcp-amd64:0.3.32
-COPY patch-experiment.mjs /tmp/patch-experiment.mjs
-RUN node /tmp/patch-experiment.mjs && rm /tmp/patch-experiment.mjs
+COPY trial-observer.mjs trial-recovery.mjs /opt/whatsapp-addon/
+COPY trial-recovery-ui.js /opt/whatsapp-addon/archive-ui/trial-recovery-ui.js
+COPY patch-experiment.mjs patch-recovery.mjs /tmp/
+RUN node /tmp/patch-experiment.mjs \
+ && node /tmp/patch-recovery.mjs \
+ && rm /tmp/patch-experiment.mjs /tmp/patch-recovery.mjs
