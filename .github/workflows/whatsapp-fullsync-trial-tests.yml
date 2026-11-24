@@ -31,7 +31,7 @@ jobs:
             assert.match(conn,/syncFullHistory: true/);
             assert.match(conn,/PAIRING_CODE_FILE/);
             assert.match(conn,/PAIRING_MODE_FILE/);
-            assert.match(run,/const DEFAULT_PAIRING_MODE = \\x27qr\\x27/);
+            assert.match(run,/const DEFAULT_PAIRING_MODE = \x27qr\x27/);
             const qrView=fs.readFileSync("/opt/whatsapp-addon/archive-ui/index.html","utf8");
             assert.match(qrView,/id="pairing-qr-image"/);
             assert.match(conn,/resettingPairing/);
