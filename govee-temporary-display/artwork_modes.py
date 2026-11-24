@@ -14,7 +14,7 @@ def list_artwork_modes():
         game_names=[m["value"] for m in item.get("mappings",[])
                     if m.get("kind")=="game"]
         result.append({
-            "id":item["id"],"name":item["name"],"kind":"static",
+            "id":item["id"],"name":item["name"],"kind":"animation" if item.get("animation") else "static",
             "game":game_names[0] if game_names else None,
             "game_names":game_names,"mappings":item.get("mappings",[]),
             "width":52,"height":32,"file":item["file"],"source":item["source"],
