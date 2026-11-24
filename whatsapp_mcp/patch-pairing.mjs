@@ -39,8 +39,10 @@ replaceOnce(`      logger.info({ pairingCode }, "whatsapp: pairing code issued")
       logger.info("whatsapp: pairing code available through private Home Assistant ingress");`);
 replaceOnce('    attempts = 0;\n    lastConnectedAt = nowSec();',
   '    rmSync(PAIRING_CODE_FILE, { force: true });\n    attempts = 0;\n    lastConnectedAt = nowSec();');
-replaceOnce('    if (stopped) return;\n\n    const disconnectError',
-  '    if (stopped || resettingPairing) return;\n\n    const disconnectError');
+replaceOnce('  function handleClose(update: Partial<BaileysConnectionState>): void {\n    // stop() itself',
+  '  function handleClose(update: Partial<BaileysConnectionState>): void {\n    // stop() itself');
+replaceOnce('    if (stopped) return;\n\n    // Baileys types',
+  '    if (stopped || resettingPairing) return;\n\n    // Baileys types');
 const startAnchor='    stopped = false;\n    clearRetryTimer(); // don\'t let an already-scheduled retry also fire and create a second socket';
 replaceOnce(startAnchor,`    stopped = false;
     if (repairTimer === undefined) repairTimer = setInterval(() => {
