@@ -27,7 +27,8 @@ jobs:
             const fs=require("node:fs"),assert=require("node:assert/strict");
             const conn=fs.readFileSync("/opt/whatsapp-api/dist/whatsapp/connection.js","utf8");
             const run=fs.readFileSync("/opt/whatsapp-addon/run.mjs","utf8");
-            assert.match(conn,/macOS\("Desktop"\)/);
+            assert.match(conn,/windows\("Desktop"\)/);
+            assert.doesNotMatch(conn,/macOS\("Desktop"\)/);
             assert.doesNotMatch(conn,/macOS\("Safari"\)/);
             assert.match(conn,/syncFullHistory: true/);
             assert.match(conn,/shouldSyncHistoryMessage: \(\) => true/);

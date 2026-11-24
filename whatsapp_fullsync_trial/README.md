@@ -3,11 +3,9 @@
 **Experimental, privacy sensitive. Does not replace the production WhatsApp MCP installation.**
 
 This image is based on the pinned, published WhatsApp MCP 0.3.32 image,\nincluding the admin-ingress pairing banner, code display, connection status, and\nSettings re-pair control. Pairing status hides after successful linking.
-This experiment now uses the native `Browsers.macOS("Desktop")` companion profile
-and keeps Baileys `syncFullHistory: true` and `shouldSyncHistoryMessage: () => true`.
-**Pair via QR, not phone-number code:** this desktop identity previously failed
-phone-number pairing. A fresh link is required; restarting with old credentials
-will not reliably replay initial FULL history.
+This experiment now uses the **Windows desktop** `Browsers.windows("Desktop")` companion profile, which Baileys advertises as the `WIN_HYBRID` web sub-platform when `syncFullHistory: true`. It retains `shouldSyncHistoryMessage: () => true` to accept the incoming FULL batches. This is a controlled workaround test, **not proof** WhatsApp will deliver the lifetime archive.
+
+**Pair via QR.** The prior `Browsers.macOS("Desktop")` + `syncFullHistory: true` experiment failed before QR generation, repeatedly receiving `Connection Terminated` during registration. The trial was then freshly reinstalled, leaving **zero archived messages and no saved successful pairing**, and stopped. Restarting an existing linked device does not replay its initial FULL history reliably.
 
 ## Isolation contract
 - Unique Home Assistant app slug `whatsapp_fullsync_trial`; independent
@@ -20,7 +18,7 @@ will not reliably replay initial FULL history.
 - Never unlink the production WhatsApp device just to pair this second one.
 - Keep the trial stopped after testing, since it consumes a linked-device slot.
 
-## Clean-slate Desktop comparison
+## Clean-slate Windows Desktop (WIN_HYBRID) comparison
 
 When deliberately resetting the experiment, **uninstall only** the Home Assistant
 app `64b28acc_whatsapp_fullsync_trial`, then reinstall it from this repository.
@@ -86,6 +84,11 @@ When removing the experiment:
 5. Retain the production WhatsApp archive, its Google Drive recovery backup,
    and the recovery Git branch. Source-code cleanup of this experimental
    folder or GHCR image is optional and must not remove the production image.
+
+## Previous QR registration experiment
+- macOS Desktop (DARWIN) on the same pinned Baileys version failed at registration, without a QR. See upstream Baileys issue #2880; this is why this trial uses Windows Desktop / WIN_HYBRID instead.
+- Only scan the QR from this **experimental** add-on. Keep the original production linked-device session intact.
+- If Windows Desktop also cannot produce a QR, stop only this experiment and record status-code evidence. Do not repeatedly re-pair production.
 
 ## Limitations
 A successful build or pairing does not prove that WhatsApp sent all history.
