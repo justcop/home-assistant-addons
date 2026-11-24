@@ -17,7 +17,7 @@ export function prepareTrialExportDirectory(directory=TRANSFER_DIR) {
     if(fs.lstatSync(directory).isSymbolicLink()||!fs.statSync(directory).isDirectory())
       throw Error('Unsafe WhatsApp export directory');
   } else fs.mkdirSync(directory,{mode:0o700});
-  fs.chownSync(directory,1000,1000);
+  if(process.getuid?.()===0)fs.chownSync(directory,1000,1000);
   fs.chmodSync(directory,0o700);
 }
 
