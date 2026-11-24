@@ -9,7 +9,7 @@ function patchOnce(file,pattern,replacement,label) {
   fs.writeFileSync(file,text.replace(pattern,replacement));
 }
 patchOnce(connectionPath,/macOS\((["'])Chrome\1\)/,
-  'macOS("Safari")','fresh-pairing companion profile');
+  'macOS("Desktop")','native macOS Desktop companion profile for QR pairing');
 if(!fs.readFileSync(connectionPath,'utf8').includes('syncFullHistory: true'))
   throw Error('Full-history negotiation is not enabled in the pinned base image');
 // Baileys rc14 defaults to filtering FULL history notifications even when
@@ -28,4 +28,4 @@ patchOnce(launcherPath,/configureWhatsAppStorage\(opts\.storage_path\)/,
   "configureWhatsAppStorage('')",'force independent internal archive');
 // Never allow a production shared volume to be reached, even if modified options
 // later try to supply a storage_path. The experimental slug has its own /data.
-console.log('Trial image: macOS Safari + syncFullHistory, backfill paused, isolated /data.');
+console.log('Trial image: macOS Desktop (QR) + syncFullHistory, backfill gated, isolated /data.');
