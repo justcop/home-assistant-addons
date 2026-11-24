@@ -176,7 +176,7 @@ export class ArchiveData {
     if(before!==null){where.push('m.ts <= :before');args.before=before;}
     if(group!==null){where.push('c.is_group = :group');args.group=group==='true'?1:0;}
     if(term) {
-      args.q=term;
+      if(scope!=='name') args.q=term;
       const content="(instr(lower(coalesce(m.text,'')),:q)>0 OR instr(lower(coalesce(m.transcript,'')),:q)>0)";
       const ids=nameIds.map((id,i)=>{args['chat'+i]=id;return ':chat'+i;});
       const matchedNames=ids.length?'m.chat_id IN ('+ids.join(',')+')':'0';
