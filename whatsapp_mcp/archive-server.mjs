@@ -345,6 +345,16 @@ export function createArchiveServer({ apiToken, port = 8100, storagePath = '/dat
           dailyLimit: 2000, importedEstimate: state.importedEstimate, recent: chats
         }), 'application/json');
       }
+      if (url.pathname === '/api/archive/filter') {
+        if (!dataStore) return send(res,503,'Archive search unavailable');
+        if (req.method !== 'GET') return send(res,405,'Method not allowed');
+        try {
+          return send(res,200,JSON.stringify(dataStore.searchArchive(url.searchParams)),'application/json; charset=utf-8');
+        } catch(err) {
+          if(err instanceof RangeError) return send(res,400,'Invalid search filters');
+          throw err;
+        }
+      }
       if (url.pathname === '/api/archive/date-range') {
         if (!dataStore) return send(res, 503, 'Archive statistics unavailable');
         if (req.method === 'HEAD') return send(res, 405, 'Method not allowed');

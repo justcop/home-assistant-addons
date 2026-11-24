@@ -95,3 +95,20 @@
 @media(max-width:700px){.pairing-banner{margin:8px;padding:12px}.pairing-code{font-size:20px;letter-spacing:3px}}
 
 .pairing-methods{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.pairing-methods button{background:var(--panel);border:1px solid var(--accent);color:var(--text);border-radius:8px;padding:9px 12px}.pairing-methods button:disabled{opacity:1;border-color:var(--stroke);cursor:default}#pairing-qr-image{display:block;width:min(260px,100%);height:auto;aspect-ratio:1/1;background:#fff;margin:12px 0;padding:8px;border-radius:8px}
+
+/* Flex children can only ellipsize after their own width is constrained. */
+.chat-row{min-width:0;max-width:100%;overflow:hidden}
+.chat-row .chat-meta{display:block;flex:1 1 0;min-width:0;max-width:100%;overflow:hidden}
+.chat-row .chat-name,.chat-row .chat-detail{display:block;width:100%;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat-row .avatar,.chat-row .chat-date{flex-shrink:0}
+.conversation-heading h2,.hit-chat{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.hit-chat{display:block;flex:1}
+.search-query-line{display:flex;gap:9px;min-width:0}
+.message-search-form{display:flex;flex-direction:column;gap:12px}
+.search-query-line input{flex:1;min-width:0}
+.search-query-line button{white-space:nowrap}
+.search-filters{display:flex;align-items:end;gap:10px;flex-wrap:wrap}
+.search-filters label{display:flex;flex-direction:column;gap:4px;min-width:0;color:var(--muted);font-size:12px}
+.search-filters select,.search-filters input{color:var(--text);background:var(--panel2);border:1px solid var(--stroke);border-radius:9px;padding:9px 10px;font:inherit;color-scheme:dark}
+@media(prefers-color-scheme:light){.search-filters select,.search-filters input{color-scheme:light}}
+@media(max-width:700px){.search-query-line{flex-wrap:wrap}.search-query-line button{width:100%}.search-filters label{flex:1 1 125px}}
