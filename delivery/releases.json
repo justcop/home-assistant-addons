@@ -78,9 +78,9 @@
     "image": "ghcr.io/justcop/work-audit-{arch}"
   },
   "whatsapp_fullsync_trial": {
-    "sha": "599e8f818181b0e6b8203a95189c7af2fb5e3243",
-    "compatibility": "e1306ab1a1566fc5665128969e903307b472344d7a24473595bb92513ed63e9c",
-    "version": "0.1.6",
+    "sha": "d11220a45909b4ed3f9ec00c00bd2f343d10f67b",
+    "compatibility": "701d94ac4313b63a398970b85f11c395c3e51c8a98cde12202d01046eb079ee0",
+    "version": "0.1.7",
     "image": "ghcr.io/justcop/whatsapp-fullsync-trial-{arch}"
   }
 }
