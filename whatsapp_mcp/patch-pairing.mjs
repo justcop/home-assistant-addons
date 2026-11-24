@@ -55,8 +55,10 @@ replaceOnce('    attempts = 0;\n    lastConnectedAt = nowSec();',
   '    rmSync(QR_FILE, { force: true });\n    rmSync(PAIRING_CODE_FILE, { force: true });\n    attempts = 0;\n    lastConnectedAt = nowSec();');
 // Ignore connection events from an intentionally retired socket; its later
 // logout/401 event must not erase the new linked session.
-replaceOnce('      if (update.connection === "open") {',
-  '      if (newSock !== sock) return;\n\n      if (update.connection === "open") {');
+replaceOnce('    newSock.ev.on("creds.update", () => {\n      auth.saveCreds();',
+  '    newSock.ev.on("creds.update", () => {\n      if (newSock !== sock) return;\n      auth.saveCreds();');
+replaceOnce('    newSock.ev.on("connection.update", (update: Partial<BaileysConnectionState>) => {\n      touch();',
+  '    newSock.ev.on("connection.update", (update: Partial<BaileysConnectionState>) => {\n      if (newSock !== sock) return;\n      touch();');
 replaceOnce('  function handleClose(update: Partial<BaileysConnectionState>): void {\n    // stop() itself',
   '  function handleClose(update: Partial<BaileysConnectionState>): void {\n    // stop() itself');
 replaceOnce('    if (stopped) return;\n\n    // Baileys types',
