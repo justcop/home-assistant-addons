@@ -28,6 +28,8 @@ jobs:
             const conn=fs.readFileSync("/opt/whatsapp-api/dist/whatsapp/connection.js","utf8");
             const run=fs.readFileSync("/opt/whatsapp-addon/run.mjs","utf8");
             assert.match(conn,/windows\("Desktop"\)/);
+            assert.match(conn,/Browsers\.macOS\("Safari"\)/);
+            assert.match(conn,/auth\.state\.creds\.account/);
             assert.doesNotMatch(conn,/macOS\("Desktop"\)/);
             assert.doesNotMatch(conn,/macOS\("Safari"\)/);
             assert.match(conn,/syncFullHistory: true/);
@@ -54,11 +56,20 @@ jobs:
             assert.match(ingest,/trialTrackedUpsert/);
             assert.match(ingest,/trialBatchCounters/);
             assert.match(archive,/api\/trial\/recovery/);
+            assert.match(archive,/connection !== 'connected'/);
+            assert.match(archive,/trial-pairing-ui.js/);
+            assert.match(fs.readFileSync("/opt/whatsapp-addon/archive-ui/index.html","utf8"),/trial-pairing-ui.js/);
             assert.match(fs.readFileSync("/opt/whatsapp-addon/archive-ui/index.html","utf8"),/trial-recovery-ui.js/);
             assert.match(run,/configureWhatsAppStorage\(.{2}\)/);
             assert.ok(!run.includes("configureWhatsAppStorage(opts.storage_path)"));
             console.log("Isolated pairing image checks passed");
           '
+
+      - name: Syntax-check trial pairing UI and compiled modules (offline)
+        run: |
+          docker run --rm --network none --entrypoint node whatsapp-fullsync-trial:test --check /opt/whatsapp-addon/archive-ui/trial-pairing-ui.js
+          docker run --rm --network none --entrypoint node whatsapp-fullsync-trial:test --check /opt/whatsapp-addon/archive-server.mjs
+          docker run --rm --network none --entrypoint node whatsapp-fullsync-trial:test --check /opt/whatsapp-api/dist/whatsapp/connection.js
 
       - name: Run synthetic recovery and replay tests (offline)
         run: docker run --rm --network none --entrypoint node whatsapp-fullsync-trial:test --test /opt/whatsapp-addon/trial-recovery.test.mjs
