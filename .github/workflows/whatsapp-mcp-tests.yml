@@ -57,6 +57,8 @@ jobs:
           check("/opt/whatsapp-api/node_modules/baileys/lib/Utils/chat-utils.js","__archiveClearChat");
           check("/opt/whatsapp-api/node_modules/baileys/lib/Socket/messages-recv.js","privacy: excluded outgoing Meta AI stanza");
           check("/opt/whatsapp-mcp/**/reads.js","whatsapp_review_conversations");
+          check("/opt/whatsapp-api/**/connection.js","QR_FILE");
+          check("/opt/whatsapp-api/**/connection.js","PAIRING_MODE_FILE");
           check("/opt/whatsapp-api/**/connection.js","PAIRING_CODE_FILE");
           check("/opt/whatsapp-api/**/connection.js","resettingPairing");
           console.log("Compiled API, MCP, private pairing controller and Baileys privacy guards are present");
