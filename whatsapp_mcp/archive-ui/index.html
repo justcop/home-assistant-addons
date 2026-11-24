@@ -164,8 +164,25 @@
       <div id="search-view" class="search-view hidden">
         <div class="search-intro"><h3>Search your messages</h3><p>Searches message text and any transcripts that have been indexed.</p></div>
         <form id="message-search-form" class="message-search-form" autocomplete="off">
-          <input id="message-search" name="q" type="search" placeholder="Words or a phrase…" aria-label="Search message text" required>
-          <button type="submit">Search</button>
+          <div class="search-query-line">
+            <input id="message-search" name="q" type="search" placeholder="Conversation name or message text (optional with dates)" aria-label="Search conversation names or message text">
+            <button type="submit">Filter archive</button>
+          </div>
+          <div class="search-filters">
+            <label>Search in
+              <select id="message-search-scope">
+                <option value="any">Names and messages</option>
+                <option value="name">Conversation names</option>
+                <option value="message">Message text</option>
+              </select>
+            </label>
+            <label>From (UTC)
+              <input id="message-search-after" type="date" aria-label="Start date inclusive (UTC)">
+            </label>
+            <label>To (UTC)
+              <input id="message-search-before" type="date" aria-label="End date inclusive (UTC)">
+            </label>
+          </div>
         </form>
         <p id="search-summary" class="search-summary"></p>
         <div id="search-results" class="search-results"></div>
