@@ -21,7 +21,7 @@ const atomicJSON=(file,data)=>{
   fs.writeFileSync(temp,JSON.stringify(data)+'\n',{mode:0o600});
   fs.renameSync(temp,file);
 };
-const readReport=()=>{try{return JSON.parse(fs.readFileSync(REPORT,'utf8'));}catch{return null;}};
+const readReport=(file=REPORT)=>{try{return JSON.parse(fs.readFileSync(file,'utf8'));}catch{return null;}};
 
 function validate(db) {
   const info=db.prepare('SELECT schema_version AS version,created_at AS created FROM incoming.export_info').get();
@@ -44,42 +44,42 @@ function validate(db) {
     productionOnly:prod-overlap,expectedWithoutSuppression:prod+trial-overlap,
     trialChats:getCount(db,'incoming.chats'),createdAt:info.created};
 }
-export function mergeStatus(storagePath) {
+export function mergeStatus(storagePath,transferFile=TRANSFER_FILE,reportFile=REPORT,requestFile=REQUEST) {
   const file=path.join(storagePath,'whatsapp.db');
   const rollback=path.join(storagePath,BACKUP);
-  const report=readReport();
-  const base={requested:fs.existsSync(REQUEST),report,
+  const report=readReport(reportFile);
+  const base={requested:fs.existsSync(requestFile),report,
     rollbackPresent:fs.existsSync(rollback)};
   if(!fs.existsSync(file))return {...base,ready:false,reason:'Production database unavailable'};
-  if(!fs.existsSync(TRANSFER_FILE))return {...base,ready:false,reason:'Trial export has not been created'};
-  if(fs.lstatSync(TRANSFER_FILE).isSymbolicLink())throw Error('Unsafe trial export file');
+  if(!fs.existsSync(transferFile))return {...base,ready:false,reason:'Trial export has not been created'};
+  if(fs.lstatSync(transferFile).isSymbolicLink())throw Error('Unsafe trial export file');
   const db=new DatabaseSync(file,{readOnly:true});
   try {
-    db.exec('ATTACH DATABASE '+quote(TRANSFER_FILE)+' AS incoming');
+    db.exec('ATTACH DATABASE '+quote(transferFile)+' AS incoming');
     const status=validate(db);
     return {...base,...status};
   } finally {db.close();}
 }
-export function scheduleMerge(storagePath) {
-  const check=mergeStatus(storagePath);
+export function scheduleMerge(storagePath,transferFile=TRANSFER_FILE,requestFile=REQUEST) {
+  const check=mergeStatus(storagePath,transferFile,REPORT,requestFile);
   if(!check.ready)throw Error(check.reason||'Trial archive not ready');
   if(check.rollbackPresent)throw Error('Previous merge rollback still exists; finalise or inspect first');
   if(check.trialOnly<1)throw Error('No additional trial messages to import');
   const file=path.join(storagePath,'whatsapp.db');
   if(fs.lstatSync(file).isSymbolicLink())throw Error('Unsafe production archive');
-  fs.writeFileSync(REQUEST,JSON.stringify({createdAt:new Date().toISOString()})+'\n',
+  fs.writeFileSync(requestFile,JSON.stringify({createdAt:new Date().toISOString()})+'\n',
     {mode:0o600,flag:'wx'});
   return {accepted:true,restartRequired:true,
     production:check.production,trial:check.trial,
     overlap:check.overlap,additionalCandidates:check.trialOnly};
 }
-function execute(storagePath) {
+function execute(storagePath,transferFile=TRANSFER_FILE,reportFile=REPORT,requestFile=REQUEST) {
   const live=path.join(storagePath,'whatsapp.db');
   const staging=path.join(storagePath,STAGE);
   const backup=path.join(storagePath,BACKUP);
   if(fs.existsSync(staging)||fs.existsSync(backup))
     throw Error('Unresolved previous merge staging or rollback file');
-  const preflight=mergeStatus(storagePath);
+  const preflight=mergeStatus(storagePath,transferFile,reportFile,requestFile);
   if(!preflight.ready || preflight.trialOnly<1)throw Error('Preflight failed at restart');
 
   // The WhatsApp child processes are not yet running. Checkpoint all WAL
@@ -101,7 +101,7 @@ function execute(storagePath) {
   try {
     working=new DatabaseSync(staging);
     working.exec('PRAGMA secure_delete=ON; PRAGMA journal_mode=DELETE');
-    working.exec('ATTACH DATABASE '+quote(TRANSFER_FILE)+' AS incoming');
+    working.exec('ATTACH DATABASE '+quote(transferFile)+' AS incoming');
     const snapshot=validate(working);
     const suppressed=new Set(working.prepare(
       'SELECT message_digest FROM privacy_suppressed_messages'
@@ -161,7 +161,7 @@ function execute(storagePath) {
     const result={success:true,at:new Date().toISOString(),before:snapshot.production,
       trial:snapshot.trial,overlap,added,skippedSuppressed,after:total,
       rollbackPresent:true};
-    atomicJSON(REPORT,result);
+    atomicJSON(reportFile,result);
     return result;
   } catch(err) {
     try {working?.exec('ROLLBACK');}catch{}
@@ -170,15 +170,15 @@ function execute(storagePath) {
     throw err;
   }
 }
-export function runScheduledArchiveMerge(storagePath) {
-  if(!fs.existsSync(REQUEST))return null;
+export function runScheduledArchiveMerge(storagePath,{requestFile=REQUEST,transferFile=TRANSFER_FILE,reportFile=REPORT}={}) {
+  if(!fs.existsSync(requestFile))return null;
   let result;
-  try {result=execute(storagePath);}
-  catch(err){result={success:false,at:new Date().toISOString(),error:String(err.message||err).slice(0,230)};atomicJSON(REPORT,result);}
-  fs.rmSync(REQUEST,{force:true});
+  try {result=execute(storagePath,transferFile,reportFile,requestFile);}
+  catch(err){result={success:false,at:new Date().toISOString(),error:String(err.message||err).slice(0,230)};atomicJSON(reportFile,result);}
+  fs.rmSync(requestFile,{force:true});
   return result;
 }
-export function finaliseMerge(storagePath) {
+export function finaliseMerge(storagePath,{transferFile=TRANSFER_FILE,reportFile=REPORT}={}) {
   const report=readReport();
   if(!report?.success)throw Error('No successfully staged merge to finalise');
   const dbPath=path.join(storagePath,'whatsapp.db');
@@ -190,8 +190,8 @@ export function finaliseMerge(storagePath) {
   const rollback=path.join(storagePath,BACKUP);
   if(!fs.existsSync(rollback))throw Error('Rollback database is absent');
   fs.rmSync(rollback);
-  if(fs.existsSync(TRANSFER_FILE))fs.rmSync(TRANSFER_FILE);
+  if(fs.existsSync(transferFile))fs.rmSync(transferFile);
   const updated={...report,rollbackPresent:false,finalisedAt:new Date().toISOString()};
-  atomicJSON(REPORT,updated);
+  atomicJSON(reportFile,updated);
   return {finalised:true,after:report.after,rollbackRemoved:true,exchangeRemoved:true};
 }
