@@ -209,7 +209,7 @@ async function main() {
     alerts: new HomeAssistantBackupAlerts()
   });
   archive = createArchiveServer({ apiToken, port: ARCHIVE_PORT,
-    storagePath: storage.dataDir, dataStore: archiveData, cloudBackup });
+    storagePath: storage.dataDir, dataStore: archiveData, cloudBackup, configuredPhone: !!opts.phone_number });
   cloudBackup.start();
   maintenanceMonitor = new WhatsAppMaintenanceMonitor();
   maintenanceMonitor.start();
