@@ -41,10 +41,12 @@
       info.textContent='Unique readable messages stored: '+integer(data.archive?.count)+
         ' · FULL batches: '+integer(data.bulk.fullBatches)+
         ' · FULL records delivered: '+integer(data.bulk.fullMessagesDelivered)+
-        ' · Net new unique rows across observed batches: '+integer(data.imports.netUniqueChange)+
+        ' · Newly inserted message keys: '+integer(data.imports.inserted)+
+        ' · Existing message keys reprocessed: '+integer(data.imports.existing)+
+        ' · Net unique row change: '+integer(data.imports.netUniqueChange)
         ' · Per-chat requests: '+integer(data.backfill.requests)+
         ' · Conversations checkpointed: '+integer(data.backfill.conversations)+
-        '. Delivered records can overlap; net row changes are not an exact duplicate count.';
+        '. Existing-row upserts include duplicates and updates; identity consolidation can change the net row total.';
       start.disabled=data.backfill.selected || data.bulk.state==='receiving';
       pause.disabled=!data.backfill.selected;
     }catch(e){state.textContent='Recovery status unavailable: '+String(e.message||e);}
