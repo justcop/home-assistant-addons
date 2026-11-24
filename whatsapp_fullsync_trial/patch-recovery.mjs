@@ -41,6 +41,16 @@ patch(worker,/while \(connected && !halted\) \{/,
     "          continue;",
     "        }"
   ].join('\n'),'gate one-chat-at-a-time backfill');
+// Observe real per-request HTTP/Boom codes (without message content, JIDs or
+// authentication details). Silence is not a server-generated 429.
+patch(worker,/socket\.fetchMessageHistory\(\s*BATCH\s*,\s*old\.key\s*,\s*old\.ts\s*\*\s*1000\s*\)/,
+  [
+    'socket.fetchMessageHistory(BATCH,old.key,old.ts*1000).catch(err => {',
+    '            const code = Number(err?.output?.statusCode ?? err?.status ?? err?.response?.status);',
+    "            logger.warn({status:Number.isFinite(code)?code:null},'trial: history API request rejected');",
+    '            throw err;',
+    '          })'
+  ].join('\n'),'request-level protocol error classification');
 // Delay across all chats after a failed history request. The response may be
 // silent rather than a real 429: do not invent a server-provided retry time.
 patch(worker,/const newer = anchor\(c\.id\),/,
