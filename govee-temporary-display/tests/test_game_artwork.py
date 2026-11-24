@@ -9,7 +9,7 @@ from hashlib import sha256
 from artwork_loader import load_rgb_image
 
 from artwork_modes import get_artwork_rgb, resolve_game_artwork
-from ha_countdown import countdown_label, render, selected_artwork_mode, validate
+from ha_countdown import countdown_label, render, render_frames, selected_artwork_mode, validate
 
 CONFIG = {
     "state_entity": "input_select.gaming_session_state",
@@ -91,6 +91,30 @@ class GameArtworkTests(unittest.TestCase):
         self.assertEqual(len(b), 52 * 32 * 3)
         self.assertNotEqual(a, b)
         self.assertEqual(countdown_label(2100), "35M")
+
+
+    def test_animated_timer_background(self):
+        from unittest.mock import patch
+        red=bytes((255,0,0))*1664
+        blue=bytes((0,0,255))*1664
+        with patch("ha_countdown.get_frames",return_value=(red,blue,red)):
+            frames=render_frames(self.config,2100,mode="gta_vi")
+        self.assertEqual(len(frames),3)
+        self.assertEqual(frames[0],frames[2])
+        self.assertEqual(frames[0][:3],red[:3])
+        self.assertEqual(frames[1][:3],blue[:3])
+        self.assertEqual(len(frames[0]),4992)
+        ink=bytes((255,249,228))
+        positions=lambda f: [i for i in range(0,len(f),3) if f[i:i+3]==ink]
+        self.assertTrue(positions(frames[0]))
+        self.assertEqual(positions(frames[0]),positions(frames[1]))
+
+    def test_animated_timer_fallback(self):
+        from unittest.mock import patch
+        with patch("ha_countdown.get_frames",side_effect=OSError("drive missing")):
+            frames=render_frames(self.config,2100,mode="gta_vi")
+        self.assertEqual(len(frames),1)
+        self.assertEqual(len(frames[0]),4992)
 
 
 if __name__ == "__main__":
