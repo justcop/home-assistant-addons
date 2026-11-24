@@ -198,6 +198,7 @@ async function main() {
     WHATSAPP_MCP_TOKEN: mcpToken,
     WHATSAPP_DATA_DIR: storage.dataDir,
     WHATSAPP_REVIEW_MODULE: '/opt/whatsapp-addon/review-data.mjs',
+    WHATSAPP_ARCHIVE_SEARCH_MODULE: '/opt/whatsapp-addon/archive-data.mjs',
     LOG_LEVEL: 'info'
   });
   await waitForServer(MCP_PORT, mcp);
