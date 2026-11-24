@@ -14,6 +14,7 @@ import shutil
 import threading
 import time
 import uuid
+import zlib
 from pathlib import Path
 
 from PIL import Image, UnidentifiedImageError
@@ -133,7 +134,7 @@ def _seed():
         key=item["id"]
         dst=IMAGES/(key+".png")
         src=BUNDLED/item["file"]
-        if not dst.is_file():
+        if not dst.is_file() and not any(it.get("id")==key and it.get("animation") for it in data["items"]):
             if not src.is_file():
                 raise OSError("Bundled artwork is missing: "+item["file"])
             _atomic_write(dst,src.read_bytes())
@@ -187,13 +188,30 @@ def get_png(item_id):
         if item is None:
             raise ValueError("Unknown artwork ID")
         if not data["read_only"]:
-            path=IMAGES / (item["id"]+".png")
+            path=IMAGES / (item["id"]+(".gif" if item.get("animation") else ".png"))
             if path.is_file() and not path.is_symlink():
                 return path.read_bytes()
         seed=SEED_BY_ID.get(item_id)
         if seed:
             return (BUNDLED/seed["file"]).read_bytes()
         raise OSError("Saved artwork is unavailable because storage is disconnected")
+
+
+def get_frames(item_id):
+    with Image.open(io.BytesIO(get_png(item_id))) as image:
+        if image.size != (WIDTH, HEIGHT):
+            raise ValueError("Artwork must be 52×32")
+        if getattr(image, "n_frames", 1)==1:
+            return (image.convert("RGB").tobytes(),)
+        frames = []
+        elapsed = 0
+        for i in range(min(getattr(image, "n_frames", 1), 720)):
+            image.seek(i)
+            rgb = image.convert("RGB").tobytes()
+            elapsed += max(10, image.info.get("duration", 83))
+            target = min(720, round(elapsed * 12 / 1000))
+            frames.extend([rgb] * max(0, target-len(frames)))
+        return tuple(frames or [image.convert("RGB").tobytes()])
 
 
 def get_rgb(item_id):
@@ -251,7 +269,10 @@ def save(body):
                 if (m["kind"],_normalize(m["value"])) in taken:
                     raise ValueError("That match is already assigned to "+candidate["name"])
         image64=body.get("image_png_base64")
-        if image64 is None and existing is None:
+        animation64=body.get("frames_zlib_base64")
+        if image64 is not None and animation64 is not None:
+            raise ValueError("Provide either PNG or animation")
+        if image64 is None and animation64 is None and existing is None:
             raise ValueError("An image is required for new artwork")
         normalized_png=None
         if image64 is not None:
@@ -273,17 +294,40 @@ def save(body):
                     normalized_png=out.getvalue()
             except (UnidentifiedImageError,OSError) as exc:
                 raise ValueError("Invalid PNG image") from exc
+        normalized_gif=None
+        if animation64 is not None:
+            if not isinstance(animation64,str) or len(animation64)>4_000_000:
+                raise ValueError("Animation too large")
+            try:
+                decoder=zlib.decompressobj()
+                frame_bytes=WIDTH*HEIGHT*3
+                decoded=decoder.decompress(base64.b64decode(animation64,validate=True),720*frame_bytes+1)
+                if not decoder.eof or decoder.unused_data or len(decoded)>720*frame_bytes or not decoded or len(decoded)%frame_bytes:
+                    raise ValueError("Invalid animation frames")
+                frames=[Image.frombytes("RGB",(WIDTH,HEIGHT),decoded[i:i+frame_bytes]) for i in range(0,len(decoded),frame_bytes)]
+                out=io.BytesIO()
+                frames[0].save(out,format="GIF",save_all=True,append_images=frames[1:],duration=[round((i+1)*100/12)*10-round(i*100/12)*10 for i in range(len(frames))],loop=0,disposal=2)
+                normalized_gif=out.getvalue()
+            except (zlib.error,binascii.Error,OSError) as exc:
+                raise ValueError("Invalid animation") from exc
         now=int(time.time())
         if not existing:
             item_id="art_"+uuid.uuid4().hex[:16]
             existing={"id":item_id,"created_at":now,"source":"uploaded"}
             data["items"].append(existing)
-        filename=item_id+".png"
+        animation=normalized_gif is not None or (normalized_png is None and existing.get("animation",False))
+        filename=item_id+(".gif" if animation else ".png")
+        if normalized_gif is not None:
+            _ensure_storage()
+            _atomic_write(IMAGES/filename,normalized_gif)
         if normalized_png is not None:
             _ensure_storage()
             _atomic_write(IMAGES/filename,normalized_png)
-        existing.update(name=name,file=filename,mappings=mappings,updated_at=now)
+        existing.update(name=name,file=filename,mappings=mappings,updated_at=now,animation=animation)
         _write_manifest(data)
+        obsolete=IMAGES/(item_id+(".png" if animation else ".gif"))
+        if obsolete.is_file() and not obsolete.is_symlink():
+            obsolete.unlink(missing_ok=True)
         return existing.copy()
 
 
@@ -299,7 +343,8 @@ def delete(item_id):
         data["items"]=[it for it in data["items"] if it["id"]!=item_id]
         _write_manifest(data)
         # After metadata is safe, remove the now-unreferenced file.
-        (IMAGES/(item_id+".png")).unlink(missing_ok=True)
+        for suffix in (".png",".gif"):
+            (IMAGES/(item_id+suffix)).unlink(missing_ok=True)
 
 
 def resolve(kind,value):
