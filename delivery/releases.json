@@ -18,9 +18,9 @@
     "image": "ghcr.io/justcop/github-actions-cleanup-{arch}"
   },
   "govee-temporary-display": {
-    "sha": "f527c7812e2dc66c714e22df93c7edc959dabf95",
-    "compatibility": "0f8bb2779a27ef8ac3be3c52c6f4821c3ab462729bd28a4621d0e53cfdd5be3d",
-    "version": "0.6.4",
+    "sha": "be4be9e1a0341454984f0e743f362a2b1698e28f",
+    "compatibility": "c77a86d110836ad7ced890f0259ee0f7a09e3bb93bddde801c2fa5f0a874ebed",
+    "version": "0.6.5",
     "image": "ghcr.io/justcop/govee-temporary-display-{arch}"
   },
   "lastfm_analytics": {
