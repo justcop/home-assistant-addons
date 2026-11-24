@@ -16,8 +16,8 @@ if(!fs.readFileSync(connectionPath,'utf8').includes('syncFullHistory: true'))
 // syncFullHistory=true causes WhatsApp to send them. Override the filter only
 // in this isolated experiment. The existing upstream provenance/fromMe checks
 // and deletion-suppression mechanisms remain intact.
-patchOnce(connectionPath,/syncFullHistory: true,\\s*generateHighQualityLinkPreview:/,
-  'syncFullHistory: true,\\n        shouldSyncHistoryMessage: () => true,\\n        generateHighQualityLinkPreview:',
+patchOnce(connectionPath,/syncFullHistory: true,\s*generateHighQualityLinkPreview:/,
+  'syncFullHistory: true,\n        shouldSyncHistoryMessage: () => true,\n        generateHighQualityLinkPreview:',
   'accept full-history sync notifications');
 
 patchOnce(launcherPath,/const DEFAULT_PAIRING_MODE = 'code';/,
