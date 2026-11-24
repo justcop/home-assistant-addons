@@ -7,7 +7,7 @@ function read(file) {
   try { return JSON.parse(fs.readFileSync(file,'utf8')); }
   catch(err) { if(err.code==='ENOENT') return null; throw err; }
 }
-export function startTrialRecoveryMonitor({
+export function startHistoryRecoveryMonitor({
   root, token=process.env.SUPERVISOR_TOKEN, request=fetch, intervalMs=60_000
 }) {
   let current=null, busy=false;
@@ -47,7 +47,7 @@ export function startTrialRecoveryMonitor({
         current=null;
       }
     } catch(err) {
-      console.warn('trial recovery monitor: '+String(err?.message||'check failed').slice(0,160));
+      console.warn('history recovery monitor: '+String(err?.message||'check failed').slice(0,160));
     } finally {busy=false;}
   }
   const timer=setInterval(()=>{void tick();},intervalMs);
