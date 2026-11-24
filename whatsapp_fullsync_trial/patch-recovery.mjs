@@ -95,6 +95,12 @@ patch(server,/if \(isPairing\) \{/,
 patch(ui,/<\/body>/,
   '<script defer src="trial-recovery-ui.js"></script>\n</body>',
   'trial controls UI');
+// A reconnect which arrives while the old worker is still draining its
+// previous request must clear the halted flag. Without this, the prior
+// worker can exit after the new connected callback was missed by 'running'.
+patch(worker,/if \(!connected\)\s*halted = true;/,
+  'if (!connected) halted = true;\n    else halted = false;',
+  'resume worker on transient reconnect');
 // A manual recheck must work repeatedly, including for stalled conversations.
 // Use a per-action nonce (timestamp), not an irrevocable boolean. The worker
 // acknowledges the nonce in its checkpoint before the next request.
