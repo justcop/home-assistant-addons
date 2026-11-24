@@ -134,7 +134,7 @@ def _seed():
         key=item["id"]
         dst=IMAGES/(key+".png")
         src=BUNDLED/item["file"]
-        if not dst.is_file():
+        if not dst.is_file() and not any(it.get("id")==key and it.get("animation") for it in data["items"]):
             if not src.is_file():
                 raise OSError("Bundled artwork is missing: "+item["file"])
             _atomic_write(dst,src.read_bytes())
@@ -201,6 +201,8 @@ def get_frames(item_id):
     with Image.open(io.BytesIO(get_png(item_id))) as image:
         if image.size != (WIDTH, HEIGHT):
             raise ValueError("Artwork must be 52×32")
+        if getattr(image, "n_frames", 1)==1:
+            return (image.convert("RGB").tobytes(),)
         frames = []
         elapsed = 0
         for i in range(min(getattr(image, "n_frames", 1), 720)):
@@ -304,7 +306,7 @@ def save(body):
                     raise ValueError("Invalid animation frames")
                 frames=[Image.frombytes("RGB",(WIDTH,HEIGHT),decoded[i:i+frame_bytes]) for i in range(0,len(decoded),frame_bytes)]
                 out=io.BytesIO()
-                frames[0].save(out,format="GIF",save_all=True,append_images=frames[1:],duration=[80 if i%3!=2 else 90 for i in range(len(frames))],loop=0,disposal=2)
+                frames[0].save(out,format="GIF",save_all=True,append_images=frames[1:],duration=[round((i+1)*100/12)*10-round(i*100/12)*10 for i in range(len(frames))],loop=0,disposal=2)
                 normalized_gif=out.getvalue()
             except (zlib.error,binascii.Error,OSError) as exc:
                 raise ValueError("Invalid animation") from exc
@@ -323,6 +325,9 @@ def save(body):
             _atomic_write(IMAGES/filename,normalized_png)
         existing.update(name=name,file=filename,mappings=mappings,updated_at=now,animation=animation)
         _write_manifest(data)
+        obsolete=IMAGES/(item_id+(".png" if animation else ".gif"))
+        if obsolete.is_file() and not obsolete.is_symlink():
+            obsolete.unlink(missing_ok=True)
         return existing.copy()
 
 
