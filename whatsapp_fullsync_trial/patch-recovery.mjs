@@ -115,4 +115,13 @@ patch(appJs,/if \(chat\.phase === 'likely_complete' && !chat\.manualRecheck\) \{
 patch(appJs,/const button = el\('button','backfill-recheck','Not complete — keep searching'\);/,
   "const button = el('button','backfill-recheck',chat.phase === 'stalled' ? 'Retry stalled conversation' : 'Not complete — keep searching');",
   'label retry accurately');
+// Native HA alert when the opted-in worker stops or has no checkpoint.
+// No notification is emitted merely because FULL history becomes idle.
+const runner='/opt/whatsapp-addon/run.mjs';
+patch(runner,/import \{ createArchiveServer \} from '\.\/archive-server\.mjs';/,
+  "import { createArchiveServer } from './archive-server.mjs';\nimport { startTrialRecoveryMonitor } from './trial-alerts.mjs';",
+  'trial alert monitor import');
+patch(runner,/archive\.listen\(ARCHIVE_PORT, '0\.0\.0\.0', \(\) => \{/,
+  "startTrialRecoveryMonitor({root:storage.dataDir});\n  archive.listen(ARCHIVE_PORT, '0.0.0.0', () => {",
+  'launch private alert monitor');
 console.log('Trial recovery controls, dedup tombstone safeguard and telemetry installed.');
