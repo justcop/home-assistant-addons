@@ -1,5 +1,5 @@
 name: Govee Pixel Studio
-version: 0.6.2
+version: 0.6.3
 slug: govee_temporary_display
 description: Manage pixel artwork on external storage and stream temporary 52x32 displays
 arch:
