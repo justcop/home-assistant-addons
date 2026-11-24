@@ -55,7 +55,7 @@ function send(res, status, data, type = 'text/plain; charset=utf-8') {
 // WhatsApp content endpoints stay GET-only. A small, separate configuration
 // controller is POST-only, protected by HA admin Ingress and a custom header;
 // no path can send, edit or delete a WhatsApp message.
-export function createArchiveServer({ apiToken, port = 8100, storagePath = '/data/whatsapp', dataStore = null, cloudBackup = null, configuredPhone = false, allowPeer = isIngressPeer }) {
+export function createArchiveServer({ apiToken, port = 8100, storagePath = '/data/whatsapp', dataStore = null, cloudBackup = null, configuredPhone = false, pairingDir = '/data', allowPeer = isIngressPeer }) {
   if (!apiToken) throw new Error('Missing internal WhatsApp API token');
   return http.createServer(async (req, res) => {
     if (!allowPeer(req.socket.remoteAddress)) return send(res, 403, 'Ingress only');
@@ -69,9 +69,9 @@ export function createArchiveServer({ apiToken, port = 8100, storagePath = '/dat
       return send(res, 405, 'Read-only archive');
     try {
       if (isPairing) {
-        const phoneFile = '/data/.whatsapp-pairing-phone';
-        const codeFile = '/data/.whatsapp-pairing-code.json';
-        const signalFile = '/data/.whatsapp-repair-request';
+        const phoneFile = path.join(pairingDir, '.whatsapp-pairing-phone');
+        const codeFile = path.join(pairingDir, '.whatsapp-pairing-code.json');
+        const signalFile = path.join(pairingDir, '.whatsapp-repair-request');
         if (req.method === 'GET' && url.pathname === '/api/pairing/status') {
           let health;
           try {
