@@ -47,6 +47,54 @@
     );
 
     server.registerTool(
+      "whatsapp_archive_filter",
+      {
+        description:
+          "Search the read-only WhatsApp archive across resolved contact/group names and message text or transcripts, " +
+          "optionally narrowed by inclusive UTC Unix-second date range and conversation type. " +
+          "Works offline and never sends messages. Use when the user asks about a person/group or events in a date range, " +
+          "including date-only searches without a text term. Results are paged newest first.",
+        inputSchema: {
+          query: z.string().max(160).default("")
+            .describe("Optional case-insensitive substring in chat names, message text or transcripts. At least a query or date boundary is required."),
+          scope: z.enum(["any","name","message"]).default("any")
+            .describe("Search names, message contents, or both (default)."),
+          after: z.number().int().min(0).max(9999999999).optional()
+            .describe("Start of UTC date interval, inclusive, Unix seconds."),
+          before: z.number().int().min(0).max(9999999999).optional()
+            .describe("End of UTC date interval, inclusive, Unix seconds."),
+          is_group: z.boolean().optional()
+            .describe("True for groups only, false for direct chats only."),
+          limit: z.number().int().min(1).max(60).default(30)
+            .describe("Maximum results on one page, 1-60."),
+          cursor: z.string().regex(/^[0-9]+$/).optional()
+            .describe("Next cursor supplied by a prior result."),
+        },
+        annotations: READ_ONLY_TOOL,
+      },
+      async ({query,scope,after,before,is_group,limit,cursor}) => {
+        try {
+          const modulePath = process.env["WHATSAPP_ARCHIVE_SEARCH_MODULE"];
+          const storagePath = process.env["WHATSAPP_DATA_DIR"];
+          if(!modulePath || !storagePath) throw new Error("Archive search is not configured");
+          const { ArchiveData } = await import(modulePath);
+          const params = new URLSearchParams();
+          for(const [key,value] of Object.entries({
+            q:query,scope,after,before,isGroup:is_group,limit,cursor
+          })) if(value!==undefined && value!==null) params.set(key,String(value));
+          const archive = new ArchiveData(storagePath);
+          try {
+            return jsonResult(archive.searchArchive(params),ctx.config.maxResultChars);
+          } finally {
+            archive.close();
+          }
+        } catch(err) {
+          return failedResult("whatsapp_archive_filter",err,ctx);
+        }
+      },
+    );
+
+    server.registerTool(
       "whatsapp_get_review_context",
       {
         description:
