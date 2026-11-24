@@ -15,6 +15,7 @@ replaceOnce(header,`// The add-on's private pairing UI writes only the phone num
 const PAIRING_PHONE_FILE = '/data/.whatsapp-pairing-phone';
 const PAIRING_CODE_FILE = '/data/.whatsapp-pairing-code.json';
 const REPAIR_SIGNAL_FILE = '/data/.whatsapp-repair-request';
+const PHONE_REFRESH_FILE = '/data/.whatsapp-pairing-refresh';
 function pairingPhone(fallback: string | undefined): string | undefined {
   try {
     const value = readFileSync(PAIRING_PHONE_FILE, 'utf8').trim();
@@ -50,7 +51,16 @@ replaceOnce('    if (stopped) return;\n\n    // Baileys types',
 const startAnchor='    stopped = false;\n    clearRetryTimer(); // don\'t let an already-scheduled retry also fire and create a second socket';
 replaceOnce(startAnchor,`    stopped = false;
     if (repairTimer === undefined) repairTimer = setInterval(() => {
-      if (stopped || resettingPairing || !existsSync(REPAIR_SIGNAL_FILE)) return;
+      if (stopped || resettingPairing) return;
+      if (existsSync(PHONE_REFRESH_FILE)) {
+        rmSync(PHONE_REFRESH_FILE, { force: true });
+        const phone = pairingPhone(config.phoneNumber);
+        if (phone && state === 'pairing' && sock) {
+          pairingRequestedForSocket = true;
+          void requestPairingCode(sock, phone);
+        }
+      }
+      if (!existsSync(REPAIR_SIGNAL_FILE)) return;
       resettingPairing = true;
       rmSync(REPAIR_SIGNAL_FILE, { force: true });
       rmSync(PAIRING_CODE_FILE, { force: true });
