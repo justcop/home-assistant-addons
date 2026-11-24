@@ -22,7 +22,7 @@ RUN corepack enable && pnpm install --frozen-lockfile \
 RUN node -e "const fs=require('node:fs'); for(const f of ['/opt/out/api/node_modules/baileys/lib/Socket/messages-recv.js','/opt/out/api/node_modules/baileys/lib/Utils/chat-utils.js']) if(!fs.existsSync(f))throw Error('Missing patched Baileys module: '+f)"
 
 FROM node:24-bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg poppler-utils ca-certificates python3 \
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg poppler-utils ca-certificates python3 qrencode \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /opt/out/api /opt/whatsapp-api
 COPY --from=build /opt/out/mcp /opt/whatsapp-mcp

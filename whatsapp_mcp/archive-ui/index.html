@@ -51,6 +51,15 @@
             <button type="submit">Request pairing code</button>
           </div>
         </form>
+        <div class="pairing-methods" role="group" aria-label="Pairing method">
+          <button type="button" id="pairing-use-qr">Show QR code</button>
+          <button type="button" id="pairing-use-code">Use phone-number code</button>
+        </div>
+        <div id="pairing-qr-panel" class="hidden">
+          <p>On your phone: WhatsApp → Linked devices → Link a device, then scan this QR code.</p>
+          <img id="pairing-qr-image" alt="Temporary WhatsApp device-linking QR code" width="260" height="260">
+          <p class="pairing-help">The QR changes frequently. Keep this page open and scan the current code.</p>
+        </div>
         <div id="pairing-code-panel" class="hidden">
           <p>On your phone: WhatsApp → Settings → Linked devices → Link a device → Link with phone number instead.</p>
           <div class="pairing-code-row"><strong id="pairing-code" class="pairing-code"></strong>

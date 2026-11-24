@@ -16,6 +16,17 @@ const PAIRING_PHONE_FILE = '/data/.whatsapp-pairing-phone';
 const PAIRING_CODE_FILE = '/data/.whatsapp-pairing-code.json';
 const REPAIR_SIGNAL_FILE = '/data/.whatsapp-repair-request';
 const PHONE_REFRESH_FILE = '/data/.whatsapp-pairing-refresh';
+const PAIRING_MODE_FILE = '/data/.whatsapp-pairing-mode';
+const QR_FILE = '/data/.whatsapp-link-qr';
+function pairingMode(): 'qr' | 'code' {
+  try {
+    const mode = readFileSync(PAIRING_MODE_FILE, 'utf8').trim();
+    return mode === 'qr' || mode === 'code' ? mode : 'code';
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    return process.env['WHATSAPP_PAIRING_DEFAULT_MODE'] === 'qr' ? 'qr' : 'code';
+  }
+}
 function pairingPhone(fallback: string | undefined): string | undefined {
   try {
     const value = readFileSync(PAIRING_PHONE_FILE, 'utf8').trim();
@@ -28,10 +39,12 @@ function pairingPhone(fallback: string | undefined): string | undefined {
 
 ${header}`);
 replaceOnce('  let retryTimer: NodeJS.Timeout | undefined;',
-  '  let retryTimer: NodeJS.Timeout | undefined;\n  let repairTimer: NodeJS.Timeout | undefined;\n  let resettingPairing = false;');
+  '  let retryTimer: NodeJS.Timeout | undefined;\n  let repairTimer: NodeJS.Timeout | undefined;\n  let resettingPairing = false;\n  let activePairingMode = pairingMode();');
 replaceOnce('if (config.phoneNumber === undefined) {','if (pairingPhone(config.phoneNumber) === undefined) {');
+replaceOnce('    if (config.qrFile !== undefined) {\n      setState("pairing");\n      return;\n    }',
+  '    if (pairingMode() === "qr") {\n      setState("pairing");\n      return;\n    }');
 replaceOnce('    void requestPairingCode(activeSock, config.phoneNumber);',
-  '    void requestPairingCode(activeSock, pairingPhone(config.phoneNumber)!);');
+  '    const phone = pairingPhone(config.phoneNumber)!;\n    logger.info({ phoneNumber: phone }, "whatsapp: pairing code requested for phone number");\n    void requestPairingCode(activeSock, phone);');
 replaceOnce(`      logger.info({ pairingCode }, "whatsapp: pairing code issued");
       // Deliberately unmissable in a Portainer log tail, on top of the structured log line above.
       console.log(\`\\n=== WhatsApp pairing code: \${pairingCode} ===\\n\`);`,
@@ -39,11 +52,13 @@ replaceOnce(`      logger.info({ pairingCode }, "whatsapp: pairing code issued")
       writeFileSync(PAIRING_CODE_FILE, JSON.stringify({ code: pairingCode, issuedAt: Date.now() }), { mode: 0o600 });
       logger.info("whatsapp: pairing code available through private Home Assistant ingress");`);
 replaceOnce('    attempts = 0;\n    lastConnectedAt = nowSec();',
-  '    rmSync(PAIRING_CODE_FILE, { force: true });\n    attempts = 0;\n    lastConnectedAt = nowSec();');
+  '    rmSync(QR_FILE, { force: true });\n    rmSync(PAIRING_CODE_FILE, { force: true });\n    attempts = 0;\n    lastConnectedAt = nowSec();');
 // Ignore connection events from an intentionally retired socket; its later
 // logout/401 event must not erase the new linked session.
-replaceOnce('      if (update.connection === "open") {',
-  '      if (newSock !== sock) return;\n\n      if (update.connection === "open") {');
+replaceOnce('    newSock.ev.on("creds.update", () => {\n      auth.saveCreds();',
+  '    newSock.ev.on("creds.update", () => {\n      if (newSock !== sock) return;\n      auth.saveCreds();');
+replaceOnce('    newSock.ev.on("connection.update", (update: Partial<BaileysConnectionState>) => {\n      touch();',
+  '    newSock.ev.on("connection.update", (update: Partial<BaileysConnectionState>) => {\n      if (newSock !== sock) return;\n      touch();');
 replaceOnce('  function handleClose(update: Partial<BaileysConnectionState>): void {\n    // stop() itself',
   '  function handleClose(update: Partial<BaileysConnectionState>): void {\n    // stop() itself');
 replaceOnce('    if (stopped) return;\n\n    // Baileys types',
@@ -54,16 +69,32 @@ replaceOnce(startAnchor,`    stopped = false;
       if (stopped || resettingPairing) return;
       if (existsSync(PHONE_REFRESH_FILE)) {
         rmSync(PHONE_REFRESH_FILE, { force: true });
-        const phone = pairingPhone(config.phoneNumber);
-        if (phone && state === 'pairing' && sock) {
-          pairingRequestedForSocket = true;
-          void requestPairingCode(sock, phone);
+        const mode = pairingMode();
+        if (mode !== activePairingMode && state === 'pairing'
+            && !auth.state.creds.registered && !auth.state.creds.account) {
+          activePairingMode = mode;
+          const previous = sock;
+          sock = undefined;
+          rmSync(QR_FILE, { force: true });
+          rmSync(PAIRING_CODE_FILE, { force: true });
+          clearRetryTimer();
+          void previous?.end(undefined).catch(() => undefined);
+          // createSocket discards the half-registered unclaimed code identity.
+          createSocket();
+        } else if (mode === 'code') {
+          const phone = pairingPhone(config.phoneNumber);
+          if (phone && state === 'pairing' && sock) {
+            pairingRequestedForSocket = true;
+            logger.info({ phoneNumber: phone }, 'whatsapp: pairing code requested for phone number');
+            void requestPairingCode(sock, phone);
+          }
         }
       }
       if (!existsSync(REPAIR_SIGNAL_FILE)) return;
       resettingPairing = true;
       rmSync(REPAIR_SIGNAL_FILE, { force: true });
       rmSync(PAIRING_CODE_FILE, { force: true });
+      rmSync(QR_FILE, { force: true });
       void (async () => {
         // This is a deliberate LOCAL credential reset. Never delete messages,
         // archive storage, tombstones or deletion-suppression records.

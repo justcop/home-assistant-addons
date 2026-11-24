@@ -51,6 +51,8 @@ class FakeElement {
   }
   addEventListener(name, cb) { this.handlers.set(name, cb); }
   setAttribute(name, value) { this.attributes[name] = value; }
+  removeAttribute(name) { delete this.attributes[name]; }
+  get dataset() { return this._dataset ||= {}; }
   replaceChildren(...children) { this.children = [...children]; }
   append(...children) { this.children.push(...children); }
   click() { this.handlers.get('click')?.(); }
