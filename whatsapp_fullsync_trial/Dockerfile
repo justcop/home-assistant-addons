@@ -2,6 +2,7 @@
 FROM ghcr.io/justcop/whatsapp-mcp-amd64:0.3.32
 COPY trial-observer.mjs trial-recovery.mjs trial-alerts.mjs trial-recovery.test.mjs /opt/whatsapp-addon/
 COPY trial-recovery-ui.js /opt/whatsapp-addon/archive-ui/trial-recovery-ui.js
+COPY trial-pairing-ui.js /opt/whatsapp-addon/archive-ui/trial-pairing-ui.js
 COPY patch-experiment.mjs patch-recovery.mjs /tmp/
 RUN node /tmp/patch-experiment.mjs \
  && node /tmp/patch-recovery.mjs \
