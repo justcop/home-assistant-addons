@@ -16,12 +16,15 @@ test('history metrics are aggregate-only and survive process state reinitialisat
     const old=process.env.WHATSAPP_DATA_DIR;
     process.env.WHATSAPP_DATA_DIR=dir;
     try{
-      observeHistoryBatch({type:'FULL',received:5000,netUniqueChange:4973,isLatest:false});
-      observeHistoryBatch({type:'FULL',received:5000,netUniqueChange:0,isLatest:false});
+      observeHistoryBatch({type:'FULL',received:5000,inserted:4973,existing:27,netUniqueChange:4973,isLatest:false});
+      observeHistoryBatch({type:'FULL',received:5000,inserted:0,existing:5000,netUniqueChange:0,isLatest:false});
       const metrics=readTrialMetrics(dir);
       assert.equal(metrics.fullBatches,2);
       assert.equal(metrics.fullReceived,10000);
       assert.equal(metrics.netUniqueChange,4973);
+      assert.equal(metrics.inserted,4973);
+      assert.equal(metrics.existing,5027);
+      assert.equal(metrics.inserted+metrics.existing,metrics.received);
       assert.equal(metrics.history.length,2);
       assert.ok(!fs.readFileSync(path.join(dir,'.trial-history-metrics.json'),'utf8').includes('some-private-contact'));
       assert.equal(trialRecoveryStatus(dir).bulk.state,'receiving');
