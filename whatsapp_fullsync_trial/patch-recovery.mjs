@@ -18,13 +18,34 @@ patch(launcher,/WHATSAPP_HISTORY_BACKFILL:\s*'0'/,
 const prior=fs.readFileSync(ingest,'utf8');
 if(!prior.includes('import ')) throw Error('Expected ES module history ingester');
 fs.writeFileSync(ingest,"import { observeHistoryBatch } from '/opt/whatsapp-addon/trial-observer.mjs';\n"+prior);
+// Capture exact upsert results within history batches. This distinguishes
+// newly inserted keys from existing rows, even when identity merges change
+// the net SQLite row count. Other/live upserts are left uncounted.
+patch(ingest,/const \{\s*db,\s*chats,\s*contacts,\s*messages,\s*reactions,\s*logger,\s*selfId\s*\} = deps;/,
+  [
+    'const { db, chats, contacts, messages, reactions, logger, selfId } = deps;',
+    '  const trialBatchContext = { current:null };',
+    '  const trialTrackedUpsert = input => {',
+    '    const inserted = messages.upsert(input);',
+    '    if (trialBatchContext.current) {',
+    '      if (inserted) trialBatchContext.current.inserted++;',
+    '      else trialBatchContext.current.existing++;',
+    '    }',
+    '    return inserted;',
+    '  };'
+  ].join('\n'),'trial exact upsert counting scope');
+patch(ingest,/const inserted = messages\.upsert\(\{/,
+  'const inserted = trialTrackedUpsert({',
+  'count inserted and existing historical message keys');
 patch(ingest,/applyHistory\(h\);/,
   [
     'const beforeTrialRows = messages.count();',
-    '        applyHistory(h);',
+    '        const trialBatchCounters = {inserted:0,existing:0};',
+    '        trialBatchContext.current = trialBatchCounters;',
+    '        try { applyHistory(h); } finally { trialBatchContext.current = null; }',
     '        const trialType = Object.entries(proto.HistorySync.HistorySyncType).find(([,value]) => value === h.syncType)?.[0] || String(h.syncType);',
-    '        observeHistoryBatch({type:trialType,received:h.messages.length,netUniqueChange:messages.count()-beforeTrialRows,isLatest:h.isLatest});'
-  ].join('\n'),'reconcile imported history');
+    '        observeHistoryBatch({type:trialType,received:h.messages.length,inserted:trialBatchCounters.inserted,existing:trialBatchCounters.existing,netUniqueChange:messages.count()-beforeTrialRows,isLatest:h.isLatest});'
+  ].join('\n'),'reconcile exact history upserts');
 patch(messages,/text = COALESCE\(excluded\.text, messages\.text\),/,
   'text = CASE WHEN messages.deleted_ts IS NOT NULL THEN NULL ELSE COALESCE(excluded.text, messages.text) END,',
   'preserve revoked text tombstone on replay');
