@@ -39,8 +39,22 @@ jobs:
             const page=fs.readFileSync("/opt/whatsapp-addon/archive-ui/index.html","utf8");
             assert.match(page,/id="pairing-banner"/);
             assert.match(page,/id="pairing-repair"/);
-            assert.match(run,/WHATSAPP_HISTORY_BACKFILL: .0./);
+            assert.match(run,/WHATSAPP_HISTORY_BACKFILL: .1./);
+            const worker=fs.readFileSync("/opt/whatsapp-api/dist/history-backfill.js","utf8");
+            const messageRepo=fs.readFileSync("/opt/whatsapp-api/dist/db/messages.js","utf8");
+            const ingest=fs.readFileSync("/opt/whatsapp-api/dist/whatsapp/ingest.js","utf8");
+            const archive=fs.readFileSync("/opt/whatsapp-addon/archive-server.mjs","utf8");
+            assert.match(worker,/trial-recovery-resume/);
+            assert.match(worker,/bulkRecentlyActive/);
+            assert.match(worker,/trial: upstream history request backed off/);
+            assert.match(messageRepo,/messages.deleted_ts IS NOT NULL/);
+            assert.match(ingest,/observeHistoryBatch/);
+            assert.match(archive,/api\/trial\/recovery/);
+            assert.match(fs.readFileSync("/opt/whatsapp-addon/archive-ui/index.html","utf8"),/trial-recovery-ui.js/);
             assert.match(run,/configureWhatsAppStorage\(.{2}\)/);
             assert.ok(!run.includes("configureWhatsAppStorage(opts.storage_path)"));
             console.log("Isolated pairing image checks passed");
           '
+
+      - name: Run synthetic recovery and replay tests (offline)
+        run: docker run --rm --network none --entrypoint node whatsapp-fullsync-trial:test --test /opt/whatsapp-addon/trial-recovery.test.mjs
