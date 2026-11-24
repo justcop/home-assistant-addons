@@ -38,7 +38,7 @@
         retry.disabled=false;
       } else {
         status.textContent='WhatsApp has not issued a QR (connection: '+String(s.connection||'unknown')+
-          '). Registration may have failed; you can restart this trial pairing without deleting archived messages.';
+          '). Registration may have failed; you can restart pairing without deleting archived messages.';
         retry.disabled=false;
       }
     } catch(error) {
@@ -49,9 +49,9 @@
   }
   retry.addEventListener('click',async()=>{
     if(busy)return;
-    if(!window.confirm('Restart the linked-device pairing? This resets credentials, but preserves its archive and leaves the message archive untouched.'))return;
+    if(!window.confirm('Restart the linked-device pairing? This resets only linked-device credentials and preserves archived messages.'))return;
     busy=true;retry.disabled=true;
-    feedback.textContent='Restarting trial pairing…';
+    feedback.textContent='Restarting pairing…';
     try {
       const res=await fetch('api/pairing/repair',{
         method:'POST',cache:'no-store',
