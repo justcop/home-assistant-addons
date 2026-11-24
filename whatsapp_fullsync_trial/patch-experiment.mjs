@@ -12,8 +12,8 @@ patchOnce(connectionPath,/macOS\((["'])Chrome\1\)/,
   'macOS("Safari")','fresh-pairing companion profile');
 if(!fs.readFileSync(connectionPath,'utf8').includes('syncFullHistory: true'))
   throw Error('Full-history negotiation is not enabled in the pinned base image');
-patchOnce(launcherPath,/WHATSAPP_PAIRING_DEFAULT_MODE:\s*'code'/,
-  "WHATSAPP_PAIRING_DEFAULT_MODE: 'qr'",'default trial to QR pairing');
+patchOnce(launcherPath,/const DEFAULT_PAIRING_MODE = 'code';/,
+  "const DEFAULT_PAIRING_MODE = 'qr';",'default trial to QR pairing');
 patchOnce(launcherPath,/WHATSAPP_HISTORY_BACKFILL:\s*'1'/,
   "WHATSAPP_HISTORY_BACKFILL: '0'",'pause competing on-demand history requests');
 patchOnce(launcherPath,/configureWhatsAppStorage\(opts\.storage_path\)/,
