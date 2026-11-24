@@ -149,3 +149,11 @@ upload. To re-crop an image later, upload its original again while editing.
 
 All endpoints run behind the existing authenticated Home Assistant Ingress.
 The Govee display and gaming session rules themselves are unchanged.
+
+## PS5 Games library
+
+The countdown watcher records valid titles while PS5 activity is playing, including outside active countdowns. The PS5 Games panel displays last detection, allows ordered PNG/GIF playlists, previews individual backgrounds and configures 1–120 minutes per background (default 10). Existing exact game mappings are the initial playlist until explicitly overridden. Empty playlists use the default PS5 art. Rotation begins with the first item each session and loops in order; it does not change the actual timer or PS5 power rules.
+
+The small irreplaceable catalogue and preferences live in `/data/ps5_games.json`, included in the app's ordinary HA backup (restore the app data to recover settings). Artwork remains on the external storage drive and requires independent backup. Catalogue failures are exposed in countdown status and the games UI; existing timer rendering falls back to existing game matching. No user files are stored in the code overlay.
+
+Authenticated ingress: GET /api/games; POST /api/games/update with title, artwork_ids (ordered unique saved IDs), rotation_minutes.
