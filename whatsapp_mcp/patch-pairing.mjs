@@ -42,7 +42,7 @@ replaceOnce('    attempts = 0;\n    lastConnectedAt = nowSec();',
 // Ignore connection events from an intentionally retired socket; its later
 // logout/401 event must not erase the new linked session.
 replaceOnce('      if (update.connection === "open") {',
-  '      if (newSock !== sock) return;\\n\\n      if (update.connection === "open") {');
+  '      if (newSock !== sock) return;\n\n      if (update.connection === "open") {');
 replaceOnce('  function handleClose(update: Partial<BaileysConnectionState>): void {\n    // stop() itself',
   '  function handleClose(update: Partial<BaileysConnectionState>): void {\n    // stop() itself');
 replaceOnce('    if (stopped) return;\n\n    // Baileys types',
