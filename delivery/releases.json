@@ -66,9 +66,9 @@
     "image": "ghcr.io/justcop/vinyl-guardian-{arch}"
   },
   "whatsapp_mcp": {
-    "sha": "2d6f360dce839ca30e3417f59352dc55d5f100d2",
-    "compatibility": "526194624678d75fc03c46dd69a8676337f424f2dce33976b29036b79da6212c",
-    "version": "0.3.33",
+    "sha": "dafd3b7ddca5c38f19edae00e7862cf546bff926",
+    "compatibility": "0f55ae986ec88e999c0cbb55cad693eb6060fe43c8c2853913a77cedd16ab92d",
+    "version": "0.3.34",
     "image": "ghcr.io/justcop/whatsapp-mcp-{arch}"
   },
   "work_audit": {
@@ -78,9 +78,9 @@
     "image": "ghcr.io/justcop/work-audit-{arch}"
   },
   "whatsapp_fullsync_trial": {
-    "sha": "86cbbe0ca8ab152c5a6bad22244808d9db20c06a",
-    "compatibility": "739264ec68ab1d5499e8d08f355de1b74558b0bbf8371e69e722fd4503fd43d7",
-    "version": "0.1.10",
+    "sha": "dafd3b7ddca5c38f19edae00e7862cf546bff926",
+    "compatibility": "2d7ad91b266cfbd065034ad79a5764fcfb13a489a424e80a3aac993604eba1ae",
+    "version": "0.1.11",
     "image": "ghcr.io/justcop/whatsapp-fullsync-trial-{arch}"
   }
 }
