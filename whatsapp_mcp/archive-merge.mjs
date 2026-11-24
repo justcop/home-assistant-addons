@@ -179,7 +179,7 @@ export function runScheduledArchiveMerge(storagePath,{requestFile=REQUEST,transf
   return result;
 }
 export function finaliseMerge(storagePath,{transferFile=TRANSFER_FILE,reportFile=REPORT}={}) {
-  const report=readReport();
+  const report=readReport(reportFile);
   if(!report?.success)throw Error('No successfully staged merge to finalise');
   const dbPath=path.join(storagePath,'whatsapp.db');
   const checkDb=new DatabaseSync(dbPath,{readOnly:true});
