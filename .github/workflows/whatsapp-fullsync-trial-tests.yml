@@ -31,7 +31,7 @@ jobs:
             assert.match(conn,/Browsers\.macOS\("Safari"\)/);
             assert.match(conn,/auth\.state\.creds\.account/);
             assert.doesNotMatch(conn,/macOS\("Desktop"\)/);
-            assert.doesNotMatch(conn,/macOS\("Safari"\)/);
+            assert.doesNotMatch(conn,/macOS\("Desktop"\)/);
             assert.match(conn,/syncFullHistory: true/);
             assert.match(conn,/shouldSyncHistoryMessage: \(\) => true/);
             assert.match(conn,/PAIRING_CODE_FILE/);
