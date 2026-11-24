@@ -12,6 +12,7 @@ from reactive import ReactiveController, ensure_ssh_key
 from ha_countdown import CountdownBinding, render_frames as render_countdown_frames, selected_artwork_mode
 from artwork_modes import get_artwork_rgb, list_artwork_modes, is_artwork_mode
 import artwork_store
+import game_library
 
 WIDTH, HEIGHT, FRAME_BYTES = 52, 32, 4992
 MAX_FRAMES = 2400
@@ -84,6 +85,11 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(200, {"public_key": public_key,
                              "username": opts.get("ssh_user", "root"),
                              "host": HOST})
+        elif self.path == "/api/games":
+            try:
+                self.reply(200,{"games":game_library.list_games()})
+            except (OSError,ValueError,TypeError,KeyError) as exc:
+                self.reply(503,{"error":str(exc)[:250]})
         elif self.path == "/api/artwork/storage":
             self.reply(200, artwork_store.gallery()["storage"])
         elif self.path == "/api/artwork/gallery":
@@ -139,6 +145,8 @@ class Handler(BaseHTTPRequestHandler):
                     reactive.stop()
                     clear()
                 return self.reply(200, {"ok": True, "active": False})
+            if self.path == "/api/games/update":
+                return self.reply(200,{"game":game_library.update(body)})
             if self.path == "/api/artwork/save":
                 item=artwork_store.save(body)
                 return self.reply(200,{"ok":True,"item":item})
