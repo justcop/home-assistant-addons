@@ -32,7 +32,7 @@
           <button id="show-backfill" type="button" class="settings-link" title="History recovery status">↺ History sync</button>
           <button id="show-backup" type="button" class="settings-link" title="Cloud backup settings and recovery" aria-label="Cloud backup settings and recovery">⚙ Settings</button>
         </div>
-        <span id="connection-status"></span></footer>
+        <span id="connection-status" role="status" aria-live="polite">Checking WhatsApp connection…</span></footer>
     </aside>
     <main id="main" class="main">
       <div id="backup-alert" class="backup-alert hidden" role="alert" aria-live="assertive">
@@ -40,6 +40,26 @@
         <span id="backup-alert-text">WhatsApp cloud backup needs attention.</span>
         <button id="backup-alert-open" type="button">View backup settings</button>
       </div>
+      <section id="pairing-banner" class="pairing-banner hidden" aria-label="Link WhatsApp" aria-live="polite">
+        <div class="pairing-intro"><strong id="pairing-title">Link your WhatsApp device</strong>
+          <p id="pairing-description">Pair with your phone to synchronise messages. Your existing archive will be preserved.</p>
+        </div>
+        <form id="pairing-phone-form" class="pairing-phone-form" autocomplete="off">
+          <label for="pairing-phone">WhatsApp phone number (country code, no +)</label>
+          <div class="pairing-phone-row">
+            <input id="pairing-phone" type="tel" inputmode="numeric" pattern="[1-9][0-9]{7,14}" autocomplete="tel-national" placeholder="447700900123" required>
+            <button type="submit">Request pairing code</button>
+          </div>
+        </form>
+        <div id="pairing-code-panel" class="hidden">
+          <p>On your phone: WhatsApp → Settings → Linked devices → Link a device → Link with phone number instead.</p>
+          <div class="pairing-code-row"><strong id="pairing-code" class="pairing-code"></strong>
+            <button type="button" id="pairing-copy">Copy code</button>
+          </div>
+          <p class="pairing-help">The code expires quickly. If it is not accepted, check the status and request a new one.</p>
+        </div>
+        <p id="pairing-feedback" role="status" aria-live="polite"></p>
+      </section>
       <header class="conversation-header">
         <button id="show-chats" class="icon-button mobile-only" type="button" aria-label="Show conversations">☰</button>
         <div class="conversation-heading"><h2 id="conversation-name">Your private archive</h2><p id="conversation-description">Select a conversation or search all messages</p></div>
@@ -79,6 +99,13 @@
         </div>
         <p id="backup-feedback" class="backup-feedback" role="alert" aria-live="polite"></p>
         <p id="backup-state" class="backup-status" role="status">Checking backup configuration…</p>
+        <section class="backup-card">
+          <h3>WhatsApp connection &amp; re-pairing</h3>
+          <p id="settings-pairing-status" role="status">Checking connection…</p>
+          <p>Re-pairing only resets this add-on's WhatsApp linked-device credentials. It does not erase archived messages, but the old companion session will no longer be used by this add-on.</p>
+          <button id="pairing-repair" type="button" class="backup-button">Re-pair this add-on</button>
+          <p id="settings-pairing-feedback" role="status" aria-live="polite"></p>
+        </section>
         <section class="backup-card">
           <h3>1. Connect Google Drive</h3>
           <p>Create a Google OAuth client of type <strong>TVs and Limited Input devices</strong> in your Google Cloud project, enable the Google Drive API, and paste its client ID and secret below. The app requests only <code>drive.file</code> access for files it creates, separate from your general HA backup add-on.</p>
