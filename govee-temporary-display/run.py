@@ -9,7 +9,7 @@ import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from reactive import ReactiveController, ensure_ssh_key
-from ha_countdown import CountdownBinding, render as render_countdown, selected_artwork_mode
+from ha_countdown import CountdownBinding, render_frames as render_countdown_frames, selected_artwork_mode
 from artwork_modes import get_artwork_rgb, list_artwork_modes, is_artwork_mode
 import artwork_store
 
@@ -172,9 +172,9 @@ class Handler(BaseHTTPRequestHandler):
                     if countdown.config is None:
                         return self.reply(409,{"error":"countdown is not configured"})
                     preview_cfg=dict(countdown.config,artwork_mode=mode)
-                    frame=render_countdown(preview_cfg,remaining)
+                    frames=render_countdown_frames(preview_cfg,remaining)
                     reactive.stop()
-                    state.update(frames=(frame,),fps=12.,loop=True,
+                    state.update(frames=frames,fps=12.,loop=True,
                                  start=time.monotonic(),
                                  expires=time.monotonic()+timeout,owner="manual")
                 return self.reply(200,{"ok":True,"mode":mode,"timeout":timeout})
@@ -208,7 +208,7 @@ class Handler(BaseHTTPRequestHandler):
                         raise ValueError("invalid activity")
                     mode=selected_artwork_mode(countdown.config,title,activity)
                     reactive.stop()
-                    state.update(frames=(render_countdown(countdown.config,seconds,title,activity),),
+                    state.update(frames=render_countdown_frames(countdown.config,seconds,title,activity),
                                  start=time.monotonic(),fps=12.,loop=True,
                                  expires=time.monotonic()+timeout, owner="manual")
                 return self.reply(200, {"ok":True,"preview_seconds":timeout,"artwork_mode":mode})
