@@ -9,7 +9,7 @@ type Metrics = {
 };
 export function observeHistoryBatch(input:{
   type:string;received:number;inserted:number;existing:number;
-  netUniqueChange:number;isLatest?:boolean|null;
+  netUniqueChange:number;isLatest?:boolean|null|undefined;
 }):void {
   const root=process.env["WHATSAPP_DATA_DIR"];
   if(!root || !Number.isFinite(input.received)||!Number.isFinite(input.netUniqueChange))return;
