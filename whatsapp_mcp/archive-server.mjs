@@ -131,6 +131,7 @@ export function createArchiveServer({ apiToken, port = 8100, storagePath = '/dat
             return send(res, 409, JSON.stringify({ error: 'Re-pair from Settings before changing a linked number' }), 'application/json');
           fs.writeFileSync(phoneFile, params.phone + '\n', { mode: 0o600 });
           fs.rmSync(codeFile, { force: true });
+          fs.writeFileSync(path.join(pairingDir, '.whatsapp-pairing-refresh'), String(Date.now()), { mode: 0o600 });
           return send(res, 200, JSON.stringify({ saved: true }), 'application/json');
         }
         if (params.confirm !== 'REPAIR THIS DEVICE')
