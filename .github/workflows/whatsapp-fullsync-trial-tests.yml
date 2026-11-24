@@ -1,0 +1,36 @@
+name: WhatsApp full-history isolated trial image tests
+on:
+  pull_request:
+    paths:
+      - 'whatsapp_fullsync_trial/**'
+      - '.github/workflows/whatsapp-fullsync-trial-tests.yml'
+  workflow_dispatch:
+jobs:
+  trial-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build isolated trial image (no pairing)
+        run: docker build --pull --tag whatsapp-fullsync-trial:test whatsapp_fullsync_trial
+      - name: Verify patched code and isolation (no network)
+        run: |
+          docker run --rm --network none --entrypoint node whatsapp-fullsync-trial:test -e '
+            const fs=require("node:fs"),assert=require("node:assert/strict");
+            const conn=fs.readFileSync("/opt/whatsapp-api/dist/whatsapp/connection.js","utf8");
+            const run=fs.readFileSync("/opt/whatsapp-addon/run.mjs","utf8");
+            assert.match(conn,/macOS\("Safari"\)/);
+            assert.match(conn,/syncFullHistory: true/);
+            assert.match(run,/WHATSAPP_HISTORY_BACKFILL: .0./);
+            assert.match(run,/configureWhatsAppStorage\(.{2}\)/);
+            assert.ok(!run.includes("configureWhatsAppStorage(opts.storage_path)"));
+            console.log("Isolated pairing image checks passed");
+          '
