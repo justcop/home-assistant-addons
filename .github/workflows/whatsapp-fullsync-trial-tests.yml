@@ -46,7 +46,7 @@ jobs:
             const archive=fs.readFileSync("/opt/whatsapp-addon/archive-server.mjs","utf8");
             assert.match(worker,/trial-recovery-resume/);
             assert.match(worker,/bulkRecentlyActive/);
-            assert.match(worker,/trial: upstream history request backed off/);
+            assert.match(worker,/trial: failed history request backed off/);
             assert.match(messageRepo,/messages.deleted_ts IS NOT NULL/);
             assert.match(ingest,/observeHistoryBatch/);
             assert.match(archive,/api\/trial\/recovery/);
