@@ -43,7 +43,8 @@ test('admin ingress can requeue only probably complete chats and show exact arch
   assert.equal((await recheck('unknown@s.whatsapp.net')).status,404);
   assert.equal((await recheck('friend@s.whatsapp.net')).status,200);
   const overrides=JSON.parse(fs.readFileSync(path.join(dir,'.history-backfill-overrides-v1.json'),'utf8'));
-  assert.equal(overrides['friend@s.whatsapp.net'],true);
+  assert.ok(Number.isSafeInteger(overrides['friend@s.whatsapp.net']) && overrides['friend@s.whatsapp.net'] > 0,
+    'Manual recheck uses a nonce so the same chat can be requeued repeatedly');
   assert.deepEqual(JSON.parse(fs.readFileSync(cpFile,'utf8')),checkpoint,
     'The active backfill checkpoint must not be overwritten by a manual action');
   const response=await fetch(base+'/api/archive/backfill');
