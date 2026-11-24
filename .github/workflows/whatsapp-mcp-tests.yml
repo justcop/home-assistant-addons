@@ -34,6 +34,11 @@ jobs:
           node --check whatsapp_mcp/patch-upstream.mjs
           node --check whatsapp_mcp/archive-data.mjs
           node --check whatsapp_mcp/review-data.mjs
+          node --check whatsapp_mcp/history-metrics.mjs
+          node --check whatsapp_mcp/history-recovery.mjs
+          node --check whatsapp_mcp/history-alerts.mjs
+          node --check whatsapp_mcp/archive-ui/history-recovery-ui.js
+          node --check whatsapp_mcp/archive-ui/pairing-state-ui.js
       - name: Check app branding files
         run: |
           file whatsapp_mcp/icon.png whatsapp_mcp/logo.png
@@ -64,6 +69,10 @@ jobs:
           check("/opt/whatsapp-api/**/connection.js","QR_FILE");
           check("/opt/whatsapp-api/**/connection.js","PAIRING_MODE_FILE");
           check("/opt/whatsapp-api/**/connection.js","PAIRING_CODE_FILE");
+          check("/opt/whatsapp-api/**/connection.js","shouldSyncHistoryMessage");
+          check("/opt/whatsapp-api/**/ingest.js","observeHistoryBatch");
+          check("/opt/whatsapp-api/**/history-backfill.js","history-recovery-resume");
+          check("/opt/whatsapp-mcp/**/reads.js","whatsapp_archive_filter");
           check("/opt/whatsapp-api/**/connection.js","resettingPairing");
           console.log("Compiled API, MCP, private pairing controller and Baileys privacy guards are present");
           '
