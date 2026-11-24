@@ -93,7 +93,7 @@ class Handler(BaseHTTPRequestHandler):
                 mode=self.path.split("?")[0].rsplit("/",1)[-1]
                 png=artwork_store.get_png(mode)
                 self.send_response(200)
-                self.send_header("Content-Type","image/png")
+                self.send_header("Content-Type","image/gif" if png.startswith(b"GIF") else "image/png")
                 self.send_header("Cache-Control","no-store")
                 self.send_header("X-Content-Type-Options","nosniff")
                 self.send_header("Content-Length",str(len(png)))
@@ -153,10 +153,10 @@ class Handler(BaseHTTPRequestHandler):
                     timeout=int(body.get("timeout",DEFAULT_TIMEOUT))
                     if not 1<=timeout<=MAX_TIMEOUT:
                         raise ValueError("timeout out of range")
-                    frame=get_artwork_rgb(mode)
+                    frames=artwork_store.get_frames(mode) if artwork_store.exists(mode) else (get_artwork_rgb(mode),)
                     with lock:
                         reactive.stop()
-                        state.update(frames=(frame,),fps=12.,loop=True,
+                        state.update(frames=frames,fps=12.,loop=True,
                                      start=time.monotonic(),
                                      expires=time.monotonic()+timeout,owner="manual")
                 return self.reply(200,{"ok":True,"mode":mode,"matched":mode is not None})
@@ -183,10 +183,10 @@ class Handler(BaseHTTPRequestHandler):
                 timeout=int(body.get("timeout", DEFAULT_TIMEOUT))
                 if not 1 <= timeout <= MAX_TIMEOUT:
                     raise ValueError("timeout out of range")
-                frame=get_artwork_rgb(mode)
+                frames=artwork_store.get_frames(mode) if artwork_store.exists(mode) else (get_artwork_rgb(mode),)
                 with lock:
                     reactive.stop()
-                    state.update(frames=(frame,), fps=12., loop=True,
+                    state.update(frames=frames, fps=12., loop=True,
                                  start=time.monotonic(),
                                  expires=time.monotonic()+timeout, owner="manual")
                 return self.reply(200, {"ok":True,"mode":mode,"timeout":timeout})
