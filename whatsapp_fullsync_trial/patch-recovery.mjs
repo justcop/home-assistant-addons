@@ -83,6 +83,11 @@ patch(worker,/const newer = anchor\(c\.id\),/,
     "        }",
     "        const newer = anchor(c.id),"
   ].join('\n'),'back off on failed history requests');
+// Unpaired trial sockets may be reported 'disconnected' during pre-QR
+// registration failure. Never hide all pairing controls in that state.
+patch(server,/const needsPairing = health\.needs_pairing === true \|\| connection === 'pairing' \|\| connection === 'logged_out';/,
+  "const needsPairing = connection !== 'connected';",
+  'expose pairing panel during disconnected pre-QR state');
 patch(server,/import fs from 'node:fs';/,
   "import fs from 'node:fs';\nimport { trialRecoveryStatus, setTrialRecovery } from './trial-recovery.mjs';",
   'private recovery controller import');
@@ -116,6 +121,12 @@ patch(server,/if \(isPairing\) \{/,
 patch(ui,/<\/body>/,
   '<script defer src="trial-recovery-ui.js"></script>\n</body>',
   'trial controls UI');
+patch(ui,/<script defer src="trial-recovery-ui\.js"><\/script>/,
+  '<script defer src="trial-recovery-ui.js"></script>\n<script defer src="trial-pairing-ui.js"></script>',
+  'load explicit trial pairing controls');
+patch(server,/'\/trial-recovery-ui\.js': \['trial-recovery-ui\.js', 'text\/javascript; charset=utf-8'\]/,
+  "'/trial-recovery-ui.js': ['trial-recovery-ui.js', 'text/javascript; charset=utf-8'],\n  '/trial-pairing-ui.js': ['trial-pairing-ui.js', 'text/javascript; charset=utf-8']",
+  'serve private trial pairing controls');
 // A reconnect which arrives while the old worker is still draining its
 // previous request must clear the halted flag. Without this, the prior
 // worker can exit after the new connected callback was missed by 'running'.

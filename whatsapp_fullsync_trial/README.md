@@ -3,9 +3,11 @@
 **Experimental, privacy sensitive. Does not replace the production WhatsApp MCP installation.**
 
 This image is based on the pinned, published WhatsApp MCP 0.3.32 image,\nincluding the admin-ingress pairing banner, code display, connection status, and\nSettings re-pair control. Pairing status hides after successful linking.
-This experiment now uses the **Windows desktop** `Browsers.windows("Desktop")` companion profile, which Baileys advertises as the `WIN_HYBRID` web sub-platform when `syncFullHistory: true`. It retains `shouldSyncHistoryMessage: () => true` to accept the incoming FULL batches. This is a controlled workaround test, **not proof** WhatsApp will deliver the lifetime archive.
+This experimental version uses a **two-stage companion identity**: it first registers an unlinked device as `Browsers.macOS("Safari")` so WhatsApp can issue a QR, then on the next authenticated socket attempts `Browsers.windows("Desktop")` (`WIN_HYBRID`), while keeping `syncFullHistory: true` and `shouldSyncHistoryMessage: () => true`. It is a workaround to test authenticated Desktop history, **not** native Windows Desktop pairing.
 
-**Pair via QR.** The prior `Browsers.macOS("Desktop")` + `syncFullHistory: true` experiment failed before QR generation, repeatedly receiving `Connection Terminated` during registration. The trial was then freshly reinstalled, leaving **zero archived messages and no saved successful pairing**, and stopped. Restarting an existing linked device does not replay its initial FULL history reliably.
+The earlier unlinked macOS Desktop **and** Windows Desktop attempts both failed with `Connection Terminated` before QR generation. On those versions the existing Ingress UI also hid its pairing panel whenever the connection was `disconnected`. The trial now keeps its pairing controls visible, reports whether WhatsApp has actually issued a QR, and provides **Restart trial pairing** (resets only trial auth, never its message archive). If the QR is not issued, the UI must state that honestly rather than display an invented image.
+
+**The trial was newly installed on an empty archive** after the previous experiments. Do not unlink the production linked device. The requested comparison remains whether the new FULL history contains a message before 30 October 2025. A successful Safari QR followed by an authenticated Windows Desktop handshake may or may not produce new initial FULL chunks. If the authenticated Desktop handshake also fails, the trial should be stopped and the failure logged.
 
 ## Isolation contract
 - Unique Home Assistant app slug `whatsapp_fullsync_trial`; independent
