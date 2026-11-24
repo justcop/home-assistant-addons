@@ -51,7 +51,7 @@ export function trialRecoveryStatus(root,dataStore=null) {
       updatedAt:saved?.updatedAt||null
     },
     archive:dataStore?dataStore.archiveDateRange().messages:null,
-    note:'History completion is not verifiable from idle alone. Net unique change may include LID identity merges; it is not an exact duplicate count.'
+    note:'History completion is not verifiable from idle alone. Existing-row upserts include replays and updates, not only duplicates. Net unique change also reflects LID identity merges.'
   };
 }
 export function setTrialRecovery(root,action,dataStore=null) {
