@@ -151,7 +151,7 @@ async function loadFile(file){
   try{source=await makeImage(url);}finally{URL.revokeObjectURL(url);}
  }
  fileChanged=true;
- if(!selectedId && !$("artName").value.trim())$("artName").value=file.name.replace(/\.[^.]+$/,"").replace(/[_-]/g," ").slice(0,90);
+ 
  resetCrop();draw();if(animated)animate();updateActions();
  notice("Artwork loaded. Preview on the Govee now, or optionally name and save it.");
 }
