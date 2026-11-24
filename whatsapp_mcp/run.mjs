@@ -212,7 +212,7 @@ async function main() {
     alerts: new HomeAssistantBackupAlerts()
   });
   archive = createArchiveServer({ apiToken, port: ARCHIVE_PORT,
-    storagePath: storage.dataDir, dataStore: archiveData, cloudBackup, configuredPhone: !!opts.phone_number });
+    storagePath: storage.dataDir, dataStore: archiveData, cloudBackup, configuredPhone: !!opts.phone_number, configuredPhoneNumber: opts.phone_number, defaultPairingMode: process.env.WHATSAPP_PAIRING_DEFAULT_MODE === 'qr' ? 'qr' : 'code' });
   cloudBackup.start();
   maintenanceMonitor = new WhatsAppMaintenanceMonitor();
   maintenanceMonitor.start();
