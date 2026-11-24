@@ -85,4 +85,34 @@ patch(server,/if \(isPairing\) \{/,
 patch(ui,/<\/body>/,
   '<script defer src="trial-recovery-ui.js"></script>\n</body>',
   'trial controls UI');
+// A manual recheck must work repeatedly, including for stalled conversations.
+// Use a per-action nonce (timestamp), not an irrevocable boolean. The worker
+// acknowledges the nonce in its checkpoint before the next request.
+patch(worker,/if \(selected !== true\)\s*continue;/,
+  'if (selected !== true && !Number.isSafeInteger(selected)) continue;',
+  'accept timestamped recheck commands');
+patch(worker,/if \(!item\.manualRecheck\) \{/,
+  [
+    'if (!item.manualRecheck || (Number.isSafeInteger(selected) && item.recheckToken !== selected)) {',
+    '          if (Number.isSafeInteger(selected)) item.recheckToken = selected;'
+  ].join('\n'),'repeatable manual retries');
+patch(worker,/if \(item\.phase === "likely_complete"\) \{/,
+  'if (item.phase === "likely_complete" || item.phase === "stalled") {',
+  'reopen stalled conversations manually');
+patch(server,/if \(entry\.phase !== 'likely_complete' && !entry\.manualRecheck\)/,
+  "if (entry.phase !== 'likely_complete' && entry.phase !== 'stalled' && !entry.manualRecheck)",
+  'permit stalled-chat retry');
+patch(server,/value: true, enumerable: true, configurable: true, writable: true/,
+  'value: Date.now(), enumerable: true, configurable: true, writable: true',
+  'timestamp manual retry override');
+patch(server,/const manualRecheck = entry\.manualRecheck === true \|\| overrides\[entry\.id\] === true;/,
+  "const manualRecheck = Number.isSafeInteger(overrides[entry.id]) ? entry.recheckToken !== overrides[entry.id] : (overrides[entry.id] === true && entry.manualRecheck !== true);",
+  'show only pending manual retries');
+const appJs='/opt/whatsapp-addon/archive-ui/app.js';
+patch(appJs,/if \(chat\.phase === 'likely_complete' && !chat\.manualRecheck\) \{/,
+  "if (chat.phase === 'likely_complete' || chat.phase === 'stalled') {",
+  'show manual retry for stalled chat');
+patch(appJs,/const button = el\('button','backfill-recheck','Not complete — keep searching'\);/,
+  "const button = el('button','backfill-recheck',chat.phase === 'stalled' ? 'Retry stalled conversation' : 'Not complete — keep searching');",
+  'label retry accurately');
 console.log('Trial recovery controls, dedup tombstone safeguard and telemetry installed.');
