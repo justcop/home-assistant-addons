@@ -3,12 +3,11 @@
 **Experimental, privacy sensitive. Does not replace the production WhatsApp MCP installation.**
 
 This image is based on the pinned, published WhatsApp MCP 0.3.32 image,\nincluding the admin-ingress pairing banner, code display, connection status, and\nSettings re-pair control. Pairing status hides after successful linking.
-At image-build time it enables macOS Safari's recognised pairing-code profile
-while retaining Baileys `syncFullHistory: true`. The regular app already
-enabled the flag, but existing credentials cannot replay initial device pairing.
-The documented `Browsers.macOS("Desktop")` identity is rejected during
-phone-number pairing by this pinned Baileys/WhatsApp path. Safari is a hypothesis,
-not equivalent proof of Desktop's claimed extended history.
+This experiment now uses the native `Browsers.macOS("Desktop")` companion profile
+and keeps Baileys `syncFullHistory: true` and `shouldSyncHistoryMessage: () => true`.
+**Pair via QR, not phone-number code:** this desktop identity previously failed
+phone-number pairing. A fresh link is required; restarting with old credentials
+will not reliably replay initial FULL history.
 
 ## Isolation contract
 - Unique Home Assistant app slug `whatsapp_fullsync_trial`; independent
@@ -20,6 +19,22 @@ not equivalent proof of Desktop's claimed extended history.
 - Per-conversation recovery is paused until explicitly enabled in the private History sync UI, and automatically yields while new FULL history is being delivered.
 - Never unlink the production WhatsApp device just to pair this second one.
 - Keep the trial stopped after testing, since it consumes a linked-device slot.
+
+## Clean-slate Desktop comparison
+
+When deliberately resetting the experiment, **uninstall only** the Home Assistant
+app `64b28acc_whatsapp_fullsync_trial`, then reinstall it from this repository.
+Uninstall discards the trial's `/data/whatsapp` archive, its history checkpoints
+and its QR-linked credentials. Verify the archive is empty before pairing, and
+never uninstall `64b28acc_whatsapp_mcp` or clear the production STORAGE volume.
+If the old trial linked device remains listed on the phone, remove **only** that
+old trial session to free a linked-device slot.
+
+The key success criterion is an imported human message dated **earlier than
+30 October 2025**. Compare earliest timestamps and unique-message counts after
+initial FULL delivery. This test cannot prove WhatsApp will provide a complete
+lifetime archive, even with a desktop identity. Leave individual-chat recovery
+paused until bulk history has settled so it doesn't confound the comparison.
 
 ## Live test
 1. Confirm the production WhatsApp app is running and its encrypted Google Drive
