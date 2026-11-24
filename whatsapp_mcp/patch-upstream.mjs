@@ -212,3 +212,58 @@ patchIngest(
 );
 fs.writeFileSync(ingestFile, ingest);
 console.log('Privacy-safe read-state diagnostics and on-demand unread protection included.');
+
+
+// Production integration of the trial's verified FULL-history acceptance,
+// aggregate-only import instrumentation and deleted-text replay safeguard.
+// Make changes in source before pnpm builds, rather than patching shipped JS.
+function replaceUniqueSource(file,before,after,label) {
+  const source=fs.readFileSync(file,'utf8');
+  const at=source.indexOf(before);
+  if(at<0 || source.indexOf(before,at+1)!==-1)throw Error('History port anchor changed: '+label);
+  fs.writeFileSync(file,source.slice(0,at)+after+source.slice(at+before.length));
+}
+replaceUniqueSource('/src/packages/api/src/whatsapp/connection.ts',
+  'syncFullHistory: true,',
+  'syncFullHistory: true,\n        shouldSyncHistoryMessage: () => true,',
+  'FULL notifications accepted');
+fs.copyFileSync('/src/history-observer.ts','/src/packages/api/src/whatsapp/history-observer.ts');
+replaceUniqueSource(ingestFile,
+  'import type { Logger } from "pino";',
+  'import type { Logger } from "pino";\nimport { observeHistoryBatch } from "./history-observer.js";',
+  'import history observer');
+replaceUniqueSource(ingestFile,
+  '  const { db, chats, contacts, messages, reactions, logger, selfId } = deps;',
+  [
+    '  const { db, chats, contacts, messages, reactions, logger, selfId } = deps;',
+    '  let historyBatchCounters: { inserted:number; existing:number } | null = null;',
+    '  const countedUpsert = (record: Parameters<typeof messages.upsert>[0]): boolean => {',
+    '    const inserted=messages.upsert(record);',
+    '    if(historyBatchCounters) {',
+    '      if(inserted) historyBatchCounters.inserted++;',
+    '      else historyBatchCounters.existing++;',
+    '    }',
+    '    return inserted;',
+    '  };'
+  ].join('\n'),
+  'history upsert counter');
+replaceUniqueSource(ingestFile,
+  'const inserted = messages.upsert({',
+  'const inserted = countedUpsert({',
+  'count new and existing message keys');
+replaceUniqueSource(ingestFile,
+  'applyHistory(h);',
+  [
+    'const beforeHistoryRows=messages.count();',
+    '        const counters={inserted:0,existing:0};',
+    '        historyBatchCounters=counters;',
+    '        try {applyHistory(h);} finally {historyBatchCounters=null;}',
+    '        const type=Object.entries(proto.HistorySync.HistorySyncType).find(([,v])=>v===h.syncType)?.[0]||String(h.syncType);',
+    '        observeHistoryBatch({type,received:h.messages.length,inserted:counters.inserted,existing:counters.existing,netUniqueChange:messages.count()-beforeHistoryRows,isLatest:h.isLatest});'
+  ].join('\n        '),
+  'FULL and ON_DEMAND metrics');
+replaceUniqueSource('/src/packages/api/src/db/messages.ts',
+  'text = COALESCE(excluded.text, messages.text),',
+  'text = CASE WHEN messages.deleted_ts IS NOT NULL THEN NULL ELSE COALESCE(excluded.text, messages.text) END,',
+  'replay cannot resurrect revoked text');
+console.log('Production FULL-history acceptance, aggregate telemetry and replay guard installed.');
