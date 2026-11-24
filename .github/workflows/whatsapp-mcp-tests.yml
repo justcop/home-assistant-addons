@@ -41,6 +41,10 @@ jobs:
           file whatsapp_mcp/logo.png | grep -q 'PNG image data, 500 x 200'
       - name: Build pinned upstream WhatsApp API and MCP app
         run: docker build -t whatsapp-mcp-addon:ci whatsapp_mcp
+      - name: Verify QR renderer ships in final image
+        run: |
+          docker run --rm --network none --entrypoint qrencode whatsapp-mcp-addon:ci --version
+          docker run --rm --network none --entrypoint qrencode whatsapp-mcp-addon:ci --type=SVG --output=- --size=6 TEST-PAIRING-PAYLOAD | grep -q '<svg'
       - name: Verify compiled upstream privacy patches in final image
         run: |
           docker run --rm --network none --entrypoint node whatsapp-mcp-addon:ci -e '
