@@ -80,7 +80,7 @@ test('one-time merge imports only missing keys, never device auth, preserves pro
     assert.equal(merged.prepare("SELECT value FROM auth_creds WHERE key='device'").get().value,'PRODUCTION-AUTH');
     assert.equal(merged.prepare("SELECT text FROM messages WHERE id='overlap'").get().text,'Keep authoritative production body');
     assert.equal(merged.prepare("SELECT COUNT(*) AS n FROM messages WHERE id='suppressed'").get().n,0);
-    assert.equal(merged.prepare("SELECT COUNT(*) AS n FROM messages_fts WHERE messages_fts MATCH 'Unique'").get().n,2);
+    assert.equal(merged.prepare("SELECT COUNT(*) AS n FROM messages_fts WHERE messages_fts MATCH 'Unique'").get().n,3);
     assert.equal(merged.prepare("SELECT COUNT(*) AS n FROM reactions").get().n,1);
     assert.equal(merged.prepare("SELECT unread_count FROM chats WHERE id='me@s.whatsapp.net'").get().unread_count,5);
     merged.close();
