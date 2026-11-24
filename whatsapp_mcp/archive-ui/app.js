@@ -483,8 +483,8 @@ async function updateBackfill() {
         (chat.oldestTimestamp ? ' · oldest ' +
           stamp(chat.oldestTimestamp, {day:'numeric',month:'short',year:'numeric'}) : ''));
       item.append(heading,status,detail);
-      if (chat.phase === 'likely_complete' && !chat.manualRecheck) {
-        const button = el('button','backfill-recheck','Not complete — keep searching');
+      if (chat.phase === 'likely_complete' || chat.phase === 'stalled') {
+        const button = el('button','backfill-recheck',chat.phase === 'stalled' ? 'Retry stalled conversation' : 'Not complete — keep searching');
         button.type = 'button';
         button.addEventListener('click',async () => {
           button.disabled = true;
