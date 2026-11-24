@@ -2,6 +2,15 @@
 
 Private WhatsApp search using [spare-cycles/whatsapp-mcp](https://github.com/spare-cycles/whatsapp-mcp), pinned to commit `5f19883b0d8e2f672d486aa6307f3e945b49532e`. The upstream API and MCP programs run in one app container. **This uses the unofficial Baileys WhatsApp client and may put the WhatsApp account at risk of restriction.** It is not an officially supported integration.
 
+## Production archive consolidation and controlled history recovery (November 2026)
+
+- The primary add-on keeps its stable **Chrome** companion identity and existing Baileys credentials. It requests `syncFullHistory: true` and explicitly accepts `FULL` history notifications, like the successful isolated trial. An already linked session may not receive another initial `FULL` sync merely by restarting. None of these settings guarantees messages older than the roughly one-year boundary seen in the trial.
+- The private Web UI **History sync** screen shows aggregate `FULL` and `ON_DEMAND` delivery metrics (delivered, inserted vs existing keys, net row changes), plus **Start/resume** and **Pause** for individual-chat requests. The requests are **paused by default**, resume across restarts only if explicitly enabled, yield during a recent `FULL` import, prioritise direct conversations, and checkpoint every request. The activity never sends a WhatsApp chat message.
+- A non-empty correlated history reply is not completion; silence is not an empty reply. Manual retries of stalled or likely-complete conversations remain repeatable. Home Assistant raises a native persistent notification if explicitly opted-in recovery stops or fails to checkpoint.
+- The private admin-Ingress controller `GET /api/archive/recovery` provides aggregate status; `POST /api/archive/recovery` accepts `{"action":"start"|"pause"|"resume"}` only with `X-WhatsApp-Recovery-Action: 1`. The public Cloudflare MCP listener never exposes it.
+- **Search by name, text, or date:** The private archive UI has inclusive UTC date and scope filters. The read-only `whatsapp_archive_filter` MCP tool uses the same SQLite-backed query, returns bounded pages and never modifies WhatsApp.
+- **One-time trial migration:** `GET /api/archive/merge` reports exact overlap and estimated additions from the content-only export at `/share/whatsapp-history-transfer/trial-messages.sqlite`. The admin-only explicit prepare action creates a one-time marker; the next add-on restart merges into a staging copy while the WhatsApp writer is offline, retaining the pre-merge database until validated. Do not copy trial `auth_creds` or `auth_keys`. `POST` finalisation deletes both temporary copies after verification. Never send the SQLite file to GitHub or a public cloud.
+
 ## Upstream maintenance and safe deployment
 
 The upstream source is pinned to a **full Git commit SHA**, never a floating

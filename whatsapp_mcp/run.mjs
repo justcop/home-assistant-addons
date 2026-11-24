@@ -11,6 +11,7 @@ import { restoreSelfLid } from './restore-self-lid.mjs';
 import { pruneProtocolNoise } from './protocol-retention.mjs';
 import { configureWhatsAppStorage } from './storage.mjs';
 import { runScheduledArchiveMerge } from './archive-merge.mjs';
+import { startHistoryRecoveryMonitor } from './history-alerts.mjs';
 import { WhatsAppCloudBackup } from './cloud-backup.mjs';
 import { HomeAssistantBackupAlerts } from './home-assistant-alerts.mjs';
 import { WhatsAppMaintenanceMonitor } from './maintenance-monitor.mjs';
@@ -223,6 +224,7 @@ async function main() {
   cloudBackup.start();
   maintenanceMonitor = new WhatsAppMaintenanceMonitor();
   maintenanceMonitor.start();
+  startHistoryRecoveryMonitor({root:storage.dataDir});
   archive.listen(ARCHIVE_PORT, '0.0.0.0', () => {
     console.log('Private WhatsApp Archive UI ready through Home Assistant Ingress (port ' + ARCHIVE_PORT + ').');
     console.log('WhatsApp data location: ' + (storage.external ? 'verified external shared-storage volume' : 'internal app storage') + '.');

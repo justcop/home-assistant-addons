@@ -12,7 +12,7 @@ type Phase = "queued" | "requesting" | "retry" | "stalled" | "no_anchor" | "like
 type ChatState = { id: string; isGroup?: boolean; phase: Phase; requests: number; importedEstimate: number;
   failures: number; earliest: number | null; lastAttempt?: string;
   completionBasis?: "short_page" | "empty_followup"; awaitingEmptyConfirmation?: boolean;
-  manualRecheck?: boolean };
+  manualRecheck?: boolean; recheckToken?: number };
 type State = { schema: 2; startedAt: string; updatedAt: string; day: string;
   requestsToday: number; requests: number; importedEstimate: number; active: boolean;
   chats: Record<string, ChatState> };
@@ -60,11 +60,11 @@ export function startResumableHistoryBackfill({conn,chats,messages,dataDir,logge
   function applyManualRechecks(s:State):void {
     // A separate override file avoids racing with the worker's frequent
     // atomic checkpoint writes. Only the ingress admin controller writes it.
-    let overrides: Record<string,boolean>;
+    let overrides: Record<string,boolean|number>;
     try {
       const parsed:unknown=JSON.parse(fs.readFileSync(overrideFile,"utf8"));
       if(!parsed || typeof parsed!=="object" || Array.isArray(parsed)) throw Error("invalid override file");
-      overrides=parsed as Record<string,boolean>;
+      overrides=parsed as Record<string,boolean|number>;
     } catch(e) {
       if((e as NodeJS.ErrnoException).code==="ENOENT") return;
       // Fail closed: never interpret an unreadable override as permission
@@ -73,14 +73,15 @@ export function startResumableHistoryBackfill({conn,chats,messages,dataDir,logge
       throw e;
     }
     for(const [id,selected] of Object.entries(overrides)) {
-      if(selected!==true) continue;
+      if(selected!==true && !Number.isSafeInteger(selected)) continue;
       const item=s.chats[id];
       if(!item) continue;
-      if(!item.manualRecheck){
+      if(!item.manualRecheck || (Number.isSafeInteger(selected) && item.recheckToken !== selected)){ 
+        if(Number.isSafeInteger(selected))item.recheckToken=Number(selected);
         item.manualRecheck=true;
         item.awaitingEmptyConfirmation=false;
         delete item.completionBasis;
-        if(item.phase==="likely_complete") {
+        if(item.phase==="likely_complete" || item.phase==="stalled") {
           item.phase="queued";item.failures=0;
         }
       }
@@ -121,6 +122,17 @@ export function startResumableHistoryBackfill({conn,chats,messages,dataDir,logge
       "history-backfill: resumable worker started");
     try {
       while(connected && !halted) {
+        // A fresh FULL push takes precedence. Per-chat requests are opt-in
+        // and automatically yield while recently imported FULL batches arrive.
+        let bulkRecentlyActive=false;
+        try {
+          const metric=JSON.parse(fs.readFileSync(path.join(dataDir,'.history-metrics.json'),'utf8'));
+          bulkRecentlyActive=!!metric.lastFullAt && Date.now()-Date.parse(metric.lastFullAt)<120000;
+        } catch { /* no recent FULL batch */ }
+        if(!fs.existsSync(path.join(dataDir,'.history-recovery-resume')) || bulkRecentlyActive){
+          await sleep(5000);
+          continue;
+        }
         applyManualRechecks(s);
         if(today()!==s.day) {s.day=today();s.requestsToday=0;discover(s);save(file,s);}
         if(s.requestsToday>=PER_DAY) {
@@ -165,12 +177,21 @@ export function startResumableHistoryBackfill({conn,chats,messages,dataDir,logge
           };
           socket.ev.on("messaging-history.set",onHistory);
           try {
-            const sessionId=await socket.fetchMessageHistory(BATCH,old.key,old.ts*1000);
+            const sessionId=await socket.fetchMessageHistory(BATCH,old.key,old.ts*1000).catch(err=>{
+              const status=Number(err?.output?.statusCode ?? err?.status ?? err?.response?.status);
+              logger.warn({status:Number.isFinite(status)?status:null},'history-backfill: request rejected');
+              throw err;
+            });
             await sleep(WINDOW_MS);
             correlated=batches.has(sessionId);
             returned=batches.get(sessionId)||0;
           } finally {socket.ev.off("messaging-history.set",onHistory);}
         } catch {failed=true;}
+        if(failed){
+          const backoffSeconds=Math.min(120,5*2**Math.min(c.failures,5));
+          logger.warn({backoffSeconds},'history-backfill: request failure backed off');
+          await sleep(backoffSeconds*1000);
+        }
         const newer=anchor(c.id),advanced=!!newer&&newer.ts<old.ts;
         if(advanced&&newer){
           c.earliest=newer.ts;
@@ -221,6 +242,7 @@ export function startResumableHistoryBackfill({conn,chats,messages,dataDir,logge
   conn.onStateChange(state=>{
     connected=state==="connected";
     if(!connected)halted=true;
+    else halted=false;
     if(connected&&!running){
       halted=false;running=true;
       const timer=setTimeout(()=>{

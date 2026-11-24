@@ -5,6 +5,7 @@ import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { mergeStatus, scheduleMerge, finaliseMerge } from './archive-merge.mjs';
+import { historyRecoveryStatus, setHistoryRecovery } from './history-recovery.mjs';
 
 const UI_DIR = fileURLToPath(new URL('./archive-ui/', import.meta.url));
 const API_HOST = '127.0.0.1';
@@ -18,7 +19,9 @@ const assets = Object.freeze({
   '/': ['index.html', 'text/html; charset=utf-8'],
   '/index.html': ['index.html', 'text/html; charset=utf-8'],
   '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
-  '/style.css': ['style.css', 'text/css; charset=utf-8']
+  '/style.css': ['style.css', 'text/css; charset=utf-8'],
+  '/history-recovery-ui.js': ['history-recovery-ui.js', 'text/javascript; charset=utf-8'],
+  '/pairing-state-ui.js': ['pairing-state-ui.js', 'text/javascript; charset=utf-8']
 });
 const csp = "default-src 'none'; base-uri 'none'; frame-ancestors 'self'; form-action 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'";
 
@@ -68,9 +71,25 @@ export function createArchiveServer({ apiToken, port = 8100, storagePath = '/dat
     const isBackup = url.pathname.startsWith('/api/backup/');
     const isBackfillAction = url.pathname === '/api/archive/backfill/recheck';
     const isMergeAction = url.pathname === '/api/archive/merge';
-    if (req.method !== 'GET' && req.method !== 'HEAD' && !(req.method === 'POST' && (isBackup || isBackfillAction || isPairing || isMergeAction)))
+    const isRecoveryAction = url.pathname === '/api/archive/recovery';
+    if (req.method !== 'GET' && req.method !== 'HEAD' && !(req.method === 'POST' && (isBackup || isBackfillAction || isPairing || isMergeAction || isRecoveryAction)))
       return send(res, 405, 'Read-only archive');
     try {
+      if (isRecoveryAction) {
+        if(req.method==='GET')
+          return send(res,200,JSON.stringify(historyRecoveryStatus(storagePath,dataStore)),'application/json; charset=utf-8');
+        if(req.method!=='POST' || req.headers['x-whatsapp-recovery-action']!=='1' ||
+           !String(req.headers['content-type']||'').startsWith('application/json'))
+          return send(res,403,'Recovery requires private admin action');
+        let body='';
+        for await(const chunk of req){body+=chunk.toString('utf8');if(body.length>256)return send(res,413,'Request too large');}
+        let args;
+        try{args=JSON.parse(body);}catch{return send(res,400,'Invalid JSON');}
+        if(!args || !['start','pause','resume'].includes(args.action))
+          return send(res,400,'Invalid recovery operation');
+        const result=setHistoryRecovery(storagePath,args.action,dataStore);
+        return send(res,result.conflict?409:200,JSON.stringify(result),'application/json; charset=utf-8');
+      }
       if (isMergeAction) {
         if(req.method==='GET') return send(res,200,JSON.stringify(mergeStatus(storagePath)),'application/json; charset=utf-8');
         if(req.method!=='POST' || req.headers['x-whatsapp-merge-action']!=='1' ||
@@ -136,7 +155,7 @@ export function createArchiveServer({ apiToken, port = 8100, storagePath = '/dat
               'application/json; charset=utf-8');
           }
           const connection = String(health.connection || 'unknown');
-          const needsPairing = health.needs_pairing === true || connection === 'pairing' || connection === 'logged_out';
+          const needsPairing = connection !== 'connected';
           let code = null, issuedAt = null;
           if (needsPairing) {
             try {
@@ -244,7 +263,7 @@ export function createArchiveServer({ apiToken, port = 8100, storagePath = '/dat
         if (state.schema !== 2 || !state.chats || !Object.hasOwn(state.chats, params.chatId))
           return send(res, 404, 'Conversation not found');
         const entry = state.chats[params.chatId];
-        if (entry.phase !== 'likely_complete' && !entry.manualRecheck)
+        if (entry.phase !== 'likely_complete' && entry.phase !== 'stalled' && !entry.manualRecheck)
           return send(res, 409, 'Only probably complete conversations can be reopened');
         const overrideFile = path.join(storagePath, '.history-backfill-overrides-v1.json');
         let overrides = {};
@@ -253,7 +272,7 @@ export function createArchiveServer({ apiToken, port = 8100, storagePath = '/dat
         if (!overrides || typeof overrides !== 'object' || Array.isArray(overrides))
           return send(res, 503, 'Invalid manual review state');
         Object.defineProperty(overrides, params.chatId, {
-          value: true, enumerable: true, configurable: true, writable: true
+          value: Date.now(), enumerable: true, configurable: true, writable: true
         });
         const temp = overrideFile + '.' + process.pid + '.tmp';
         fs.writeFileSync(temp, JSON.stringify(overrides) + '\n', { mode: 0o600 });
@@ -351,7 +370,7 @@ export function createArchiveServer({ apiToken, port = 8100, storagePath = '/dat
         const chats = recent.map(entry => {
           const metadata = dataStore?.chatNameStmt?.get(entry.id);
           const name = dataStore?.displayName?.(entry.id, metadata?.name, !!metadata?.isGroup);
-          const manualRecheck = entry.manualRecheck === true || overrides[entry.id] === true;
+          const manualRecheck = Number.isSafeInteger(overrides[entry.id]) ? entry.recheckToken !== overrides[entry.id] : (overrides[entry.id] === true && entry.manualRecheck !== true);
           const phase = manualRecheck && entry.phase === 'likely_complete' ? 'recheck_requested' : entry.phase;
           const count = dataStore?.chatMessageCountStmt?.get(entry.id)?.total ?? null;
           return { id: entry.id, name: String(name || (metadata?.isGroup ? 'Group' : 'Conversation')),

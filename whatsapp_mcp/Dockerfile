@@ -9,7 +9,7 @@ WORKDIR /src
 RUN curl -fLsS --retry 3 "https://github.com/spare-cycles/whatsapp-mcp/archive/${UPSTREAM_COMMIT}.tar.gz" -o /tmp/source.tar.gz \
     && tar -xzf /tmp/source.tar.gz --strip-components=1 -C /src \
     && rm /tmp/source.tar.gz
-COPY patch-upstream.mjs patch-baileys-clear-chat.mjs patch-baileys-meta-ai.mjs review-mcp-register.ts privacy-retention.ts history-backfill.ts patch-pairing.mjs /src/
+COPY patch-upstream.mjs patch-baileys-clear-chat.mjs patch-baileys-meta-ai.mjs review-mcp-register.ts privacy-retention.ts history-backfill.ts history-observer.ts patch-pairing.mjs /src/
 RUN node /src/patch-upstream.mjs && node /src/patch-pairing.mjs
 RUN corepack enable && pnpm install --frozen-lockfile \
     && pnpm -r run build \
@@ -26,7 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg poppler-
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /opt/out/api /opt/whatsapp-api
 COPY --from=build /opt/out/mcp /opt/whatsapp-mcp
-COPY run.mjs archive-server.mjs archive-data.mjs review-data.mjs storage.mjs archive-merge.mjs prune-meta-ai.mjs protocol-retention.mjs restore-self-lid.mjs cloud-backup.mjs home-assistant-alerts.mjs maintenance-monitor.mjs /opt/whatsapp-addon/
+COPY run.mjs archive-server.mjs archive-data.mjs review-data.mjs storage.mjs archive-merge.mjs history-metrics.mjs history-recovery.mjs history-alerts.mjs prune-meta-ai.mjs protocol-retention.mjs restore-self-lid.mjs cloud-backup.mjs home-assistant-alerts.mjs maintenance-monitor.mjs /opt/whatsapp-addon/
 COPY archive-ui/ /opt/whatsapp-addon/archive-ui/
 ENV NODE_ENV=production
 EXPOSE 8099
