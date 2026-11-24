@@ -59,7 +59,7 @@ hr{border:0;border-top:1px solid #37415c;margin:16px 0}
 <div class="layout">
 <section class="card" aria-label="Artwork editor">
  <div class="sectionhead"><h2 id="editorTitle">Create artwork</h2><button class="secondary small" id="newButton">+ New image</button></div>
- <div id="dropzone"><strong>Choose an image or drop it here</strong><small>PNG, JPG or WebP · cropping happens in your browser</small><input id="file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" aria-label="Choose artwork image"></div>
+ <div id="dropzone"><strong>Choose an image or drop it here</strong><small>PNG, JPG, WebP or animated GIF · cropping happens in your browser</small><input id="file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" aria-label="Choose artwork image"></div>
  <div class="preview"><canvas id="preview" width="52" height="32" aria-label="Exact 52 by 32 pixel artwork preview"></canvas></div>
  <small>Actual resolution: <strong>52 × 32 pixels</strong>. This enlarged preview shows the LED pixels, not a high-resolution mock-up.</small>
  <div class="field"><label for="fit">Crop style</label><select id="fit"><option value="cover">Fill screen (crop edges)</option><option value="contain">Show whole image (black bars)</option></select></div>
@@ -77,7 +77,7 @@ hr{border:0;border-top:1px solid #37415c;margin:16px 0}
   <div><label for="matchText">Name / title</label><input id="matchText" maxlength="160" placeholder="Exact title to recognise"></div>
  </div>
  <button id="addRule" class="secondary small" style="margin-top:9px">+ Add matching rule</button>
- <div class="actions"><button id="save">Save to storage drive</button><button id="show" class="secondary" disabled>Show for 30 seconds</button><button id="timerPreview" class="secondary" disabled>Preview with timer</button></div>
+ <div class="actions"><button id="show" class="secondary" disabled>Preview on Govee · 30s</button><button id="save">Save to storage drive</button><button id="timerPreview" class="secondary" disabled>Preview with timer</button></div>
  <div class="actions"><button id="delete" class="ghost danger hidden">Delete saved image</button></div>
  <p class="subtext" id="selectedInfo">Choose an image or select an existing artwork below.</p>
 </section>
@@ -95,10 +95,12 @@ hr{border:0;border-top:1px solid #37415c;margin:16px 0}
 const W=52,H=32;
 const $=id=>document.getElementById(id);
 const canvas=$("preview"),ctx=canvas.getContext("2d",{willReadFrequently:true});
-let items=[],readOnly=true,selectedId=null,source=null,fileChanged=false,mappings=[],imageURL=null,hasPreview=false;
+let items=[],readOnly=true,selectedId=null,source=null,fileChanged=false,mappings=[],imageURL=null,hasPreview=false,animationFrames=[],animationDelay=[],animationTick=null,animated=false;
 function notice(message,type=""){const el=$("status");el.textContent=message;el.className="status "+type;}
 function api(path,options={}){return fetch("api/"+path,{cache:"no-store",...options}).then(async r=>{const v=await r.json().catch(()=>({}));if(!r.ok)throw Error(v.error||"HTTP "+r.status);return v;});}
 function post(path,payload){return api(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});}
+function stopAnimation(){clearTimeout(animationTick);animationTick=null;for(const f of animationFrames)f.close();animationFrames=[];animationDelay=[];animated=false;}
+function animate(i=0){if(!animated)return;source=animationFrames[i];draw();animationTick=setTimeout(()=>animate((i+1)%animationFrames.length),animationDelay[i]);}
 function draw(){
  ctx.fillStyle="#020207";ctx.fillRect(0,0,W,H);
  const z=Number($("zoom").value)/100,px=Number($("panX").value)/100,py=Number($("panY").value)/100;
@@ -108,7 +110,7 @@ function draw(){
  const sw=source.width*base*z,sh=source.height*base*z;
  const x=(W-sw)/2+Math.max(0,(sw-W)/2)*px;
  const y=(H-sh)/2+Math.max(0,(sh-H)/2)*py;
- ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality="high";
+ ctx.imageSmoothingEnabled=!(sw===W&&sh===H&&x===0&&y===0);ctx.imageSmoothingQuality="high";
  ctx.drawImage(source,x,y,sw,sh);
  hasPreview=true;
 }
@@ -123,12 +125,35 @@ async function loadFile(file){
  if(!file)return;
  if(file.size>25*1024*1024)throw Error("File too large (25 MB maximum)");
  if(!file.type.startsWith("image/"))throw Error("Select an image file");
- const url=URL.createObjectURL(file);
- try{source=await makeImage(url);}finally{URL.revokeObjectURL(url);}
+ stopAnimation();
+ if(file.type==="image/gif"||/\.gif$/i.test(file.name)){
+  if(!("ImageDecoder" in window))throw Error("Animated GIF decoding requires a current Chrome or Edge browser.");
+  const decoder=new ImageDecoder({data:await file.arrayBuffer(),type:"image/gif"});
+  try{
+   await decoder.tracks.ready;
+   const count=decoder.tracks.selectedTrack.frameCount;
+   if(count>600)throw Error("GIF exceeds 600 source frames");
+   let total=0;
+   for(let i=0;i<count;i++){
+    const {image}=await decoder.decode({frameIndex:i});
+    try{
+     if(image.displayWidth*image.displayHeight>4000000)throw Error("GIF frame too large");
+     total+=Math.max(84,(image.duration||100000)/1000);
+     if(total>60000||count*image.displayWidth*image.displayHeight>32000000)throw Error("GIF exceeds animation memory or 60-second limit");
+     animationFrames.push(await createImageBitmap(image));
+     animationDelay.push(Math.max(84,(image.duration||100000)/1000));
+    }finally{image.close();}
+   }
+   animated=true;source=animationFrames[0];
+  }catch(e){stopAnimation();source=null;draw();updateActions();throw e;}finally{decoder.close();}
+ }else{
+  const url=URL.createObjectURL(file);
+  try{source=await makeImage(url);}finally{URL.revokeObjectURL(url);}
+ }
  fileChanged=true;
  if(!selectedId && !$("artName").value.trim())$("artName").value=file.name.replace(/\.[^.]+$/,"").replace(/[_-]/g," ").slice(0,90);
- resetCrop();draw();
- notice("Image loaded. Adjust the crop, add a matching rule, then save.");
+ resetCrop();draw();if(animated)animate();updateActions();
+ notice("Artwork loaded. Preview on the Govee now, or optionally name and save it.");
 }
 function resetCrop(){
  $("zoom").value=100;$("panX").value=0;$("panY").value=0;$("fit").value="cover";
@@ -159,14 +184,14 @@ $("addRule").onclick=()=>{
 };
 $("matchText").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();$("addRule").click();}});
 function updateActions(){
- $("show").disabled=!selectedId;
+ $("show").disabled=!hasPreview;
  $("timerPreview").disabled=!selectedId;
  $("delete").classList.toggle("hidden",!selectedId||items.find(x=>x.id===selectedId)?.source==="bundled");
- $("save").disabled=readOnly;
+ $("save").disabled=readOnly||!hasPreview;
  $("save").textContent=selectedId?"Save changes to storage":"Save new artwork";
 }
 function newArtwork(){
- selectedId=null;source=null;fileChanged=false;hasPreview=false;mappings=[];
+ stopAnimation();selectedId=null;source=null;fileChanged=false;hasPreview=false;mappings=[];
  $("artName").value="";$("file").value="";$("editorTitle").textContent="Create artwork";
  $("selectedInfo").textContent="Choose an image or drop one into the uploader.";
  resetCrop();draw();renderRules();updateActions();renderGallery();
@@ -174,13 +199,13 @@ function newArtwork(){
 $("newButton").onclick=newArtwork;
 async function editItem(id){
  const item=items.find(x=>x.id===id);if(!item)return;
- selectedId=id;mappings=(item.mappings||[]).map(x=>({...x}));fileChanged=false;
+ stopAnimation();selectedId=id;mappings=(item.mappings||[]).map(x=>({...x}));fileChanged=false;
  $("artName").value=item.name;$("editorTitle").textContent="Edit artwork";
  $("selectedInfo").textContent="Saved image: "+item.file+". Upload another image to replace it, or edit the name and matches.";
  $("file").value="";resetCrop();
  try{
   const url="api/artwork/image/"+encodeURIComponent(id)+"?v="+Date.now();
-  source=await makeImage(url);draw();renderRules();updateActions();renderGallery();
+  if(item.animation){const response=await fetch(url);if(!response.ok)throw Error("Could not load animation");await loadFile(new File([await response.blob()],"saved.gif",{type:"image/gif"}));fileChanged=false;}else{source=await makeImage(url);draw();}renderRules();updateActions();renderGallery();
  }catch(err){notice(err.message,"error");}
 }
 function renderGallery(){
@@ -220,7 +245,7 @@ $("save").onclick=async()=>{
  if(!name){notice("Give the artwork a name.","error");return;}
  if(!selectedId&&!hasPreview){notice("Choose an image first.","error");return;}
  const payload={id:selectedId||null,name,mappings};
- if(fileChanged||!selectedId)payload.image_png_base64=canvas.toDataURL("image/png").split(",")[1];
+ if(fileChanged||!selectedId){if(animated)Object.assign(payload,await animationPayload());else payload.image_png_base64=canvas.toDataURL("image/png").split(",")[1];}
  $("save").disabled=true;notice("Saving image and matching rules to storage…");
  try{
   const data=await post("artwork/save",payload);
@@ -230,7 +255,17 @@ $("save").onclick=async()=>{
  }catch(err){notice(err.message,"error");}
  finally{updateActions();}
 };
-$("show").onclick=async()=>{if(!selectedId)return;try{const v=await post("artwork/show",{mode:selectedId,timeout:30});notice("Displaying "+selectedId+" for "+v.timeout+" seconds.","success");}catch(err){notice(err.message,"error");}};
+function rgbBytes(){const rgba=ctx.getImageData(0,0,W,H).data,rgb=new Uint8Array(W*H*3);for(let i=0,j=0;i<rgba.length;i+=4){rgb[j++]=rgba[i];rgb[j++]=rgba[i+1];rgb[j++]=rgba[i+2];}return rgb;}
+function b64(bytes){let s="";for(let i=0;i<bytes.length;i+=8192)s+=String.fromCharCode(...bytes.subarray(i,i+8192));return btoa(s);}
+async function animationPayload(){
+ const previous=source;clearTimeout(animationTick);const chunks=[];let elapsed=0,emitted=0;
+ try{for(let i=0;i<animationFrames.length;i++){source=animationFrames[i];draw();const rgb=rgbBytes();elapsed+=animationDelay[i];const target=Math.round(elapsed*12/1000);while(emitted<target){chunks.push(rgb);emitted++;}}}
+ finally{source=previous;draw();if(animated)animate();}
+ const raw=new Uint8Array(chunks.length*W*H*3);chunks.forEach((f,i)=>raw.set(f,i*f.length));
+ const compressed=new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new CompressionStream("deflate"))).arrayBuffer());
+ return {frames_zlib_base64:b64(compressed),fps:12};
+}
+$("show").onclick=async()=>{if(!hasPreview)return;try{const v=animated?await post("play",{...await animationPayload(),loop:true,timeout:30}):await post("show",{rgb_base64:b64(rgbBytes()),timeout:30});notice("Previewing on Govee for "+v.timeout+" seconds without saving.","success");}catch(err){notice(err.message,"error");}};
 $("timerPreview").onclick=async()=>{if(!selectedId)return;try{await post("artwork/preview-countdown",{mode:selectedId,remaining:2100,timeout:12});notice("Showing artwork with a sample 35M countdown for 12 seconds.","success");}catch(err){notice(err.message,"error");}};
 $("delete").onclick=async()=>{
  const item=items.find(x=>x.id===selectedId);if(!item||item.source==="bundled")return;
