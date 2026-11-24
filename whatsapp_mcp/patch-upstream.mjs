@@ -143,10 +143,17 @@ console.log('Pinned upstream patched with sender-aware revocations and Delete-fo
 
 
 
-// Extended history experiment: use the upstream-approved Chrome client label
-// for initial pairing (Desktop is rejected by pairing-code IQ on this pinned
-// Baileys version), but advertise Desktop on already-authenticated sessions.
-// Never delete/re-create auth keys or mutate the existing SQLite archive.
+// Fresh-pairing full-history experiment. Kept on an isolated Git branch;
+// DO NOT merge/deploy to an existing authenticated installation as a substitute
+// for a fresh pairing. Never clear /data or the existing archive to run this.
+//
+// Baileys documents Browsers.macOS("Desktop") + syncFullHistory: true, but
+// the pinned pairing-code implementation/server rejects the name "Desktop"
+// in companion_platform_display with HTTP/IQ 400. Safari is a recognized
+// companion label while preserving the macOS platform. This tests whether
+// the full-history negotiation works on a NEW pairing with phone-number code.
+// It is an experiment, not proof that Safari receives the same history as
+// Baileys' documented Desktop profile.
 const connectionFile = '/src/packages/api/src/whatsapp/connection.ts';
 let connection = fs.readFileSync(connectionFile, 'utf8');
 function patchConnection(before, after) {
@@ -156,15 +163,25 @@ function patchConnection(before, after) {
   }
   connection = connection.slice(0, at) + after + connection.slice(at + before.length);
 }
-// Preserve the known-good Chrome browser identity for existing sessions.
-// The Desktop profile repeatedly terminated the live WhatsApp connection.
-// Enabling full-history negotiation separately is safe to test without re-pairing.
-patchConnection(
-  'syncFullHistory: false,',
-  'syncFullHistory: true,'
-);
+const oldBrowserNote = `        // 🔴 \`Chrome\`, never \`Desktop\`, and this is load-bearing rather than cosmetic. Baileys
+        // sends \`companion_platform_display\` as \`\${browser[1]} (\${browser[0]})\`, and WhatsApp
+        // validates that string strictly for the pairing-code IQ — it does not for QR
+        // registration, which is why only this deployment's login path is affected. "Desktop
+        // (Mac OS)" is answered \`<iq type='error'><error code='400' text='bad-request'/></iq>\`,
+        // and \`requestPairingCode\` never awaits that reply: it returns a locally generated code
+        // regardless, so the server prints a perfectly plausible 8 characters that were never
+        // registered and the phone answers "couldn't link device". Upstream issue #2560; its fix,
+        // PR #2559, is unmerged as of 7.0.0-rc14, so supplying a canonical label is ours to do.
+        // Only the six names in Baileys' \`BROWSER_TO_COMPANION_WEB_CLIENT\` map — Chrome, Edge,
+        // Firefox, IE, Opera, Safari — are accepted; anything else, "Desktop" included, is not.
+        browser: Browsers.macOS("Chrome"), // also the ban-risk mitigation from the spec`;
+patchConnection(oldBrowserNote,
+  '        // Experimental fresh pairing: Safari is a canonical pairing-code label.\\n' +
+  '        // macOS platform plus full-history negotiation; do not assume full recovery.\\n' +
+  '        browser: Browsers.macOS("Safari"),');
+patchConnection('syncFullHistory: false,','syncFullHistory: true,');
 fs.writeFileSync(connectionFile, connection);
-console.log('Extended history requested for authenticated sessions; initial pairing remains Chrome.');
+console.log('Experimental Safari/macOS pairing-code profile with full-history sync enabled.');
 
 // Persistent, rate-limited on-demand history. Keep it out of the public REST
 // and MCP surfaces, and fail the image build if upstream bootstrap shifts.
