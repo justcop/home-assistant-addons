@@ -48,6 +48,7 @@ canvas{width:100%;height:auto;aspect-ratio:52/32;image-rendering:pixelated;borde
 hr{border:0;border-top:1px solid #37415c;margin:16px 0}
 @media(max-width:900px){.layout{grid-template-columns:1fr}.card.gallery{order:2}main{padding:12px}#gallery{grid-template-columns:repeat(auto-fill,minmax(135px,1fr))}}
 @media(max-width:430px){.sliders{grid-template-columns:1fr}.formrow{grid-template-columns:1fr}.badges{width:100%}button{padding:9px 11px}#gallery{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.game-library{margin-top:16px}.game-row{border-top:1px solid var(--line);padding:12px 0}.game-row summary{cursor:pointer;font-weight:650}.game-art{display:flex;align-items:center;gap:8px;margin:8px 0;flex-wrap:wrap}.game-art img{width:104px;aspect-ratio:52/32;image-rendering:pixelated;border-radius:6px}.game-art span{flex:1;min-width:100px;overflow-wrap:anywhere}.game-art button{flex:0 0 auto}.game-settings{display:flex;gap:8px;align-items:end;flex-wrap:wrap}.game-settings>div{flex:1;min-width:145px}
 </style>
 </head>
 <body><main>
@@ -70,7 +71,7 @@ hr{border:0;border-top:1px solid #37415c;margin:16px 0}
  </div>
  <hr>
  <div class="field"><label for="artName">Artwork name</label><input id="artName" maxlength="90" placeholder="e.g. Final Fantasy VII"></div>
- <div class="field"><label>Automatic matching rules</label><small>Game titles are recognised automatically while the PS5 session is active. Song, artist and album rules are saved for other automations to call later.</small></div>
+ <div class="field"><label>Automatic matching rules</label><small>Use PS5 Games below to configure multiple rotating backgrounds. Existing game matching rules remain supported. Song, artist and album rules are saved for other automations to call later.</small></div>
  <div id="mappingList" aria-label="Saved matching rules"></div>
  <div class="formrow">
   <div><label for="matchKind">Type</label><select id="matchKind"><option value="game">Game</option><option value="song">Song</option><option value="artist">Artist</option><option value="album">Album</option><option value="other">Other</option></select></div>
@@ -89,6 +90,7 @@ hr{border:0;border-top:1px solid #37415c;margin:16px 0}
  <p class="subtext" id="liveStatus"></p>
 </section>
 </div>
+<section class="card game-library" aria-label="PS5 games"><div class="sectionhead"><div><h2>PS5 Games</h2><small>Automatically discovered games and rotating timer backgrounds.</small></div><button id="refreshGames" class="secondary small">Refresh games</button></div><p id="gameStatus" role="status">Loading games…</p><div id="gameList"></div></section>
 </main>
 <script>
 "use strict";
@@ -198,6 +200,7 @@ function updateActions(){
 }
 function newArtwork(){
  if(busy)return;
+ uploadForGame=null;
  stopAnimation();selectedId=null;source=null;fileChanged=false;hasPreview=false;mappings=[];
  $("artName").value="";$("file").value="";$("editorTitle").textContent="Create artwork";
  $("selectedInfo").textContent="Choose an image or drop one into the uploader.";
@@ -206,6 +209,7 @@ function newArtwork(){
 $("newButton").onclick=newArtwork;
 async function editItem(id){
  if(busy)return;
+ uploadForGame=null;
  const item=items.find(x=>x.id===id);if(!item)return;
  stopAnimation();source=null;draw();updateActions();selectedId=id;mappings=(item.mappings||[]).map(x=>({...x}));fileChanged=false;
  $("artName").value=item.name;$("editorTitle").textContent="Edit artwork";
@@ -242,7 +246,7 @@ async function loadGallery(){
   $("storageWarning").textContent=readOnly?("Saving disabled: "+(result.storage?.error||"External storage is not writable")+
     " — the app will not fall back to Home Assistant's internal drive."):"";
   if(selectedId && !items.some(x=>x.id===selectedId))newArtwork();
-  renderGallery();updateActions();
+  renderGallery();updateActions();await loadGames();
   notice(readOnly?"Gallery available read-only until the storage drive is mounted.":"Gallery loaded from "+result.storage.path,readOnly?"error":"success");
  }catch(err){readOnly=true;$("storageBadge").textContent="Storage error";notice(err.message,"error");updateActions();}
 }
@@ -258,7 +262,10 @@ $("save").onclick=async()=>{
  if(fileChanged||!selectedId){if(animated)Object.assign(payload,await animationPayload());else payload.image_png_base64=canvas.toDataURL("image/png").split(",")[1];}
   const data=await post("artwork/save",payload);
   selectedId=data.item.id;fileChanged=false;
-  busy=false;await loadGallery();await editItem(selectedId);
+  const targetGame=uploadForGame;uploadForGame=null;
+  busy=false;await loadGallery();
+  if(targetGame){const game=gameRows.find(x=>x.title===targetGame);if(game){const draft=gameDrafts.get(targetGame)||{ids:[...game.artwork_ids],minutes:game.rotation_minutes};if(!draft.ids.includes(selectedId))draft.ids.push(selectedId);await post("games/update",{title:targetGame,artwork_ids:draft.ids,rotation_minutes:draft.minutes});gameDrafts.delete(targetGame);await loadGames();}}
+  await editItem(selectedId);
   notice("Saved to external storage: "+name,"success");
  }catch(err){notice(err.message,"error");}
  finally{busy=false;updateActions();}
@@ -291,6 +298,50 @@ async function refreshLive(){
    " · Countdown: "+(c.active?"running":"inactive");
  }catch(e){$("displayBadge").textContent="Display unavailable";}
 }
-draw();renderRules();loadGallery();refreshLive();setInterval(refreshLive,12000);
+let gameRows=[],gameDrafts=new Map(),gameOpen=new Set(),gameLoading=false,uploadForGame=null;
+function gameButton(label,fn){const el=document.createElement("button");el.type="button";el.className="secondary small";el.textContent=label;el.onclick=fn;return el;}
+function gameMessage(message,error=false){$("gameStatus").textContent=message;$("gameStatus").className=error?"status error":"muted";}
+function renderGames(){
+ const root=$("gameList");root.replaceChildren();
+ for(const game of gameRows){
+  const title=game.title;
+  const draft=gameDrafts.get(title)||{ids:[...game.artwork_ids],minutes:game.rotation_minutes};
+  const change=()=>{gameOpen.add(title);gameDrafts.set(title,draft);renderGames();};
+  const details=document.createElement("details");details.className="game-row";details.open=gameOpen.has(title);
+  details.ontoggle=()=>{if(details.open)gameOpen.add(title);else gameOpen.delete(title);};
+  const summary=document.createElement("summary");summary.textContent=title+" · "+draft.ids.length+" background"+(draft.ids.length===1?"":"s");details.append(summary);
+  const seen=document.createElement("p");seen.className="subtext";seen.textContent="Last detected: "+new Date(game.last_seen*1000).toLocaleString();details.append(seen);
+  for(const [i,id] of draft.ids.entries()){
+   const item=items.find(x=>x.id===id);if(!item)continue;
+   const row=document.createElement("div");row.className="game-art";
+   const img=document.createElement("img");img.src="api/artwork/image/"+encodeURIComponent(id)+"?v="+item.updated_at;img.alt=item.name;
+   const name=document.createElement("span");name.textContent=(i+1)+". "+item.name+(item.animation?" · GIF":"");
+   const up=gameButton("↑",()=>{[draft.ids[i-1],draft.ids[i]]=[draft.ids[i],draft.ids[i-1]];change();});up.disabled=i===0;
+   const down=gameButton("↓",()=>{[draft.ids[i+1],draft.ids[i]]=[draft.ids[i],draft.ids[i+1]];change();});down.disabled=i===draft.ids.length-1;
+   row.append(img,name,up,down,gameButton("Preview with timer",async()=>{try{const v=await post("artwork/preview-countdown",{mode:id,remaining:2100,timeout:12});gameMessage("Previewing "+item.name+" on Govee"+(v.frames?" · "+v.frames+" frames":""));}catch(e){gameMessage(e.message,true);}}),gameButton("Remove",()=>{draft.ids.splice(i,1);change();}));details.append(row);
+  }
+  const settings=document.createElement("div");settings.className="game-settings";
+  const pickerWrap=document.createElement("div"),pickerLabel=document.createElement("label");pickerLabel.textContent="Add saved artwork";const picker=document.createElement("select");
+  picker.setAttribute("aria-label","Add saved artwork for "+title);
+  const blank=document.createElement("option");blank.value="";blank.textContent="Choose artwork…";picker.append(blank);
+  for(const item of items.filter(x=>!draft.ids.includes(x.id))){const opt=document.createElement("option");opt.value=item.id;opt.textContent=item.name+(item.animation?" (GIF)":"");picker.append(opt);}
+  pickerWrap.append(pickerLabel,picker);settings.append(pickerWrap,gameButton("Add",()=>{if(picker.value){draft.ids.push(picker.value);change();}}));
+  const durationWrap=document.createElement("div"),durationLabel=document.createElement("label");durationLabel.textContent="Minutes per background";
+  const duration=document.createElement("input");duration.type="number";duration.min=1;duration.max=120;duration.step=1;duration.value=draft.minutes;duration.setAttribute("aria-label","Minutes per background for "+title);
+  duration.oninput=()=>{draft.minutes=Number(duration.value);gameDrafts.set(title,draft);};durationWrap.append(durationLabel,duration);settings.append(durationWrap);details.append(settings);
+  const actions=document.createElement("div");actions.className="actions";
+  actions.append(gameButton("Save rotation",async()=>{try{const v=await post("games/update",{title,artwork_ids:draft.ids,rotation_minutes:draft.minutes});gameDrafts.delete(title);await loadGames();gameMessage("Saved rotation for "+v.game.title);}catch(e){gameMessage(e.message,true);}}));
+  actions.append(gameButton("Upload new artwork",()=>{if(busy)return;newArtwork();uploadForGame=title;$("selectedInfo").textContent="New artwork for "+title+" — save it to add it to this game’s rotation.";$("dropzone").scrollIntoView({behavior:"smooth"});$("file").click();}));
+  details.append(actions);root.append(details);
+ }
+ if(!gameRows.length){const p=document.createElement("p");p.textContent="No games detected yet. Start a PS5 game to add it automatically.";root.append(p);}
+}
+async function loadGames(){
+ if(gameLoading)return;gameLoading=true;
+ try{const v=await api("games");gameRows=v.games||[];renderGames();gameMessage(gameRows.length+" detected game"+(gameRows.length===1?"":"s"));}
+ catch(e){gameMessage(e.message,true);}finally{gameLoading=false;}
+}
+$("refreshGames").onclick=loadGames;
+draw();renderRules();loadGallery();refreshLive();setInterval(refreshLive,12000);setInterval(()=>{if(!gameDrafts.size)loadGames();},30000);
 </script>
 </body></html>

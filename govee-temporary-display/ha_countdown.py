@@ -13,6 +13,7 @@ import urllib.request
 from pathlib import Path
 from artwork_modes import get_artwork_rgb, is_artwork_mode, resolve_game_artwork
 from artwork_store import get_frames
+import game_library
 
 W,H=52,32
 FILE=Path("/data/countdown_binding.json")
@@ -228,6 +229,7 @@ class CountdownBinding:
         return new
 
     def worker(self):
+        rotation=game_library.Rotation()
         last_check=0
         end_time=0
         visible=False
@@ -264,19 +266,26 @@ class CountdownBinding:
                 game_title="unknown"
                 activity="none"
                 game_error=None
-                if cfg["artwork_mode"]=="auto":
-                    try:
-                        activity=read_entity(cfg["activity_entity"]).get("state","none")
-                        game_title=read_entity(cfg["game_entity"]).get("state","unknown")
-                    except Exception as exc:
-                        game_error=str(exc)[:250]
+                try:
+                    activity=read_entity(cfg["activity_entity"]).get("state","none")
+                    game_title=read_entity(cfg["game_entity"]).get("state","unknown")
+                except Exception as exc:
+                    game_error=str(exc)[:250]
+                library_error=None
                 resolved_mode=selected_artwork_mode(cfg,game_title,activity)
+                try:
+                    game_library.observe(game_title,activity)
+                    rotating=rotation.select(game_title,activity,visible and cfg["artwork_mode"]=="auto",now)
+                    if rotating is not None:
+                        resolved_mode=rotating
+                except (OSError,ValueError,TypeError,KeyError) as exc:
+                    library_error=str(exc)[:250]
                 with self.lock:
                     self.status.update(game_entity=cfg["game_entity"],
                                        activity_entity=cfg["activity_entity"],
                                        game_title=game_title,ps5_activity=activity,
                                        selected_artwork_mode=resolved_mode,
-                                       game_detection_error=game_error)
+                                       game_detection_error=game_error,game_library_error=library_error)
             remaining=max(0,int(end_time-time.time()+.999))
             if not remaining:visible=False
             with self.lock:
