@@ -9,11 +9,31 @@ The existing experimental archive and linked-device credentials are preserved by
 
 **Known limitation:** The history delivered to Safari companions appears to stop around 30 October 2025, and full-history retrieval older than that remains unproven. This change restores the functional WhatsApp connection; it does not claim to bypass that history boundary.
 
+## One-time archive transfer to production
+
+The private **GET /api/trial/export** endpoint reports whether a content-only
+export exists. The private **POST /api/trial/export** endpoint requires the
+header `X-WhatsApp-Export-Action: 1` and JSON
+`{"confirm":"EXPORT TRIAL CONTENT ONLY"}`. No public MCP route exposes this.
+
+It exports only **chats, contacts, messages, reactions and hashed suppression
+records**, never WhatsApp authentication, API tokens or backup keys. The
+snapshot is a sensitive **plaintext SQLite file** in a 0700 directory on
+`/share` and must be removed after verified consolidation. It must never be
+uploaded to GitHub or a public service. Production's merge controller imports
+unique records into a *staged copy* of its external STORAGE archive and keeps
+the original as a short-lived rollback copy. Do not delete or uninstall the
+trial before the new production archive is verified. Nothing automatically
+merges on trial start.
+
 ## Isolation contract
 - Unique Home Assistant app slug `whatsapp_fullsync_trial`; independent
   /data/whatsapp SQLite and Baileys authentication database.
-- No /media or /share volume mapping; image also hard-forces internal storage,
-  so it cannot open the original archive even if given a storage_path.
+- No /media (STORAGE) mount. The trial keeps its own database in private /data;
+  a temporary /share mapping permits an explicitly initiated content-only SQLite
+  export into /share/whatsapp-history-transfer. Production's private STORAGE
+  archive and auth remain inaccessible to the trial. Remove this mount after
+  consolidation to restore strict isolation.
 - No host-mapped ports; read-only archive accessible through admin ingress only.
 - Cloudflare MCP gateway is disabled without Cloudflare Access credentials.
 - Per-conversation recovery is paused until explicitly enabled in the private History sync UI, and automatically yields while new FULL history is being delivered.
