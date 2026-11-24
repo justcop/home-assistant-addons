@@ -12,6 +12,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 from artwork_modes import get_artwork_rgb, is_artwork_mode, resolve_game_artwork
+from artwork_store import get_frames
 
 W,H=52,32
 FILE=Path("/data/countdown_binding.json")
@@ -96,7 +97,7 @@ def selected_artwork_mode(cfg,game_title=None,activity="none"):
     return mode
 
 
-def render(cfg,remaining,game_title=None,activity="none"):
+def render(cfg,remaining,game_title=None,activity="none", *, background=None, resolved_mode=None):
     out=bytearray(W*H*3)
     def put(x,y,c):
         if 0<=x<W and 0<=y<H:
@@ -114,11 +115,11 @@ def render(cfg,remaining,game_title=None,activity="none"):
                                 put(x+ix*scale+dx,y+iy*scale+dy,color)
             x+=(width+1)*scale
     mark=cfg["mark"]
-    artwork_mode=selected_artwork_mode(cfg,game_title,activity)
+    artwork_mode=resolved_mode if resolved_mode is not None else selected_artwork_mode(cfg,game_title,activity)
     if artwork_mode!="classic":
         # A corrupt/unmounted user image cannot stop the gaming countdown.
         try:
-            out[:] = get_artwork_rgb(artwork_mode)
+            out[:] = background if background is not None else get_artwork_rgb(artwork_mode)
         except (OSError, ValueError):
             out[:] = get_artwork_rgb("ps5_default")
     else:
@@ -174,6 +175,24 @@ def render(cfg,remaining,game_title=None,activity="none"):
     else:
         text(label,start,22,(255,231,241),scale)
     return bytes(out)
+
+def render_frames(cfg,remaining,game_title=None,activity="none", *, mode=None):
+    """Compose the same outlined timer over every native-resolution background frame."""
+    mode=mode if mode is not None else selected_artwork_mode(cfg,game_title,activity)
+    if mode=="classic":
+        return (render(cfg,remaining,resolved_mode=mode),)
+    try:
+        backgrounds=get_frames(mode)
+    except (OSError,ValueError):
+        backgrounds=(get_artwork_rgb("ps5_default"),)
+    cache={}
+    result=[]
+    for frame in backgrounds:
+        if frame not in cache:
+            cache[frame]=render(cfg,remaining,background=frame,resolved_mode=mode)
+        result.append(cache[frame])
+    return tuple(result)
+
 
 def read_entity(entity):
     token=os.environ.get("SUPERVISOR_TOKEN","")
@@ -267,8 +286,10 @@ class CountdownBinding:
                     display_label=countdown_label(remaining)
                     if (display_label!=last_label or resolved_mode!=last_mode
                             or owner!="countdown" or cfg is not last_config):
-                        self.state.update(frames=(render(cfg,remaining,game_title,activity),),fps=12.,
-                                          loop=True,start=time.monotonic(),
+                        frames=render_frames(cfg,remaining,game_title,activity,mode=resolved_mode)
+                        phase=self.state["start"] if owner=="countdown" and resolved_mode==last_mode and cfg is last_config else time.monotonic()
+                        self.state.update(frames=frames,fps=12.,
+                                          loop=True,start=phase,
                                           expires=time.monotonic()+3,owner="countdown")
                         last_label=display_label
                         last_mode=resolved_mode
