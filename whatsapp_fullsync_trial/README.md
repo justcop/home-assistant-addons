@@ -17,7 +17,7 @@ not equivalent proof of Desktop's claimed extended history.
   so it cannot open the original archive even if given a storage_path.
 - No host-mapped ports; read-only archive accessible through admin ingress only.
 - Cloudflare MCP gateway is disabled without Cloudflare Access credentials.
-- Backfill requests are disabled while measuring Baileys initial history sync.
+- Per-conversation recovery is paused until explicitly enabled in the private History sync UI, and automatically yields while new FULL history is being delivered.
 - Never unlink the production WhatsApp device just to pair this second one.
 - Keep the trial stopped after testing, since it consumes a linked-device slot.
 
@@ -25,10 +25,10 @@ not equivalent proof of Desktop's claimed extended history.
 1. Confirm the production WhatsApp app is running and its encrypted Google Drive
    recovery backup is current, and retain its source/rollback branch.
 2. Install **WhatsApp Full History Trial**, not WhatsApp MCP (Read Only).
-   Set the phone number to international digits, without a leading +.
-   Start the trial app; retrieve the temporary pairing code from its own log.
-3. On the phone use WhatsApp > Settings > Linked devices > Link a device >
-   Link with phone number instead. Complete the new pairing.
+   For phone-code pairing only, set the number to international digits without a leading +.
+   Start the trial app; scan the QR from its private Home Assistant pairing UI (or change pairing mode to phone code in Settings).
+3. On the phone use WhatsApp > Settings > Linked devices > Link a device,
+   then scan the trial QR (or choose Link with phone number for code mode).
 4. Keep the production app untouched. Wait for the initial full history
    sync to settle. Compare message totals/oldest timestamps on the trial
    versus production (including known incomplete direct chats).
@@ -76,3 +76,16 @@ When removing the experiment:
 A successful build or pairing does not prove that WhatsApp sent all history.
 Only a live controlled comparison can demonstrate increased coverage.
 Baileys is an unofficial client and linking is at the account holder's risk.
+
+## Resumable recovery and deduplication (trial only)
+
+- **FULL batches** are WhatsApp's push-based initial synchronisation. Merely restarting this add-on does **not** reliably replay them; a new companion pairing might be needed, and even that cannot guarantee all historical messages.
+- **Older-message recovery** is separately opt-in under **History sync** in the private Ingress UI. It requests one conversation at a time, prioritises direct chats, resumes from the oldest valid stored-message anchor, persists checkpoints between restarts and yields while FULL batches have arrived within the last 120 seconds. It can be paused at any time; the currently in-flight request may finish. A short or silent response does not prove completion.
+- The 25-second response window, three-second inter-request delay and 2,000-request daily safety breaker are local choices, **not published WhatsApp limits**. Failures add a bounded backoff; the trial logs only aggregate error-status information.
+- The SQLite schema has `messages_chat_id_id(chat_id,id)` uniqueness. Incoming replay uses upsert, not independent insert. Trial-specific protection prevents older history from restoring text on an existing revoked-message tombstone; existing delete-for-me suppression remains in force.
+- The trial dashboard distinguishes **records received** from **net changes in unique stored rows**. Identity merges may reduce row counts, so these figures do not amount to a precise duplicate count. Metrics begin with this new version and cannot retrospectively classify old batches.
+- The trial offers manually repeatable recovery attempts for stalled and probably-complete conversations. A replay cannot be assumed to make any conversation definitively complete.
+- Actionable stopped-worker or missing-checkpoint problems raise a Home Assistant persistent notification; an idle FULL-history stream does not.
+- All recovery controls remain behind admin-only Home Assistant Ingress. No Cloudflare policy, port mapping, production archive or production code is changed.
+
+Offline tests cover repeated and overlapping imports, tombstone replay, checkpoint retention, bulk-sync interlocks and the actual patched container. Passing them does not guarantee WhatsApp will provide more historical messages.
