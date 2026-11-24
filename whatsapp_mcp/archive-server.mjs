@@ -55,7 +55,7 @@ function send(res, status, data, type = 'text/plain; charset=utf-8') {
 // WhatsApp content endpoints stay GET-only. A small, separate configuration
 // controller is POST-only, protected by HA admin Ingress and a custom header;
 // no path can send, edit or delete a WhatsApp message.
-export function createArchiveServer({ apiToken, port = 8100, storagePath = '/data/whatsapp', dataStore = null, cloudBackup = null, allowPeer = isIngressPeer }) {
+export function createArchiveServer({ apiToken, port = 8100, storagePath = '/data/whatsapp', dataStore = null, cloudBackup = null, configuredPhone = false, allowPeer = isIngressPeer }) {
   if (!apiToken) throw new Error('Missing internal WhatsApp API token');
   return http.createServer(async (req, res) => {
     if (!allowPeer(req.socket.remoteAddress)) return send(res, 403, 'Ingress only');
@@ -96,7 +96,7 @@ export function createArchiveServer({ apiToken, port = 8100, storagePath = '/dat
               }
             } catch { /* not yet issued or expired */ }
           }
-          let phoneConfigured = false;
+          let phoneConfigured = configuredPhone;
           try { phoneConfigured = /^[1-9][0-9]{7,14}$/.test(fs.readFileSync(phoneFile, 'utf8').trim()); }
           catch { /* HA options may provide the number instead */ }
           return send(res, 200, JSON.stringify({
