@@ -24,7 +24,7 @@ function pairingMode(): 'qr' | 'code' {
     return mode === 'qr' || mode === 'code' ? mode : 'code';
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    return process.env.WHATSAPP_PAIRING_DEFAULT_MODE === 'qr' ? 'qr' : 'code';
+    return process.env['WHATSAPP_PAIRING_DEFAULT_MODE'] === 'qr' ? 'qr' : 'code';
   }
 }
 function pairingPhone(fallback: string | undefined): string | undefined {
