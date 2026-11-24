@@ -177,7 +177,7 @@ class Handler(BaseHTTPRequestHandler):
                     state.update(frames=frames,fps=12.,loop=True,
                                  start=time.monotonic(),
                                  expires=time.monotonic()+timeout,owner="manual")
-                return self.reply(200,{"ok":True,"mode":mode,"timeout":timeout})
+                return self.reply(200,{"ok":True,"mode":mode,"timeout":timeout,"frames":len(frames),"fps":12})
             if self.path == "/api/artwork/show":
                 mode=body.get("mode")
                 timeout=int(body.get("timeout", DEFAULT_TIMEOUT))
@@ -211,7 +211,7 @@ class Handler(BaseHTTPRequestHandler):
                     state.update(frames=render_countdown_frames(countdown.config,seconds,title,activity),
                                  start=time.monotonic(),fps=12.,loop=True,
                                  expires=time.monotonic()+timeout, owner="manual")
-                return self.reply(200, {"ok":True,"preview_seconds":timeout,"artwork_mode":mode})
+                return self.reply(200, {"ok":True,"preview_seconds":timeout,"artwork_mode":mode,"frames":len(state["frames"]),"fps":12})
             if self.path == "/api/countdown/configure":
                 current = countdown.configure(body)
                 return self.reply(200, {"ok": True, "binding": current})
