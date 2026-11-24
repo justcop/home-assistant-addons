@@ -29,6 +29,7 @@ jobs:
             const run=fs.readFileSync("/opt/whatsapp-addon/run.mjs","utf8");
             assert.match(conn,/macOS\("Safari"\)/);
             assert.match(conn,/syncFullHistory: true/);
+            assert.match(conn,/shouldSyncHistoryMessage: \(\) => true/);
             assert.match(conn,/PAIRING_CODE_FILE/);
             assert.match(conn,/PAIRING_MODE_FILE/);
             assert.match(run,/const DEFAULT_PAIRING_MODE = \x27qr\x27/);
