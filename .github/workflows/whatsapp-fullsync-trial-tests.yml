@@ -30,6 +30,10 @@ jobs:
             assert.match(conn,/macOS\("Safari"\)/);
             assert.match(conn,/syncFullHistory: true/);
             assert.match(conn,/PAIRING_CODE_FILE/);
+            assert.match(conn,/PAIRING_MODE_FILE/);
+            assert.match(run,/const DEFAULT_PAIRING_MODE = 'qr'/);
+            const qrView=fs.readFileSync("/opt/whatsapp-addon/archive-ui/index.html","utf8");
+            assert.match(qrView,/id="pairing-qr-image"/);
             assert.match(conn,/resettingPairing/);
             const page=fs.readFileSync("/opt/whatsapp-addon/archive-ui/index.html","utf8");
             assert.match(page,/id="pairing-banner"/);
