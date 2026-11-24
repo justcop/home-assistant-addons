@@ -10,6 +10,7 @@ import { pruneMetaAI } from './prune-meta-ai.mjs';
 import { restoreSelfLid } from './restore-self-lid.mjs';
 import { pruneProtocolNoise } from './protocol-retention.mjs';
 import { configureWhatsAppStorage } from './storage.mjs';
+import { runScheduledArchiveMerge } from './archive-merge.mjs';
 import { WhatsAppCloudBackup } from './cloud-backup.mjs';
 import { HomeAssistantBackupAlerts } from './home-assistant-alerts.mjs';
 import { WhatsAppMaintenanceMonitor } from './maintenance-monitor.mjs';
@@ -166,6 +167,10 @@ async function main() {
   const writeProbe = path.join(storage.dataDir, '.permission-test-' + process.pid);
   fs.writeFileSync(writeProbe, 'ok', { flag: 'wx', mode: 0o600 });
   fs.unlinkSync(writeProbe);
+  // Execute an explicitly scheduled content-only trial merge before WhatsApp opens the DB.
+  // Failures leave production untouched and are recorded for the private admin UI.
+  const consolidation = runScheduledArchiveMerge(storage.dataDir);
+  if (consolidation) console.log('WhatsApp archive merge outcome: '+JSON.stringify(consolidation));
   // One-time, non-destructive reversal of the redundant self-LID quarantine.
   const selfLidRestore = await restoreSelfLid(storage.dataDir, opts.phone_number);
   console.log('Self-LID chat restore: '+JSON.stringify(selfLidRestore));
