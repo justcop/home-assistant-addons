@@ -4,6 +4,7 @@ import http from 'node:http';
 import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import { mergeStatus, scheduleMerge, finaliseMerge } from './archive-merge.mjs';
 
 const UI_DIR = fileURLToPath(new URL('./archive-ui/', import.meta.url));
 const API_HOST = '127.0.0.1';
@@ -66,9 +67,30 @@ export function createArchiveServer({ apiToken, port = 8100, storagePath = '/dat
     const isPairing = url.pathname.startsWith('/api/pairing/');
     const isBackup = url.pathname.startsWith('/api/backup/');
     const isBackfillAction = url.pathname === '/api/archive/backfill/recheck';
-    if (req.method !== 'GET' && req.method !== 'HEAD' && !(req.method === 'POST' && (isBackup || isBackfillAction || isPairing)))
+    const isMergeAction = url.pathname === '/api/archive/merge';
+    if (req.method !== 'GET' && req.method !== 'HEAD' && !(req.method === 'POST' && (isBackup || isBackfillAction || isPairing || isMergeAction)))
       return send(res, 405, 'Read-only archive');
     try {
+      if (isMergeAction) {
+        if(req.method==='GET') return send(res,200,JSON.stringify(mergeStatus(storagePath)),'application/json; charset=utf-8');
+        if(req.method!=='POST' || req.headers['x-whatsapp-merge-action']!=='1' ||
+            !String(req.headers['content-type']||'').startsWith('application/json'))
+          return send(res,403,'Merge requires admin confirmation');
+        let body='';
+        for await(const chunk of req){body+=chunk.toString('utf8');if(body.length>256)return send(res,413,'Request too large');}
+        let params;
+        try{params=JSON.parse(body);}catch{return send(res,400,'Invalid JSON');}
+        try{
+          const result=params?.action==='prepare' && params.confirm==='MERGE TRIAL INTO PRODUCTION'
+            ? scheduleMerge(storagePath)
+            : params?.action==='finalise' && params.confirm==='FINALISE VERIFIED MERGE'
+            ? finaliseMerge(storagePath):null;
+          if(!result)return send(res,400,'Explicit action and confirmation required');
+          return send(res,200,JSON.stringify(result),'application/json; charset=utf-8');
+        }catch(err){
+          return send(res,409,JSON.stringify({error:String(err.message||err).slice(0,180)}),'application/json; charset=utf-8');
+        }
+      }
       if (isPairing) {
         const phoneFile = path.join(pairingDir, '.whatsapp-pairing-phone');
         const codeFile = path.join(pairingDir, '.whatsapp-pairing-code.json');

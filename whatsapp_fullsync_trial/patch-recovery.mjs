@@ -172,4 +172,39 @@ patch(runner,/import \{ createArchiveServer \} from '\.\/archive-server\.mjs';/,
 patch(runner,/archive\.listen\(ARCHIVE_PORT, '0\.0\.0\.0', \(\) => \{/,
   "startTrialRecoveryMonitor({root:storage.dataDir});\n  archive.listen(ARCHIVE_PORT, '0.0.0.0', () => {",
   'launch private alert monitor');
+// Temporary one-way transfer: emit a content-only SQLite export onto HA /share.
+// The production STORAGE volume is never mounted in this trial container.
+patch(server,/import \{ trialRecoveryStatus, setTrialRecovery \} from '\.\/trial-recovery\.mjs';/,
+  "import { trialRecoveryStatus, setTrialRecovery } from './trial-recovery.mjs';\nimport { trialExportStatus, exportTrialSnapshot } from './trial-export.mjs';",
+  'trial export module');
+patch(server,/const isTrialRecovery = url\.pathname === '\/api\/trial\/recovery';/,
+  "const isTrialRecovery = url.pathname === '/api/trial/recovery';\n    const isTrialExport = url.pathname === '/api/trial/export';",
+  'private trial export route');
+patch(server,/\(isBackup \|\| isBackfillAction \|\| isPairing \|\| isTrialRecovery\)/,
+  '(isBackup || isBackfillAction || isPairing || isTrialRecovery || isTrialExport)',
+  'trial export method restriction');
+patch(server,/if \(isTrialRecovery\) \{/,
+  [
+    'if (isTrialExport) {',
+    "        if(req.method==='GET') return send(res,200,JSON.stringify(trialExportStatus()),'application/json');",
+    "        if(req.method!=='POST' || req.headers['x-whatsapp-export-action']!=='1' ||",
+    "           !String(req.headers['content-type']||'').startsWith('application/json'))",
+    "           return send(res,403,'Export requires private admin action');",
+    "        let body='';",
+    "        for await(const chunk of req) { body+=chunk.toString('utf8'); if(body.length>256) return send(res,413,'Request too large'); }",
+    "        let args;",
+    "        try {args=JSON.parse(body);}catch{return send(res,400,'Invalid JSON');}",
+    "        if(args?.confirm!=='EXPORT TRIAL CONTENT ONLY')return send(res,400,'Explicit confirmation required');",
+    "        const result=exportTrialSnapshot(storagePath);",
+    "        return send(res,200,JSON.stringify(result),'application/json');",
+    '      }',
+    '      if (isTrialRecovery) {'
+  ].join('\n'),
+  'admin-only trial SQLite export');
+patch(runner,/import \{ startTrialRecoveryMonitor \} from '\.\/trial-alerts\.mjs';/,
+  "import { startTrialRecoveryMonitor } from './trial-alerts.mjs';\nimport { prepareTrialExportDirectory } from './trial-export.mjs';",
+  'trial exporter startup preparation import');
+patch(runner,/const storage = configureWhatsAppStorage\(''\);/,
+  "const storage = configureWhatsAppStorage('');\n  prepareTrialExportDirectory();",
+  'prepare private /share transfer folder before dropping privileges');
 console.log('Trial recovery controls, dedup tombstone safeguard and telemetry installed.');

@@ -16,6 +16,10 @@ panel_admin: true
 homeassistant_api: true
 ingress: true
 ingress_port: 8100
+map:
+- type: share
+  read_only: false
+  path: /share
 ports:
   8099/tcp: null
 ports_description:
