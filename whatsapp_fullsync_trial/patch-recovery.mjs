@@ -16,7 +16,7 @@ function patch(file,regex,replacement,label) {
 patch(launcher,/WHATSAPP_HISTORY_BACKFILL:\s*'0'/,
   "WHATSAPP_HISTORY_BACKFILL: '1'",'start gated history worker');
 const prior=fs.readFileSync(ingest,'utf8');
-if(!prior.startsWith('import ')) throw Error('Expected ES module history ingester');
+if(!prior.includes('import ')) throw Error('Expected ES module history ingester');
 fs.writeFileSync(ingest,"import { observeHistoryBatch } from '/opt/whatsapp-addon/trial-observer.mjs';\n"+prior);
 patch(ingest,/applyHistory\(h\);/,
   [
