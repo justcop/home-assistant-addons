@@ -12,6 +12,14 @@ patchOnce(connectionPath,/macOS\((["'])Chrome\1\)/,
   'macOS("Safari")','fresh-pairing companion profile');
 if(!fs.readFileSync(connectionPath,'utf8').includes('syncFullHistory: true'))
   throw Error('Full-history negotiation is not enabled in the pinned base image');
+// Baileys rc14 defaults to filtering FULL history notifications even when
+// syncFullHistory=true causes WhatsApp to send them. Override the filter only
+// in this isolated experiment. The existing upstream provenance/fromMe checks
+// and deletion-suppression mechanisms remain intact.
+patchOnce(connectionPath,/syncFullHistory: true,\\s*generateHighQualityLinkPreview:/,
+  'syncFullHistory: true,\\n        shouldSyncHistoryMessage: () => true,\\n        generateHighQualityLinkPreview:',
+  'accept full-history sync notifications');
+
 patchOnce(launcherPath,/const DEFAULT_PAIRING_MODE = 'code';/,
   "const DEFAULT_PAIRING_MODE = 'qr';",'trial uses QR by default');
 patchOnce(launcherPath,/WHATSAPP_HISTORY_BACKFILL:\s*'1'/,
