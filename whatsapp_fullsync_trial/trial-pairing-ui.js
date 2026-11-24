@@ -15,7 +15,7 @@
   retry.textContent='Restart trial pairing';
   const hint=document.createElement('p');
   hint.className='pairing-help';
-  hint.textContent='The QR is created using a temporary web-client identity. After linking, the trial tests whether the same account can reconnect as Windows Desktop for deeper history. This may still be rejected by WhatsApp.';
+  hint.textContent='The QR and authenticated connection now both use the same Safari companion identity. The previous experimental Windows Desktop switch was rejected after successful pairing; it is disabled to preserve the session. This does not guarantee older history.';
   panel.insertBefore(status,feedback);
   panel.insertBefore(retry,feedback);
   panel.insertBefore(hint,feedback);
