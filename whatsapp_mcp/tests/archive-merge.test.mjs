@@ -30,7 +30,7 @@ function chat(db,id,name) {
   db.prepare('INSERT INTO chats VALUES (?,?,0,100,5,0,NULL,0,NULL)').run(id,name);
 }
 function message(db,chatId,id,text,mediaSha=null) {
-  db.prepare('INSERT INTO messages(chat_id,id,sender_id,ts,from_me,kind,text,media_sha,raw) VALUES (?,?,?,100,0,?,?,?,?,?)')
+  db.prepare('INSERT INTO messages(chat_id,id,sender_id,ts,from_me,kind,text,media_sha,raw) VALUES (?,?,?,100,0,?,?,?,?)')
     .run(chatId,id,'self@s.whatsapp.net','text',text,mediaSha,Buffer.from('raw'));
 }
 test('one-time merge imports only missing keys, never device auth, preserves production messages and rebuilds search',()=>{
