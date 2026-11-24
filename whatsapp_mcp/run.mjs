@@ -176,11 +176,14 @@ async function main() {
   const protocol = await pruneProtocolNoise(storage.dataDir);
   console.log('WhatsApp protocol retention cleanup: '+JSON.stringify(protocol));
 
+  console.log('WhatsApp configured pairing phone number (HA options): ' + (opts.phone_number || 'not set; may be entered in private pairing UI'));
   api = startChild('WhatsApp API', '/opt/whatsapp-api/dist/main.js', {
     PORT: String(API_PORT),
     WHATSAPP_DATA_DIR: storage.dataDir,
     WHATSAPP_API_TOKEN: apiToken,
     WHATSAPP_PHONE_NUMBER: opts.phone_number,
+    WHATSAPP_QR_FILE: '/data/.whatsapp-link-qr',
+    WHATSAPP_PAIRING_DEFAULT_MODE: 'code',
     WHATSAPP_MCP_READONLY: 'true',
     // Resumable backfill: up to 2,000 requests/day (our safety ceiling), 50 messages/request.
     WHATSAPP_HISTORY_BACKFILL: '1',
