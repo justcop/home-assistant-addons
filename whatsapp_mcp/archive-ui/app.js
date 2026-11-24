@@ -220,14 +220,32 @@ function searchHitNode(hit) {
   return btn;
 }
 async function searchMessages(reset=true) {
-  const query = $('message-search').value.trim();
-  if (!query) return;
-  if(reset) {state.searchTerm=query; state.searchCursor=null; $('search-results').replaceChildren();}
+  if(reset) {
+    const query=$('message-search').value.trim();
+    const afterDate=$('message-search-after').value;
+    const beforeDate=$('message-search-before').value;
+    if(!query && !afterDate && !beforeDate){
+      $('search-summary').textContent='Enter a search term or at least one date.';
+      return;
+    }
+    const after=afterDate ? Date.parse(afterDate+'T00:00:00Z')/1000 : null;
+    const before=beforeDate ? Date.parse(beforeDate+'T23:59:59Z')/1000 : null;
+    if((after!==null && !Number.isFinite(after))||(before!==null && !Number.isFinite(before))||
+       (after!==null && before!==null && after>before)){
+      $('search-summary').textContent='Invalid date range: the start must not be after the end.';
+      return;
+    }
+    state.searchFilters={q:query,scope:$('message-search-scope').value,after,before,limit:60};
+    state.searchTerm=query;
+    state.searchCursor=null;
+    $('search-results').replaceChildren();
+  }
+  if(!state.searchFilters)return;
   const gen = ++state.searchGeneration;
   $('search-summary').textContent = 'Searching…';
   $('more-results').classList.add('hidden');
   try {
-    const page = await get('api/search',{q:state.searchTerm,limit:60,cursor:state.searchCursor});
+    const page = await get('api/archive/filter',{...state.searchFilters,cursor:state.searchCursor});
     if(gen!==state.searchGeneration) return;
     const list = $('search-results');
     for(const hit of page.items) list.append(searchHitNode(hit));
