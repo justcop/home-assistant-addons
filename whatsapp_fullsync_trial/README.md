@@ -2,7 +2,7 @@
 
 **Experimental, privacy sensitive. Does not replace the production WhatsApp MCP installation.**
 
-This image is based on the pinned, published WhatsApp MCP 0.3.31 image,\nincluding the admin-ingress pairing banner, code display, connection status, and\nSettings re-pair control. Pairing status hides after successful linking.
+This image is based on the pinned, published WhatsApp MCP 0.3.32 image,\nincluding the admin-ingress pairing banner, code display, connection status, and\nSettings re-pair control. Pairing status hides after successful linking.
 At image-build time it enables macOS Safari's recognised pairing-code profile
 while retaining Baileys `syncFullHistory: true`. The regular app already
 enabled the flag, but existing credentials cannot replay initial device pairing.
