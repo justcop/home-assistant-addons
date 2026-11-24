@@ -176,8 +176,8 @@ const oldBrowserNote = `        // 🔴 \`Chrome\`, never \`Desktop\`, and this 
         // Firefox, IE, Opera, Safari — are accepted; anything else, "Desktop" included, is not.
         browser: Browsers.macOS("Chrome"), // also the ban-risk mitigation from the spec`;
 patchConnection(oldBrowserNote,
-  '        // Experimental fresh pairing: Safari is a canonical pairing-code label.\\n' +
-  '        // macOS platform plus full-history negotiation; do not assume full recovery.\\n' +
+  '        // Experimental fresh pairing: Safari is a canonical pairing-code label.\n' +
+  '        // macOS platform plus full-history negotiation; do not assume full recovery.\n' +
   '        browser: Browsers.macOS("Safari"),');
 patchConnection('syncFullHistory: false,','syncFullHistory: true,');
 fs.writeFileSync(connectionFile, connection);
