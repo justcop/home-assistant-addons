@@ -147,6 +147,58 @@ export class ArchiveData {
       chatName:this.displayName(hit.chat,chat?.name,!!chat?.isGroup),
       sender:hit.sender?{...hit.sender,name:hit.fromMe?'You':this.displayName(hit.sender.id,hit.sender.name)}:hit.sender};
   }
+  // Bounded multi-chat query used by admin Ingress and read-only MCP.
+  // Matches resolved contact/group names or message text/transcripts.
+  searchArchive(params) {
+    this.refreshContacts();
+    const get = name => params.get(name);
+    const term=normalize(get('q')).toLocaleLowerCase();
+    if(term.length>160) throw new RangeError('Query is too long');
+    const scope=get('scope') || 'any';
+    if(!['any','name','message'].includes(scope)) throw new RangeError('Invalid search scope');
+    const after=integer(get('after'),null,0,9999999999);
+    const before=integer(get('before'),null,0,9999999999);
+    if(!term && after===null && before===null) throw new RangeError('Enter a search term or date');
+    if(after!==null && before!==null && after>before) throw new RangeError('Invalid date range');
+    const group=get('isGroup');
+    if(group!==null && !['true','false'].includes(group)) throw new RangeError('Invalid conversation type');
+    const limit=integer(get('limit'),40,1,100);
+    const offset=integer(get('cursor'),0,0,1000000);
+    const chats=this.db.prepare('SELECT id,name,is_group AS isGroup FROM chats').all();
+    const names=new Map(chats.map(c=>[c.id,this.displayName(c.id,c.name,!!c.isGroup)]));
+    const nameIds=term ? chats.filter(c=>c.id!==META_AI_JID &&
+      names.get(c.id).toLocaleLowerCase().includes(term) &&
+      (group===null || (!!c.isGroup) === (group==='true'))).map(c=>c.id) : [];
+    if(term && scope==='name' && !nameIds.length) return {items:[],nextCursor:null};
+    const args={meta:META_AI_JID,limit:limit+1,offset};
+    const where=[VISIBLE_MESSAGE,'m.chat_id != :meta','m.deleted_ts IS NULL'];
+    if(after!==null){where.push('m.ts >= :after');args.after=after;}
+    if(before!==null){where.push('m.ts <= :before');args.before=before;}
+    if(group!==null){where.push('c.is_group = :group');args.group=group==='true'?1:0;}
+    if(term) {
+      args.q=term;
+      const content="(instr(lower(coalesce(m.text,'')),:q)>0 OR instr(lower(coalesce(m.transcript,'')),:q)>0)";
+      const ids=nameIds.map((id,i)=>{args['chat'+i]=id;return ':chat'+i;});
+      const matchedNames=ids.length?'m.chat_id IN ('+ids.join(',')+')':'0';
+      where.push(scope==='message'?content:scope==='name'?matchedNames:'('+content+' OR '+matchedNames+')');
+    }
+    const sql='SELECT m.id,m.chat_id AS chat,m.sender_id AS senderId,m.ts,m.from_me AS fromMe,'+
+       'm.kind,m.text,m.transcript,m.deleted_ts AS deletedTs,m.media_type AS mediaType,'+
+       'm.media_sha AS mediaSha FROM messages m JOIN chats c ON c.id=m.chat_id WHERE '+
+       where.join(' AND ')+' ORDER BY m.ts DESC,m.rowid DESC LIMIT :limit OFFSET :offset';
+    const rows=this.db.prepare(sql).all(args);
+    return {
+      items:rows.slice(0,limit).map(m=>({
+        id:m.id,chat:m.chat,chatName:names.get(m.chat)||'Unknown conversation',
+        ts:m.ts,fromMe:!!m.fromMe,kind:m.kind,
+        sender:{id:m.senderId,name:m.fromMe?'You':this.displayName(m.senderId)},
+        text:m.text,transcript:m.transcript,
+        snippet:String(m.text||m.transcript||'').slice(0,320),
+        deleted:false,media:m.mediaType===null&&m.mediaSha===null?null:{type:m.mediaType,cached:m.mediaSha!==null}
+      })),
+      nextCursor:rows.length>limit?String(offset+limit):null
+    };
+  }
   archiveDateRange() {
     // Count both raw WhatsApp events and actual user-visible messages.
     // No message text, contact names or identifiers are returned.
