@@ -9,8 +9,8 @@ WORKDIR /src
 RUN curl -fLsS --retry 3 "https://github.com/spare-cycles/whatsapp-mcp/archive/${UPSTREAM_COMMIT}.tar.gz" -o /tmp/source.tar.gz \
     && tar -xzf /tmp/source.tar.gz --strip-components=1 -C /src \
     && rm /tmp/source.tar.gz
-COPY patch-upstream.mjs patch-baileys-clear-chat.mjs patch-baileys-meta-ai.mjs review-mcp-register.ts privacy-retention.ts history-backfill.ts /src/
-RUN node /src/patch-upstream.mjs
+COPY patch-upstream.mjs patch-baileys-clear-chat.mjs patch-baileys-meta-ai.mjs review-mcp-register.ts privacy-retention.ts history-backfill.ts patch-pairing.mjs /src/
+RUN node /src/patch-upstream.mjs && node /src/patch-pairing.mjs
 RUN corepack enable && pnpm install --frozen-lockfile \
     && pnpm -r run build \
     && pnpm deploy --filter whatsapp-api --prod --legacy /opt/out/api \
