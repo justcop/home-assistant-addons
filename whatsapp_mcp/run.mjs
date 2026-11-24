@@ -146,6 +146,7 @@ async function waitForServer(port, child) {
 
 async function main() {
   const opts = loadOptions();
+  const DEFAULT_PAIRING_MODE = 'code';
   const storage = configureWhatsAppStorage(opts.storage_path);
   const apiToken = loadToken('api-token');
   const mcpToken = loadToken('mcp-token');
@@ -183,7 +184,7 @@ async function main() {
     WHATSAPP_API_TOKEN: apiToken,
     WHATSAPP_PHONE_NUMBER: opts.phone_number,
     WHATSAPP_QR_FILE: '/data/.whatsapp-link-qr',
-    WHATSAPP_PAIRING_DEFAULT_MODE: 'code',
+    WHATSAPP_PAIRING_DEFAULT_MODE: DEFAULT_PAIRING_MODE,
     WHATSAPP_MCP_READONLY: 'true',
     // Resumable backfill: up to 2,000 requests/day (our safety ceiling), 50 messages/request.
     WHATSAPP_HISTORY_BACKFILL: '1',
@@ -212,7 +213,7 @@ async function main() {
     alerts: new HomeAssistantBackupAlerts()
   });
   archive = createArchiveServer({ apiToken, port: ARCHIVE_PORT,
-    storagePath: storage.dataDir, dataStore: archiveData, cloudBackup, configuredPhone: !!opts.phone_number, configuredPhoneNumber: opts.phone_number, defaultPairingMode: process.env.WHATSAPP_PAIRING_DEFAULT_MODE === 'qr' ? 'qr' : 'code' });
+    storagePath: storage.dataDir, dataStore: archiveData, cloudBackup, configuredPhone: !!opts.phone_number, configuredPhoneNumber: opts.phone_number, defaultPairingMode: DEFAULT_PAIRING_MODE });
   cloudBackup.start();
   maintenanceMonitor = new WhatsAppMaintenanceMonitor();
   maintenanceMonitor.start();
