@@ -37,6 +37,7 @@ export function trialRecoveryStatus(root,dataStore=null) {
     },
     imports:{
       batches:metrics.batches,delivered:metrics.received,
+      inserted:metrics.inserted||0,existing:metrics.existing||0,
       netUniqueChange:metrics.netUniqueChange,lastBatch:metrics.lastBatch||null,
       recentBatches:(metrics.history||[]).slice(-12)
     },
