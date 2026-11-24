@@ -5,6 +5,7 @@ COPY artwork/ /artwork/
 COPY artwork_loader.py /artwork_loader.py
 COPY artwork_modes.py /artwork_modes.py
 COPY artwork_store.py /artwork_store.py
+COPY game_library.py /game_library.py
 COPY ha_countdown.py /ha_countdown.py
 COPY renderers.py /renderers.py
 COPY reactive.py /reactive.py
