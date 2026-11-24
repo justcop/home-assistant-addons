@@ -41,18 +41,17 @@ patch(worker,/while \(connected && !halted\) \{/,
     "          continue;",
     "        }"
   ].join('\n'),'gate one-chat-at-a-time backfill');
-patch(worker,/} catch \{\s*failed = true;\s*}/,
+// Delay across all chats after a failed history request. The response may be
+// silent rather than a real 429: do not invent a server-provided retry time.
+patch(worker,/const newer = anchor\(c\.id\),/,
   [
-    '} catch (err) {',
-    '          failed = true;',
-    '          const status = Number(err?.output?.statusCode ?? err?.status ?? err?.response?.status);',
-    "          if (status === 429 || status === 503) {",
-    "            const delaySeconds = Math.min(1800,Math.max(30,Number(err?.response?.headers?.get?.('retry-after')) || 120));",
-    "            logger.warn({status,delaySeconds},'trial: upstream history request backed off');",
-    '            await sleep(delaySeconds*1000);',
-    '          }',
-    '        }'
-  ].join('\n'),'back off on real rate-limit or unavailable responses');
+    "if (failed) {",
+    "          const delaySeconds = Math.min(120, 5 * 2 ** Math.min(c.failures, 5));",
+    "          logger.warn({delaySeconds},'trial: failed history request backed off');",
+    "          await sleep(delaySeconds*1000);",
+    "        }",
+    "        const newer = anchor(c.id),"
+  ].join('\n'),'back off on failed history requests');
 patch(server,/import fs from 'node:fs';/,
   "import fs from 'node:fs';\nimport { trialRecoveryStatus, setTrialRecovery } from './trial-recovery.mjs';",
   'private recovery controller import');
