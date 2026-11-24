@@ -182,8 +182,10 @@ async function main() {
     WHATSAPP_API_TOKEN: apiToken,
     WHATSAPP_PHONE_NUMBER: opts.phone_number,
     WHATSAPP_MCP_READONLY: 'true',
-    // Resumable backfill: up to 2,000 requests/day (our safety ceiling), 50 messages/request.
-    WHATSAPP_HISTORY_BACKFILL: '1',
+    // Fresh-pairing experiment: let WhatsApp deliver initial FULL history first.
+    // On-demand retrieval is deliberately paused in this build to avoid
+    // competing with initial synchronisation and confusing its diagnostics.
+    WHATSAPP_HISTORY_BACKFILL: '0',
     LOG_LEVEL: 'info'
   });
   await waitForServer(API_PORT, api);
