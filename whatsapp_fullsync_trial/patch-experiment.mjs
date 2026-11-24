@@ -8,12 +8,13 @@ function patchOnce(file,pattern,replacement,label) {
   if(hits.length!==1)throw Error(label+': expected one anchor; found '+hits.length);
   fs.writeFileSync(file,text.replace(pattern,replacement));
 }
-// Baileys rc14 fails before QR with WIN_HYBRID on an unlinked session.
-// Bootstrap with a Safari QR, then advertise WIN_HYBRID after the trial
-// has linked. This is not a native Desktop pairing experiment.
+// Desktop sub-platform registration is rejected by WhatsApp in this setup,
+// including after successful Safari pairing. Keep a consistent companion
+// identity across QR registration and subsequent authenticated connections.
+// The already paired trial auth/database is preserved across this image update.
 patchOnce(connectionPath,/Browsers\.macOS\((["'])Chrome\1\)/,
-  '(auth.state.creds.registered || auth.state.creds.account ? Browsers.windows("Desktop") : Browsers.macOS("Safari"))',
-  'web QR bootstrap then authenticated Windows Desktop');
+  'Browsers.macOS("Safari")',
+  'keep stable Safari identity for QR and authenticated connections');
 if(!fs.readFileSync(connectionPath,'utf8').includes('syncFullHistory: true'))
   throw Error('Full-history negotiation is not enabled in the pinned base image');
 // Baileys rc14 defaults to filtering FULL history notifications even when
@@ -32,4 +33,4 @@ patchOnce(launcherPath,/configureWhatsAppStorage\(opts\.storage_path\)/,
   "configureWhatsAppStorage('')",'force independent internal archive');
 // Never allow a production shared volume to be reached, even if modified options
 // later try to supply a storage_path. The experimental slug has its own /data.
-console.log('Trial image: Safari QR bootstrap -> Windows Desktop (WIN_HYBRID) after registration; full history requested, isolated /data.');
+console.log('Trial image: stable Safari session through QR and post-pair reconnect; full history requested, isolated /data.');
