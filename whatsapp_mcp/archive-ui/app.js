@@ -532,23 +532,42 @@ async function refreshPairing() {
       status.connected ? 'Connected' : status.connection === 'pairing' ? 'Awaiting pairing'
         : status.connection === 'logged_out' ? 'Needs re-pairing'
         : status.connection === 'disconnected' ? 'Reconnecting…' : status.connection);
+    if (status.phoneNumber)
+      $('settings-pairing-status').dataset.phoneNumber = status.phoneNumber;
     $('settings-pairing-status').textContent = status.connected
       ? 'Connected — your message archive is synchronising.'
-      : status.needsPairing ? 'This add-on needs to be linked to WhatsApp.'
+      : status.needsPairing ? 'This add-on needs to be linked to WhatsApp. Number: ' + (status.phoneNumber || 'not configured')
         : 'WhatsApp connection: ' + status.connection;
     // When connected, the prominent pairing panel disappears automatically,
     // while a deliberate re-pair button remains available in Settings.
     $('pairing-banner').classList.toggle('hidden', !status.needsPairing);
-    $('pairing-code-panel').classList.toggle('hidden', !status.needsPairing || !status.code);
-    $('pairing-phone-form').classList.toggle('hidden', !status.needsPairing || !!status.code);
+    const qrMode = status.pairingMode === 'qr';
+    $('pairing-use-qr').disabled = qrMode;
+    $('pairing-use-code').disabled = !qrMode;
+    $('pairing-qr-panel').classList.toggle('hidden', !status.needsPairing || !qrMode);
+    $('pairing-code-panel').classList.toggle('hidden', !status.needsPairing || qrMode || !status.code);
+    const qrImage = $('pairing-qr-image');
+    if (status.needsPairing && qrMode && status.qrAvailable) {
+      // Reload the private QR each poll to handle WhatsApp's rotating QR payload.
+      qrImage.src = 'api/pairing/qr?t=' + Date.now();
+      qrImage.classList.remove('hidden');
+    } else {
+      qrImage.removeAttribute('src');
+      qrImage.classList.add('hidden');
+    }
+    $('pairing-phone-form').classList.toggle('hidden', !status.needsPairing || qrMode || !!status.code);
     if (status.code) {
       $('pairing-code').textContent = status.code;
       $('pairing-description').textContent = 'Enter the pairing code below on your phone. This page will hide the code once linked.';
     } else {
       $('pairing-code').textContent = '';
+      if (qrMode) {
+        $('pairing-description').textContent = 'Scan the QR below from WhatsApp Linked devices. The code refreshes automatically.';
+      } else {
       $('pairing-description').textContent = status.phoneConfigured
         ? 'Your phone number is saved. A new code should appear shortly. If not, request one again below.'
         : 'Enter your number below to request a fresh WhatsApp pairing code.';
+      }
     }
   } catch {
     $('connection-status').textContent = 'WhatsApp connection status unavailable';
@@ -556,6 +575,8 @@ async function refreshPairing() {
     // Do not display a stale pairing code after connectivity is lost.
     $('pairing-code').textContent = '';
     $('pairing-code-panel').classList.add('hidden');
+    $('pairing-qr-panel').classList.add('hidden');
+    $('pairing-qr-image').removeAttribute('src');
   }
 }
 $('pairing-phone-form').addEventListener('submit', async event => {
@@ -588,6 +609,18 @@ $('pairing-repair').addEventListener('click', async () => {
     await refreshPairing();
   } catch (err) { $('settings-pairing-feedback').textContent = err.message; }
 });
+for (const [id, mode] of [['pairing-use-qr','qr'],['pairing-use-code','code']]) {
+  $(id).addEventListener('click', async () => {
+    $('pairing-feedback').textContent = 'Changing pairing method…';
+    try {
+      await pairingAction('mode', { mode });
+      $('pairing-feedback').textContent = mode === 'qr'
+        ? 'QR mode selected. Scan the new QR code when it appears.'
+        : 'Phone-number code mode selected. Request a fresh code below.';
+      await refreshPairing();
+    } catch (error) { $('pairing-feedback').textContent = error.message; }
+  });
+}
 setInterval(refreshPairing, 5000);
 void refreshPairing();
 
