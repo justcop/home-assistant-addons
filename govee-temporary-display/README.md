@@ -109,8 +109,8 @@ gallery and editor. It provides:
   artist, album or other). Saved images and match rules appear in the gallery
   and can be edited or deleted. The three bundled images are protected from
   deletion but their descriptions/rules are editable.
-- Preview stored artwork on the device for 30 seconds, or preview a sample
-  35-minute countdown overlay for 12 seconds. Both expire automatically.
+- Preview stored artwork (including GIF animations) on the device for 30 seconds, or preview a sample
+  35-minute countdown overlay for 12 seconds. Both expire automatically. Saved GIF artwork also loops behind live game-matched or fixed countdowns; the outlined time is composited onto every 52×32 frame at 12 fps. Updating the timer preserves the animation phase.
 - Show live PS5 detection status and storage-drive health. Saves are
   **blocked** rather than falling back to internal disk storage when the
   external mount is absent.
