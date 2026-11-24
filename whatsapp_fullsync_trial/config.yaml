@@ -1,0 +1,26 @@
+name: WhatsApp Full History Trial
+version: 0.1.0
+slug: whatsapp_fullsync_trial
+description: Isolated fresh-pairing Baileys full-history experiment; never uses production archive
+url: https://github.com/justcop/home-assistant-addons
+arch:
+  - amd64
+startup: application
+boot: manual
+init: false
+stage: experimental
+panel_icon: mdi:message-text-clock-outline
+panel_title: WhatsApp Full History Trial
+panel_admin: true
+homeassistant_api: true
+ingress: true
+ingress_port: 8100
+ports:
+  8099/tcp: null
+ports_description:
+  8099/tcp: Disabled external MCP gateway; do not publish
+options:
+  phone_number: ''
+schema:
+  phone_number: str?
+image: ghcr.io/justcop/whatsapp-fullsync-trial-{arch}
