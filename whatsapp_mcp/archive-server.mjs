@@ -62,11 +62,84 @@ export function createArchiveServer({ apiToken, port = 8100, storagePath = '/dat
     let url;
     try { url = new URL(req.url, 'http://archive.invalid'); }
     catch { return send(res, 400, 'Invalid request URL'); }
+    const isPairing = url.pathname.startsWith('/api/pairing/');
     const isBackup = url.pathname.startsWith('/api/backup/');
     const isBackfillAction = url.pathname === '/api/archive/backfill/recheck';
-    if (req.method !== 'GET' && req.method !== 'HEAD' && !(req.method === 'POST' && (isBackup || isBackfillAction)))
+    if (req.method !== 'GET' && req.method !== 'HEAD' && !(req.method === 'POST' && (isBackup || isBackfillAction || isPairing)))
       return send(res, 405, 'Read-only archive');
     try {
+      if (isPairing) {
+        const phoneFile = '/data/.whatsapp-pairing-phone';
+        const codeFile = '/data/.whatsapp-pairing-code.json';
+        const signalFile = '/data/.whatsapp-repair-request';
+        if (req.method === 'GET' && url.pathname === '/api/pairing/status') {
+          let health;
+          try {
+            const result = await fetch('http://' + API_HOST + ':8097/health',
+              { signal: AbortSignal.timeout(3000) });
+            health = await result.json();
+          } catch {
+            return send(res, 503, JSON.stringify({ error: 'WhatsApp connection status unavailable' }),
+              'application/json; charset=utf-8');
+          }
+          const connection = String(health.connection || 'unknown');
+          const needsPairing = health.needs_pairing === true || connection === 'pairing' || connection === 'logged_out';
+          let code = null, issuedAt = null;
+          if (needsPairing) {
+            try {
+              const issued = JSON.parse(fs.readFileSync(codeFile, 'utf8'));
+              if (typeof issued.code === 'string' && /^[A-Z0-9]{6,12}$/.test(issued.code)
+                  && Number.isFinite(issued.issuedAt) && Date.now() - issued.issuedAt < 120000
+                  && Date.now() >= issued.issuedAt) {
+                code = issued.code;
+                issuedAt = issued.issuedAt;
+              }
+            } catch { /* not yet issued or expired */ }
+          }
+          let phoneConfigured = false;
+          try { phoneConfigured = /^[1-9][0-9]{7,14}$/.test(fs.readFileSync(phoneFile, 'utf8').trim()); }
+          catch { /* HA options may provide the number instead */ }
+          return send(res, 200, JSON.stringify({
+            connection, needsPairing, connected: connection === 'connected',
+            code, issuedAt, phoneConfigured,
+            messages: Number(health.counts?.messages || 0),
+            chats: Number(health.counts?.chats || 0)
+          }), 'application/json; charset=utf-8');
+        }
+        if (req.method !== 'POST' ||
+            !['/api/pairing/phone', '/api/pairing/repair'].includes(url.pathname))
+          return send(res, 405, 'Method not allowed');
+        if (req.headers['x-whatsapp-pairing-action'] !== '1' ||
+            !String(req.headers['content-type'] || '').startsWith('application/json'))
+          return send(res, 403, 'Invalid pairing request');
+        let body = '';
+        for await (const chunk of req) {
+          body += chunk.toString('utf8');
+          if (body.length > 256) return send(res, 413, 'Request too large');
+        }
+        let params;
+        try { params = JSON.parse(body); }
+        catch { return send(res, 400, 'Invalid JSON'); }
+        if (!params || typeof params !== 'object' || Array.isArray(params))
+          return send(res, 400, 'Invalid pairing request');
+        if (url.pathname === '/api/pairing/phone') {
+          if (typeof params.phone !== 'string' || !/^[1-9][0-9]{7,14}$/.test(params.phone))
+            return send(res, 400, JSON.stringify({ error: 'Use international digits without + or spaces' }), 'application/json');
+          const current = await fetch('http://' + API_HOST + ':8097/health', { signal: AbortSignal.timeout(3000) });
+          const health = await current.json();
+          if (health.connection === 'connected' || health.connection === 'connecting' && !health.needs_pairing)
+            return send(res, 409, JSON.stringify({ error: 'Re-pair from Settings before changing a linked number' }), 'application/json');
+          fs.writeFileSync(phoneFile, params.phone + '\n', { mode: 0o600 });
+          fs.rmSync(codeFile, { force: true });
+          return send(res, 200, JSON.stringify({ saved: true }), 'application/json');
+        }
+        if (params.confirm !== 'REPAIR THIS DEVICE')
+          return send(res, 400, JSON.stringify({ error: 'Explicit confirmation required' }), 'application/json');
+        // Reset only this app's linked credentials; never touch archive messages.
+        fs.writeFileSync(signalFile, String(Date.now()), { mode: 0o600, flag: 'w' });
+        fs.rmSync(codeFile, { force: true });
+        return send(res, 200, JSON.stringify({ requested: true }), 'application/json');
+      }
       if (isBackfillAction) {
         if (req.method !== 'POST') return send(res, 405, 'Method not allowed');
         // Admin-only ingress with a custom JSON header; no public API or
