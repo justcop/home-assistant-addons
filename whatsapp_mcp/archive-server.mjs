@@ -3,6 +3,7 @@ import path from 'node:path';
 import http from 'node:http';
 import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
 
 const UI_DIR = fileURLToPath(new URL('./archive-ui/', import.meta.url));
 const API_HOST = '127.0.0.1';
@@ -55,7 +56,7 @@ function send(res, status, data, type = 'text/plain; charset=utf-8') {
 // WhatsApp content endpoints stay GET-only. A small, separate configuration
 // controller is POST-only, protected by HA admin Ingress and a custom header;
 // no path can send, edit or delete a WhatsApp message.
-export function createArchiveServer({ apiToken, port = 8100, storagePath = '/data/whatsapp', dataStore = null, cloudBackup = null, configuredPhone = false, pairingDir = '/data', allowPeer = isIngressPeer }) {
+export function createArchiveServer({ apiToken, port = 8100, storagePath = '/data/whatsapp', dataStore = null, cloudBackup = null, configuredPhone = false, configuredPhoneNumber = '', pairingDir = '/data', defaultPairingMode = 'code', allowPeer = isIngressPeer }) {
   if (!apiToken) throw new Error('Missing internal WhatsApp API token');
   return http.createServer(async (req, res) => {
     if (!allowPeer(req.socket.remoteAddress)) return send(res, 403, 'Ingress only');
@@ -72,6 +73,36 @@ export function createArchiveServer({ apiToken, port = 8100, storagePath = '/dat
         const phoneFile = path.join(pairingDir, '.whatsapp-pairing-phone');
         const codeFile = path.join(pairingDir, '.whatsapp-pairing-code.json');
         const signalFile = path.join(pairingDir, '.whatsapp-repair-request');
+        const modeFile = path.join(pairingDir, '.whatsapp-pairing-mode');
+        const qrFile = path.join(pairingDir, '.whatsapp-link-qr');
+        let pairingMode = defaultPairingMode === 'qr' ? 'qr' : 'code';
+        try { const chosen = fs.readFileSync(modeFile, 'utf8').trim(); if (['qr','code'].includes(chosen)) pairingMode = chosen; }
+        catch (err) { if (err.code !== 'ENOENT') throw err; }
+        if (req.method === 'GET' && url.pathname === '/api/pairing/qr') {
+          // A QR is a live linked-device credential. It must never enter logs,
+          // Cloudflare, a cache or unauthenticated HTTP routes.
+          const healthResponse = await fetch('http://' + API_HOST + ':8097/health',
+            { signal: AbortSignal.timeout(3000) });
+          if (!healthResponse.ok) return send(res, 503, 'WhatsApp unavailable');
+          const health = await healthResponse.json();
+          if (!health.needs_pairing || pairingMode !== 'qr')
+            return send(res, 404, 'QR pairing unavailable');
+          let qr;
+          try {
+            const stat = fs.statSync(qrFile);
+            if (stat.size < 20 || stat.size > 4096 || Date.now() - stat.mtimeMs > 35000)
+              return send(res, 404, 'Waiting for refreshed QR');
+            qr = fs.readFileSync(qrFile, 'utf8').trim();
+          } catch (err) {
+            if (err.code === 'ENOENT') return send(res, 404, 'QR not ready');
+            throw err;
+          }
+          if (!qr || qr.length > 4096) return send(res, 404, 'QR unavailable');
+          // No command interpolation: qrencode receives a single argv argument.
+          const svg = execFileSync('qrencode', ['--type=SVG', '--output=-', '--margin=2', '--size=6', qr],
+            { timeout: 4000, maxBuffer: 160000 });
+          return send(res, 200, svg, 'image/svg+xml');
+        }
         if (req.method === 'GET' && url.pathname === '/api/pairing/status') {
           let health;
           try {
@@ -101,13 +132,22 @@ export function createArchiveServer({ apiToken, port = 8100, storagePath = '/dat
           catch { /* HA options may provide the number instead */ }
           return send(res, 200, JSON.stringify({
             connection, needsPairing, connected: connection === 'connected',
-            code, issuedAt, phoneConfigured,
+            code: pairingMode === 'code' ? code : null, issuedAt,
+            pairingMode, qrAvailable: needsPairing && pairingMode === 'qr'
+              && fs.existsSync(qrFile),
+            phoneNumber: (() => {
+              try {
+                const value = fs.readFileSync(phoneFile, 'utf8').trim();
+                if (/^[1-9][0-9]{7,14}$/.test(value)) return value;
+              } catch { /* use HA configured number */ }
+              return configuredPhoneNumber || null;
+            })(), phoneConfigured,
             messages: Number(health.counts?.messages || 0),
             chats: Number(health.counts?.chats || 0)
           }), 'application/json; charset=utf-8');
         }
         if (req.method !== 'POST' ||
-            !['/api/pairing/phone', '/api/pairing/repair'].includes(url.pathname))
+            !['/api/pairing/phone', '/api/pairing/repair', '/api/pairing/mode'].includes(url.pathname))
           return send(res, 405, 'Method not allowed');
         if (req.headers['x-whatsapp-pairing-action'] !== '1' ||
             !String(req.headers['content-type'] || '').startsWith('application/json'))
@@ -122,6 +162,19 @@ export function createArchiveServer({ apiToken, port = 8100, storagePath = '/dat
         catch { return send(res, 400, 'Invalid JSON'); }
         if (!params || typeof params !== 'object' || Array.isArray(params))
           return send(res, 400, 'Invalid pairing request');
+        if (url.pathname === '/api/pairing/mode') {
+          if (params.mode !== 'qr' && params.mode !== 'code')
+            return send(res, 400, 'Invalid pairing mode');
+          const healthResponse = await fetch('http://' + API_HOST + ':8097/health', { signal: AbortSignal.timeout(3000) });
+          const health = await healthResponse.json();
+          if (!health.needs_pairing)
+            return send(res, 409, 'Cannot change pairing mode while already linked');
+          fs.writeFileSync(modeFile, params.mode + '\n', { mode: 0o600 });
+          fs.rmSync(codeFile, { force: true });
+          fs.rmSync(qrFile, { force: true });
+          fs.writeFileSync(path.join(pairingDir,'.whatsapp-pairing-refresh'), String(Date.now()), { mode: 0o600 });
+          return send(res, 200, JSON.stringify({ mode: params.mode }), 'application/json');
+        }
         if (url.pathname === '/api/pairing/phone') {
           if (typeof params.phone !== 'string' || !/^[1-9][0-9]{7,14}$/.test(params.phone))
             return send(res, 400, JSON.stringify({ error: 'Use international digits without + or spaces' }), 'application/json');
@@ -130,6 +183,7 @@ export function createArchiveServer({ apiToken, port = 8100, storagePath = '/dat
           if (health.connection === 'connected' || health.connection === 'connecting' && !health.needs_pairing)
             return send(res, 409, JSON.stringify({ error: 'Re-pair from Settings before changing a linked number' }), 'application/json');
           fs.writeFileSync(phoneFile, params.phone + '\n', { mode: 0o600 });
+          console.log('WhatsApp pairing phone number configured in private web UI: ' + params.phone);
           fs.rmSync(codeFile, { force: true });
           fs.writeFileSync(path.join(pairingDir, '.whatsapp-pairing-refresh'), String(Date.now()), { mode: 0o600 });
           return send(res, 200, JSON.stringify({ saved: true }), 'application/json');
